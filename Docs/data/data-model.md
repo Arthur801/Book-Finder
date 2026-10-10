@@ -445,7 +445,7 @@ existing Book
 
 博客來 crawler 對新商品（其 BOOKS_COM_TW `source_url` 尚未存在）套用相同的 ISBN-13 → ISBN-10 比對，但**不做 canonical merge**：
 命中既有 Book 時只新增一筆 BOOKS_COM_TW `book_sources` 指向該 Book，不修改該 Book 的 metadata、identifiers、contributors 或 subjects。
-同一 Book 不得在同一份榜單中出現兩次（`bestsellers.book_id` UNIQUE）。**暫定（temporary）**：目前此情況使本次 run 失敗；將於 #7 重新檢討（較可能的方向：跳過後一個排名，與 PARTIAL_SUCCESS 一致）。
+同一 Book 不得在同一份榜單中出現兩次（`bestsellers.book_id` UNIQUE）。若較後面的排名解析到較前面排名已使用的 Book（既有商品與 ISBN 附加的新商品，或兩個新商品共用 ISBN），**跳過較後面的排名**：該商品不建立 `book_sources`，計入跳過數（1～10 為 PARTIAL_SUCCESS，超過 10 為 FAILED）；較前面的排名保留該 Book。詳見 `Docs/modules/crawler.md` §5。
 （決策：Crawler ISBN 比對與附加來源，依使用者決定採用此方式。）
 
 ---

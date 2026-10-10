@@ -21,6 +21,7 @@ from books_crawler.run import RunDependencies, run_once
 from tests.fakes import (
     RANKING_HTML,
     FakeFetcher,
+    FakeSleep,
     fake_detail_parser,
     fake_ranking_parser,
     make_draft,
@@ -30,6 +31,7 @@ from tests.fakes import (
 
 NOW = datetime(2026, 10, 11, 4, 0, tzinfo=timezone.utc)
 LATER = datetime(2026, 10, 12, 4, 0, tzinfo=timezone.utc)
+RETRY_SLEEPS = [1.0, 2.0]  # the backoff between the three attempts of one row (crawler.md §6)
 
 
 def query(url: str, sql: str, params: tuple = ()) -> list[tuple]:
@@ -45,20 +47,28 @@ def count(url: str, table: str) -> int:
     return query(url, f"SELECT count(*) FROM {table}")[0][0]
 
 
-def run(db_url, rows, drafts=None, failures=None, now=NOW):
-    """Run one crawl with the given ranking rows; detail drafts default to title-only books."""
+def run(db_url, rows, drafts=None, failures=None, transient=None, now=NOW, sleep=None):
+    """Run one crawl with the given ranking rows; detail drafts default to title-only books.
+
+    Returns ``(report, fetcher)``. Backoff sleeps go to ``sleep`` (a FakeSleep, never a real wait).
+    """
     pages = {RANKING_PAGE_URL: RANKING_HTML, **{row.url: "<detail/>" for row in rows}}
     if drafts is None:
         drafts = {row.url: make_draft(row.url) for row in rows}
-    fetcher = FakeFetcher(pages=pages, failures=failures)
+    fetcher = FakeFetcher(pages=pages, failures=failures, transient_failures=transient)
     deps = RunDependencies(
         fetcher=fetcher,
         parse_ranking=fake_ranking_parser(rows),
         parse_detail=fake_detail_parser(drafts),
         connect=lambda: db.connect(db_url),
         clock=lambda: now,
+        sleep=sleep if sleep is not None else FakeSleep(),
     )
     return run_once(deps), fetcher
+
+
+def skipped_ranks(report) -> list[int]:
+    return [item.rank for item in report.skipped]
 
 
 def _seed_with_identifiers(db_url, identifiers_by_rank: dict[int, tuple]):
@@ -163,20 +173,73 @@ def test_duplicate_product_url_fails_and_keeps_previous_bestsellers(db_url):
     assert bestsellers(db_url) == previous
 
 
-def test_new_book_detail_failure_fails_run_and_keeps_previous_bestsellers(db_url):
-    run(db_url, ranking_rows(100))
-    previous = bestsellers(db_url)
-    rows = ranking_rows(100, offset=100)  # all new; rank 50 cannot be fetched
-    failing_url = rows[49].url
+def test_three_persistently_failing_new_books_are_skipped_and_ranks_keep_their_numbers(db_url):
+    run(db_url, ranking_rows(100))  # previous list: products 1..100
+    rows = ranking_rows(100, offset=100)  # all new
+    failing_ranks = {10, 50, 90}
+    failures = {rows[rank - 1].url: FetchError("HTTP 500") for rank in failing_ranks}
+    sleep = FakeSleep()
 
-    report, _fetcher = run(db_url, rows, failures={failing_url: FetchError("HTTP 500")})
+    report, fetcher = run(db_url, rows, failures=failures, sleep=sleep)
 
-    assert report.status is RunStatus.FAILED
-    assert report.exit_code == 1
-    assert "HTTP 500" in report.error
-    assert bestsellers(db_url) == previous
-    # Books persisted before the failure keep their own transactions; the failing one does not exist.
-    assert query(db_url, "SELECT count(*) FROM book_sources WHERE source_url = %s", (failing_url,)) == [(0,)]
+    assert report.status is RunStatus.PARTIAL_SUCCESS
+    assert report.exit_code == 0
+    assert (report.ranking_count, report.new_book_count, report.skipped_count) == (100, 97, 3)
+    assert skipped_ranks(report) == [10, 50, 90]
+    for item in report.skipped:
+        assert (item.error_type, item.attempts, item.url) == ("fetch_error", 3, rows[item.rank - 1].url)
+        assert "HTTP 500" in item.error_message
+        assert fetcher.calls.count(item.url) == 3
+    assert sleep.calls == RETRY_SLEEPS * 3
+
+    snapshot = bestsellers(db_url)
+    assert [row[0] for row in snapshot] == [rank for rank in range(1, 101) if rank not in failing_ranks]
+    assert len(snapshot) == 97
+    for rank, book_id, _source_id, captured_at in snapshot:
+        assert captured_at == NOW
+    for rank in failing_ranks:
+        assert query(db_url, "SELECT count(*) FROM book_sources WHERE source_url = %s", (rows[rank - 1].url,)) == [(0,)]
+
+
+def test_detail_failing_twice_then_succeeding_writes_the_book_normally(db_url):
+    rows = ranking_rows(100, offset=100)
+    sleep = FakeSleep()
+
+    report, fetcher = run(db_url, rows, transient={rows[0].url: 2}, sleep=sleep)
+
+    assert report.status is RunStatus.SUCCESS
+    assert report.skipped == []
+    assert fetcher.calls.count(rows[0].url) == 3
+    assert sleep.calls == RETRY_SLEEPS
+    assert len(bestsellers(db_url)) == 100
+    assert query(db_url, "SELECT title FROM books WHERE id = (SELECT book_id FROM bestsellers WHERE rank = 1)") == [
+        ("Book " + rows[0].url.rsplit("/", 1)[-1],)
+    ]
+
+
+def test_book_transaction_failing_twice_then_succeeding_writes_the_book_normally(db_url, monkeypatch):
+    rows = ranking_rows(100, offset=100)
+    target = rows[0].url
+    real_persist = db.persist_new_source
+    attempts = {"count": 0}
+
+    def flaky_persist(conn, draft, now, attach_to_book_id=None):
+        if draft.source_url == target:
+            attempts["count"] += 1
+            if attempts["count"] <= 2:
+                raise psycopg.OperationalError("simulated connection drop inside the Book transaction")
+        return real_persist(conn, draft, now, attach_to_book_id=attach_to_book_id)
+
+    monkeypatch.setattr(db, "persist_new_source", flaky_persist)
+    sleep = FakeSleep()
+
+    report, _ = run(db_url, rows, sleep=sleep)
+
+    assert report.status is RunStatus.SUCCESS
+    assert attempts["count"] == 3
+    assert sleep.calls == RETRY_SLEEPS
+    assert query(db_url, "SELECT count(*) FROM book_sources WHERE source_url = %s", (target,)) == [(1,)]
+    assert count(db_url, "books") == 100
 
 
 # ---------------------------------------------------------------------------
@@ -254,10 +317,12 @@ def test_isbn13_match_takes_priority_over_isbn10_match(db_url):
     assert bestsellers(db_url)[0][1] == book_a
 
 
-def test_existing_url_then_new_source_with_same_isbn_fails_the_run(db_url):
+def test_existing_url_then_new_source_with_same_isbn_skips_the_later_rank(db_url):
     isbn = normalize_isbn("978-0-306-40615-7")
     _seed_with_identifiers(db_url, {1: (isbn,)})
-    previous = bestsellers(db_url)
+    book_a = query(db_url, "SELECT book_id FROM book_sources WHERE source_url = %s", (product_url(1),))[0][0]
+    books_before = count(db_url, "books")
+    sleep = FakeSleep()
 
     # Rank 1 is a known source (Book A). Rank 2 is a new source whose ISBN also belongs to Book A.
     rows = [RankingRow(rank=1, url=product_url(1)), RankingRow(rank=2, url=product_url(201))] + [
@@ -266,19 +331,28 @@ def test_existing_url_then_new_source_with_same_isbn_fails_the_run(db_url):
     drafts = {row.url: make_draft(row.url) for row in rows}
     drafts[product_url(201)] = make_draft(product_url(201), identifiers=(isbn,))
 
-    report, _ = run(db_url, rows, drafts)
+    report, fetcher = run(db_url, rows, drafts, sleep=sleep)
 
-    assert report.status is RunStatus.FAILED
-    assert report.exit_code == 1
-    assert "must be unique" in report.error
-    assert bestsellers(db_url) == previous
+    assert report.status is RunStatus.PARTIAL_SUCCESS
+    assert report.exit_code == 0
+    assert skipped_ranks(report) == [2]
+    skipped = report.skipped[0]
+    assert (skipped.error_type, skipped.attempts) == ("duplicate_book_in_ranking", 1)
+    assert "rank 1" in skipped.error_message
+    assert fetcher.calls.count(product_url(201)) == 1  # deterministic: fetched once, never retried
+    assert sleep.calls == []
+    # Ranks 3..100 are new products (98 Books); the skipped rank 2 must not create or attach anything.
+    assert count(db_url, "books") == books_before + 98
     assert query(db_url, "SELECT count(*) FROM book_sources WHERE source_url = %s", (product_url(201),)) == [(0,)]
+    snapshot = bestsellers(db_url)
+    assert [row[0] for row in snapshot] == [rank for rank in range(1, 101) if rank != 2]
+    assert snapshot[0][1] == book_a  # the earlier rank keeps the Book
 
 
-def test_new_source_then_existing_url_for_same_book_fails_the_run(db_url):
+def test_new_source_then_existing_url_for_same_book_skips_the_later_rank(db_url):
     isbn = normalize_isbn("978-0-306-40615-7")
     _seed_with_identifiers(db_url, {1: (isbn,)})
-    previous = bestsellers(db_url)
+    book_a = query(db_url, "SELECT book_id FROM book_sources WHERE source_url = %s", (product_url(1),))[0][0]
 
     # Rank 1 is a new source attached to Book A by ISBN. Rank 2 is the known source of Book A.
     rows = [RankingRow(rank=1, url=product_url(201)), RankingRow(rank=2, url=product_url(1))] + [
@@ -289,16 +363,19 @@ def test_new_source_then_existing_url_for_same_book_fails_the_run(db_url):
 
     report, fetcher = run(db_url, rows, drafts)
 
-    assert report.status is RunStatus.FAILED
-    assert "must be unique" in report.error
+    assert report.status is RunStatus.PARTIAL_SUCCESS
+    assert skipped_ranks(report) == [2]
+    assert report.skipped[0].error_type == "duplicate_book_in_ranking"
     assert product_url(1) not in fetcher.detail_calls()
-    assert bestsellers(db_url) == previous
+    snapshot = bestsellers(db_url)
+    attached_source = query(db_url, "SELECT id FROM book_sources WHERE source_url = %s", (product_url(201),))[0][0]
+    assert snapshot[0][:3] == (1, book_a, attached_source)  # the earlier rank keeps Book A via the new source
+    assert [row[0] for row in snapshot] == [rank for rank in range(1, 101) if rank != 2]
 
 
-def test_two_new_sources_sharing_an_isbn_fail_the_run(db_url):
+def test_two_new_sources_sharing_an_isbn_skip_the_later_rank(db_url):
     isbn = normalize_isbn("978-0-306-40615-7")
     _seed_with_identifiers(db_url, {})
-    previous = bestsellers(db_url)
 
     # Ranks 1 and 2 are both new. Rank 1 creates a Book with the ISBN; rank 2 would attach to it.
     rows = [RankingRow(rank=1, url=product_url(101)), RankingRow(rank=2, url=product_url(102))] + [
@@ -308,22 +385,25 @@ def test_two_new_sources_sharing_an_isbn_fail_the_run(db_url):
     drafts[product_url(101)] = make_draft(product_url(101), identifiers=(isbn,))
     drafts[product_url(102)] = make_draft(product_url(102), identifiers=(isbn,))
 
-    report, _ = run(db_url, rows, drafts)
+    report, fetcher = run(db_url, rows, drafts)
 
-    assert report.status is RunStatus.FAILED
-    assert "must be unique" in report.error
-    assert bestsellers(db_url) == previous
+    assert report.status is RunStatus.PARTIAL_SUCCESS
+    assert skipped_ranks(report) == [2]
+    assert report.skipped[0].error_type == "duplicate_book_in_ranking"
+    assert fetcher.calls.count(product_url(102)) == 1
+    assert query(db_url, "SELECT count(*) FROM book_sources WHERE source_url = %s", (product_url(102),)) == [(0,)]
+    snapshot = bestsellers(db_url)
+    assert [row[0] for row in snapshot] == [rank for rank in range(1, 101) if rank != 2]
+    assert snapshot[0][1] == query(db_url, "SELECT book_id FROM book_sources WHERE source_url = %s", (product_url(101),))[0][0]
 
 
 # ---------------------------------------------------------------------------
 # Writes inside one source's transaction (crawler.md §9)
 # ---------------------------------------------------------------------------
 
-def test_failed_insert_of_a_new_book_rolls_back_all_of_its_rows(db_url):
+def test_failed_book_transaction_is_rolled_back_retried_and_skipped_while_others_are_unaffected(db_url):
     _seed_with_identifiers(db_url, {})
-    previous = bestsellers(db_url)
-    books_before = count(db_url, "books")
-    rows = ranking_rows(100, offset=100)  # all new: ranks 1..4 commit, rank 5 fails mid-transaction
+    rows = ranking_rows(100, offset=100)  # all new: rank 5 fails in every attempt
     failing_url = rows[4].url
     isbn = normalize_isbn("9786267859506")
     drafts = {row.url: make_draft(row.url) for row in rows}
@@ -334,13 +414,21 @@ def test_failed_insert_of_a_new_book_rolls_back_all_of_its_rows(db_url):
         identifiers=(isbn,),
         contributors=(Contributor(order=1, name="甲" * 300, role=ContributorRole.AUTHOR),),
     )
+    sleep = FakeSleep()
 
-    report, _ = run(db_url, rows, drafts)
+    report, fetcher = run(db_url, rows, drafts, sleep=sleep)
 
-    assert report.status is RunStatus.FAILED
-    assert "too long" in report.error
-    assert bestsellers(db_url) == previous
-    assert count(db_url, "books") == books_before + 4
+    assert report.status is RunStatus.PARTIAL_SUCCESS
+    assert report.exit_code == 0
+    assert skipped_ranks(report) == [5]
+    skipped = report.skipped[0]
+    assert (skipped.error_type, skipped.attempts, skipped.url) == ("database_error", 3, failing_url)
+    assert "too long" in skipped.error_message
+    assert fetcher.calls.count(failing_url) == 3
+    assert sleep.calls == RETRY_SLEEPS  # the only failing row: one backoff sequence
+    snapshot = bestsellers(db_url)
+    assert [row[0] for row in snapshot] == [rank for rank in range(1, 101) if rank != 5]
+    assert count(db_url, "books") == 100 + 99  # seeded 100, plus every other new Book; rank 5 wrote nothing
     assert query(db_url, "SELECT count(*) FROM book_sources WHERE source_url = %s", (failing_url,)) == [(0,)]
     assert query(db_url, "SELECT count(*) FROM books WHERE title = 'Rolled back book'") == [(0,)]
     assert query(db_url, "SELECT count(*) FROM book_identifiers WHERE identifier_value = %s", (isbn.identifier_value,)) == [(0,)]
@@ -499,3 +587,83 @@ def test_failed_run_leaves_last_seen_unchanged(db_url):
 
     assert report.status is RunStatus.FAILED
     assert query(db_url, "SELECT source_url, last_seen_at FROM book_sources ORDER BY source_url") == seen_before
+
+
+# ---------------------------------------------------------------------------
+# Skip threshold (crawler.md §6, §11; CRAWL-05) and run log (crawler.md §12)
+# ---------------------------------------------------------------------------
+
+TEN_SKIPPED_RANKS = [3, 17, 25, 40, 41, 60, 61, 77, 88, 99]
+
+
+def _new_rows_failing_at(ranks: list[int]):
+    """All-new ranking (products 101..200); the given ranks always fail with a fetch error."""
+    rows = ranking_rows(100, offset=100)
+    failures = {rows[rank - 1].url: FetchError("HTTP 500") for rank in ranks}
+    return rows, failures
+
+
+def test_exactly_ten_skipped_rows_is_partial_success_and_replaces_bestsellers(db_url):
+    run(db_url, ranking_rows(100), now=NOW)  # previous list: products 1..100
+    rows, failures = _new_rows_failing_at(TEN_SKIPPED_RANKS)
+
+    report, _ = run(db_url, rows, failures=failures, now=LATER)
+
+    assert report.status is RunStatus.PARTIAL_SUCCESS
+    assert report.exit_code == 0
+    assert report.skipped_count == 10
+    snapshot = bestsellers(db_url)
+    assert [row[0] for row in snapshot] == [rank for rank in range(1, 101) if rank not in TEN_SKIPPED_RANKS]
+    assert {row[3] for row in snapshot} == {LATER}
+    # Sources that left the list keep their earlier last_seen_at; only the snapshot's sources advanced.
+    assert query(db_url, "SELECT last_seen_at FROM book_sources WHERE source_url = %s", (product_url(1),)) == [(NOW,)]
+
+
+def test_eleven_skipped_rows_fail_the_run_and_keep_bestsellers_and_last_seen_completely(db_url):
+    run(db_url, ranking_rows(100), now=NOW)
+    previous = bestsellers(db_url)
+    listed_urls = [product_url(n) for n in range(1, 101)]
+    seen_sql = "SELECT source_url, last_seen_at FROM book_sources WHERE source_url = ANY(%s) ORDER BY source_url"
+    seen_before = query(db_url, seen_sql, (listed_urls,))
+    rows, failures = _new_rows_failing_at(TEN_SKIPPED_RANKS + [50])
+
+    report, _ = run(db_url, rows, failures=failures, now=LATER)
+
+    assert report.status is RunStatus.FAILED
+    assert report.exit_code == 1
+    assert report.skipped_count == 11
+    assert "more than the limit of 10" in report.error
+    assert bestsellers(db_url) == previous
+    # Sources of the previous list keep their last_seen_at. (New Books committed before the abort are
+    # separate per-Book transactions and are not rolled back; they are not on the list.)
+    assert query(db_url, seen_sql, (listed_urls,)) == seen_before
+
+
+def test_run_log_has_the_required_fields_and_no_database_url(db_url, caplog):
+    caplog.set_level(logging.INFO, logger="books_crawler")
+    rows, failures = _new_rows_failing_at([5])
+
+    report, _ = run(db_url, rows, failures=failures)
+
+    assert report.status is RunStatus.PARTIAL_SUCCESS
+    summary = [record.getMessage() for record in caplog.records if "run_id=" in record.getMessage()]
+    assert len(summary) == 1
+    line = summary[0]
+    for expected in (
+        f"run_id={report.run_id}",
+        "started_at=",
+        "finished_at=",
+        "status=PARTIAL_SUCCESS",
+        "ranking_count=100",
+        "existing_book_count=0",
+        "new_book_count=99",
+        "attached_source_count=0",
+        "skipped_count=1",
+        '"rank": 5',
+        f'"url": "{rows[4].url}"',
+        '"error_type": "fetch_error"',
+        '"attempts": 3',
+    ):
+        assert expected in line, expected
+    assert db_url not in caplog.text
+    assert "crawler_test:crawler_test@" not in caplog.text

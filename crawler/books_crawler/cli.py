@@ -5,7 +5,8 @@ Environment:
     CRAWLER_FETCHER  Page fetcher: ``browser`` (default, headless Chromium via Playwright, ADR-006)
                      or ``http`` (requests; debugging only, blocked by books.com.tw's challenge).
 
-Exit codes: 0 = SUCCESS, 1 = FAILED (bestsellers unchanged), 2 = configuration error.
+Exit codes: 0 = SUCCESS or PARTIAL_SUCCESS (bestsellers replaced), 1 = FAILED (bestsellers unchanged),
+2 = configuration error.
 """
 
 from __future__ import annotations

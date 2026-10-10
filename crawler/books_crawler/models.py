@@ -39,7 +39,19 @@ class ContributorRole(StrEnum):
 
 class RunStatus(StrEnum):
     SUCCESS = "SUCCESS"
-    FAILED = "FAILED"
+    PARTIAL_SUCCESS = "PARTIAL_SUCCESS"  # 1..10 skipped rows; bestsellers replaced (crawler.md §11)
+    FAILED = "FAILED"  # bestsellers unchanged
+
+
+@dataclass(frozen=True)
+class SkippedRow:
+    """A ranking row left out of the snapshot after its retries were exhausted (crawler.md §6)."""
+
+    rank: int
+    url: str
+    error_type: str
+    error_message: str
+    attempts: int
 
 
 @dataclass(frozen=True)

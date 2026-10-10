@@ -1,9 +1,5 @@
 """One crawler run: ranking → resolve sources to Books → replace bestsellers (crawler.md §3, §11).
 
-Issue #6 scope: success path only. Any failure fails the whole run; retry and skip
-(PARTIAL_SUCCESS, crawler.md §6) are issue #7. The per-row step is ``_resolve_row`` so #7 can
-wrap it with retry/skip without changing the flow.
-
 Resolution of a ranking row (crawler.md §5):
 1. Known BOOKS_COM_TW Book Source URL → reuse its Book, no detail request.
 2. Unknown URL → fetch and parse the detail page, then:
@@ -11,17 +7,26 @@ Resolution of a ranking row (crawler.md §5):
       BOOKS_COM_TW Book Source to that Book; the Book's metadata is not changed;
    b. otherwise → create a new Book.
 
-A Book may appear at most once in a ranking (``bestsellers.book_id`` is unique). Any rank that
-would resolve to a Book already used by another rank fails the run. This is a temporary rule,
-to be revisited in issue #7 (crawler.md §5).
+Retry and skip (crawler.md §6): one attempt for a new source is detail fetch + parse + ISBN lookup
++ Book transaction. A failed attempt is retried (up to ``MAX_ATTEMPTS`` in total). A row that still
+fails is skipped: no rows are written for it and the snapshot keeps the other ranks' numbers.
+
+A Book may appear at most once in a ranking (``bestsellers.book_id`` is unique). When a later rank
+resolves to a Book already used by an earlier rank, the later rank is skipped (not retried, since
+the outcome is deterministic); the earlier rank keeps the Book (crawler.md §5).
+
+The ranking page itself is retried on fetch failure only, and never skipped (crawler.md §4).
 """
 
 from __future__ import annotations
 
+import json
 import logging
+import re
+import time
 import uuid
-from collections.abc import Callable
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
@@ -29,23 +34,61 @@ from uuid import UUID
 import psycopg
 
 from books_crawler import db
-from books_crawler.fetcher import Fetcher
-from books_crawler.models import RankingRow, RunStatus, SnapshotRow, SourceRef
+from books_crawler.fetcher import FetchError, Fetcher
+from books_crawler.models import IsbnMatch, RankingRow, RunStatus, SkippedRow, SnapshotRow, SourceRef
 from books_crawler.parsers import RANKING_PAGE_URL, DetailParser, RankingParser
-from books_crawler.ranking import validate_ranking, validate_snapshot
+from books_crawler.ranking import MAX_SKIPPED_ROWS, validate_ranking, validate_snapshot
 
 log = logging.getLogger("books_crawler.run")
 
 EXIT_SUCCESS = 0
 EXIT_FAILED = 1
 
+MAX_ATTEMPTS = 3  # crawler.md §6: total attempts, first try included
+BACKOFF_BASE_SECONDS = 1.0  # sleep before attempt n (n = 2, 3) is 1s, then 2s
+
+# error_type values written to the skipped list (crawler.md §12)
+ERROR_FETCH = "fetch_error"
+ERROR_PARSE = "parse_error"
+ERROR_DATABASE = "database_error"
+ERROR_DUPLICATE = "duplicate_book_in_ranking"
+
+_DSN_PATTERN = re.compile(r"postgres(?:ql)?://[^\s'\"]+")
+
 
 class DuplicateBookInRankingError(RuntimeError):
-    """Two ranking rows would resolve to the same Book, which the bestseller table cannot hold."""
+    """A later ranking row resolves to a Book that an earlier rank already uses (not retried)."""
+
+
+class SkipLimitExceededError(RuntimeError):
+    """More than ``MAX_SKIPPED_ROWS`` rows were skipped: the run fails (crawler.md §6, CRAWL-05)."""
+
+
+class _AttemptFailed(Exception):
+    """One attempt at a new source failed in a retryable way."""
+
+    def __init__(self, error_type: str, message: str) -> None:
+        super().__init__(message)
+        self.error_type = error_type
+        self.message = message
 
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def backoff_seconds(attempt: int) -> float:
+    """Seconds to wait before ``attempt`` (2 or 3): 1s, then 2s (crawler.md §6)."""
+    return BACKOFF_BASE_SECONDS * 2 ** (attempt - 2)
+
+
+def status_for_skipped_count(skipped_count: int) -> RunStatus:
+    """crawler.md §11: 0 skipped → SUCCESS, 1..10 → PARTIAL_SUCCESS, more → FAILED."""
+    if skipped_count == 0:
+        return RunStatus.SUCCESS
+    if skipped_count <= MAX_SKIPPED_ROWS:
+        return RunStatus.PARTIAL_SUCCESS
+    return RunStatus.FAILED
 
 
 @dataclass
@@ -55,6 +98,8 @@ class RunDependencies:
     parse_detail: DetailParser
     connect: Callable[[], psycopg.Connection]
     clock: Callable[[], datetime] = utc_now
+    # Injected so that retry backoff never really waits in tests.
+    sleep: Callable[[float], None] = time.sleep
 
 
 @dataclass
@@ -70,16 +115,25 @@ class RunReport:
     new_book_count: int = 0
     # Subset of existing_book_count: new products attached to an existing Book by ISBN.
     attached_source_count: int = 0
-    skipped_count: int = 0
+    skipped: list[SkippedRow] = field(default_factory=list)
     error: str | None = None
 
     @property
+    def skipped_count(self) -> int:
+        return len(self.skipped)
+
+    @property
     def exit_code(self) -> int:
-        return EXIT_SUCCESS if self.status is RunStatus.SUCCESS else EXIT_FAILED
+        return EXIT_FAILED if self.status is RunStatus.FAILED else EXIT_SUCCESS
+
+
+def _redact(text: str) -> str:
+    """Never let a database URL (which carries credentials) reach the log."""
+    return _DSN_PATTERN.sub("postgresql://<redacted>", text)
 
 
 def format_report(report: RunReport) -> str:
-    """One key=value line per run for stdout (crawler.md §12, without #7's skipped list)."""
+    """One line per run for stdout (crawler.md §12). ``skipped`` is a JSON list of the skipped rows."""
     fields: dict[str, Any] = {
         "run_id": report.run_id,
         "started_at": report.started_at.isoformat(),
@@ -93,17 +147,79 @@ def format_report(report: RunReport) -> str:
         "exit_code": report.exit_code,
     }
     line = " ".join(f"{key}={value}" for key, value in fields.items())
+    skipped = [
+        {
+            "rank": item.rank,
+            "url": item.url,
+            "error_type": item.error_type,
+            "error_message": item.error_message,
+            "attempts": item.attempts,
+        }
+        for item in report.skipped
+    ]
+    line += f" skipped={json.dumps(skipped, ensure_ascii=False)}"
     if report.error:
         line += f" error={report.error!r}"
-    return line
+    return _redact(line)
 
 
-def _reject_if_ranked(book_id: UUID, row: RankingRow, ranked_book_ids: set[UUID]) -> None:
-    if book_id in ranked_book_ids:
-        raise DuplicateBookInRankingError(
-            f"rank {row.rank} ({row.url}) resolves to Book {book_id}, which another rank in this ranking "
-            "already uses; bestsellers.book_id must be unique"
+def _skipped(row: RankingRow, error_type: str, message: str, attempts: int) -> SkippedRow:
+    return SkippedRow(rank=row.rank, url=row.url, error_type=error_type, error_message=message, attempts=attempts)
+
+
+def _duplicate_message(book_id: UUID, ranked: Mapping[UUID, int]) -> str:
+    return f"resolves to Book {book_id}, which rank {ranked[book_id]} already uses; bestsellers.book_id must be unique"
+
+
+def _fetch_ranking_page(deps: RunDependencies) -> str:
+    """Fetch the ranking page with the same retry policy as details; failure fails the run."""
+    last_error: FetchError | None = None
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        if attempt > 1:
+            deps.sleep(backoff_seconds(attempt))
+        try:
+            return deps.fetcher.get(RANKING_PAGE_URL)
+        except FetchError as exc:
+            last_error = exc
+            log.warning("ranking page attempt %d/%d failed: %s", attempt, MAX_ATTEMPTS, exc)
+    raise FetchError(f"ranking page failed after {MAX_ATTEMPTS} attempts: {last_error}")
+
+
+def _attempt_new_source(
+    conn: psycopg.Connection,
+    row: RankingRow,
+    deps: RunDependencies,
+    ranked: Mapping[UUID, int],
+) -> tuple[SourceRef, IsbnMatch | None]:
+    """One attempt for a new product: fetch, parse, ISBN lookup and its Book transaction."""
+    try:
+        html = deps.fetcher.get(row.url)
+    except FetchError as exc:
+        raise _AttemptFailed(ERROR_FETCH, str(exc)) from exc
+    try:
+        # ParseError (e.g. missing title or product container) and BookDraft validation are ValueErrors.
+        draft = deps.parse_detail(html, row.url)
+    except ValueError as exc:
+        raise _AttemptFailed(ERROR_PARSE, str(exc)) from exc
+
+    try:
+        match = db.find_book_by_isbn(conn, draft.identifiers)
+    except psycopg.Error as exc:
+        raise _AttemptFailed(ERROR_DATABASE, str(exc)) from exc
+    if match is not None and match.book_id in ranked:
+        # Deterministic: not retried by the caller.
+        raise DuplicateBookInRankingError(_duplicate_message(match.book_id, ranked))
+
+    try:
+        ref = db.persist_new_source(
+            conn,
+            draft,
+            deps.clock(),
+            attach_to_book_id=match.book_id if match is not None else None,
         )
+    except psycopg.Error as exc:
+        raise _AttemptFailed(ERROR_DATABASE, str(exc)) from exc
+    return ref, match
 
 
 def _resolve_row(
@@ -111,42 +227,51 @@ def _resolve_row(
     row: RankingRow,
     deps: RunDependencies,
     report: RunReport,
-    ranked_book_ids: set[UUID],
-) -> SourceRef:
-    """Resolve one ranking row to a Book. Known URLs are reused without fetching the detail page."""
+    ranked: Mapping[UUID, int],
+) -> SourceRef | SkippedRow:
+    """Resolve one ranking row to a Book, or skip it (crawler.md §5, §6).
+
+    ``ranked`` maps each Book already used by an earlier rank to that rank.
+    """
     existing = db.find_source(conn, row.url)
     if existing is not None:
-        _reject_if_ranked(existing.book_id, row, ranked_book_ids)
+        if existing.book_id in ranked:
+            return _skipped(row, ERROR_DUPLICATE, _duplicate_message(existing.book_id, ranked), attempts=1)
         report.existing_book_count += 1
         return existing
 
-    html = deps.fetcher.get(row.url)
-    draft = deps.parse_detail(html, row.url)
-    match = db.find_book_by_isbn(conn, draft.identifiers)
-    if match is not None:
-        _reject_if_ranked(match.book_id, row, ranked_book_ids)
+    last_failure: _AttemptFailed | None = None
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        if attempt > 1:
+            deps.sleep(backoff_seconds(attempt))
+        try:
+            ref, match = _attempt_new_source(conn, row, deps, ranked)
+        except DuplicateBookInRankingError as exc:
+            return _skipped(row, ERROR_DUPLICATE, str(exc), attempts=attempt)
+        except _AttemptFailed as exc:
+            last_failure = exc
+            log.warning(
+                "rank %d attempt %d/%d failed (%s): %s", row.rank, attempt, MAX_ATTEMPTS, exc.error_type, exc.message
+            )
+            continue
 
-    ref = db.persist_new_source(
-        conn,
-        draft,
-        deps.clock(),
-        attach_to_book_id=match.book_id if match is not None else None,
-    )
-    if match is None:
-        report.new_book_count += 1
+        if match is None:
+            report.new_book_count += 1
+            return ref
+        report.existing_book_count += 1
+        report.attached_source_count += 1
+        log.info(
+            "attached BOOKS_COM_TW source to existing Book: rank=%d url=%s matched=%s:%s book_id=%s",
+            row.rank,
+            row.url,
+            match.identifier.identifier_type,
+            match.identifier.identifier_value,
+            match.book_id,
+        )
         return ref
 
-    report.existing_book_count += 1
-    report.attached_source_count += 1
-    log.info(
-        "attached BOOKS_COM_TW source to existing Book: rank=%d url=%s matched=%s:%s book_id=%s",
-        row.rank,
-        row.url,
-        match.identifier.identifier_type,
-        match.identifier.identifier_value,
-        match.book_id,
-    )
-    return ref
+    assert last_failure is not None  # the loop runs at least once and only continues on failure
+    return _skipped(row, last_failure.error_type, last_failure.message, attempts=MAX_ATTEMPTS)
 
 
 def run_once(deps: RunDependencies, run_id: str | None = None) -> RunReport:
@@ -158,23 +283,43 @@ def run_once(deps: RunDependencies, run_id: str | None = None) -> RunReport:
         finished_at=deps.clock(),
     )
     try:
-        html = deps.fetcher.get(RANKING_PAGE_URL)
+        html = _fetch_ranking_page(deps)
         rows = validate_ranking(deps.parse_ranking(html))
         report.ranking_count = len(rows)
 
         with deps.connect() as conn:
             snapshot: list[SnapshotRow] = []
-            ranked_book_ids: set[UUID] = set()
+            ranked: dict[UUID, int] = {}
             for row in rows:
-                ref = _resolve_row(conn, row, deps, report, ranked_book_ids)
-                ranked_book_ids.add(ref.book_id)
-                snapshot.append(SnapshotRow(rank=row.rank, book_id=ref.book_id, source_id=ref.source_id))
-            replacement = validate_snapshot(snapshot)
+                outcome = _resolve_row(conn, row, deps, report, ranked)
+                if isinstance(outcome, SkippedRow):
+                    report.skipped.append(outcome)
+                    log.warning(
+                        "rank %d skipped after %d attempt(s) (%s): %s",
+                        outcome.rank,
+                        outcome.attempts,
+                        outcome.error_type,
+                        outcome.error_message,
+                    )
+                    if report.skipped_count > MAX_SKIPPED_ROWS:
+                        # Stop early: a layout change would otherwise cost retries on every remaining row.
+                        raise SkipLimitExceededError(
+                            f"{report.skipped_count} ranking rows skipped, more than the limit of {MAX_SKIPPED_ROWS}"
+                        )
+                    continue
+                ranked[outcome.book_id] = row.rank
+                snapshot.append(SnapshotRow(rank=row.rank, book_id=outcome.book_id, source_id=outcome.source_id))
+
+            status = status_for_skipped_count(report.skipped_count)
+            if status is RunStatus.FAILED:  # unreachable: the limit is enforced in the loop above
+                raise SkipLimitExceededError(f"{report.skipped_count} ranking rows skipped")
+            source_books = db.booksdotcom_source_books(conn, [item.source_id for item in snapshot])
+            replacement = validate_snapshot(snapshot, source_books)
             db.replace_bestsellers(conn, replacement, captured_at=deps.clock())
 
-        report.status = RunStatus.SUCCESS
+        report.status = status
     except Exception as exc:  # any failure fails the run; the previous bestsellers are untouched
-        report.error = f"{type(exc).__name__}: {exc}"
+        report.error = _redact(f"{type(exc).__name__}: {exc}")
         log.error("run failed: %s", report.error)
 
     report.finished_at = deps.clock()

@@ -34,14 +34,39 @@ def ranking_rows(count: int = 100, *, offset: int = 0) -> list[RankingRow]:
     return [RankingRow(rank=rank, url=product_url(offset + rank)) for rank in range(1, count + 1)]
 
 
+class FakeSleep:
+    """Records the requested backoff delays instead of waiting."""
+
+    def __init__(self) -> None:
+        self.calls: list[float] = []
+
+    def __call__(self, seconds: float) -> None:
+        self.calls.append(seconds)
+
+
 class FakeFetcher:
-    def __init__(self, pages: Mapping[str, str] | None = None, failures: Mapping[str, Exception] | None = None):
+    """Serves prepared pages.
+
+    - ``failures``: every request to the URL raises the given exception (persistent failure);
+    - ``transient_failures``: the first N requests to the URL raise ``FetchError``, then the page is served.
+    """
+
+    def __init__(
+        self,
+        pages: Mapping[str, str] | None = None,
+        failures: Mapping[str, Exception] | None = None,
+        transient_failures: Mapping[str, int] | None = None,
+    ):
         self.pages = dict(pages or {})
         self.failures = dict(failures or {})
+        self.transient_failures = dict(transient_failures or {})
         self.calls: list[str] = []
 
     def get(self, url: str) -> str:
         self.calls.append(url)
+        if self.transient_failures.get(url, 0) > 0:
+            self.transient_failures[url] -= 1
+            raise FetchError(f"transient failure for {url}")
         if url in self.failures:
             raise self.failures[url]
         if url not in self.pages:
