@@ -162,6 +162,8 @@ SELECT pg_temp.assert_true(NOT EXISTS(SELECT 1 FROM book_contributors WHERE book
 SELECT pg_temp.assert_true(NOT EXISTS(SELECT 1 FROM book_subjects WHERE book_id='00000000-0000-0000-0000-000000000003'), 'subject cascade');
 SELECT pg_temp.assert_true(NOT EXISTS(SELECT 1 FROM book_ai_profiles WHERE book_id='00000000-0000-0000-0000-000000000003'), 'AI profile cascade');
 DELETE FROM bestsellers;
+-- recommendation search requires a user (data-model 5.11, invariant 16)
+SELECT pg_temp.expect_failure($stmt$INSERT INTO recommendation_searches(id, user_id, requirement_text, fallback_used, created_at) VALUES(gen_random_uuid(),NULL,'anonymous',false,now())$stmt$, '23502');
 -- recommendation results still restrict deleting a referenced Book
 SELECT pg_temp.expect_failure($stmt$DELETE FROM books WHERE id='00000000-0000-0000-0000-000000000001'$stmt$, '23503');
 -- with no bestseller reference left, the bestseller-only Book can be deleted

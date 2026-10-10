@@ -11,7 +11,7 @@ public class RecommendationSearchConfiguration : IEntityTypeConfiguration<Recomm
         builder.ToTable("recommendation_searches");
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Id).HasColumnType("uuid");
-        builder.Property(x => x.UserId).HasColumnType("uuid");
+        builder.Property(x => x.UserId).HasColumnType("uuid").IsRequired();
         builder.Property(x => x.RequirementText).HasColumnType("text").IsRequired();
         builder.Property(x => x.FallbackUsed).HasColumnType("boolean");
         builder.Property(x => x.CreatedAt).HasColumnType("timestamptz");

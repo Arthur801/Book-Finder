@@ -54,7 +54,8 @@ dotnet test
 - `ModelSnapshotTests` (no Docker): the EF model matches the migration snapshot;
   bestseller FKs restrict deletion.
 - `SchemaTests`: all migrations applied; EF roundtrips for UUID/date/UTC/jsonb/
-  arrays/nullable fields; anonymous recommendation searches.
+  arrays/nullable fields. Recommendation searches always belong to a user
+  (`user_id` NOT NULL, no anonymous searches).
 - `constraints.sql` (run by `SchemaTests`): required tables, vector operations,
   required and expression indexes, unique/composite/1:1 keys, enum/range/null/FK
   constraints, cascade/restrict deletion, and statement-level atomicity of a failed

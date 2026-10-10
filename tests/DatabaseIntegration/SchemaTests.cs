@@ -57,20 +57,4 @@ public class SchemaTests(PostgresFixture fixture)
         savedProfile.Framework?.Dispose();
         await transaction.RollbackAsync();
     }
-
-    [Fact]
-    public async Task Anonymous_recommendation_search_is_allowed()
-    {
-        await using var db = fixture.CreateContext();
-        await using var transaction = await db.Database.BeginTransactionAsync();
-        var search = new RecommendationSearch
-        {
-            UserId = null, RequirementText = "anonymous", FallbackUsed = false, CreatedAt = DateTime.UtcNow
-        };
-        db.RecommendationSearches.Add(search);
-        await db.SaveChangesAsync();
-        db.ChangeTracker.Clear();
-        Assert.Null((await db.RecommendationSearches.SingleAsync(x => x.Id == search.Id)).UserId);
-        await transaction.RollbackAsync();
-    }
 }

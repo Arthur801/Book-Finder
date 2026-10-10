@@ -360,7 +360,7 @@ namespace Book_Finder.Infrastructure.Persistence.Migrations
                         .HasColumnType("text")
                         .HasColumnName("requirement_text");
 
-                    b.Property<Guid?>("UserId")
+                    b.Property<Guid>("UserId")
                         .HasColumnType("uuid")
                         .HasColumnName("user_id");
 
@@ -526,7 +526,8 @@ namespace Book_Finder.Infrastructure.Persistence.Migrations
                     b.HasOne("Book_Finder.Domain.Entities.User", null)
                         .WithMany()
                         .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade);
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Book_Finder.Domain.Entities.UserBook", b =>
