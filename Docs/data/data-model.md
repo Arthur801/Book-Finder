@@ -17,7 +17,7 @@
 - Google Books 僅於 AI Candidate `< 5` 時使用，結果 normalize 後才能進入 Candidate Set。
 - OpenAI / embedding 由 C# Web Application 處理；Python crawler 不寫 AI 資料。
 - Bestseller 只保存最新 TOP 100。
-- AI Search History 必須持久化。
+- 成功的 Recommendation Search 必須持久化，且一定屬於某位使用者（AI 推薦需登入）。
 
 ---
 
@@ -33,7 +33,7 @@ Canonical `Book` 僅保存產品需要的共通資料；來源 identity 另存�
 | `contributors`      | 作者、原文作者、譯者等 | `volumeInfo.authors[]`     | `book_contributors`                    |
 | `publisher`         | 出版社                 | `volumeInfo.publisher`     | nullable                               |
 | `published_date`    | 出版日期               | `volumeInfo.publishedDate` | nullable                               |
-| `language`          | 語言                   | `volumeInfo.language`      | nullable                               |
+| `language`          | 語言                   | `volumeInfo.language`      | nullable；正規化為語言代碼（§2.1）     |
 | `description`       | 內容簡介               | `volumeInfo.description`   | nullable                               |
 | `ISBN`              | 詳細資料 ISBN          | `industryIdentifiers[]`    | `book_identifiers`                     |
 | `page_count`        | 規格中的頁數，若存在   | `volumeInfo.pageCount`     | nullable                               |
@@ -43,6 +43,27 @@ Canonical `Book` 僅保存產品需要的共通資料；來源 identity 另存�
 | `source identity`   | 商品 URL               | Volume ID                  | `book_sources`                         |
 
 博客來 parser 不得假設所有商品都有頁數、目錄或相同 DOM 結構；必要欄位解析失敗時應 fail loudly，不得大量寫入空值。
+
+### 2.1 Language normalization
+
+`books.language` 一律保存 BCP 47 形式的語言代碼：主語言小寫，地區大寫（`zh-TW`、`zh-CN`、`en`、`ja`）。來源的顯示文字不得直接寫入。
+
+博客來「語言」欄位對照：
+
+| 博客來 | `language` |
+| ------ | ---------- |
+| 繁體中文 | `zh-TW` |
+| 簡體中文 | `zh-CN` |
+| 英文 | `en` |
+| 日文 | `ja` |
+| 韓文 | `ko` |
+| 其他 / 無法對照 | `NULL` |
+
+不在對照表中的值寫 `NULL` 並記 log，不得猜測；需要時擴充此表。
+
+Google Books `volumeInfo.language`：已是語言代碼，只做大小寫正規化（`zh-tw` → `zh-TW`）；沒有地區的值（`zh`）保持原樣，不補地區。
+
+查詢比對：沒有地區的條件值匹配該語言所有地區（`zh` 匹配 `zh`、`zh-TW`、`zh-CN`）；有地區的條件值只精確匹配。
 
 ---
 
@@ -256,6 +277,8 @@ AI Profile input 只允許既有 Book metadata，例如 title、contributors、p
 
 若沒有真實目錄，`framework` 可以是 inferred overview，但不得聲稱為正式章節目錄。
 
+MVP 用途：僅供 Recommendation 內部使用，提供推薦結果顯示的 `difficulty`。Profile 只在 Book 第一次出現於 Recommendation Result 後非同步產生；推薦排序不讀取 profile。產生時機與 prompt 見 `Docs/modules/recommendation.md`。
+
 ---
 
 ### 5.7 `book_embeddings`
@@ -266,7 +289,7 @@ AI Profile input 只允許既有 Book metadata，例如 title、contributors、p
 | Column                | Type           | Null |
 | --------------------- | -------------- | ---: |
 | `book_id`             | `uuid`         |   no |
-| `embedding`           | `vector(N)`    |   no |
+| `embedding`           | `vector(1536)` |   no |
 | `model_name`          | `varchar(100)` |   no |
 | `source_content_hash` | `char(64)`     |   no |
 | `updated_at`          | `timestamptz`  |   no |
@@ -277,7 +300,9 @@ Primary key:
 book_id
 ```
 
-`N` 由 Recommendation / AI module 選定的 embedding model 決定；migration 必須與該 model 維度一致。
+Embedding model 為 OpenAI `text-embedding-3-small`（1536 維）。更換 model 代表新 migration 與全部向量重建，不只是改設定。
+
+沒有 `book_embeddings` row 的 Book 不會進入 Candidate Set。
 
 MVP 可先使用 exact vector search。只有量測證明需要 ANN 時再新增 HNSW index。
 
@@ -285,7 +310,7 @@ MVP 可先使用 exact vector search。只有量測證明需要 ANN 時再新增
 
 ### 5.8 `bestsellers`
 
-只保存目前有效 TOP 100。
+只保存目前有效的一份榜單：最多 100 筆，`rank` 保留博客來原始排名。爬取時被跳過的書使該排名缺號（例如 1..36、38..100），不重新編號。
 
 
 | Column        | Type          | Null | Constraint              |
@@ -295,7 +320,7 @@ MVP 可先使用 exact vector search。只有量測證明需要 ANN 時再新增
 | `source_id`   | `uuid`        |   no | FK →`book_sources.id`  |
 | `captured_at` | `timestamptz` |   no |                         |
 
-新榜單完整驗證後才能 transaction replace；crawler failure 不得先清空上一版有效榜單。
+新榜單通過 crawler 驗證（見 `Docs/modules/crawler.md`）後才能 transaction replace；crawler failure 不得先清空上一版有效榜單。
 
 ---
 
@@ -350,18 +375,20 @@ FINISHED
 
 ### 5.11 `recommendation_searches`
 
-支援 AI Search History。
+Recommendation Search（AI 搜尋紀錄）。只保存成功的推薦（含 0 本結果）。
 
 
 | Column             | Type          | Null |
 | ------------------ | ------------- | ---: |
 | `id`               | `uuid`        |   no |
-| `user_id`          | `uuid`        |  yes |
+| `user_id`          | `uuid`        |   no |
 | `requirement_text` | `text`        |   no |
 | `fallback_used`    | `boolean`     |   no |
 | `created_at`       | `timestamptz` |   no |
 
-`user_id` FK → `users.id`, CASCADE；是否持久化 anonymous search 由 Recommendation module 規格決定，本文件不自行定義產品行為。
+`user_id` FK → `users.id`, CASCADE。AI 推薦需登入，因此不存在匿名紀錄。
+
+每日上限以該使用者 Asia/Taipei 當日的 row 數計算，使用 `(user_id, created_at DESC)` index。
 
 ---
 
@@ -472,12 +499,11 @@ books(published_date)
 recommendation_searches(user_id, created_at DESC)
 ```
 
-一般搜尋 MVP 查詢：
+一般搜尋 MVP 查詢（規則見 `Docs/modules/book-catalog.md`）：
 
 ```text
-title
-contributors
-ISBN
+ISBN 格式輸入 → book_identifiers 精確比對
+其他輸入     → books.title ILIKE '%q%' OR book_contributors.name ILIKE '%q%'
 ```
 
 一般搜尋不得依賴 Google Books 或 embedding。
@@ -501,8 +527,12 @@ ISBN
 以上 7 個 migration 已建立 11 張表與非向量索引（EF migration：`EnablePgvector`、`Catalog`、
 `IdentityUserLibrary`、`Bestseller`、`RecommendationHistory`、`AiProfile`、`Indexes`）。
 
-`book_embeddings` 保留待決：必須在 embedding model 與 vector dimension 確定後，
-以排在 `007_indexes` 之後的新 EF migration（`008_embedding`）加入，不回寫已套用的 migration。
+待新增（不回寫已套用的 migration）：
+
+```text
+008_require_recommendation_user   recommendation_searches.user_id → NOT NULL
+009_embedding                     book_embeddings，vector(1536)
+```
 
 Catalog 子表 `book_identifiers`、`book_contributors`、`book_subjects` 的 `book_id`
 均為 FK → `books.id`，刪除採 CASCADE；`bestsellers` 的 Book / BookSource FK 採 RESTRICT。
@@ -521,12 +551,13 @@ Catalog 子表 `book_identifiers`、`book_contributors`、`book_subjects` 的 `b
 7. `table_of_contents` 只能保存來源實際提供的目錄。
 8. AI Profile 不得覆寫 source-derived metadata。
 9. Python crawler 不得寫 embedding / AI Profile。
-10. Bestseller rank 只能為 1–100，且同一 Book 只能出現一次。
-11. Bestseller replacement 必須保持 transaction completeness。
+10. Bestseller rank 只能為 1–100、可缺號、不得重複，且同一 Book 只能出現一次。
+11. Bestseller replacement 必須保持 transaction completeness：不會出現新舊榜單混合。
 12. `rating` 只能為 `NULL` 或 1–5。
 13. `reading_status` 只能為定義值。
 14. Recommendation result 最多 10 本，且不得包含 Candidate Set 外的 Book。
-15. `vector(N)` 必須與 embedding model 維度一致。
+15. `vector(1536)` 必須與 embedding model 維度一致。
+16. `recommendation_searches.user_id` 不得為 `NULL`。
 
 ---
 
