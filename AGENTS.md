@@ -15,11 +15,13 @@ This file is intentionally a **router and work contract**, not a complete copy o
 
 不要因為要修改一個局部功能，就預設讀完整 requirements、architecture、database、API、deployment 與 test plan。
 
-Repository-level 文件預期結構：
+Repository-level 文件結構：
 
 ```text
 AGENTS.md
+CONTEXT.md                     ← 領域詞彙表；命名與用語以此為準
 Docs/
+├── agents/                    ← agent skill 設定（issue tracker、labels、domain docs）
 ├── requirements/
 │   └── product-requirements.md
 ├── architecture/
@@ -36,8 +38,6 @@ Docs/
 │   ├── recommendation.md
 │   ├── user-library.md
 │   └── crawler.md
-├── interfaces/
-│   └── frontend-backend.md
 ├── ui/
 │   └── ui-flow.md
 ├── testing/
@@ -46,27 +46,27 @@ Docs/
     └── deployment.md
 ```
 
-在部分文件尚未建立的階段，以現有需求文件與已核准的 architecture 文件作為上位依據，不要自行假造缺少的規格。
+規格未涵蓋的細節依 §2.5 處理，不要自行假造缺少的規格。
 
 ## 1.2 依任務類型選讀文件
 
 
 | Task                                                  | 先讀                                          | 有跨邊界影響時再讀                                        |
 | ----------------------------------------------------- | --------------------------------------------- | --------------------------------------------------------- |
-| 修改產品行為 / acceptance criteria                    | `Docs/requirements/product-requirements.md`   | 對應 module、API、UI / interface                          |
+| 修改產品行為 / acceptance criteria                    | `Docs/requirements/product-requirements.md`   | 對應 module、API、UI                                      |
 | 系統邊界、部署單元、跨模組依賴                        | `Docs/architecture/system-architecture.md`    | `architecture-decisions.md`、deployment                   |
 | 新增 / 修改 Entity、欄位、constraint、index、pgvector | `Docs/data/data-model.md`                     | 對應 module、API、migration / test                        |
-| 新增 / 修改 HTTP endpoint                             | `Docs/api/api-spec.md`                        | 對應 module、`interfaces/frontend-backend.md`、data model |
-| Auth / JWT / current user                             | `Docs/modules/identity-auth.md`               | API、interface、data model、test plan                     |
+| 新增 / 修改 JSON endpoint、錯誤格式、request 驗證     | `Docs/api/api-spec.md`                        | 對應 module、UI、data model                               |
+| Auth / JWT / current user                             | `Docs/modules/identity-auth.md`               | API、UI、data model、test plan                            |
 | 一般搜尋 / Book detail                                | `Docs/modules/book-catalog.md`                | data model、API、recommendation                           |
 | Bestseller                                            | `Docs/modules/bestseller.md`                  | crawler、data model、cache rules                          |
 | AI 推薦 / pgvector / Google Books / OpenAI            | `Docs/modules/recommendation.md`              | data model、API、book catalog、test plan                  |
 | 個人書單 / reading status / rating                    | `Docs/modules/user-library.md`                | auth、data model、API、UI                                 |
 | Python crawler                                        | `Docs/modules/crawler.md`                     | bestseller、book catalog、data model、deployment          |
-| Razor View / JavaScript / page navigation             | `Docs/ui/ui-flow.md`                          | frontend-backend interface、API                           |
-| 前後端 request / response / validation contract       | `Docs/interfaces/frontend-backend.md`         | API、UI、module                                           |
+| Razor View / JavaScript / 頁面路由 / 空狀態           | `Docs/ui/ui-flow.md`                          | API、對應 module                                          |
 | 單元 / 整合 / 系統測試                                | `Docs/testing/test-plan.md`                   | 被測 module + API / data spec                             |
-| Docker / EC2 / RDS / S3 / scheduler                   | `Docs/deployment/deployment.md`               | system architecture、data model                           |
+| Docker / EC2 / RDS / nginx / TLS / secrets / 排程     | `Docs/deployment/deployment.md`               | system architecture、data model                           |
+| 領域名詞、命名                                        | `CONTEXT.md`                                  | —                                                         |
 | 架構取捨或新增基礎服務                                | `Docs/architecture/architecture-decisions.md` | system architecture + affected specs                      |
 
 ## 1.3 Domain-specific routing rules
@@ -75,12 +75,15 @@ Docs/
 
 涉及 AI 推薦時，至少確認下列 invariant：
 
+- 必須登入；每位使用者每日上限 20 次，達上限時不呼叫任何外部服務。
 - Local DB 為優先候選來源。
-- Candidate count `< 5` 才允許 Google Books fallback。
-- Google Books 結果必須 normalize 並寫入系統資料模型後才能成為 Candidate。
-- AI 只能推薦 Candidate Set 中存在的 Book。
-- 每次最多推薦 10 本。
-- Bestseller rank 不得直接作為 AI relevance ranking。
+- 硬條件過濾只來自使用者明確提到的條件；不確定就不加。LLM 只輸出結構化 filter，不產生或執行 SQL。
+- Candidate Set = 通過硬條件**且** similarity ≥ 門檻的書；不相關的書不得成為候選。
+- Candidate Set `< 5` 才允許 Google Books fallback。
+- Google Books 結果必須 normalize 並寫入系統資料模型、產生 embedding、通過同樣的過濾與門檻後才能成為 Candidate。
+- AI 只能推薦 Candidate Set 中存在的 Book；每次最多 10 本，可為 0 本。
+- Bestseller rank 不得直接作為 AI relevance ranking；排序不讀 Book AI Profile。
+- 只保存成功的 Recommendation Search。
 
 若修改會破壞任一 invariant，先更新 / 提出規格衝突，不要靜默改行為。
 
@@ -91,12 +94,14 @@ Docs/
 - 每日取得博客來中文書 7 日 TOP 100。
 - 博客來來源 Book 以商品 URL 判斷是否已存在。
 - 既有 Book 不因每日榜單刷新重新抓完整 metadata。
-- Bestseller 只保留最新榜單。
+- 排行榜頁必須完整解析 100 筆，否則整次失敗。
+- 新書詳細頁重試 3 次仍失敗則跳過；跳過 ≤ 10 本為部分成功並替換榜單，> 10 本整次失敗。
+- Bestseller 只保留最新榜單，rank 保留博客來原始排名，被跳過的排名缺號、不重新編號。
 - 新榜單尚未成功驗證前，不應先破壞上一份有效榜單。
 
 ### Search
 
-一般搜尋只查 Local Database。不要因為搜尋結果為空就自動呼叫 Google Books。
+一般搜尋只查 Local Database，不使用 embedding 或 LLM。不要因為搜尋結果為空就自動呼叫 Google Books。
 
 ## 1.4 不要預設讀的文件
 
@@ -205,12 +210,12 @@ Architecture change 應先建立或更新 `Docs/architecture/architecture-decisi
 | 系統拓樸、container、service boundary    | `Docs/architecture/system-architecture.md`    |
 | 已決定的架構取捨                         | `Docs/architecture/architecture-decisions.md` |
 | Schema、relation、constraint、index      | `Docs/data/data-model.md`                     |
-| HTTP contract                            | `Docs/api/api-spec.md`                        |
+| JSON endpoint、錯誤格式、request 驗證    | `Docs/api/api-spec.md`                        |
 | 模組內部責任與 invariants                | 對應`Docs/modules/*.md`                       |
-| Razor navigation / page flow             | `Docs/ui/ui-flow.md`                          |
-| Frontend ↔ Backend integration contract | `Docs/interfaces/frontend-backend.md`         |
+| 頁面路由、導覽、空狀態                   | `Docs/ui/ui-flow.md`                          |
 | 測試層級與 coverage expectation          | `Docs/testing/test-plan.md`                   |
 | Runtime / AWS / Docker                   | `Docs/deployment/deployment.md`               |
+| 領域名詞                                 | `CONTEXT.md`                                  |
 
 ## 3.3 文件衝突處理
 
