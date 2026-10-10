@@ -5,6 +5,7 @@ Fetcher and parsers are fakes; books.com.tw is never contacted.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import date, datetime, timezone
 
@@ -166,26 +167,106 @@ def test_new_book_detail_failure_fails_run_and_keeps_previous_bestsellers(db_url
     assert query(db_url, "SELECT count(*) FROM book_sources WHERE source_url = %s", (failing_url,)) == [(0,)]
 
 
-def test_isbn_already_owned_by_another_book_fails_the_run(db_url):
+def _seed_with_identifiers(db_url, identifiers_by_rank: dict[int, tuple]):
+    """Run 1: 100 products (urls 1..100); the given ranks carry the given identifiers."""
+    rows = ranking_rows(100)
+    drafts = {row.url: make_draft(row.url) for row in rows}
+    for rank, identifiers in identifiers_by_rank.items():
+        url = rows[rank - 1].url
+        drafts[url] = make_draft(url, title=f"Original rank {rank}", publisher="Original publisher", identifiers=identifiers)
+    report, _ = run(db_url, rows, drafts)
+    assert report.status == STATUS_SUCCESS
+    return report
+
+
+@pytest.mark.parametrize("raw_isbn", ["978-0-306-40615-7", "0-306-40615-2"], ids=["isbn13", "isbn10"])
+def test_new_product_with_known_isbn_attaches_source_to_existing_book(db_url, caplog, raw_isbn):
+    caplog.set_level(logging.INFO, logger="books_crawler")
+    isbn = normalize_isbn(raw_isbn)
+    _seed_with_identifiers(db_url, {1: (isbn,)})
+    existing = query(
+        db_url,
+        """
+        SELECT b.id, b.title, b.publisher, b.created_at, b.updated_at
+        FROM books b JOIN book_sources s ON s.book_id = b.id WHERE s.source_url = %s
+        """,
+        (product_url(1),),
+    )[0]
+    existing_book_id = existing[0]
+    books_before = count(db_url, "books")
+    identifiers_before = query(db_url, "SELECT identifier_type, identifier_value FROM book_identifiers WHERE book_id = %s", (existing_book_id,))
+
+    # Run 2: ranks 2..100 are known products; rank 1 is a product never seen before with the same ISBN.
+    rows = [RankingRow(rank=1, url=product_url(101))] + [RankingRow(rank=rank, url=product_url(rank)) for rank in range(2, 101)]
+    drafts = {row.url: make_draft(row.url) for row in rows}
+    drafts[product_url(101)] = make_draft(
+        product_url(101), title="Other edition title", publisher="Other publisher", identifiers=(isbn,)
+    )
+
+    report, fetcher = run(db_url, rows, drafts)
+
+    assert report.status == STATUS_SUCCESS
+    assert report.attached_source_count == 1
+    assert product_url(101) in fetcher.detail_calls()  # the new product's detail page was fetched
+    assert count(db_url, "books") == books_before  # no new Book was created
+    assert query(
+        db_url, "SELECT id, title, publisher, created_at, updated_at FROM books WHERE id = %s", (existing_book_id,)
+    ) == [existing]
+    assert query(
+        db_url, "SELECT identifier_type, identifier_value FROM book_identifiers WHERE book_id = %s", (existing_book_id,)
+    ) == identifiers_before
+    assert query(
+        db_url,
+        "SELECT book_id, source_type, external_id, first_seen_at, last_seen_at FROM book_sources WHERE source_url = %s",
+        (product_url(101),),
+    ) == [(existing_book_id, "BOOKS_COM_TW", None, NOW, NOW)]
+
+    new_source_id = query(db_url, "SELECT id FROM book_sources WHERE source_url = %s", (product_url(101),))[0][0]
+    rank_one = bestsellers(db_url)[0]
+    assert rank_one[0] == 1
+    assert rank_one[1] == existing_book_id  # bestseller points at the existing Book...
+    assert rank_one[2] == new_source_id  # ...through the new BOOKS_COM_TW source
+    assert "attached BOOKS_COM_TW source to existing Book" in caplog.text
+
+
+def test_isbn13_match_takes_priority_over_isbn10_match(db_url):
+    isbn13 = normalize_isbn("978-0-306-40615-7")
+    isbn10_of_other = normalize_isbn("080442957X")
+    _seed_with_identifiers(db_url, {1: (isbn13,), 2: (isbn10_of_other,)})
+    book_a = query(db_url, "SELECT book_id FROM book_sources WHERE source_url = %s", (product_url(1),))[0][0]
+
+    rows = [RankingRow(rank=1, url=product_url(101))] + [
+        RankingRow(rank=rank, url=product_url(rank)) for rank in range(2, 101)
+    ]
+    drafts = {row.url: make_draft(row.url) for row in rows}
+    # The new product carries the ISBN-10 of book B (rank 2) and the ISBN-13 of book A (rank 1).
+    drafts[product_url(101)] = make_draft(product_url(101), identifiers=(isbn10_of_other, isbn13))
+
+    report, _ = run(db_url, rows, drafts)
+
+    assert report.status == STATUS_SUCCESS
+    assert bestsellers(db_url)[0][1] == book_a
+
+
+def test_two_ranks_resolving_to_the_same_book_fail_the_run(db_url):
     isbn = normalize_isbn("978-0-306-40615-7")
-    earlier_rows = ranking_rows(100)
-    earlier_drafts = {row.url: make_draft(row.url) for row in earlier_rows}
-    earlier_drafts[earlier_rows[0].url] = make_draft(earlier_rows[0].url, identifiers=(isbn,))
-    setup, _ = run(db_url, earlier_rows, earlier_drafts)
-    assert setup.status == STATUS_SUCCESS
+    _seed_with_identifiers(db_url, {1: (isbn,)})
     previous = bestsellers(db_url)
 
-    # A new product (not yet known by URL) carrying the same ISBN must not become a second Book.
-    rows = ranking_rows(100, offset=100)
+    # Rank 1 is a known product (Book A). Rank 2 is new but its ISBN also belongs to Book A.
+    rows = [RankingRow(rank=1, url=product_url(1)), RankingRow(rank=2, url=product_url(201))] + [
+        RankingRow(rank=rank, url=product_url(200 + rank)) for rank in range(3, 101)
+    ]
     drafts = {row.url: make_draft(row.url) for row in rows}
-    drafts[rows[0].url] = make_draft(rows[0].url, identifiers=(isbn,))
+    drafts[product_url(201)] = make_draft(product_url(201), identifiers=(isbn,))
 
     report, _ = run(db_url, rows, drafts)
 
     assert report.status == STATUS_FAILED
-    assert "already belongs to another Book" in report.error
+    assert report.exit_code == 1
+    assert "must be unique" in report.error
     assert bestsellers(db_url) == previous
-    assert query(db_url, "SELECT count(*) FROM book_sources WHERE source_url = %s", (rows[0].url,)) == [(0,)]
+    assert query(db_url, "SELECT count(*) FROM book_sources WHERE source_url = %s", (product_url(201),)) == [(0,)]
 
 
 def test_new_book_columns_match_data_model_with_nulls_for_missing_fields(db_url):

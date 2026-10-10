@@ -27,7 +27,6 @@ def _configure_logging() -> logging.Logger:
     root = logging.getLogger("books_crawler")
     root.handlers[:] = [handler]
     root.setLevel(logging.INFO)
-    root.propagate = False
     return root
 
 

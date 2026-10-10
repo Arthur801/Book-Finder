@@ -439,6 +439,11 @@ existing Book
 
 不得建立 duplicate Book。
 
+博客來 crawler 對新商品（其 BOOKS_COM_TW `source_url` 尚未存在）套用相同的 ISBN-13 → ISBN-10 比對，但**不做 canonical merge**：
+命中既有 Book 時只新增一筆 BOOKS_COM_TW `book_sources` 指向該 Book，不修改該 Book 的 metadata、identifiers、contributors 或 subjects。
+同一 Book 不得在同一份榜單中出現兩次（`bestsellers.book_id` UNIQUE），此情況使本次 run 失敗。
+（決策：Crawler ISBN 衝突處理，依使用者決定採用此方式。）
+
 ---
 
 ## 7. Write Ownership

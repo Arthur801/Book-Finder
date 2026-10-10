@@ -77,8 +77,8 @@ def test_ranking_fetch_error_fails_run():
     assert connect.calls == 0
 
 
-def test_unimplemented_real_parsers_fail_the_run_cleanly():
-    fetcher = FakeFetcher(pages={RANKING_URL: RANKING_HTML})
+def test_real_parsers_reject_a_page_that_is_not_the_ranking_and_fail_the_run():
+    fetcher = FakeFetcher(pages={RANKING_URL: "<html><body>not a ranking</body></html>"})
     connect = RecordingConnect()
     deps = RunDependencies(
         fetcher=fetcher,
@@ -93,7 +93,7 @@ def test_unimplemented_real_parsers_fail_the_run_cleanly():
 
     assert report.status == STATUS_FAILED
     assert report.exit_code == 1
-    assert "NotImplementedError" in report.error
+    assert "ParseError" in report.error
     assert connect.calls == 0
 
 

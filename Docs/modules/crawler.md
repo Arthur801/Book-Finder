@@ -91,13 +91,24 @@ do not fetch detail
 do not update Book metadata
 ```
 
-New：
+New（`source_url` 尚未存在）：
 
 ```text
 fetch detail（retry）
 normalize
-persist Book + related source rows
+ISBN 比對（僅依序：ISBN-13 → ISBN-10；data-model §6）：
+  命中既有 Book
+    → 只新增一筆 BOOKS_COM_TW book_sources，指向該既有 Book
+    → 不新增 Book；不修改該 Book 的 metadata、identifiers、contributors、subjects（不做 canonical merge）
+    → 此商品的 bestseller row 使用既有 book_id 與新的 source id
+  未命中（或商品沒有 ISBN）
+    → persist Book + related source rows
+  （不得依書名／作者相似度合併）
+單次 transaction 完成上述寫入（每個商品一個 transaction）
 ```
+
+同一 Book 只能出現在榜單一次（`bestsellers.book_id` UNIQUE）。若兩個排名列解析到同一 Book（例如一個既有商品，另一個新商品的 ISBN 命中同一 Book），本次 run 失敗（FAILED，榜單不變），錯誤訊息需指出衝突的排名。
+命中既有 Book 時記錄 INFO log：rank、url、命中的 ISBN、book_id。
 
 ## 6. Retry 與 Skip
 
