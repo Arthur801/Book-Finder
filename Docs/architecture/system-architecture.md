@@ -16,7 +16,7 @@
 | Web | C# / ASP.NET Core MVC，Razor View + 少量 JavaScript |
 | ORM | EF Core + Npgsql + Pgvector.EntityFrameworkCore |
 | Database | PostgreSQL + pgvector（唯一 source of truth） |
-| Crawler | Python，排程啟動的 one-shot container |
+| Crawler | Python，排程啟動的 one-shot container；以 Playwright headless Chromium 取得頁面（ADR-006） |
 | AI | OpenAI API，只由 C# 呼叫（ADR-003） |
 | 外部書目 | Google Books API，只用於 AI 推薦 fallback |
 | Cache | process-local `IMemoryCache`（ADR-005） |
@@ -63,7 +63,7 @@ flowchart LR
 | Deployable | 職責 | 不負責 |
 |---|---|---|
 | `web` | HTTP、Razor 渲染、認證、所有 use case、OpenAI / Google Books 整合、embedding 與 Book AI Profile 背景補齊 | 爬取博客來 |
-| `crawler` | 博客來排行榜與新書 metadata、寫入 Catalog 與 Bestseller 資料表 | OpenAI、Google Books、embedding、DDL、使用者資料 |
+| `crawler` | 以 headless 瀏覽器取得博客來排行榜與新書 metadata（ADR-006）、寫入 Catalog 與 Bestseller 資料表 | OpenAI、Google Books、embedding、DDL、使用者資料 |
 | `nginx` | TLS 終止、轉發至 `web` | 任何應用邏輯 |
 | migration bundle | 套用 EF Core migration；部署時獨立執行 | 啟動時自動 migrate |
 

@@ -130,6 +130,8 @@ for q in google_queries（1～3 組）:
 [{ "candidate_no": 3, "relevance": 0.82, "reason": "繁體中文推薦理由" }]
 ```
 
+推薦理由的 prompt 規則（REC-07、BOOK-05）：description 與 table of contents 只供 LLM 判斷，不對使用者顯示。prompt 必須要求以自己的話說明這本書為何符合使用者需求，不得大段引用簡介或目錄原文。
+
 驗證（不重試 LLM）：
 
 1. `candidate_no` 不在 1..n → 丟棄並記 log。

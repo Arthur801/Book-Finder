@@ -3,6 +3,7 @@
 > Path: `Docs/modules/crawler.md`
 > Authority: 博客來 crawler 行為與資料寫入
 > Runtime: Python one-shot batch（ADR-002），每日 04:00 (GMT+8) 由 cron 啟動
+> Fetcher: Playwright headless Chromium（ADR-006，見 §15）
 > Data contract: `Docs/data/data-model.md`
 > Requirements: CRAWL-01～06
 
@@ -296,3 +297,14 @@ review/update Docs/data/data-model.md
 ```
 
 不得在 crawler 內自行建立或演化另一套 schema。
+
+## 15. Fetcher（取得頁面）
+
+博客來對一般 HTTP client 回傳 Cloudflare challenge，因此 production fetcher 以 Playwright 驅動 headless Chromium（ADR-006）。
+
+- 介面不變：`get(url) -> str`，回傳頁面載入完成後的 HTML；解析器與 DB 邏輯不依賴 fetcher 的實作。
+- 一次 run 共用同一個瀏覽器 context，結束時（含失敗）一定關閉瀏覽器。
+- 循序請求，每頁之間至少間隔 1 秒；只抓排行榜頁與資料庫尚未有的新書詳細頁。
+- 頁面仍是 challenge 頁、HTTP 非 200 或逾時，視為該頁抓取失敗，交給 §6 的重試與跳過處理；排行榜頁失敗則整次失敗。（頁面結構不符屬於解析失敗，由解析器報錯。）
+- 不使用反偵測或 stealth 外掛、CAPTCHA 代解服務或代理 IP 輪替。
+- 測試仍只用 HTML fixtures 與 fake fetcher，**測試中不啟動瀏覽器連線博客來**。瀏覽器 fetcher 本身只以本機假頁面（例如 Playwright 開啟本機 HTML 檔或 `data:` URL）驗證行為。

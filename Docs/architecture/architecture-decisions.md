@@ -62,3 +62,20 @@ MVP 只有單一 Web instance。Cache 只存可由 PostgreSQL 重建的唯讀資
 - **Alternatives**: Redis / ElastiCache。
 - **Trade-offs**: 多 instance 時 cache 不一致；換得不多一個基礎服務與成本。
 - **Migration impact**: 水平擴充 Web 前須改為分散式 cache。
+
+---
+
+## ADR-006 — Crawler 以 headless 瀏覽器（Playwright）取得博客來頁面
+
+**Status**: Accepted（#21）
+
+博客來對一般 HTTP client 全站回傳 Cloudflare challenge（HTTP 403、`cf-mitigated: challenge`），以 `requests` 取得頁面不可行。使用者已確認博客來允許爬取商品頁，且本專案為非商業用途；因此 crawler 的 fetcher 改用 Playwright 驅動 headless Chromium 取得排行榜頁與新書詳細頁。Fetcher 仍是可替換的接縫，解析器、正規化與 DB 邏輯不變。
+
+禮貌與邊界：
+
+- 每日一次、循序請求、每頁之間至少間隔 1 秒，只抓排行榜頁與「資料庫尚未有的新書」詳細頁。
+- 不使用反偵測或 stealth 外掛、CAPTCHA 代解服務或代理 IP 輪替。若瀏覽器仍無法取得頁面，該頁視為抓取失敗（依 `crawler.md` 的重試與跳過規則），需要人工重新評估，不自動升級繞過手段。
+
+- **Alternatives**: `requests` + 瀏覽器 User-Agent（已被 challenge 擋下）；Selenium；官方資料管道或授權。
+- **Trade-offs**: crawler image 需包含 Chromium，體積與記憶體需求增加，啟動較慢；換得能以一般瀏覽器的方式取得頁面，且 Playwright 內建等待頁面載入完成。
+- **Migration impact**: 只替換 fetcher 實作。從 EC2（雲端資料中心 IP）存取仍可能被 challenge，部署前須在 EC2 實測（`deployment.md` §8）；若不可行，回到 #21 的替代方案。

@@ -64,14 +64,18 @@ normalized 符合 ISBN-13（13 位數字）或 ISBN-10（9 位數字 + 數字或
 
 ## 4. Book 詳細頁
 
-顯示欄位（BOOK-01）：title、subtitle、contributors（含角色）、publisher、published date（依 `published_date_precision` 顯示，BOOK-03）、description、ISBN、subjects、page count、thumbnail、table of contents（若有）。
+顯示欄位（BOOK-01）：title、subtitle、contributors（含角色）、publisher、published date（依 `published_date_precision` 顯示，BOOK-03）、ISBN、subjects、page count、thumbnail。
+
+**不顯示 description 與 table of contents**（BOOK-05）：兩者只保存於資料庫供 Recommendation 讀取。Book 詳細頁的 view model 與任何 JSON 回應都不得包含這兩個欄位，避免日後誤顯示；書籍的完整介紹由來源網站提供。封面直接引用來源的 `thumbnail_url`，不轉存。
 
 外部連結（BOOK-02）：每個 `book_sources` row 各一個連結。
 
 | `source_type` | 連結文字 | URL |
 |---|---|---|
-| `BOOKS_COM_TW` | 在博客來查看 | `source_url` |
+| `BOOKS_COM_TW` | 在博客來查看完整介紹（醒目的主要按鈕） | `source_url` |
 | `GOOGLE_BOOKS` | 在 Google Books 查看 | `source_url` |
+
+只有 Google Books 來源的書，Google Books 連結即為主要按鈕。
 
 Library 狀態（BOOK-04）：已登入且該書在 Library 中時，顯示並可修改 Reading Status 與評分（行為見 `user-library.md`）。Library 狀態不進入 cache。
 

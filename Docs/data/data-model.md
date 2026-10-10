@@ -127,12 +127,14 @@ Canonical book metadata。
 | `published_date`           | `date`          |  yes |                        |
 | `published_date_precision` | `varchar(8)`    |  yes | `YEAR`, `MONTH`, `DAY` |
 | `language`                 | `varchar(16)`   |  yes |                        |
-| `description`              | `text`          |  yes | source-derived         |
-| `table_of_contents`        | `text`          |  yes | source-derived only    |
+| `description`              | `text`          |  yes | source-derived；僅供 AI，不顯示 |
+| `table_of_contents`        | `text`          |  yes | source-derived only；僅供 AI，不顯示 |
 | `page_count`               | `integer`       |  yes | `> 0`                  |
 | `thumbnail_url`            | `text`          |  yes |                        |
 | `created_at`               | `timestamptz`   |   no |                        |
 | `updated_at`               | `timestamptz`   |   no |                        |
+
+`description` 與 `table_of_contents` 不論來源都只供 Recommendation（LLM）讀取，不得出現在任何頁面或 API 回應中（product-requirements BOOK-05）。
 
 Google Books 的年份或年月日期必須搭配 `published_date_precision`，不得在 UI / API 中把補值日期當成來源確定日期。
 
