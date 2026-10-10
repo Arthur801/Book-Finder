@@ -3,7 +3,7 @@
 > Path: `Docs/modules/user-library.md`
 > Authority: Library Entry、Reading Status、評分
 > Requirements: LIB-01～06、BOOK-04
-> Data contract: `Docs/data/data-model.md` §5.10 `user_books`（程式中的 `UserBook` 即 Library Entry）
+> Data contract: `Docs/data/data-model.md` §5.10 `user_books`（程式中的 `LibraryEntry` entity 對應此表）
 
 ## 1. Scope
 

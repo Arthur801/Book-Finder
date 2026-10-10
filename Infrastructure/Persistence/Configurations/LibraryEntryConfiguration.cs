@@ -4,9 +4,9 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 namespace Book_Finder.Infrastructure.Persistence.Configurations;
 
-public class UserBookConfiguration : IEntityTypeConfiguration<UserBook>
+public class LibraryEntryConfiguration : IEntityTypeConfiguration<LibraryEntry>
 {
-    public void Configure(EntityTypeBuilder<UserBook> builder)
+    public void Configure(EntityTypeBuilder<LibraryEntry> builder)
     {
         builder.ToTable("user_books", t =>
         {

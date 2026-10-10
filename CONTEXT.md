@@ -38,7 +38,7 @@ _Avoid_: 書櫃、收藏夾
 
 **Library Entry**／書單項目：
 使用者收藏的一本 Book，帶有 Reading Status 與可選的評分。
-_Avoid_: UserBook（程式中的舊名稱）、收藏
+_Avoid_: UserBook（舊類別名稱）、收藏
 
 **Reading Status**／閱讀狀態：
 Library Entry 的閱讀進度：想讀（WANT_TO_READ）、閱讀中（READING）、已讀（FINISHED）。

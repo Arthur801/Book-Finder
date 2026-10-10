@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
+using Pgvector;
 
 #nullable disable
 
@@ -206,6 +207,36 @@ namespace Book_Finder.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Book_Finder.Domain.Entities.BookEmbedding", b =>
+                {
+                    b.Property<Guid>("BookId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("book_id");
+
+                    b.Property<Vector>("Embedding")
+                        .IsRequired()
+                        .HasColumnType("vector(1536)")
+                        .HasColumnName("embedding");
+
+                    b.Property<string>("ModelName")
+                        .IsRequired()
+                        .HasColumnType("varchar(100)")
+                        .HasColumnName("model_name");
+
+                    b.Property<string>("SourceContentHash")
+                        .IsRequired()
+                        .HasColumnType("char(64)")
+                        .HasColumnName("source_content_hash");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("BookId");
+
+                    b.ToTable("book_embeddings", (string)null);
+                });
+
             modelBuilder.Entity("Book_Finder.Domain.Entities.BookIdentifier", b =>
                 {
                     b.Property<Guid>("BookId")
@@ -304,6 +335,45 @@ namespace Book_Finder.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Book_Finder.Domain.Entities.LibraryEntry", b =>
+                {
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.Property<Guid>("BookId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("book_id");
+
+                    b.Property<DateTime>("AddedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("added_at");
+
+                    b.Property<short?>("Rating")
+                        .HasColumnType("smallint")
+                        .HasColumnName("rating");
+
+                    b.Property<string>("ReadingStatus")
+                        .IsRequired()
+                        .HasColumnType("varchar(20)")
+                        .HasColumnName("reading_status");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("UserId", "BookId");
+
+                    b.HasIndex("BookId");
+
+                    b.ToTable("user_books", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_user_books_rating", "rating BETWEEN 1 AND 5");
+
+                            t.HasCheckConstraint("ck_user_books_reading_status", "reading_status IN ('WANT_TO_READ', 'READING', 'FINISHED')");
+                        });
+                });
+
             modelBuilder.Entity("Book_Finder.Domain.Entities.RecommendationResult", b =>
                 {
                     b.Property<Guid>("SearchId")
@@ -360,7 +430,7 @@ namespace Book_Finder.Infrastructure.Persistence.Migrations
                         .HasColumnType("text")
                         .HasColumnName("requirement_text");
 
-                    b.Property<Guid?>("UserId")
+                    b.Property<Guid>("UserId")
                         .HasColumnType("uuid")
                         .HasColumnName("user_id");
 
@@ -407,45 +477,6 @@ namespace Book_Finder.Infrastructure.Persistence.Migrations
                     b.ToTable("users", (string)null);
                 });
 
-            modelBuilder.Entity("Book_Finder.Domain.Entities.UserBook", b =>
-                {
-                    b.Property<Guid>("UserId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("user_id");
-
-                    b.Property<Guid>("BookId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("book_id");
-
-                    b.Property<DateTime>("AddedAt")
-                        .HasColumnType("timestamptz")
-                        .HasColumnName("added_at");
-
-                    b.Property<short?>("Rating")
-                        .HasColumnType("smallint")
-                        .HasColumnName("rating");
-
-                    b.Property<string>("ReadingStatus")
-                        .IsRequired()
-                        .HasColumnType("varchar(20)")
-                        .HasColumnName("reading_status");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("timestamptz")
-                        .HasColumnName("updated_at");
-
-                    b.HasKey("UserId", "BookId");
-
-                    b.HasIndex("BookId");
-
-                    b.ToTable("user_books", null, t =>
-                        {
-                            t.HasCheckConstraint("ck_user_books_rating", "rating BETWEEN 1 AND 5");
-
-                            t.HasCheckConstraint("ck_user_books_reading_status", "reading_status IN ('WANT_TO_READ', 'READING', 'FINISHED')");
-                        });
-                });
-
             modelBuilder.Entity("Book_Finder.Domain.Entities.Bestseller", b =>
                 {
                     b.HasOne("Book_Finder.Domain.Entities.Book", null)
@@ -471,6 +502,15 @@ namespace Book_Finder.Infrastructure.Persistence.Migrations
                 });
 
             modelBuilder.Entity("Book_Finder.Domain.Entities.BookContributor", b =>
+                {
+                    b.HasOne("Book_Finder.Domain.Entities.Book", null)
+                        .WithMany()
+                        .HasForeignKey("BookId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Book_Finder.Domain.Entities.BookEmbedding", b =>
                 {
                     b.HasOne("Book_Finder.Domain.Entities.Book", null)
                         .WithMany()
@@ -506,6 +546,21 @@ namespace Book_Finder.Infrastructure.Persistence.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("Book_Finder.Domain.Entities.LibraryEntry", b =>
+                {
+                    b.HasOne("Book_Finder.Domain.Entities.Book", null)
+                        .WithMany()
+                        .HasForeignKey("BookId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Book_Finder.Domain.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Book_Finder.Domain.Entities.RecommendationResult", b =>
                 {
                     b.HasOne("Book_Finder.Domain.Entities.Book", null)
@@ -523,20 +578,6 @@ namespace Book_Finder.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("Book_Finder.Domain.Entities.RecommendationSearch", b =>
                 {
-                    b.HasOne("Book_Finder.Domain.Entities.User", null)
-                        .WithMany()
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade);
-                });
-
-            modelBuilder.Entity("Book_Finder.Domain.Entities.UserBook", b =>
-                {
-                    b.HasOne("Book_Finder.Domain.Entities.Book", null)
-                        .WithMany()
-                        .HasForeignKey("BookId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
                     b.HasOne("Book_Finder.Domain.Entities.User", null)
                         .WithMany()
                         .HasForeignKey("UserId")

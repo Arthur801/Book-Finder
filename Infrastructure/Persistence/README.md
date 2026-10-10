@@ -19,9 +19,10 @@ dotnet ef migrations list
 dotnet ef migrations has-pending-model-changes
 ```
 
-The migrations enable pgvector and create 11 application tables. `book_embeddings`
-is deliberately deferred until an embedding model and dimension are selected.
-Required non-vector indexes are already included; no ANN index is created.
+The migrations enable pgvector and create 12 application tables. `book_embeddings`
+stores one retrieval embedding per Book as `vector(1536)` (OpenAI
+`text-embedding-3-small`), with a cascading FK to `books`. Required non-vector indexes
+are already included; no ANN index is created (MVP uses exact vector search).
 
 Expression indexes on `lower(email)` and `lower(name)` are implemented explicitly
 in migration SQL, since they cannot be represented by ordinary EF property indexes.
@@ -54,7 +55,8 @@ dotnet test
 - `ModelSnapshotTests` (no Docker): the EF model matches the migration snapshot;
   bestseller FKs restrict deletion.
 - `SchemaTests`: all migrations applied; EF roundtrips for UUID/date/UTC/jsonb/
-  arrays/nullable fields; anonymous recommendation searches.
+  arrays/nullable fields. Recommendation searches always belong to a user
+  (`user_id` NOT NULL, no anonymous searches).
 - `constraints.sql` (run by `SchemaTests`): required tables, vector operations,
   required and expression indexes, unique/composite/1:1 keys, enum/range/null/FK
   constraints, cascade/restrict deletion, and statement-level atomicity of a failed

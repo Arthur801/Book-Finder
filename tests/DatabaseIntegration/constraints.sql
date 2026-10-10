@@ -21,9 +21,8 @@ $fn$;
 SELECT pg_temp.assert_true(
     (SELECT bool_and(to_regclass(name) IS NOT NULL) FROM unnest(ARRAY[
       'books', 'book_sources', 'book_identifiers', 'book_contributors', 'book_subjects', 'book_ai_profiles',
-      'users', 'user_books', 'bestsellers', 'recommendation_searches', 'recommendation_results']) AS name),
+      'users', 'user_books', 'bestsellers', 'recommendation_searches', 'recommendation_results', 'book_embeddings']) AS name),
     'required application tables');
-SELECT pg_temp.assert_true(to_regclass('book_embeddings') IS NULL, 'embedding dimension remains undecided');
 SELECT pg_temp.assert_true(EXISTS(SELECT 1 FROM pg_extension WHERE extname = 'vector'), 'vector enabled');
 SELECT pg_temp.assert_true('[1,2,3]'::vector <-> '[1,2,3]'::vector = 0, 'vector distance');
 SELECT pg_temp.assert_true(
@@ -65,6 +64,8 @@ INSERT INTO book_contributors(book_id, contributor_order, name, role) VALUES ('0
 INSERT INTO book_subjects(book_id, subject, source_type) VALUES ('00000000-0000-0000-0000-000000000003', 'Test', 'BOOKS_COM_TW');
 INSERT INTO book_ai_profiles(book_id, difficulty, source_content_hash, model_name, prompt_version, updated_at)
  VALUES ('00000000-0000-0000-0000-000000000003', NULL, repeat('a', 64), 'fixture', 'v1', now());
+INSERT INTO book_embeddings(book_id, embedding, model_name, source_content_hash, updated_at)
+ VALUES ('00000000-0000-0000-0000-000000000003', array_fill(0.2::real, ARRAY[1536])::vector, 'text-embedding-3-small', repeat('c', 64), now());
 -- Each bestseller row uses the same Book's BOOKS_COM_TW source (Docs/modules/crawler.md §9).
 INSERT INTO bestsellers(rank, book_id, source_id, captured_at) VALUES
  (1, '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000301', now()),
@@ -120,6 +121,16 @@ SELECT pg_temp.expect_failure($stmt$INSERT INTO recommendation_results(search_id
 SELECT pg_temp.expect_failure($stmt$INSERT INTO recommendation_results(search_id, book_id, rank, relevance_score, reason) VALUES('00000000-0000-0000-0000-000000000201','00000000-0000-0000-0000-000000000003',1,NULL,'duplicate rank')$stmt$, '23505');
 -- AI profile is 1:1 with Book
 SELECT pg_temp.expect_failure($stmt$INSERT INTO book_ai_profiles(book_id, difficulty, source_content_hash, model_name, prompt_version, updated_at) VALUES('00000000-0000-0000-0000-000000000003',NULL,repeat('b',64),'fixture','v2',now())$stmt$, '23505');
+-- embedding dimension must be exactly 1536 (Docs/data/data-model.md §5.7)
+INSERT INTO book_embeddings(book_id, embedding, model_name, source_content_hash, updated_at)
+ VALUES ('00000000-0000-0000-0000-000000000001', array_fill(0.1::real, ARRAY[1536])::vector, 'text-embedding-3-small', repeat('c', 64), now());
+SELECT pg_temp.expect_failure($stmt$INSERT INTO book_embeddings(book_id, embedding, model_name, source_content_hash, updated_at) VALUES('00000000-0000-0000-0000-000000000002','[1,2,3]'::vector,'text-embedding-3-small',repeat('c',64),now())$stmt$, '22000');
+-- one embedding row per Book
+SELECT pg_temp.expect_failure($stmt$INSERT INTO book_embeddings(book_id, embedding, model_name, source_content_hash, updated_at) VALUES('00000000-0000-0000-0000-000000000001',array_fill(0.3::real, ARRAY[1536])::vector,'text-embedding-3-small',repeat('d',64),now())$stmt$, '23505');
+-- cosine distance operator works on the stored embedding (identical vectors have distance ~0)
+SELECT pg_temp.assert_true(
+    abs((SELECT embedding FROM book_embeddings WHERE book_id='00000000-0000-0000-0000-000000000001') <=> array_fill(0.1::real, ARRAY[1536])::vector) < 1e-6,
+    'cosine distance of identical embeddings is zero');
 -- contributor order unique per book
 SELECT pg_temp.expect_failure($stmt$INSERT INTO book_contributors(book_id, contributor_order, name, role) VALUES('00000000-0000-0000-0000-000000000003',1,'Other Author','EDITOR')$stmt$, '23505');
 -- subject unique per book and source
@@ -161,7 +172,10 @@ SELECT pg_temp.assert_true(NOT EXISTS(SELECT 1 FROM book_identifiers WHERE book_
 SELECT pg_temp.assert_true(NOT EXISTS(SELECT 1 FROM book_contributors WHERE book_id='00000000-0000-0000-0000-000000000003'), 'contributor cascade');
 SELECT pg_temp.assert_true(NOT EXISTS(SELECT 1 FROM book_subjects WHERE book_id='00000000-0000-0000-0000-000000000003'), 'subject cascade');
 SELECT pg_temp.assert_true(NOT EXISTS(SELECT 1 FROM book_ai_profiles WHERE book_id='00000000-0000-0000-0000-000000000003'), 'AI profile cascade');
+SELECT pg_temp.assert_true(NOT EXISTS(SELECT 1 FROM book_embeddings WHERE book_id='00000000-0000-0000-0000-000000000003'), 'embedding cascade');
 DELETE FROM bestsellers;
+-- recommendation search requires a user (data-model 5.11, invariant 16)
+SELECT pg_temp.expect_failure($stmt$INSERT INTO recommendation_searches(id, user_id, requirement_text, fallback_used, created_at) VALUES(gen_random_uuid(),NULL,'anonymous',false,now())$stmt$, '23502');
 -- recommendation results still restrict deleting a referenced Book
 SELECT pg_temp.expect_failure($stmt$DELETE FROM books WHERE id='00000000-0000-0000-0000-000000000001'$stmt$, '23503');
 -- with no bestseller reference left, the bestseller-only Book can be deleted
