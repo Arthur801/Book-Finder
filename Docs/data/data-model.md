@@ -300,6 +300,8 @@ Primary key:
 book_id
 ```
 
+Foreign key：`book_id` → `books.id`，`ON DELETE CASCADE`（同 `book_ai_profiles`）。
+
 Embedding model 為 OpenAI `text-embedding-3-small`（1536 維）。更換 model 代表新 migration 與全部向量重建，不只是改設定。
 
 沒有 `book_embeddings` row 的 Book 不會進入 Candidate Set。
@@ -522,17 +524,18 @@ ISBN 格式輸入 → book_identifiers 精確比對
 005_recommendation_history
 006_ai_profile
 007_indexes
+008_require_recommendation_user
+009_embedding
 ```
 
-以上 7 個 migration 已建立 11 張表與非向量索引（EF migration：`EnablePgvector`、`Catalog`、
-`IdentityUserLibrary`、`Bestseller`、`RecommendationHistory`、`AiProfile`、`Indexes`）。
+以上 9 個 migration 建立 12 張表與非向量索引（EF migration：`EnablePgvector`、`Catalog`、
+`IdentityUserLibrary`、`Bestseller`、`RecommendationHistory`、`AiProfile`、`Indexes`、
+`RequireRecommendationUser`、`Embedding`）。
 
-待新增（不回寫已套用的 migration）：
+- `008_require_recommendation_user`：`recommendation_searches.user_id` 改為 NOT NULL（§5.11）。不含資料步驟：既有 `user_id IS NULL` 的 row 會使 migration 失敗，需先處理。
+- `009_embedding`：建立 `book_embeddings`（`vector(1536)`，見 §5.7）。
 
-```text
-008_require_recommendation_user   recommendation_searches.user_id → NOT NULL
-009_embedding                     book_embeddings，vector(1536)
-```
+新的 schema 變更一律新增 migration，不回寫已套用的 migration。
 
 Catalog 子表 `book_identifiers`、`book_contributors`、`book_subjects` 的 `book_id`
 均為 FK → `books.id`，刪除採 CASCADE；`bestsellers` 的 Book / BookSource FK 採 RESTRICT。

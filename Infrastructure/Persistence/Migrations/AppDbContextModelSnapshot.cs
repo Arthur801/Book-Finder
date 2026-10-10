@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
+using Pgvector;
 
 #nullable disable
 
@@ -204,6 +205,36 @@ namespace Book_Finder.Infrastructure.Persistence.Migrations
                         {
                             t.HasCheckConstraint("ck_book_contributors_role", "role IN ('AUTHOR', 'ORIGINAL_AUTHOR', 'TRANSLATOR', 'EDITOR', 'ILLUSTRATOR', 'OTHER')");
                         });
+                });
+
+            modelBuilder.Entity("Book_Finder.Domain.Entities.BookEmbedding", b =>
+                {
+                    b.Property<Guid>("BookId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("book_id");
+
+                    b.Property<Vector>("Embedding")
+                        .IsRequired()
+                        .HasColumnType("vector(1536)")
+                        .HasColumnName("embedding");
+
+                    b.Property<string>("ModelName")
+                        .IsRequired()
+                        .HasColumnType("varchar(100)")
+                        .HasColumnName("model_name");
+
+                    b.Property<string>("SourceContentHash")
+                        .IsRequired()
+                        .HasColumnType("char(64)")
+                        .HasColumnName("source_content_hash");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("BookId");
+
+                    b.ToTable("book_embeddings", (string)null);
                 });
 
             modelBuilder.Entity("Book_Finder.Domain.Entities.BookIdentifier", b =>
@@ -471,6 +502,15 @@ namespace Book_Finder.Infrastructure.Persistence.Migrations
                 });
 
             modelBuilder.Entity("Book_Finder.Domain.Entities.BookContributor", b =>
+                {
+                    b.HasOne("Book_Finder.Domain.Entities.Book", null)
+                        .WithMany()
+                        .HasForeignKey("BookId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Book_Finder.Domain.Entities.BookEmbedding", b =>
                 {
                     b.HasOne("Book_Finder.Domain.Entities.Book", null)
                         .WithMany()

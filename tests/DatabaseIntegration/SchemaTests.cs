@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Book_Finder.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
+using Pgvector;
 
 namespace DatabaseIntegration;
 
@@ -55,6 +56,30 @@ public class SchemaTests(PostgresFixture fixture)
         Assert.Equal("inferred overview", savedProfile.Framework?.RootElement.GetProperty("kind").GetString());
         Assert.Equal(["PostgreSQL", "測試"], Assert.IsType<string[]>(savedProfile.KeyTopics));
         savedProfile.Framework?.Dispose();
+        await transaction.RollbackAsync();
+    }
+
+    [Fact]
+    public async Task Ef_mapping_roundtrips_1536_dimension_embedding()
+    {
+        await using var db = fixture.CreateContext();
+        await using var transaction = await db.Database.BeginTransactionAsync();
+        var now = DateTime.UtcNow;
+        var book = new Book { Title = "EF embedding roundtrip", CreatedAt = now, UpdatedAt = now };
+        db.Books.Add(book);
+        await db.SaveChangesAsync();
+        var values = Enumerable.Range(0, 1536).Select(i => i / 1536f).ToArray();
+        db.BookEmbeddings.Add(new BookEmbedding
+        {
+            BookId = book.Id, Embedding = new Vector(values), ModelName = "text-embedding-3-small",
+            SourceContentHash = new string('e', 64), UpdatedAt = now
+        });
+        await db.SaveChangesAsync();
+        db.ChangeTracker.Clear();
+
+        var saved = await db.BookEmbeddings.SingleAsync(x => x.BookId == book.Id);
+        Assert.Equal(values, saved.Embedding.ToArray());
+        Assert.Equal("text-embedding-3-small", saved.ModelName);
         await transaction.RollbackAsync();
     }
 }

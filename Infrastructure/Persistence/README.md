@@ -19,9 +19,10 @@ dotnet ef migrations list
 dotnet ef migrations has-pending-model-changes
 ```
 
-The migrations enable pgvector and create 11 application tables. `book_embeddings`
-is deliberately deferred until an embedding model and dimension are selected.
-Required non-vector indexes are already included; no ANN index is created.
+The migrations enable pgvector and create 12 application tables. `book_embeddings`
+stores one retrieval embedding per Book as `vector(1536)` (OpenAI
+`text-embedding-3-small`), with a cascading FK to `books`. Required non-vector indexes
+are already included; no ANN index is created (MVP uses exact vector search).
 
 Expression indexes on `lower(email)` and `lower(name)` are implemented explicitly
 in migration SQL, since they cannot be represented by ordinary EF property indexes.
