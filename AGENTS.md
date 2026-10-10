@@ -96,10 +96,10 @@ Docs/
 - 博客來來源 Book 以商品 URL 判斷是否已存在。
 - 既有 Book 不因每日榜單刷新重新抓完整 metadata。
 - 排行榜頁必須完整解析 100 筆，否則整次失敗。
-- 新書詳細頁重試 3 次仍失敗則跳過；跳過 ≤ 10 本為部分成功並替換榜單，> 10 本整次失敗。
+- 新書詳細頁最多嘗試 3 次（含第一次）仍失敗則跳過；跳過 ≤ 10 本為部分成功並替換榜單，> 10 本整次失敗。
 - Bestseller 只保留最新榜單，rank 保留博客來原始排名，被跳過的排名缺號、不重新編號。
 - 新榜單尚未成功驗證前，不應先破壞上一份有效榜單。
-- Fetcher 以 Playwright headless Chromium 取得頁面（ADR-006）；不使用反偵測 / stealth 外掛、CAPTCHA 代解或代理 IP 輪替。測試不連線博客來。
+- Fetcher 以 Playwright headless Chromium 取得頁面（ADR-006）；使用一般桌面 Chrome User-Agent 與 zh-TW 語系（使用者於 2026-10-11 核准）；其他反偵測 / stealth 外掛、`navigator.webdriver` 或 fingerprint 修補、CAPTCHA 代解或代理 IP 輪替一律禁止。測試不連線博客來。
 
 ### Search
 

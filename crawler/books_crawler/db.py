@@ -61,6 +61,15 @@ def find_book_by_isbn(conn: psycopg.Connection, identifiers: Sequence[Identifier
     return None
 
 
+def booksdotcom_source_books(conn: psycopg.Connection, source_ids: Sequence[UUID]) -> dict[UUID, UUID]:
+    """Map each BOOKS_COM_TW Book Source id among ``source_ids`` to the Book it belongs to."""
+    rows = conn.execute(
+        "SELECT id, book_id FROM book_sources WHERE source_type = %s AND id = ANY(%s)",
+        (SourceType.BOOKS_COM_TW, list(source_ids)),
+    ).fetchall()
+    return {row[0]: row[1] for row in rows}
+
+
 def _insert_source(conn: psycopg.Connection, source_id: UUID, book_id: UUID, source_url: str, now: datetime) -> None:
     conn.execute(
         """

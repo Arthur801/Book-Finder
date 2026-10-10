@@ -75,6 +75,7 @@ MVP 只有單一 Web instance。Cache 只存可由 PostgreSQL 重建的唯讀資
 
 - 每日一次、循序請求、每頁之間至少間隔 1 秒，只抓排行榜頁與「資料庫尚未有的新書」詳細頁。
 - 不使用反偵測或 stealth 外掛、CAPTCHA 代解服務或代理 IP 輪替。若瀏覽器仍無法取得頁面，該頁視為抓取失敗（依 `crawler.md` 的重試與跳過規則），需要人工重新評估，不自動升級繞過手段。
+- **使用者決定（2026-10-11，核准）**：瀏覽器 fetcher 使用一般桌面 Chrome User-Agent（`BROWSER_USER_AGENT`）與 `zh-TW` 語系。這是一般瀏覽器的正常設定，不是偽裝。除此之外，所有其他反偵測措施仍然禁止：不使用 stealth 外掛、不修改 `navigator.webdriver` 或其他 fingerprint、不使用 CAPTCHA 代解服務、不使用代理 IP 輪替、不因 challenge 而改用其他繞過手段。
 
 - **Alternatives**: `requests` + 瀏覽器 User-Agent（已被 challenge 擋下）；Selenium；官方資料管道或授權。
 - **Trade-offs**: crawler image 需包含 Chromium，體積與記憶體需求增加，啟動較慢；換得能以一般瀏覽器的方式取得頁面，且 Playwright 內建等待頁面載入完成。

@@ -1,24 +1,38 @@
 """Command-line entry point: ``python -m books_crawler`` (run from the ``crawler`` directory).
 
 Environment:
-    DATABASE_URL  PostgreSQL connection URL of the shared database (required; never logged).
+    DATABASE_URL            PostgreSQL connection URL of the shared database (required; secret, never logged).
+    CRAWLER_FETCHER         Page fetcher: ``browser`` (default, headless Chromium via Playwright, ADR-006)
+                            or ``http`` (requests; debugging only, blocked by books.com.tw's challenge).
+    CRAWLER_NAV_TIMEOUT_MS  Browser navigation timeout in milliseconds (1..300000; default 30000).
+                            Empty means the default. Only used by the browser fetcher.
 
-Exit codes: 0 = SUCCESS, 1 = FAILED (bestsellers unchanged), 2 = configuration error.
+Exit codes: 0 = SUCCESS or PARTIAL_SUCCESS (bestsellers replaced), 1 = FAILED (bestsellers unchanged),
+2 = configuration error.
 """
 
 from __future__ import annotations
 
 import logging
 import os
+import re
 import sys
 from collections.abc import Mapping
 
 from books_crawler import db
-from books_crawler.fetcher import HttpFetcher
+from books_crawler.fetcher import (
+    DEFAULT_NAVIGATION_TIMEOUT_MS,
+    MAX_NAVIGATION_TIMEOUT_MS,
+    FetcherKind,
+    HttpFetcher,
+    PlaywrightFetcher,
+)
 from books_crawler.parsers import parse_detail_html, parse_ranking_html
 from books_crawler.run import RunDependencies, run_once
 
 EXIT_CONFIG_ERROR = 2
+FETCHER_ENV = "CRAWLER_FETCHER"
+NAVIGATION_TIMEOUT_ENV = "CRAWLER_NAV_TIMEOUT_MS"
 
 
 def _configure_logging() -> logging.Logger:
@@ -28,6 +42,19 @@ def _configure_logging() -> logging.Logger:
     root.handlers[:] = [handler]
     root.setLevel(logging.INFO)
     return root
+
+
+def parse_navigation_timeout(raw: str) -> int:
+    """Return the navigation timeout in ms. Empty means the default; anything else must be a whole number in range."""
+    value = raw.strip()
+    if not value:
+        return DEFAULT_NAVIGATION_TIMEOUT_MS
+    if re.fullmatch(r"[0-9]+", value) is None:
+        raise ValueError(f"must be a whole number of milliseconds, not {raw!r}")
+    milliseconds = int(value)
+    if not 1 <= milliseconds <= MAX_NAVIGATION_TIMEOUT_MS:
+        raise ValueError(f"must be between 1 and {MAX_NAVIGATION_TIMEOUT_MS} milliseconds, not {milliseconds}")
+    return milliseconds
 
 
 def main(environ: Mapping[str, str] | None = None) -> int:
@@ -40,13 +67,38 @@ def main(environ: Mapping[str, str] | None = None) -> int:
         log.error("DATABASE_URL is not set; nothing was crawled")
         return EXIT_CONFIG_ERROR
 
+    try:
+        navigation_timeout_ms = parse_navigation_timeout(env.get(NAVIGATION_TIMEOUT_ENV, ""))
+    except ValueError as exc:
+        log.error("%s %s", NAVIGATION_TIMEOUT_ENV, exc)
+        return EXIT_CONFIG_ERROR
+
+    raw_kind = env.get(FETCHER_ENV, "")
+    try:
+        kind = FetcherKind(raw_kind.strip().lower() or FetcherKind.BROWSER)
+    except ValueError:
+        choices = " or ".join(f"'{item.value}'" for item in FetcherKind)
+        log.error("%s must be %s, not %r", FETCHER_ENV, choices, raw_kind)
+        return EXIT_CONFIG_ERROR
+
+    fetcher: HttpFetcher | PlaywrightFetcher
+    if kind is FetcherKind.BROWSER:
+        fetcher = PlaywrightFetcher(navigation_timeout_ms=navigation_timeout_ms)
+    else:
+        fetcher = HttpFetcher()
+    log.info("using %s fetcher", kind.value)
+
     deps = RunDependencies(
-        fetcher=HttpFetcher(),
+        fetcher=fetcher,
         parse_ranking=parse_ranking_html,
         parse_detail=parse_detail_html,
         connect=lambda: db.connect(database_url),
     )
-    return run_once(deps).exit_code
+    # The browser must be closed however the run ends: normal result, FAILED, or an exception.
+    try:
+        return run_once(deps).exit_code
+    finally:
+        fetcher.close()
 
 
 if __name__ == "__main__":

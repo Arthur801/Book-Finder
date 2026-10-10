@@ -19,6 +19,7 @@ from books_crawler.run import RunDependencies, run_once
 from tests.fakes import (
     RANKING_FIXTURE,
     FakeFetcher,
+    FakeSleep,
     detail_fixture_name,
     detail_without_product_container,
     detail_without_title,
@@ -60,7 +61,7 @@ def seed_existing_sources(url: str, source_urls: list[str]) -> None:
             db.persist_new_source(conn, make_draft(source_url), NOW)
 
 
-def run_with(db_url: str, ranking_html: str, detail_pages: dict[str, str]):
+def run_with(db_url: str, ranking_html: str, detail_pages: dict[str, str], sleep: FakeSleep | None = None):
     pages = {RANKING_PAGE_URL: ranking_html, **detail_pages}
     fetcher = FakeFetcher(pages=pages)
     deps = RunDependencies(
@@ -69,6 +70,7 @@ def run_with(db_url: str, ranking_html: str, detail_pages: dict[str, str]):
         parse_detail=parse_detail_html,
         connect=lambda: db.connect(db_url),
         clock=lambda: NOW,
+        sleep=sleep if sleep is not None else FakeSleep(),
     )
     return run_once(deps), fetcher
 
@@ -203,22 +205,38 @@ def test_derived_duplicate_product_url_fails_and_keeps_bestsellers(successful_ba
     assert bestsellers(successful_baseline) == previous
 
 
-def test_derived_new_source_without_title_fails_and_keeps_bestsellers(successful_baseline):
+def _assert_derived_source_skipped(db_url, report, fetcher, previous, error_fragment):
+    """The derived new source is retried 3 times, skipped at its rank, and writes nothing."""
+    assert report.status is RunStatus.PARTIAL_SUCCESS
+    assert report.exit_code == 0
+    assert [item.rank for item in report.skipped] == [DERIVED_RANK]
+    skipped = report.skipped[0]
+    assert (skipped.url, skipped.failure.error_type, skipped.failure.attempts) == (DERIVED_NEW_SOURCE_URL, "parse_error", 3)
+    assert error_fragment in skipped.failure.error_message
+    assert fetcher.detail_calls() == [DERIVED_NEW_SOURCE_URL] * 3
+    snapshot = bestsellers(db_url)
+    assert [row[0] for row in snapshot] == [rank for rank in range(1, 101) if rank != DERIVED_RANK]
+    assert [row[1:3] for row in snapshot if row[0] < DERIVED_RANK] == [
+        row[1:3] for row in previous if row[0] < DERIVED_RANK
+    ]
+    assert query(db_url, "SELECT count(*) FROM book_sources WHERE source_url = %s", (DERIVED_NEW_SOURCE_URL,)) == [(0,)]
+
+
+def test_derived_new_source_without_title_is_retried_then_skipped_without_an_empty_book(successful_baseline):
     previous = bestsellers(successful_baseline)
+    books_before = count(successful_baseline, "books")
     ranking = ranking_with_source_at_rank(fixture_html(RANKING_FIXTURE), DERIVED_RANK, DERIVED_NEW_SOURCE_URL)
     broken_detail = detail_without_title(fixture_html(detail_fixture_name("0011062863")))
-    pages = {DERIVED_NEW_SOURCE_URL: broken_detail}
+    sleep = FakeSleep()
 
-    report, fetcher = run_with(successful_baseline, ranking, pages)
+    report, fetcher = run_with(successful_baseline, ranking, {DERIVED_NEW_SOURCE_URL: broken_detail}, sleep=sleep)
 
-    assert report.status is RunStatus.FAILED
-    assert "title" in report.error
-    assert fetcher.detail_calls() == [DERIVED_NEW_SOURCE_URL]
-    assert bestsellers(successful_baseline) == previous
-    assert query(successful_baseline, "SELECT count(*) FROM book_sources WHERE source_url = %s", (DERIVED_NEW_SOURCE_URL,)) == [(0,)]
+    _assert_derived_source_skipped(successful_baseline, report, fetcher, previous, "title")
+    assert sleep.calls == [1.0, 2.0]
+    assert count(successful_baseline, "books") == books_before  # no empty Book was written
 
 
-def test_derived_new_source_without_product_container_fails_and_keeps_bestsellers(successful_baseline):
+def test_derived_new_source_without_product_container_is_retried_then_skipped(successful_baseline):
     """The layout changed: the product container is gone. Nothing may be read from the rest of the page."""
     previous = bestsellers(successful_baseline)
     ranking = ranking_with_source_at_rank(fixture_html(RANKING_FIXTURE), DERIVED_RANK, DERIVED_NEW_SOURCE_URL)
@@ -226,8 +244,4 @@ def test_derived_new_source_without_product_container_fails_and_keeps_bestseller
 
     report, fetcher = run_with(successful_baseline, ranking, {DERIVED_NEW_SOURCE_URL: broken_detail})
 
-    assert report.status is RunStatus.FAILED
-    assert "main_column" in report.error
-    assert fetcher.detail_calls() == [DERIVED_NEW_SOURCE_URL]
-    assert bestsellers(successful_baseline) == previous
-    assert query(successful_baseline, "SELECT count(*) FROM book_sources WHERE source_url = %s", (DERIVED_NEW_SOURCE_URL,)) == [(0,)]
+    _assert_derived_source_skipped(successful_baseline, report, fetcher, previous, "main_column")

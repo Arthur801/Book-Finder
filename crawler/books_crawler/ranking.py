@@ -1,7 +1,8 @@
 """Ranking validation (crawler.md §4) and snapshot validation (crawler.md §10).
 
-A ranking is all-or-nothing: any violation raises and the run fails without touching the current
-bestsellers. Skipping rules belong to issue #7, not here.
+The ranking page is all-or-nothing: any violation raises and the run fails without touching the
+current bestsellers. Skipping applies only to new detail pages (run.py, crawler.md §6); it never
+relaxes ``validate_ranking``.
 
 Product URLs are canonicalized once, by the ranking parser (``parsers.parse_ranking_html``), so
 the rows validated here already carry canonical URLs.
@@ -9,11 +10,14 @@ the rows validated here already carry canonical URLs.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
+from uuid import UUID
 
 from books_crawler.models import RankingRow, SnapshotRow
 
 EXPECTED_RANKING_COUNT = 100
+MAX_SKIPPED_ROWS = 10  # crawler.md §6: more skipped rows than this fails the run
+MIN_SNAPSHOT_ROWS = EXPECTED_RANKING_COUNT - MAX_SKIPPED_ROWS  # crawler.md §10
 
 
 class RankingValidationError(Exception):
@@ -27,6 +31,11 @@ class SnapshotValidationError(Exception):
 def _has_exact_ranks(ranks: Iterable[int]) -> bool:
     """True when the ranks are exactly 1..100, each once (crawler.md §4)."""
     return sorted(ranks) == list(range(1, EXPECTED_RANKING_COUNT + 1))
+
+
+def _has_unique_ranks_in_range(ranks: Sequence[int]) -> bool:
+    """True when every rank is within 1..100 and no rank appears twice (snapshot may have gaps)."""
+    return all(1 <= rank <= EXPECTED_RANKING_COUNT for rank in ranks) and len(set(ranks)) == len(ranks)
 
 
 def validate_ranking(rows: Sequence[RankingRow]) -> list[RankingRow]:
@@ -52,16 +61,28 @@ def validate_ranking(rows: Sequence[RankingRow]) -> list[RankingRow]:
     return ordered
 
 
-def validate_snapshot(rows: Sequence[SnapshotRow]) -> list[SnapshotRow]:
-    """Check the rows that will replace ``bestsellers``.
+def validate_snapshot(rows: Sequence[SnapshotRow], source_books: Mapping[UUID, UUID]) -> list[SnapshotRow]:
+    """Check the rows that will replace ``bestsellers`` (crawler.md §10).
 
-    Requires exactly 100 rows (no skips exist before issue #7), ranks exactly 1..100 and a
-    book_id that appears once (``bestsellers.book_id`` is UNIQUE).
+    - 90..100 rows (at most ``MAX_SKIPPED_ROWS`` ranks missing);
+    - ranks within 1..100 and unique (gaps are allowed, renumbering is not);
+    - ``book_id`` unique (``bestsellers.book_id`` is UNIQUE);
+    - every ``source_id`` is a BOOKS_COM_TW Book Source of that row's own Book.
+
+    ``source_books`` maps the ``source_id`` of each BOOKS_COM_TW Book Source to its ``book_id``, as
+    read from the database by the caller. A source missing from the mapping is not valid.
     """
-    if len(rows) != EXPECTED_RANKING_COUNT:
-        raise SnapshotValidationError(f"snapshot must have {EXPECTED_RANKING_COUNT} rows, got {len(rows)}")
-    if not _has_exact_ranks(row.rank for row in rows):
-        raise SnapshotValidationError("snapshot ranks must be exactly 1..100, each once")
+    if not MIN_SNAPSHOT_ROWS <= len(rows) <= EXPECTED_RANKING_COUNT:
+        raise SnapshotValidationError(
+            f"snapshot must have {MIN_SNAPSHOT_ROWS}..{EXPECTED_RANKING_COUNT} rows, got {len(rows)}"
+        )
+    if not _has_unique_ranks_in_range([row.rank for row in rows]):
+        raise SnapshotValidationError("snapshot ranks must be within 1..100 and unique")
     if len({row.book_id for row in rows}) != len(rows):
         raise SnapshotValidationError("snapshot book_id must be unique")
+    for row in rows:
+        if source_books.get(row.source_id) != row.book_id:
+            raise SnapshotValidationError(
+                f"rank {row.rank}: source {row.source_id} is not a BOOKS_COM_TW source of Book {row.book_id}"
+            )
     return sorted(rows, key=lambda item: item.rank)
