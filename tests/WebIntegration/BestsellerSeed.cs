@@ -7,7 +7,9 @@ public sealed record RankedBook(
     short Rank,
     string Title,
     string? ThumbnailUrl = null,
-    IReadOnlyList<(string Name, ContributorRole Role)>? Contributors = null);
+    IReadOnlyList<ContributorSeed>? Contributors = null);
+
+public sealed record ContributorSeed(short ContributorOrder, string Name, ContributorRole Role);
 
 // Seeds Books, their Books.com.tw Book Sources, contributors and Bestseller rows directly through AppDbContext.
 public static class BestsellerSeed
@@ -42,15 +44,14 @@ public static class BestsellerSeed
                 FirstSeenAt = now,
                 LastSeenAt = now
             });
-            var contributors = item.Contributors ?? [];
-            for (var order = 0; order < contributors.Count; order++)
+            foreach (var contributor in item.Contributors ?? [])
             {
                 db.BookContributors.Add(new BookContributor
                 {
                     BookId = bookId,
-                    ContributorOrder = (short)(order + 1),
-                    Name = contributors[order].Name,
-                    Role = contributors[order].Role
+                    ContributorOrder = contributor.ContributorOrder,
+                    Name = contributor.Name,
+                    Role = contributor.Role
                 });
             }
             db.Bestsellers.Add(new Bestseller

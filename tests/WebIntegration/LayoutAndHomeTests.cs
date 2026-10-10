@@ -14,7 +14,7 @@ public sealed class LayoutAndHomeTests(WebFixture fixture)
         await fixture.ResetCatalogAsync();
         await using var app = fixture.CreateFactory();
 
-        var html = await app.CreateClient().GetOkAsync(path);
+        var html = await app.CreateClient().GetPageAsync(path);
 
         Assert.Matches("<a [^>]*href=\"/\"[^>]*>好想找書</a>", html);
         Assert.Matches("<a [^>]*href=\"/bestsellers\"[^>]*>暢銷榜</a>", html);
@@ -29,14 +29,13 @@ public sealed class LayoutAndHomeTests(WebFixture fixture)
     {
         await fixture.ResetCatalogAsync();
         await using var app = fixture.CreateFactory();
-
         var client = app.CreateClient();
 
         var response = await client.GetAsync("/Home/Privacy");
-        var html = await client.GetOkAsync("/");
+        var html = await client.GetPageAsync("/");
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
-        Assert.DoesNotContain("Privacy", html);
+        Assert.DoesNotMatch("(?i)href=\"[^\"]*privacy", html);
     }
 
     [Fact]
@@ -45,7 +44,7 @@ public sealed class LayoutAndHomeTests(WebFixture fixture)
         await fixture.ResetCatalogAsync();
         await using var app = fixture.CreateFactory();
 
-        var html = await app.CreateClient().GetOkAsync("/");
+        var html = await app.CreateClient().GetPageAsync("/");
 
         Assert.Matches("<form [^>]*action=\"/search\"[^>]*>", html);
         Assert.Contains("name=\"q\"", html);

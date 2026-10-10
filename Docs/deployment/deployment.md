@@ -36,6 +36,8 @@ MVP 沒有 staging；L4 變更以本機或拋棄式資料庫 dry run 取代。
 
 `web` 必須設定 Forwarded Headers，只信任 `nginx` 的位址（`identity-auth.md` §7 rate limiting 依賴正確的 client IP）。
 
+`web` image 必須包含 tzdata（`/usr/share/zoneinfo`），並保留 ICU（除非以 invariant globalization 執行），以便以 `Asia/Taipei` 顯示 `captured_at`（`bestseller.md` §4）。若執行環境找不到該時區，程式會退回固定 UTC+08:00（台灣無夏令時間，顯示結果相同），不會因此回 500。
+
 ## 4. TLS（nginx + ZeroSSL）
 
 - 憑證由 host 上的 `acme.sh` 向 ZeroSSL 簽發（需先以 email 註冊 ZeroSSL 帳號），使用 webroot 驗證（nginx 提供 `/.well-known/acme-challenge/`）。

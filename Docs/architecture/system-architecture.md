@@ -114,7 +114,7 @@ flowchart LR
 | Recommendation | 需求解析、候選檢索、fallback、排序、Recommendation Search、embedding / AI Profile 補齊、每日上限 | `modules/recommendation.md` |
 | Library | Library Entry、Reading Status、評分 | `modules/user-library.md` |
 
-模組間透過 Application 層介面互動，不直接讀寫其他模組擁有的資料表（資料表擁有權見 `data/data-model.md`）。
+模組間透過 Application 層介面互動，不直接讀寫其他模組擁有的資料表（資料表擁有權見 `data/data-model.md`）。例外：唯讀的顯示查詢（例如 `bestsellers JOIN books`，見 `modules/bestseller.md` §2）可直接讀取 Book Catalog 擁有的 `books` 及其子表；寫入一律經由擁有該表的模組。
 
 ---
 

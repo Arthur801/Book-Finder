@@ -14,9 +14,9 @@ public sealed class BestsellerPageTests(WebFixture fixture)
         await BestsellerSeed.SeedAsync(fixture, BestsellerSeed.Ranks([12, 3, 1, 11, 7, 2, 10, 4, 9, 5, 8, 6]));
         await using var app = fixture.CreateFactory();
 
-        var html = await app.CreateClient().GetOkAsync("/");
+        var html = await app.CreateClient().GetPageAsync("/");
 
-        Assert.Equal(Enumerable.Range(1, 10), HttpAssertions.RenderedRanks(html));
+        Assert.Equal(Enumerable.Range(1, 10), HtmlPage.RenderedRanks(html));
     }
 
     [Fact]
@@ -26,9 +26,9 @@ public sealed class BestsellerPageTests(WebFixture fixture)
         await BestsellerSeed.SeedAsync(fixture, BestsellerSeed.Ranks([1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12]));
         await using var app = fixture.CreateFactory();
 
-        var html = await app.CreateClient().GetOkAsync("/");
+        var html = await app.CreateClient().GetPageAsync("/");
 
-        Assert.Equal([1, 2, 3, 4, 6, 7, 8, 9, 10, 11], HttpAssertions.RenderedRanks(html));
+        Assert.Equal([1, 2, 3, 4, 6, 7, 8, 9, 10, 11], HtmlPage.RenderedRanks(html));
     }
 
     [Fact]
@@ -38,9 +38,9 @@ public sealed class BestsellerPageTests(WebFixture fixture)
         await BestsellerSeed.SeedAsync(fixture, BestsellerSeed.Ranks(Enumerable.Range(1, 100).Reverse()));
         await using var app = fixture.CreateFactory();
 
-        var html = await app.CreateClient().GetOkAsync("/bestsellers");
+        var html = await app.CreateClient().GetPageAsync("/bestsellers");
 
-        Assert.Equal(Enumerable.Range(1, 100), HttpAssertions.RenderedRanks(html));
+        Assert.Equal(Enumerable.Range(1, 100), HtmlPage.RenderedRanks(html));
     }
 
     [Fact]
@@ -52,35 +52,37 @@ public sealed class BestsellerPageTests(WebFixture fixture)
         await using var app = fixture.CreateFactory();
         var client = app.CreateClient();
 
-        var bestsellers = await client.GetOkAsync("/bestsellers");
-        var home = await client.GetOkAsync("/");
+        var bestsellers = await client.GetPageAsync("/bestsellers");
+        var home = await client.GetPageAsync("/");
 
-        var ranks = HttpAssertions.RenderedRanks(bestsellers);
+        var ranks = HtmlPage.RenderedRanks(bestsellers);
         Assert.Equal(Enumerable.Range(1, 36).Concat([38, 39, 40]), ranks);
         Assert.DoesNotContain(37, ranks);
-        Assert.Equal(Enumerable.Range(1, 10), HttpAssertions.RenderedRanks(home));
+        Assert.Equal(Enumerable.Range(1, 10), HtmlPage.RenderedRanks(home));
     }
 
     [Fact]
-    public async Task Entries_show_cover_title_and_author_contributors_in_order()
+    public async Task Entries_show_cover_title_and_only_author_contributors_in_contributor_order()
     {
         await fixture.ResetCatalogAsync();
+        // Inserted in the reverse of contributor_order, with a translator in between: the page must sort by
+        // contributor_order and leave out non-AUTHOR roles.
         await BestsellerSeed.SeedAsync(fixture,
         [
             new RankedBook(1, "三體", "https://img.example.test/three-body.jpg",
             [
-                ("劉慈欣", ContributorRole.Author),
-                ("譯者甲", ContributorRole.Translator),
-                ("作者乙", ContributorRole.Author)
+                new ContributorSeed(3, "作者乙", ContributorRole.Author),
+                new ContributorSeed(2, "譯者甲", ContributorRole.Translator),
+                new ContributorSeed(1, "劉慈欣", ContributorRole.Author)
             ])
         ]);
         await using var app = fixture.CreateFactory();
 
-        var html = await app.CreateClient().GetOkAsync("/bestsellers");
+        var html = await app.CreateClient().GetPageAsync("/bestsellers");
 
         Assert.Contains("https://img.example.test/three-body.jpg", html);
         Assert.Contains(">三體</a>", html);
-        Assert.Contains("劉慈欣、作者乙", html);
+        Assert.Contains("<div class=\"authors text-muted small\">劉慈欣、作者乙</div>", html);
         Assert.DoesNotContain("譯者甲", html);
     }
 
@@ -92,8 +94,8 @@ public sealed class BestsellerPageTests(WebFixture fixture)
         await using var app = fixture.CreateFactory();
         var client = app.CreateClient();
 
-        var home = await client.GetOkAsync("/");
-        var bestsellers = await client.GetOkAsync("/bestsellers");
+        var home = await client.GetPageAsync("/");
+        var bestsellers = await client.GetPageAsync("/bestsellers");
 
         foreach (var bookId in bookIds.Values)
         {
@@ -111,8 +113,8 @@ public sealed class BestsellerPageTests(WebFixture fixture)
         await using var app = fixture.CreateFactory();
         var client = app.CreateClient();
 
-        Assert.Contains("2026-10-11 04:03 更新", await client.GetOkAsync("/"));
-        Assert.Contains("2026-10-11 04:03 更新", await client.GetOkAsync("/bestsellers"));
+        Assert.Contains("2026-10-11 04:03 更新", await client.GetPageAsync("/"));
+        Assert.Contains("2026-10-11 04:03 更新", await client.GetPageAsync("/bestsellers"));
     }
 
     [Fact]
@@ -124,38 +126,38 @@ public sealed class BestsellerPageTests(WebFixture fixture)
 
         foreach (var path in new[] { "/", "/bestsellers" })
         {
-            var html = await client.GetOkAsync(path);
+            var html = await client.GetPageAsync(path);
             Assert.Contains("榜單尚未建立", html);
-            Assert.Empty(HttpAssertions.RenderedRanks(html));
+            Assert.Empty(HtmlPage.RenderedRanks(html));
         }
     }
 
     [Fact]
-    public async Task Empty_snapshot_stays_cached_until_its_five_minute_ttl_expires()
+    public async Task Empty_snapshot_is_served_from_cache()
     {
         await fixture.ResetCatalogAsync();
         await using var app = fixture.CreateFactory();
         var client = app.CreateClient();
-        Assert.Contains("榜單尚未建立", await client.GetOkAsync("/"));
+        Assert.Contains("榜單尚未建立", await client.GetPageAsync("/"));
 
-        // The first crawl finishes now, but the empty snapshot is cached for up to 5 minutes.
+        // The first crawl finishes now, but the cached empty snapshot is still served (TTL values: CachedBestsellerReaderTests in tests/UnitTests).
         await BestsellerSeed.SeedAsync(fixture, BestsellerSeed.Ranks([1]));
 
-        Assert.Contains("榜單尚未建立", await client.GetOkAsync("/bestsellers"));
+        Assert.Contains("榜單尚未建立", await client.GetPageAsync("/bestsellers"));
     }
 
     [Fact]
-    public async Task Non_empty_snapshot_is_served_from_cache_for_one_hour()
+    public async Task Non_empty_snapshot_is_served_from_cache()
     {
         await fixture.ResetCatalogAsync();
         await BestsellerSeed.SeedAsync(fixture, BestsellerSeed.Ranks([1, 2]));
         await using var app = fixture.CreateFactory();
         var client = app.CreateClient();
-        Assert.Equal([1, 2], HttpAssertions.RenderedRanks(await client.GetOkAsync("/bestsellers")));
+        Assert.Equal([1, 2], HtmlPage.RenderedRanks(await client.GetPageAsync("/bestsellers")));
 
-        // Remove the rows behind the cache; the cached snapshot is still served within its TTL.
+        // Remove the rows behind the cache; the cached snapshot is still served (TTL values: CachedBestsellerReaderTests in tests/UnitTests).
         await fixture.ResetCatalogAsync();
 
-        Assert.Equal([1, 2], HttpAssertions.RenderedRanks(await client.GetOkAsync("/bestsellers")));
+        Assert.Equal([1, 2], HtmlPage.RenderedRanks(await client.GetPageAsync("/bestsellers")));
     }
 }

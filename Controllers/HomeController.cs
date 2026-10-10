@@ -10,7 +10,6 @@ public class HomeController(BestsellerService bestsellers) : Controller
     public async Task<IActionResult> Index(CancellationToken cancellationToken)
     {
         var snapshot = await bestsellers.GetTopAsync(BestsellerService.HomeTopCount, cancellationToken);
-        ViewData["Title"] = "首頁";
         return View(BestsellerListViewModel.From(snapshot));
     }
 

@@ -1,6 +1,8 @@
 using Book_Finder.Application.Bestsellers;
+using Book_Finder.Infrastructure.Caching;
 using Book_Finder.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Pgvector.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -13,9 +15,12 @@ var connectionString = builder.Configuration.GetConnectionString("DefaultConnect
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(connectionString, postgres => postgres.UseVector()));
 
-// Bestseller read use case: process-local cache (ADR-005) over an EF Core reader.
+// Bestseller read: EF Core reader wrapped by a process-local cache (ADR-005).
 builder.Services.AddMemoryCache();
-builder.Services.AddScoped<IBestsellerReader, EfBestsellerReader>();
+builder.Services.AddScoped<EfBestsellerReader>();
+builder.Services.AddScoped<IBestsellerReader>(provider => new CachedBestsellerReader(
+    provider.GetRequiredService<EfBestsellerReader>(),
+    provider.GetRequiredService<IMemoryCache>()));
 builder.Services.AddScoped<BestsellerService>();
 
 var app = builder.Build();
