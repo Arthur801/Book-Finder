@@ -13,25 +13,46 @@ and only against local pages.
 
 Deliberately absent: stealth / anti-detection patches, CAPTCHA solving and proxy rotation
 (AGENTS.md §1.3, ADR-006). A Cloudflare challenge is reported as ``FetchError``, never bypassed.
+
+Error contract for the run flow (crawler.md §6, §15):
+
+- ``FetchError``: this page could not be retrieved. Retried and possibly skipped by the run.
+- ``BrowserUnavailableError``: the environment cannot run a browser at all. Never retried and never
+  skipped per book; it fails the whole run. It is deliberately not a ``FetchError``.
 """
 
 from __future__ import annotations
 
+import logging
 import time
 from collections.abc import Callable
+from enum import StrEnum
 from typing import Any, Protocol
 
 import requests
 from playwright.sync_api import Browser, BrowserContext, Playwright, sync_playwright
 from playwright.sync_api import Error as PlaywrightError
 
+from books_crawler.redact import redact
+
+log = logging.getLogger("books_crawler.fetcher")
+
+
+class FetcherKind(StrEnum):
+    """Values of the ``CRAWLER_FETCHER`` setting."""
+
+    BROWSER = "browser"
+    HTTP = "http"
+
+
 DEFAULT_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/124.0.0.0 Safari/537.36"
 )
 
-# Desktop Chrome UA for the Playwright browser. The major version matches the Chromium that the
-# pinned playwright release installs (see crawler/README.md); update both together.
+# Normal desktop Chrome UA and zh-TW locale for the Playwright browser. Approved by the user on
+# 2026-10-11 (ADR-006). The major version matches the Chromium that the pinned playwright release
+# installs (see crawler/README.md); update both together.
 BROWSER_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/153.0.0.0 Safari/537.36"
@@ -39,6 +60,7 @@ BROWSER_USER_AGENT = (
 BROWSER_LOCALE = "zh-TW"
 
 DEFAULT_NAVIGATION_TIMEOUT_MS = 30_000
+MAX_NAVIGATION_TIMEOUT_MS = 300_000
 DEFAULT_PAGE_DELAY_SECONDS = 1.0
 
 # Cloudflare sets this response header on challenge responses (value "challenge").
@@ -49,7 +71,7 @@ PAGE_CONTENT_SELECTOR = ".main_column"
 
 
 class FetchError(Exception):
-    """A page could not be retrieved (network error, timeout, non-200 response, or a challenge)."""
+    """A page could not be retrieved (network error, timeout, non-200 response, browser crash, or a challenge)."""
 
 
 class BrowserUnavailableError(RuntimeError):
@@ -118,9 +140,13 @@ class PlaywrightFetcher:
     HTML"). ``domcontentloaded`` would return earlier, before late-running page scripts such as
     a challenge script have finished.
 
-    Failure rules (all raise ``FetchError``): navigation error or timeout, a
-    ``cf-mitigated: challenge`` header, a status other than 200, or a challenge interstitial
-    (see ``_is_challenge_page``). No retries here; retry and skip belong to the run (crawler.md §6).
+    Failure rules:
+
+    - ``FetchError``: navigation error or timeout, a browser crash or closed page during any step
+      (every Playwright error is wrapped), a ``cf-mitigated: challenge`` header, a status other than
+      200, or a challenge interstitial (see ``_is_challenge_page``). No retries here; retry and skip
+      belong to the run (crawler.md §6).
+    - ``BrowserUnavailableError``: Chromium or the Playwright driver cannot be started. Not retried.
 
     Pacing: requests are sequential. Before each ``get`` after the first, the fetcher sleeps until
     ``delay_seconds`` have elapsed since the previous ``get`` returned.
@@ -148,6 +174,10 @@ class PlaywrightFetcher:
         """The shared browser, or ``None`` before the first ``get`` and after ``close()``."""
         return self._browser
 
+    @property
+    def navigation_timeout_ms(self) -> int:
+        return self._navigation_timeout_ms
+
     def __enter__(self) -> PlaywrightFetcher:
         return self
 
@@ -168,14 +198,14 @@ class PlaywrightFetcher:
         self._playwright = None
         try:
             if context is not None:
-                context.close()
+                _close_quietly(context.close, "browser context")
         finally:
             try:
                 if browser is not None:
-                    browser.close()
+                    _close_quietly(browser.close, "browser")
             finally:
                 if playwright is not None:
-                    playwright.stop()
+                    _close_quietly(playwright.stop, "Playwright driver")
 
     def _wait_for_delay(self) -> None:
         if self._last_finished is None or self._delay_seconds <= 0:
@@ -186,9 +216,10 @@ class PlaywrightFetcher:
 
     def _fetch(self, url: str) -> str:
         context = self._ensure_context()
-        page = context.new_page()
+        page = None
         try:
             try:
+                page = context.new_page()
                 response = page.goto(url, wait_until="load", timeout=self._navigation_timeout_ms)
                 if response is None:
                     raise FetchError(f"GET {url} returned no response")
@@ -201,9 +232,11 @@ class PlaywrightFetcher:
                     raise FetchError(f"GET {url} is still a Cloudflare challenge page")
                 return html
             except PlaywrightError as exc:
+                # Covers timeouts, net errors, and crashes (TargetClosedError is a subclass).
                 raise FetchError(f"GET {url} failed: {type(exc).__name__}") from exc
         finally:
-            page.close()
+            if page is not None:
+                _close_quietly(page.close, "page")
 
     def _ensure_context(self) -> BrowserContext:
         if self._context is None:
@@ -212,17 +245,33 @@ class PlaywrightFetcher:
         return self._context
 
     def _start(self) -> None:
-        self._playwright = sync_playwright().start()
         try:
-            self._browser = self._playwright.chromium.launch(headless=True)
+            playwright = sync_playwright().start()
+        except Exception as exc:  # the driver itself could not start
+            raise _browser_unavailable(exc) from exc
+        self._playwright = playwright
+        try:
+            self._browser = playwright.chromium.launch(headless=True)
             self._context = self._browser.new_context(user_agent=BROWSER_USER_AGENT, locale=BROWSER_LOCALE)
-        except PlaywrightError as exc:
+        except Exception as exc:  # Chromium missing, missing libraries, or the launch crashed
             self.close()
-            raise BrowserUnavailableError(
-                "Chromium could not be launched for Playwright; install it with "
-                "'python -m playwright install chromium' "
-                f"(original error: {str(exc).splitlines()[0] if str(exc) else type(exc).__name__})"
-            ) from exc
+            raise _browser_unavailable(exc) from exc
+
+
+def _browser_unavailable(exc: Exception) -> BrowserUnavailableError:
+    first_line = redact(str(exc).splitlines()[0]) if str(exc).strip() else type(exc).__name__
+    return BrowserUnavailableError(
+        "Chromium could not be launched for Playwright; install it with "
+        f"'python -m playwright install chromium' (original error: {first_line})"
+    )
+
+
+def _close_quietly(action: Callable[[], None], what: str) -> None:
+    """Close one browser resource. A failure here is logged and never replaces the original error."""
+    try:
+        action()
+    except Exception as exc:
+        log.warning("closing the %s failed: %s: %s", what, type(exc).__name__, redact(str(exc)))
 
 
 def _is_challenge_page(title: str, has_page_content: bool) -> bool:

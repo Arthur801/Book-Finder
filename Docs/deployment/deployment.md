@@ -55,8 +55,17 @@ MVP 沒有 staging；L4 變更以本機或拋棄式資料庫 dry run 取代。
 | `/book-finder/prod/jwt-signing-key` | JWT HS256 key（至少 32 bytes 隨機值） |
 
 - 部署 / 啟動時由 host script 以 EC2 IAM role 讀取 SSM，寫入 `/run/book-finder/env`（tmpfs，`chmod 600`），compose 以 `env_file` 注入。
-- Crawler 只拿 DB 連線字串，不拿 OpenAI / Google Books / JWT key。
-- 任何 secret 不得進 repository、image、log。
+- Crawler 只拿 DB 連線字串（secret，經 SSM 注入）與下列非機密的 crawler 設定，不拿 OpenAI / Google Books / JWT key。
+- 任何 secret 不得進 repository、image、log。非機密設定可直接寫在 compose 檔的 `environment`，不需經 SSM。
+
+Crawler 非機密環境變數（`crawler/README.md`）：
+
+| 環境變數 | 預設 | 說明 |
+|---|---|---|
+| `CRAWLER_FETCHER` | `browser` | 頁面取得方式：`browser`（headless Chromium，ADR-006）或 `http`（僅供除錯）。其他值 → exit code 2。 |
+| `CRAWLER_NAV_TIMEOUT_MS` | `30000` | 瀏覽器導覽逾時（毫秒，1～300000；空值為預設）。不合法 → exit code 2。 |
+
+`DATABASE_URL` 仍是 secret，不在此表中。
 
 ## 6. Migration
 

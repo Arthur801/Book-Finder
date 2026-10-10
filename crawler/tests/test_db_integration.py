@@ -13,13 +13,14 @@ import psycopg
 import pytest
 
 from books_crawler import db
-from books_crawler.fetcher import FetchError
+from books_crawler.fetcher import BrowserUnavailableError, FetchError, PlaywrightFetcher
 from books_crawler.models import Contributor, ContributorRole, RankingRow, RunStatus, SnapshotRow
 from books_crawler.normalize import map_language, normalize_isbn
-from books_crawler.parsers import RANKING_PAGE_URL
+from books_crawler.parsers import RANKING_PAGE_URL, ParseError
 from books_crawler.run import RunDependencies, run_once
 from tests.fakes import (
     RANKING_HTML,
+    FakeBrowserContext,
     FakeFetcher,
     FakeSleep,
     fake_detail_parser,
@@ -47,19 +48,43 @@ def count(url: str, table: str) -> int:
     return query(url, f"SELECT count(*) FROM {table}")[0][0]
 
 
-def run(db_url, rows, drafts=None, failures=None, transient=None, now=NOW, sleep=None):
+def run(
+    db_url,
+    rows,
+    drafts=None,
+    failures=None,
+    transient=None,
+    now=NOW,
+    sleep=None,
+    fetcher=None,
+    transient_parse=None,
+):
     """Run one crawl with the given ranking rows; detail drafts default to title-only books.
 
-    Returns ``(report, fetcher)``. Backoff sleeps go to ``sleep`` (a FakeSleep, never a real wait).
+    ``transient``: URL -> number of leading fetches that fail. ``transient_parse``: URL -> number of
+    leading parses that raise ParseError. Returns ``(report, fetcher)``. Backoff sleeps go to
+    ``sleep`` (a FakeSleep, never a real wait). Pass ``fetcher`` to use a different fetcher.
     """
     pages = {RANKING_PAGE_URL: RANKING_HTML, **{row.url: "<detail/>" for row in rows}}
     if drafts is None:
         drafts = {row.url: make_draft(row.url) for row in rows}
-    fetcher = FakeFetcher(pages=pages, failures=failures, transient_failures=transient)
+    if fetcher is None:
+        fetcher = FakeFetcher(pages=pages, failures=failures, transient_failures=transient)
+    parse = fake_detail_parser(drafts)
+    if transient_parse:
+        remaining = dict(transient_parse)
+        inner = parse
+
+        def parse(html, url):
+            if remaining.get(url, 0) > 0:
+                remaining[url] -= 1
+                raise ParseError(f"title (h1) not found in the product container of {url} (simulated)")
+            return inner(html, url)
+
     deps = RunDependencies(
         fetcher=fetcher,
         parse_ranking=fake_ranking_parser(rows),
-        parse_detail=fake_detail_parser(drafts),
+        parse_detail=parse,
         connect=lambda: db.connect(db_url),
         clock=lambda: now,
         sleep=sleep if sleep is not None else FakeSleep(),
@@ -187,8 +212,8 @@ def test_three_persistently_failing_new_books_are_skipped_and_ranks_keep_their_n
     assert (report.ranking_count, report.new_book_count, report.skipped_count) == (100, 97, 3)
     assert skipped_ranks(report) == [10, 50, 90]
     for item in report.skipped:
-        assert (item.error_type, item.attempts, item.url) == ("fetch_error", 3, rows[item.rank - 1].url)
-        assert "HTTP 500" in item.error_message
+        assert (item.failure.error_type, item.failure.attempts, item.url) == ("fetch_error", 3, rows[item.rank - 1].url)
+        assert "HTTP 500" in item.failure.error_message
         assert fetcher.calls.count(item.url) == 3
     assert sleep.calls == RETRY_SLEEPS * 3
 
@@ -233,13 +258,46 @@ def test_book_transaction_failing_twice_then_succeeding_writes_the_book_normally
     monkeypatch.setattr(db, "persist_new_source", flaky_persist)
     sleep = FakeSleep()
 
-    report, _ = run(db_url, rows, sleep=sleep)
+    report, fetcher = run(db_url, rows, sleep=sleep)
 
     assert report.status is RunStatus.SUCCESS
-    assert attempts["count"] == 3
+    assert attempts["count"] == 3  # two failed writes, then the write that succeeds
+    assert fetcher.calls.count(target) == 1  # only the write was retried: the detail page was fetched once
     assert sleep.calls == RETRY_SLEEPS
     assert query(db_url, "SELECT count(*) FROM book_sources WHERE source_url = %s", (target,)) == [(1,)]
     assert count(db_url, "books") == 100
+
+
+def test_detail_page_is_fetched_once_when_database_writes_fail_three_times(db_url):
+    rows = ranking_rows(100, offset=100)
+    failing = rows[2]
+    # The over-long contributor name (varchar(255)) makes every write of this draft fail.
+    failing_draft = make_draft(failing.url, contributors=(Contributor(order=1, name="甲" * 300, role=ContributorRole.AUTHOR),))
+    drafts = {row.url: make_draft(row.url) for row in rows}
+    drafts[failing.url] = failing_draft
+    sleep = FakeSleep()
+
+    report, fetcher = run(db_url, rows, drafts, sleep=sleep)
+
+    assert report.status is RunStatus.PARTIAL_SUCCESS
+    assert skipped_ranks(report) == [3]
+    skipped = report.skipped[0]
+    assert (skipped.failure.error_type, skipped.failure.attempts) == ("database_error", 3)
+    assert fetcher.calls.count(failing.url) == 1  # the same parsed draft was written three times
+    assert sleep.calls == RETRY_SLEEPS
+
+
+def test_detail_page_fetch_is_retried_when_the_parse_fails_at_first(db_url):
+    rows = ranking_rows(100, offset=100)
+    target = rows[0].url
+    sleep = FakeSleep()
+
+    report, fetcher = run(db_url, rows, sleep=sleep, transient_parse={target: 1})
+
+    assert report.status is RunStatus.SUCCESS
+    assert fetcher.calls.count(target) == 2  # a parse failure is retried from the detail request
+    assert sleep.calls == [1.0]
+    assert query(db_url, "SELECT count(*) FROM book_sources WHERE source_url = %s", (target,)) == [(1,)]
 
 
 # ---------------------------------------------------------------------------
@@ -337,9 +395,10 @@ def test_existing_url_then_new_source_with_same_isbn_skips_the_later_rank(db_url
     assert report.exit_code == 0
     assert skipped_ranks(report) == [2]
     skipped = report.skipped[0]
-    assert (skipped.error_type, skipped.attempts) == ("duplicate_book_in_ranking", 1)
-    assert "rank 1" in skipped.error_message
-    assert fetcher.calls.count(product_url(201)) == 1  # deterministic: fetched once, never retried
+    # Rank 2 is a new product: its ISBN is found only after the detail page was read, so one attempt.
+    assert (skipped.failure.error_type, skipped.failure.attempts) == ("duplicate_book_in_ranking", 1)
+    assert "rank 1" in skipped.failure.error_message
+    assert fetcher.calls.count(product_url(201)) == 1  # the ISBN source is fetched once, never retried
     assert sleep.calls == []
     # Ranks 3..100 are new products (98 Books); the skipped rank 2 must not create or attach anything.
     assert count(db_url, "books") == books_before + 98
@@ -365,7 +424,7 @@ def test_new_source_then_existing_url_for_same_book_skips_the_later_rank(db_url)
 
     assert report.status is RunStatus.PARTIAL_SUCCESS
     assert skipped_ranks(report) == [2]
-    assert report.skipped[0].error_type == "duplicate_book_in_ranking"
+    assert report.skipped[0].failure.error_type == "duplicate_book_in_ranking"
     assert product_url(1) not in fetcher.detail_calls()
     snapshot = bestsellers(db_url)
     attached_source = query(db_url, "SELECT id FROM book_sources WHERE source_url = %s", (product_url(201),))[0][0]
@@ -389,7 +448,9 @@ def test_two_new_sources_sharing_an_isbn_skip_the_later_rank(db_url):
 
     assert report.status is RunStatus.PARTIAL_SUCCESS
     assert skipped_ranks(report) == [2]
-    assert report.skipped[0].error_type == "duplicate_book_in_ranking"
+    assert report.skipped[0].failure.error_type == "duplicate_book_in_ranking"
+    # The duplicate is only detected after the detail page was read, so the one attempt is recorded.
+    assert report.skipped[0].failure.attempts == 1
     assert fetcher.calls.count(product_url(102)) == 1
     assert query(db_url, "SELECT count(*) FROM book_sources WHERE source_url = %s", (product_url(102),)) == [(0,)]
     snapshot = bestsellers(db_url)
@@ -422,9 +483,9 @@ def test_failed_book_transaction_is_rolled_back_retried_and_skipped_while_others
     assert report.exit_code == 0
     assert skipped_ranks(report) == [5]
     skipped = report.skipped[0]
-    assert (skipped.error_type, skipped.attempts, skipped.url) == ("database_error", 3, failing_url)
-    assert "too long" in skipped.error_message
-    assert fetcher.calls.count(failing_url) == 3
+    assert (skipped.failure.error_type, skipped.failure.attempts, skipped.url) == ("database_error", 3, failing_url)
+    assert "too long" in skipped.failure.error_message
+    assert fetcher.calls.count(failing_url) == 1  # the write is retried with the same draft, not the page
     assert sleep.calls == RETRY_SLEEPS  # the only failing row: one backoff sequence
     snapshot = bestsellers(db_url)
     assert [row[0] for row in snapshot] == [rank for rank in range(1, 101) if rank != 5]
@@ -667,3 +728,91 @@ def test_run_log_has_the_required_fields_and_no_database_url(db_url, caplog):
         assert expected in line, expected
     assert db_url not in caplog.text
     assert "crawler_test:crawler_test@" not in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# Early abort, browser failures, and redaction (crawler.md §6, §12; code review A1/A3/D3/D15)
+# ---------------------------------------------------------------------------
+
+
+def test_eleven_failures_at_the_top_stop_the_run_before_any_later_source_is_fetched(db_url, caplog):
+    caplog.set_level(logging.INFO, logger="books_crawler")
+    run(db_url, ranking_rows(100))  # previous list: products 1..100
+    previous = bestsellers(db_url)
+    rows = ranking_rows(100, offset=100)
+    failures = {rows[rank - 1].url: FetchError("HTTP 500") for rank in range(1, 12)}
+
+    report, fetcher = run(db_url, rows, failures=failures)
+
+    assert report.status is RunStatus.FAILED
+    assert report.exit_code == 1
+    assert report.skipped_count == 11
+    assert report.aborted_at_rank == 11
+    later_urls = {row.url for row in rows[11:]}
+    assert [url for url in fetcher.calls if url in later_urls] == []  # rank 12 onwards was never requested
+    assert bestsellers(db_url) == previous
+    assert "aborted_at_rank=11" in caplog.text
+
+
+def test_browser_crash_during_navigation_is_retried_and_the_row_is_written(db_url):
+    rows = ranking_rows(100, offset=100)
+    target = rows[0].url
+    pages = {RANKING_PAGE_URL: RANKING_HTML, **{row.url: "<detail/>" for row in rows}}
+    context = FakeBrowserContext(pages=pages, goto_failures={target: 2})  # two crashes, then the page loads
+    fetcher = PlaywrightFetcher(delay_seconds=0)
+    fetcher._context = context  # the fake context stands in for a started browser
+    sleep = FakeSleep()
+    try:
+        report, _ = run(db_url, rows, sleep=sleep, fetcher=fetcher)
+    finally:
+        fetcher.close()
+
+    assert report.status is RunStatus.SUCCESS
+    assert context.goto_calls.count(target) == 3
+    assert sleep.calls == RETRY_SLEEPS
+    assert context.open_pages == 0  # every page was closed, including the ones that crashed
+    assert query(db_url, "SELECT count(*) FROM book_sources WHERE source_url = %s", (target,)) == [(1,)]
+
+
+def test_browser_unavailable_on_a_detail_page_fails_the_run_without_retry_or_skip(db_url):
+    run(db_url, ranking_rows(100))
+    previous = bestsellers(db_url)
+    rows = ranking_rows(100, offset=100)
+    sleep = FakeSleep()
+
+    report, fetcher = run(
+        db_url, rows, failures={rows[0].url: BrowserUnavailableError("no chromium")}, sleep=sleep
+    )
+
+    assert report.status is RunStatus.FAILED
+    assert "BrowserUnavailableError" in report.error
+    assert fetcher.calls.count(rows[0].url) == 1  # an environment problem is not retried
+    assert sleep.calls == []
+    assert report.skipped == []  # and it is not a per-book skip
+    assert bestsellers(db_url) == previous
+
+
+def test_database_error_text_with_a_connection_string_never_reaches_the_log_or_report(db_url, caplog, monkeypatch):
+    caplog.set_level(logging.INFO, logger="books_crawler")
+    rows = ranking_rows(100, offset=100)
+    target = rows[0].url
+    secret_error = "could not connect to postgresql://app_user:pw-s3cret@db.internal:5432/books password=pw-s3cret"
+    real_persist = db.persist_new_source
+
+    def failing_persist(conn, draft, now, attach_to_book_id=None):
+        if draft.source_url == target:
+            raise psycopg.OperationalError(secret_error)
+        return real_persist(conn, draft, now, attach_to_book_id=attach_to_book_id)
+
+    monkeypatch.setattr(db, "persist_new_source", failing_persist)
+
+    report, _ = run(db_url, rows)
+
+    assert report.status is RunStatus.PARTIAL_SUCCESS
+    assert report.skipped[0].failure.error_type == "database_error"
+    for text in (caplog.text, report.skipped[0].failure.error_message, report.error or ""):
+        assert "pw-s3cret" not in text
+        assert "app_user:pw" not in text
+        assert "db.internal" not in text
+    assert "postgresql://<redacted>" in caplog.text
+    assert db_url not in caplog.text

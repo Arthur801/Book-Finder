@@ -5,9 +5,10 @@ from datetime import datetime, timezone
 import pytest
 
 from books_crawler.cli import main
-from books_crawler.fetcher import FetchError
-from books_crawler.models import RankingRow, RunStatus, SkippedRow
+from books_crawler.fetcher import BrowserUnavailableError, FetchError
+from books_crawler.models import Failure, RankingRow, RunStatus, SkipReason, SkippedRow
 from books_crawler.parsers import RANKING_PAGE_URL, parse_detail_html, parse_ranking_html
+from books_crawler.redact import redact
 from books_crawler.run import RunDependencies, RunReport, backoff_seconds, format_report, run_once, status_for_skipped_count
 from tests.fakes import (
     RANKING_HTML,
@@ -95,6 +96,20 @@ def test_ranking_fetch_that_recovers_is_validated_as_usual():
     assert "expected 100" in report.error
 
 
+def test_browser_unavailable_on_the_ranking_page_fails_the_run_without_retry():
+    fetcher = FakeFetcher(failures={RANKING_PAGE_URL: BrowserUnavailableError("no chromium")})
+    connect = RecordingConnect()
+    sleep = FakeSleep()
+
+    report = run_once(_deps(fetcher, ranking_rows(100), connect, sleep))
+
+    assert report.status is RunStatus.FAILED
+    assert "BrowserUnavailableError" in report.error
+    assert fetcher.calls == [RANKING_PAGE_URL]  # environment problem: not retried
+    assert sleep.calls == []
+    assert connect.calls == 0
+
+
 def test_real_parsers_reject_a_page_that_is_not_the_ranking_and_fail_the_run():
     fetcher = FakeFetcher(pages={RANKING_PAGE_URL: "<html><body>not a ranking</body></html>"})
     connect = RecordingConnect()
@@ -148,6 +163,7 @@ def test_format_report_has_required_fields():
         "attached_source_count=0",
         "skipped_count=0",
         "exit_code=1",
+        "aborted_at_rank=none",
         "skipped=[]",
     ):
         assert field in line
@@ -164,22 +180,50 @@ def test_format_report_lists_skipped_rows_and_redacts_database_urls():
             SkippedRow(
                 rank=7,
                 url=product_url(7),
-                error_type="parse_error",
-                error_message="connect failed: postgresql://crawler:s3cret@db.internal/books",
-                attempts=3,
+                failure=Failure(
+                    error_type=SkipReason.DATABASE_ERROR,
+                    error_message="connect failed: postgresql://crawler:s3cret@db.internal/books",
+                    attempts=3,
+                ),
             )
         ],
+        aborted_at_rank=None,
     )
 
     line = format_report(report)
 
     assert '"rank": 7' in line
     assert f'"url": "{product_url(7)}"' in line
-    assert '"error_type": "parse_error"' in line
+    assert '"error_type": "database_error"' in line
     assert '"attempts": 3' in line
     assert "s3cret" not in line
     assert "db.internal" not in line
     assert "postgresql://<redacted>" in line
+
+
+@pytest.mark.parametrize(
+    "raw, leaked",
+    [
+        ("could not connect to postgresql://user:pw@host/db", "user:pw"),
+        ("postgresql+psycopg://user:pw@host:5432/db?sslmode=require", "user:pw"),
+        ("connection failed: host=db password=hunter2 dbname=x", "hunter2"),
+        ("auth failed for password='hunter2';", "hunter2"),
+    ],
+)
+def test_redact_removes_connection_strings_and_password_assignments(raw, leaked):
+    cleaned = redact(raw)
+
+    assert leaked not in cleaned
+    assert "<redacted>" in cleaned
+
+
+def test_skip_reason_values_are_the_stored_vocabulary():
+    assert [reason.value for reason in SkipReason] == [
+        "fetch_error",
+        "parse_error",
+        "database_error",
+        "duplicate_book_in_ranking",
+    ]
 
 
 def test_cli_without_database_url_returns_config_error(capsys):

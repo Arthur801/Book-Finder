@@ -127,4 +127,21 @@
 5. **與 issue #7（重試與跳過）的介面**：#7 應只把 `FetchError` 視為「單頁抓取失敗」並進入重試。`BrowserUnavailableError` 不是 `FetchError`，會直接使整次 run 失敗，這是預期行為（瀏覽器不可用不應被當成個別書籍跳過）。
 6. **瀏覽器版本與 UA**：`BROWSER_USER_AGENT` 的 Chrome 主版本需與 `playwright` pin 所安裝的 Chromium 同步更新。
 7. **Log 中的 `using browser fetcher`**：CLI 新增一行 INFO log，未改變其他 log 或 exit code。
-8. **未修改 spec**：`Docs/modules/crawler.md` §15 與 ADR-006 已與實作一致，未做改動。`crawler/tests/fixtures/README.md` 未改動。
+8. **未修改 spec**：`Docs/modules/crawler.md` §15 與 ADR-006 已與實作一致，未做改動。`crawler/tests/fixtures/README.md` 未改動。（註：後續審查修正時，§15 與 ADR-006 已依使用者決定更新，見下方。）
+
+## Code Review 與修正
+
+本節記錄協調者審查（Standards + Spec）中與 #24 fetcher 相關的發現與修正。修正由 #7 agent 在整合分支（`issue-7-crawler-retry-skip`，#24 之上）完成，提交於 #7 之後。
+
+| 項目 | 發現 | 處理 |
+|---|---|---|
+| UA 決定（D1） | 桌面 Chrome UA 與 `zh-TW` 語系需要使用者決定 | 使用者核准保留（2026-10-11）。ADR-006 補充此決定；`AGENTS.md` §1.3 與 `crawler.md` §15 加入一句；其他反偵測措施（stealth 外掛、`navigator.webdriver` / fingerprint 修補、CAPTCHA 代解、代理輪替）仍禁止 |
+| 例外包裝（A1） | `new_page()` 位於 try 之外；`page.close()` 失敗可能遮蔽原始錯誤；只有部分 Playwright 錯誤被包裝；driver / Chromium 啟動失敗未包裝 | `new_page()` 移入 try；所有 `PlaywrightError`（含 `TargetClosedError`，它是 `Error` 的子類）包成 `FetchError`，因此瀏覽器崩潰會進入 #7 的重試與跳過；`page.close()` 與 context / browser / driver 的 close 由 `_close_quietly` 記錄但不拋出；driver 與 launch 失敗包成 `BrowserUnavailableError`，它仍不是 `FetchError`，因此不會被重試（有 run 層級測試） |
+| 導覽逾時可設定 | 預設 30 秒，無法在執行時調整 | 新增環境變數 `CRAWLER_NAV_TIMEOUT_MS`（整數 1～300000，空值為預設，其他值 exit 2）；`crawler/README.md` 與 `Docs/deployment/deployment.md` §5 已記錄 |
+| `CRAWLER_FETCHER` 值 | 字串比對 | 改為 `FetcherKind`（StrEnum：`browser` / `http`，值不變）；未知值仍 exit 2 |
+| 測試的 skip 訊息 | 寫死開發者的 venv 路徑 | 改為通用指令 `sudo python -m playwright install-deps chromium`（於已安裝 Playwright 的環境執行） |
+| 新增測試 | — | 非瀏覽器測試：new_page 崩潰、導覽崩潰、page.close 失敗不遮蔽、driver 啟動失敗、launch 失敗會停止 driver、context close 失敗仍停止 driver、timeout 參數傳遞、非法 timeout、`FetcherKind` 值；瀏覽器測試：瀏覽器中途消失 → `FetchError`，之後 `close()` 安全 |
+
+### 未處理的後續事項（本次審查新增的註記）
+
+- 瀏覽器中途崩潰後，`PlaywrightFetcher` 不會自動重新啟動瀏覽器；之後每次 `get` 都是 `FetchError`。在 #7 的 early abort 下會快速變成 FAILED。詳見 `issue-7-crawler-retry-skip.md` 的未解決事項。

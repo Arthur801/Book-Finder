@@ -23,6 +23,7 @@ sudo python -m playwright install-deps chromium
 |---|---|
 | `DATABASE_URL` | 共用 PostgreSQL 連線字串（必填；不會寫入 log）。 |
 | `CRAWLER_FETCHER` | 頁面取得方式：`browser`（預設，headless Chromium）或 `http`（requests，僅供除錯；博客來會回傳 Cloudflare challenge）。其他值為設定錯誤（exit code 2）。 |
+| `CRAWLER_NAV_TIMEOUT_MS` | 瀏覽器導覽逾時，單位毫秒，整數 1～300000，預設 `30000`。空值使用預設；非整數、0、負數或超過上限為設定錯誤（exit code 2）。只影響 `browser` fetcher。 |
 
 ## 執行
 
@@ -31,7 +32,7 @@ cd crawler
 DATABASE_URL=postgresql://... python -m books_crawler
 ```
 
-Exit code：0 = SUCCESS，1 = FAILED（榜單不變），2 = 設定錯誤。
+Exit code：0 = SUCCESS 或 PARTIAL_SUCCESS（榜單已替換；PARTIAL_SUCCESS 表示有 1～10 本被跳過），1 = FAILED（榜單不變），2 = 設定錯誤。
 
 ## 測試
 

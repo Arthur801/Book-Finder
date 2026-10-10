@@ -211,8 +211,8 @@ def _assert_derived_source_skipped(db_url, report, fetcher, previous, error_frag
     assert report.exit_code == 0
     assert [item.rank for item in report.skipped] == [DERIVED_RANK]
     skipped = report.skipped[0]
-    assert (skipped.url, skipped.error_type, skipped.attempts) == (DERIVED_NEW_SOURCE_URL, "parse_error", 3)
-    assert error_fragment in skipped.error_message
+    assert (skipped.url, skipped.failure.error_type, skipped.failure.attempts) == (DERIVED_NEW_SOURCE_URL, "parse_error", 3)
+    assert error_fragment in skipped.failure.error_message
     assert fetcher.detail_calls() == [DERIVED_NEW_SOURCE_URL] * 3
     snapshot = bestsellers(db_url)
     assert [row[0] for row in snapshot] == [rank for rank in range(1, 101) if rank != DERIVED_RANK]

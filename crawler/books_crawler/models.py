@@ -43,15 +43,35 @@ class RunStatus(StrEnum):
     FAILED = "FAILED"  # bestsellers unchanged
 
 
+class SkipReason(StrEnum):
+    """Why a ranking row was skipped (crawler.md §6, §12). Stored and logged as these values."""
+
+    FETCH_ERROR = "fetch_error"
+    PARSE_ERROR = "parse_error"
+    DATABASE_ERROR = "database_error"
+    DUPLICATE_BOOK_IN_RANKING = "duplicate_book_in_ranking"
+
+
+@dataclass(frozen=True)
+class Failure:
+    """The (error_type, error_message, attempts) triple describing one failed row.
+
+    ``attempts`` is the number of detail-page attempts actually made for the row. It is 0 when the
+    detail page was never fetched (a known URL that duplicates an earlier rank).
+    """
+
+    error_type: SkipReason
+    error_message: str
+    attempts: int
+
+
 @dataclass(frozen=True)
 class SkippedRow:
-    """A ranking row left out of the snapshot after its retries were exhausted (crawler.md §6)."""
+    """A ranking row left out of the snapshot (crawler.md §6)."""
 
     rank: int
     url: str
-    error_type: str
-    error_message: str
-    attempts: int
+    failure: Failure
 
 
 @dataclass(frozen=True)

@@ -14,6 +14,7 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 
 from bs4 import BeautifulSoup
+from playwright.sync_api import Error as PlaywrightError
 
 from books_crawler.fetcher import FetchError
 from books_crawler.models import BookDraft, RankingRow
@@ -75,6 +76,68 @@ class FakeFetcher:
 
     def detail_calls(self) -> list[str]:
         return [url for url in self.calls if url.startswith(PRODUCT_URL_PREFIX)]
+
+
+class FakeResponse:
+    def __init__(self, status: int = 200, headers: Mapping[str, str] | None = None) -> None:
+        self.status = status
+        self.headers = dict(headers or {})
+
+
+class FakePage:
+    """Stands in for a Playwright page: serves ``pages[url]`` after a successful ``goto``."""
+
+    def __init__(self, context: FakeBrowserContext) -> None:
+        self._context = context
+        self._url: str | None = None
+        self.closed = False
+
+    def goto(self, url: str, wait_until: str | None = None, timeout: float | None = None) -> FakeResponse:
+        self._context.goto_calls.append(url)
+        remaining = self._context.goto_failures.get(url, 0)
+        if remaining > 0:
+            self._context.goto_failures[url] = remaining - 1
+            raise PlaywrightError(f"Target page, context or browser has been closed (simulated crash for {url})")
+        if url not in self._context.pages:
+            raise PlaywrightError(f"net::ERR_NAME_NOT_RESOLVED at {url}")
+        self._url = url
+        return FakeResponse(200)
+
+    def content(self) -> str:
+        return self._context.pages[self._url]
+
+    def title(self) -> str:
+        return "博客來 測試頁"
+
+    def query_selector(self, selector: str) -> object | None:
+        return object()  # the pages served here always have the site's content container
+
+    def close(self) -> None:
+        self.closed = True
+        self._context.open_pages -= 1
+
+
+class FakeBrowserContext:
+    """Stands in for a Playwright browser context. Records what was requested and what was closed.
+
+    - ``pages``: URL -> HTML served after a successful navigation;
+    - ``goto_failures``: URL -> number of navigations that crash first (a PlaywrightError, as after
+      a browser or page crash), then succeed.
+    """
+
+    def __init__(self, pages: Mapping[str, str], goto_failures: Mapping[str, int] | None = None) -> None:
+        self.pages = dict(pages)
+        self.goto_failures = dict(goto_failures or {})
+        self.goto_calls: list[str] = []
+        self.open_pages = 0
+        self.closed = False
+
+    def new_page(self) -> FakePage:
+        self.open_pages += 1
+        return FakePage(self)
+
+    def close(self) -> None:
+        self.closed = True
 
 
 def fake_ranking_parser(rows: list[RankingRow]) -> Callable[[str], list[RankingRow]]:

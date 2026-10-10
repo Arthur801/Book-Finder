@@ -13,17 +13,20 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
 
 import pytest
+from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import sync_playwright
 
 from books_crawler import cli
 from books_crawler.fetcher import (
     BROWSER_USER_AGENT,
+    DEFAULT_NAVIGATION_TIMEOUT_MS,
     BrowserUnavailableError,
     FetchError,
     HttpFetcher,
     PlaywrightFetcher,
     _is_challenge_page,
 )
+from tests.fakes import FakeBrowserContext, FakePage
 
 NORMAL_HTML = (
     "<!doctype html><html><head><meta charset=\"utf-8\"><title>博客來 測試頁</title></head>"
@@ -122,8 +125,8 @@ def chromium_ready() -> None:
         pytest.skip(
             f"Chromium cannot be launched for Playwright ({first_line}). Install it with "
             "'python -m playwright install chromium' from the crawler environment. If system "
-            "libraries are missing, run once with sudo: "
-            "sudo ~/Documents/vs_repos/Book-Finder/.venv/bin/python -m playwright install-deps chromium"
+            "libraries are missing, install them once with 'sudo python -m playwright install-deps chromium' "
+            "(run it from the environment that has Playwright installed)."
         )
 
 
@@ -192,6 +195,17 @@ def test_unreachable_server_raises_fetch_error(chromium_ready):
     with PlaywrightFetcher(delay_seconds=0, navigation_timeout_ms=5000) as fetcher:
         with pytest.raises(FetchError, match="failed"):
             fetcher.get(f"http://127.0.0.1:{port}/")
+
+
+def test_browser_that_disappears_mid_run_raises_fetch_error_and_close_still_works(chromium_ready, local_site):
+    fetcher = PlaywrightFetcher(delay_seconds=0)
+    fetcher.get(local_site.url("/normal"))
+    fetcher.browser.close()  # simulated crash: the browser goes away under the fetcher
+
+    with pytest.raises(FetchError, match="failed"):
+        fetcher.get(local_site.url("/normal"))
+    fetcher.close()  # must not raise even though the browser is already gone
+    assert fetcher.browser is None
 
 
 def test_consecutive_gets_are_separated_by_the_delay_without_real_waiting(chromium_ready, local_site):
@@ -272,6 +286,118 @@ def test_missing_chromium_raises_browser_unavailable_with_install_hint(monkeypat
     assert fetcher.browser is None
 
 
+class _FakeDriver:
+    """Stands in for the Playwright driver and its chromium launcher (no browser involved)."""
+
+    def __init__(self, launch_error: Exception | None = None) -> None:
+        self.stopped = False
+        self._launch_error = launch_error
+        self.chromium = self
+
+    def launch(self, headless: bool):
+        if self._launch_error is not None:
+            raise self._launch_error
+        raise AssertionError("these tests never reach a successful launch")
+
+    def stop(self) -> None:
+        self.stopped = True
+
+
+class _FakeSyncPlaywright:
+    def __init__(self, driver: _FakeDriver) -> None:
+        self._driver = driver
+
+    def start(self) -> _FakeDriver:
+        return self._driver
+
+
+class _NewPageCrashes(FakeBrowserContext):
+    def new_page(self):
+        raise PlaywrightError("Target page, context or browser has been closed")
+
+
+class _PageCloseFails(FakePage):
+    def close(self) -> None:
+        raise PlaywrightError("close failed after the page already crashed")
+
+
+class _ContextWithFailingPageClose(FakeBrowserContext):
+    def new_page(self):
+        self.open_pages += 1
+        return _PageCloseFails(self)
+
+
+def _fetcher_over(context: FakeBrowserContext, driver: _FakeDriver | None = None) -> PlaywrightFetcher:
+    """A fetcher whose browser context is the given fake; nothing is started."""
+    fetcher = PlaywrightFetcher(delay_seconds=0)
+    fetcher._context = context
+    fetcher._playwright = driver
+    return fetcher
+
+
+def test_new_page_crash_is_wrapped_into_fetch_error():
+    fetcher = _fetcher_over(_NewPageCrashes(pages={}))
+
+    with pytest.raises(FetchError, match="failed: Error"):
+        fetcher.get("https://www.books.com.tw/products/0000000001")
+
+
+def test_navigation_crash_is_fetch_error_and_the_page_is_still_closed():
+    url = "https://www.books.com.tw/products/0000000002"
+    context = FakeBrowserContext(pages={url: "<html></html>"}, goto_failures={url: 1})
+    fetcher = _fetcher_over(context)
+
+    with pytest.raises(FetchError, match="failed: Error"):
+        fetcher.get(url)
+    assert context.open_pages == 0  # the page was closed in the finally block
+
+    assert fetcher.get(url) == "<html></html>"  # the next request works on the same context
+
+
+def test_failing_page_close_never_masks_the_original_fetch_error():
+    context = _ContextWithFailingPageClose(pages={})
+    fetcher = _fetcher_over(context)
+
+    with pytest.raises(FetchError, match="GET .* failed: Error"):
+        fetcher.get("https://www.books.com.tw/products/0000000003")  # goto fails: no such page
+
+
+def test_browser_start_failure_is_browser_unavailable_and_not_a_fetch_error(monkeypatch):
+    def broken_driver():
+        raise RuntimeError("driver process could not be started")
+
+    monkeypatch.setattr("books_crawler.fetcher.sync_playwright", broken_driver)
+    fetcher = PlaywrightFetcher(delay_seconds=0)
+
+    with pytest.raises(BrowserUnavailableError, match="playwright install chromium") as info:
+        fetcher.get("https://www.books.com.tw/products/0000000004")
+    assert not isinstance(info.value, FetchError)
+
+
+def test_chromium_launch_failure_stops_the_driver_and_is_browser_unavailable(monkeypatch):
+    driver = _FakeDriver(launch_error=PlaywrightError("Executable doesn't exist at /no/chromium"))
+    monkeypatch.setattr("books_crawler.fetcher.sync_playwright", lambda: _FakeSyncPlaywright(driver))
+    fetcher = PlaywrightFetcher(delay_seconds=0)
+
+    with pytest.raises(BrowserUnavailableError, match="playwright install chromium"):
+        fetcher.get("https://www.books.com.tw/products/0000000005")
+    assert driver.stopped
+    assert fetcher.browser is None
+
+
+def test_close_stops_the_driver_even_when_closing_the_context_fails():
+    class _ContextCloseFails(FakeBrowserContext):
+        def close(self) -> None:
+            raise PlaywrightError("context already gone")
+
+    driver = _FakeDriver()
+    fetcher = _fetcher_over(_ContextCloseFails(pages={}), driver)
+
+    fetcher.close()  # no exception: the failure is logged, the rest of the shutdown still runs
+
+    assert driver.stopped
+
+
 @pytest.mark.parametrize(
     ("title", "has_content", "expected"),
     [
@@ -296,7 +422,7 @@ class _RunResult:
 
 
 class SpyFetcher:
-    def __init__(self) -> None:
+    def __init__(self, **_options) -> None:
         self.closed = 0
 
     def close(self) -> None:
@@ -352,3 +478,31 @@ def test_cli_closes_fetcher_when_the_run_fails_normally(monkeypatch):
 
     assert cli.main({"DATABASE_URL": "postgresql://unused"}) == 1
     assert seen["fetcher"].closed == 1
+
+
+def test_cli_passes_the_navigation_timeout_to_the_browser_fetcher(monkeypatch):
+    seen = _stub_run(monkeypatch)
+
+    assert cli.main({"DATABASE_URL": "postgresql://unused", "CRAWLER_NAV_TIMEOUT_MS": " 45000 "}) == 0
+    assert seen["fetcher"].navigation_timeout_ms == 45000
+
+
+def test_cli_uses_the_default_navigation_timeout_when_unset(monkeypatch):
+    seen = _stub_run(monkeypatch)
+
+    assert cli.main({"DATABASE_URL": "postgresql://unused", "CRAWLER_NAV_TIMEOUT_MS": ""}) == 0
+    assert seen["fetcher"].navigation_timeout_ms == DEFAULT_NAVIGATION_TIMEOUT_MS
+
+
+@pytest.mark.parametrize("raw", ["abc", "0", "-5", "1.5", "4e4", "300001"])
+def test_invalid_navigation_timeout_is_a_configuration_error(monkeypatch, raw):
+    seen = _stub_run(monkeypatch)
+
+    assert cli.main({"DATABASE_URL": "postgresql://unused", "CRAWLER_NAV_TIMEOUT_MS": raw}) == cli.EXIT_CONFIG_ERROR
+    assert seen == {}
+
+
+def test_fetcher_kinds_are_the_documented_values():
+    from books_crawler.fetcher import FetcherKind
+
+    assert [kind.value for kind in FetcherKind] == ["browser", "http"]
