@@ -32,7 +32,7 @@ MVP 沒有 staging；L4 變更以本機或拋棄式資料庫 dry run 取代。
 |---|---|---|
 | `nginx` | nginx | 對外 80 / 443；TLS 終止；80 只做 ACME 驗證與轉址 HTTPS；轉發至 `web` |
 | `web` | 自建 ASP.NET Core | 只在 compose 內部網路曝露，不直接對外 |
-| `crawler` | 自建 Python | 不常駐；由 cron 以 `docker compose run --rm crawler` 啟動 |
+| `crawler` | 自建 Python，含 Playwright 與 Chromium（ADR-006） | 不常駐；由 cron 以 `docker compose run --rm crawler` 啟動。建議以 Playwright 官方 Python image 為基礎；執行期間需約 1 GB 記憶體 |
 
 `web` 必須設定 Forwarded Headers，只信任 `nginx` 的位址（`identity-auth.md` §7 rate limiting 依賴正確的 client IP）。
 
@@ -90,6 +90,7 @@ Crawler 每日 **04:00 (GMT+8)**。EC2 host 時區維持 UTC，crontab：
 
 - 非 0 exit code 代表 run FAILED（`crawler.md` §11）。
 - 同時間只會有一個 crawler（每日一次、run 時間遠小於 24 小時），MVP 不加鎖。
+- **啟用排程前須在 EC2 上實測**：手動執行一次 crawler，確認瀏覽器 fetcher 從 EC2 能取得排行榜頁與商品頁，沒有停在 Cloudflare challenge（ADR-006、#21）。若被擋下，不啟用排程，回到 #21 評估替代方案。
 
 ## 9. Log 與備份
 

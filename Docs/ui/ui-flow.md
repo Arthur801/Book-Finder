@@ -43,7 +43,7 @@
 
 ### 3.3 Book 詳細頁 `/books/{id}`
 
-Metadata、外部連結（每個 Book Source 一個）、Library 區塊（`user-library.md` §5）。
+基本書目資料（不含簡介與目錄，BOOK-05）、醒目的「在博客來查看完整介紹」按鈕與其他外部連結（每個 Book Source 一個）、Library 區塊（`user-library.md` §5）。規則見 `book-catalog.md` §4。
 
 ### 3.4 AI 推薦頁 `/ai`
 

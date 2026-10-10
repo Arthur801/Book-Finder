@@ -99,10 +99,15 @@ Docs/
 - 新書詳細頁重試 3 次仍失敗則跳過；跳過 ≤ 10 本為部分成功並替換榜單，> 10 本整次失敗。
 - Bestseller 只保留最新榜單，rank 保留博客來原始排名，被跳過的排名缺號、不重新編號。
 - 新榜單尚未成功驗證前，不應先破壞上一份有效榜單。
+- Fetcher 以 Playwright headless Chromium 取得頁面（ADR-006）；不使用反偵測 / stealth 外掛、CAPTCHA 代解或代理 IP 輪替。測試不連線博客來。
 
 ### Search
 
 一般搜尋只查 Local Database，不使用 embedding 或 LLM。不要因為搜尋結果為空就自動呼叫 Google Books。
+
+### Book 內容顯示
+
+書籍簡介（description）與目錄（table of contents）不論來源都只供 AI 推薦讀取，不得顯示在任何頁面或出現在 API 回應中；書籍完整介紹以外部連結導向來源網站（BOOK-05）。AI 推薦理由不得大段引用簡介或目錄原文。
 
 ## 1.4 不要預設讀的文件
 
