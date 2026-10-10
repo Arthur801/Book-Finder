@@ -1,6 +1,6 @@
 namespace Book_Finder.Domain.Entities;
 
-public class UserBook
+public class LibraryEntry
 {
     public Guid UserId { get; set; }
     public Guid BookId { get; set; }
