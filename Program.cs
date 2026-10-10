@@ -1,7 +1,16 @@
+using Book_Finder.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
+using Pgvector.EntityFrameworkCore;
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 builder.Services.AddControllersWithViews();
+
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
+    ?? throw new InvalidOperationException("缺少 ConnectionStrings:DefaultConnection 資料庫連線設定");
+builder.Services.AddDbContext<AppDbContext>(options =>
+    options.UseNpgsql(connectionString, postgres => postgres.UseVector()));
 
 var app = builder.Build();
 

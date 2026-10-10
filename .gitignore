@@ -58,5 +58,6 @@ nunit-*.xml
 
 # skills
 .agents/
-Docs/
-AGENTS.md
+
+# python
+.venv/
