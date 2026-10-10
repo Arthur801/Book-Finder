@@ -1,0 +1,6 @@
+# Pinned dependencies for the 博客來 crawler (verified to install on Python 3.14).
+# Install from the crawler directory: pip install -r requirements.txt
+psycopg[binary]==3.3.6
+requests==2.34.2
+beautifulsoup4==4.15.0
+pytest==9.1.1
