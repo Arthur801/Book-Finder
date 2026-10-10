@@ -21,7 +21,6 @@ Repository-level 文件結構：
 AGENTS.md
 CONTEXT.md                     ← 領域詞彙表；命名與用語以此為準
 Docs/
-├── reference/                 ← 僅供撰寫文件時參考，實作時不得引用
 ├── agents/                    ← agent skill 設定（issue tracker、labels、domain docs）
 ├── requirements/
 │   └── product-requirements.md
@@ -46,8 +45,6 @@ Docs/
 └── deployment/
     └── deployment.md
 ```
-
-`Docs/reference/` 內的舊需求與架構文件只是撰寫上述文件時的素材，可能與現行規格衝突；實作、測試與審查一律以上述文件為準，不得引用 `Docs/reference/`。
 
 規格未涵蓋的細節依 §2.5 處理，不要自行假造缺少的規格。
 
