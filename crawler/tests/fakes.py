@@ -107,7 +107,7 @@ def ranking_with_duplicate_url(html: str) -> str:
     return str(soup)
 
 
-def ranking_with_product_at_rank(html: str, rank: int, url: str) -> str:
+def ranking_with_source_at_rank(html: str, rank: int, url: str) -> str:
     """Ranking where the given rank links to another product URL (all its product links)."""
     soup = BeautifulSoup(html, "html.parser")
     for link in _ranking_items(soup)[rank - 1].find_all("a", href=re.compile(r"/products/")):
@@ -131,3 +131,38 @@ def detail_without_row(html: str, label: str) -> str:
 
 def detail_with_isbn(html: str, old: str, new: str) -> str:
     return html.replace(old, new)
+
+
+def detail_without_product_container(html: str) -> str:
+    """Detail page with the product container (``.main_column``) removed; other content stays."""
+    soup = BeautifulSoup(html, "html.parser")
+    soup.select_one(".main_column").decompose()
+    return str(soup)
+
+
+def detail_with_extra_title_outside_container(html: str) -> str:
+    """Detail page with the product container's h1 removed and a stray h1 placed before it."""
+    soup = BeautifulSoup(html, "html.parser")
+    container = soup.select_one(".main_column")
+    container.find("h1").decompose()
+    stray = soup.new_tag("h1")
+    stray.string = "Stray page heading"
+    container.insert_before(stray)
+    return str(soup)
+
+
+def detail_with_second_subject_group(html: str, levels: list[str]) -> str:
+    """Detail page with an additional 本書分類 group inside the product container."""
+    soup = BeautifulSoup(html, "html.parser")
+    container = soup.select_one(".main_column")
+    sort_list = soup.new_tag("ul", attrs={"class": "sort"})
+    row = soup.new_tag("li")
+    row.append("本書分類：")
+    for level in levels:
+        link = soup.new_tag("a", href="https://www.books.com.tw/web/example/")
+        link.string = level
+        row.append(link)
+        row.append(" > ")
+    sort_list.append(row)
+    container.append(sort_list)
+    return str(soup)

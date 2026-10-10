@@ -16,14 +16,17 @@ from books_crawler.models import Contributor, Identifier
 from books_crawler.parsers import RANKING_PAGE_URL, ParseError, parse_detail_html, parse_ranking_html
 from books_crawler.ranking import RankingValidationError, validate_ranking
 from tests.fakes import (
+    RANKING_FIXTURE,
     detail_fixture_name,
+    detail_with_extra_title_outside_container,
+    detail_with_second_subject_group,
+    detail_without_product_container,
     detail_without_row,
     detail_without_title,
     fixture_html,
     product_url,
     ranking_with_duplicate_url,
     ranking_without_last_item,
-    RANKING_FIXTURE,
 )
 
 
@@ -64,6 +67,29 @@ def test_ranking_urls_drop_tracking_parameters():
     rows = parse_ranking_html(html)
 
     assert all("loc=" not in row.url and "?" not in row.url for row in rows)
+
+
+def test_ranking_duplicate_detected_after_canonicalization():
+    soup = BeautifulSoup(fixture_html(RANKING_FIXTURE), "html.parser")
+    items = soup.select("ul.clearfix > li.item")
+    first_link = items[0].find("a", href=re.compile("/products/"))["href"]
+    second_link = items[1].find("a", href=re.compile("/products/"))
+    second_link["href"] = first_link + "?loc=another_tracking_code"  # same product, different query
+
+    rows = parse_ranking_html(str(soup))
+
+    with pytest.raises(RankingValidationError, match="duplicate product URL at ranks 1 and 2"):
+        validate_ranking(rows)
+
+
+def test_ranking_item_without_product_link_is_a_parse_error():
+    soup = BeautifulSoup(fixture_html(RANKING_FIXTURE), "html.parser")
+    item = soup.select("ul.clearfix > li.item")[0]
+    for link in item.find_all("a", href=re.compile("/products/")):
+        link.decompose()
+
+    with pytest.raises(ParseError, match="rank 1 has no product link"):
+        parse_ranking_html(str(soup))
 
 
 def test_ranking_page_must_be_the_7_day_chart():
@@ -260,3 +286,59 @@ def test_missing_cover_image_is_null():
     draft = parse_detail_html(str(soup), product_url(int(BASE_ID)))
 
     assert draft.thumbnail_url is None
+
+
+# ---------------------------------------------------------------------------
+# Scoping: nothing outside the product container is read (no whole-page fallback)
+# ---------------------------------------------------------------------------
+
+def test_missing_product_container_is_a_parse_error_not_a_whole_page_scan():
+    html = detail_without_product_container(_base_html())
+
+    with pytest.raises(ParseError, match=r"\.main_column not found"):
+        parse_detail_html(html, product_url(int(BASE_ID)))
+
+
+def test_title_comes_only_from_the_product_container():
+    html = detail_with_extra_title_outside_container(_base_html())
+
+    with pytest.raises(ParseError, match="title"):
+        parse_detail_html(html, product_url(int(BASE_ID)))
+
+
+# ---------------------------------------------------------------------------
+# Subjects: every level of every 本書分類 group (Q1)
+# ---------------------------------------------------------------------------
+
+def test_subjects_from_all_groups_are_kept_once_in_page_order():
+    html = detail_with_second_subject_group(_base_html(), ["歷史", "政治", "台灣史"])
+
+    draft = parse_detail_html(html, product_url(int(BASE_ID)))
+
+    assert draft.subjects == ("人文社科", "政治", "政治人物", "歷史", "台灣史")
+
+
+# ---------------------------------------------------------------------------
+# Description / TOC line breaks (Q3)
+# ---------------------------------------------------------------------------
+
+def test_inline_award_badges_stay_on_one_line_in_description():
+    draft = parse_detail_html(
+        fixture_html(detail_fixture_name("0010852315")), product_url(10852315)
+    )
+
+    lines = draft.description.split("\n")
+    assert lines[0] == "臺灣文學第一本"
+    assert lines[1] == "2026國際布克獎得主"  # <strong>2026</strong><strong>國際布克獎得主</strong> is one line
+    assert lines[2] == "2024美國國家圖書獎翻譯文學大獎"
+    assert lines[3] == "2024日本翻譯大賞"
+
+
+@pytest.mark.parametrize("product_id", sorted(CASES))
+def test_description_and_toc_have_no_runs_of_blank_lines(product_id):
+    draft = parse_detail_html(fixture_html(detail_fixture_name(product_id)), product_url(int(product_id)))
+
+    for text in (draft.description, draft.table_of_contents):
+        if text is not None:
+            assert "\n\n\n" not in text
+            assert not text.startswith("\n") and not text.endswith("\n")

@@ -13,18 +13,20 @@ import psycopg
 import pytest
 
 from books_crawler import db
+from books_crawler.models import RunStatus
 from books_crawler.parsers import RANKING_PAGE_URL, parse_detail_html, parse_ranking_html
-from books_crawler.run import STATUS_FAILED, STATUS_SUCCESS, RunDependencies, run_once
+from books_crawler.run import RunDependencies, run_once
 from tests.fakes import (
     RANKING_FIXTURE,
     FakeFetcher,
     detail_fixture_name,
+    detail_without_product_container,
     detail_without_title,
     fixture_html,
     make_draft,
     product_url,
     ranking_with_duplicate_url,
-    ranking_with_product_at_rank,
+    ranking_with_source_at_rank,
     ranking_without_last_item,
 )
 
@@ -35,7 +37,7 @@ REAL_PRODUCTS = {
     "0011062550": 1,
     "0011057581": 17,
 }
-DERIVED_NEW_PRODUCT = product_url(9999999999)
+DERIVED_NEW_SOURCE_URL = product_url(9999999999)
 DERIVED_RANK = 50
 
 
@@ -52,10 +54,10 @@ def count(url: str, table: str) -> int:
     return query(url, f"SELECT count(*) FROM {table}")[0][0]
 
 
-def seed_existing_products(url: str, source_urls: list[str]) -> None:
+def seed_existing_sources(url: str, source_urls: list[str]) -> None:
     with db.connect(url) as conn:
         for source_url in source_urls:
-            db.persist_new_product(conn, make_draft(source_url), NOW)
+            db.persist_new_source(conn, make_draft(source_url), NOW)
 
 
 def run_with(db_url: str, ranking_html: str, detail_pages: dict[str, str]):
@@ -67,7 +69,6 @@ def run_with(db_url: str, ranking_html: str, detail_pages: dict[str, str]):
         parse_detail=parse_detail_html,
         connect=lambda: db.connect(db_url),
         clock=lambda: NOW,
-        ranking_url=RANKING_PAGE_URL,
     )
     return run_once(deps), fetcher
 
@@ -81,7 +82,7 @@ def seeded_db(db_url):
     """The 96 products that have no saved detail page are existing sources in the database."""
     ranking_urls = [row.url for row in parse_ranking_html(fixture_html(RANKING_FIXTURE))]
     real_urls = {product_url(int(pid)) for pid in REAL_PRODUCTS}
-    seed_existing_products(db_url, [url for url in ranking_urls if url not in real_urls])
+    seed_existing_sources(db_url, [url for url in ranking_urls if url not in real_urls])
     assert count(db_url, "books") == 96
     return db_url
 
@@ -90,14 +91,14 @@ def seeded_db(db_url):
 def successful_baseline(seeded_db):
     """Run once with the real ranking and the 4 real detail pages: the bestseller list to protect."""
     report, fetcher = run_with(seeded_db, fixture_html(RANKING_FIXTURE), real_detail_pages())
-    assert report.status == STATUS_SUCCESS, report.error
+    assert report.status is RunStatus.SUCCESS, report.error
     return seeded_db
 
 
 def test_real_fixtures_run_writes_100_bestsellers_and_the_four_real_books(seeded_db):
     report, fetcher = run_with(seeded_db, fixture_html(RANKING_FIXTURE), real_detail_pages())
 
-    assert report.status == STATUS_SUCCESS
+    assert report.status is RunStatus.SUCCESS
     assert report.exit_code == 0
     assert (report.ranking_count, report.existing_book_count, report.new_book_count) == (100, 96, 4)
     assert sorted(fetcher.detail_calls()) == sorted(product_url(int(pid)) for pid in REAL_PRODUCTS)
@@ -183,7 +184,7 @@ def test_derived_ranking_with_99_rows_fails_and_keeps_bestsellers(successful_bas
 
     report, fetcher = run_with(successful_baseline, ranking_without_last_item(fixture_html(RANKING_FIXTURE)), real_detail_pages())
 
-    assert report.status == STATUS_FAILED
+    assert report.status is RunStatus.FAILED
     assert report.exit_code == 1
     assert "expected 100" in report.error
     assert fetcher.detail_calls() == []
@@ -196,22 +197,37 @@ def test_derived_duplicate_product_url_fails_and_keeps_bestsellers(successful_ba
 
     report, fetcher = run_with(successful_baseline, ranking_with_duplicate_url(fixture_html(RANKING_FIXTURE)), real_detail_pages())
 
-    assert report.status == STATUS_FAILED
+    assert report.status is RunStatus.FAILED
     assert "duplicate product URL" in report.error
     assert fetcher.detail_calls() == []
     assert bestsellers(successful_baseline) == previous
 
 
-def test_derived_new_product_without_title_fails_and_keeps_bestsellers(successful_baseline):
+def test_derived_new_source_without_title_fails_and_keeps_bestsellers(successful_baseline):
     previous = bestsellers(successful_baseline)
-    ranking = ranking_with_product_at_rank(fixture_html(RANKING_FIXTURE), DERIVED_RANK, DERIVED_NEW_PRODUCT)
+    ranking = ranking_with_source_at_rank(fixture_html(RANKING_FIXTURE), DERIVED_RANK, DERIVED_NEW_SOURCE_URL)
     broken_detail = detail_without_title(fixture_html(detail_fixture_name("0011062863")))
-    pages = {DERIVED_NEW_PRODUCT: broken_detail}
+    pages = {DERIVED_NEW_SOURCE_URL: broken_detail}
 
     report, fetcher = run_with(successful_baseline, ranking, pages)
 
-    assert report.status == STATUS_FAILED
+    assert report.status is RunStatus.FAILED
     assert "title" in report.error
-    assert fetcher.detail_calls() == [DERIVED_NEW_PRODUCT]
+    assert fetcher.detail_calls() == [DERIVED_NEW_SOURCE_URL]
     assert bestsellers(successful_baseline) == previous
-    assert query(successful_baseline, "SELECT count(*) FROM book_sources WHERE source_url = %s", (DERIVED_NEW_PRODUCT,)) == [(0,)]
+    assert query(successful_baseline, "SELECT count(*) FROM book_sources WHERE source_url = %s", (DERIVED_NEW_SOURCE_URL,)) == [(0,)]
+
+
+def test_derived_new_source_without_product_container_fails_and_keeps_bestsellers(successful_baseline):
+    """The layout changed: the product container is gone. Nothing may be read from the rest of the page."""
+    previous = bestsellers(successful_baseline)
+    ranking = ranking_with_source_at_rank(fixture_html(RANKING_FIXTURE), DERIVED_RANK, DERIVED_NEW_SOURCE_URL)
+    broken_detail = detail_without_product_container(fixture_html(detail_fixture_name("0011062863")))
+
+    report, fetcher = run_with(successful_baseline, ranking, {DERIVED_NEW_SOURCE_URL: broken_detail})
+
+    assert report.status is RunStatus.FAILED
+    assert "main_column" in report.error
+    assert fetcher.detail_calls() == [DERIVED_NEW_SOURCE_URL]
+    assert bestsellers(successful_baseline) == previous
+    assert query(successful_baseline, "SELECT count(*) FROM book_sources WHERE source_url = %s", (DERIVED_NEW_SOURCE_URL,)) == [(0,)]

@@ -10,20 +10,7 @@ import logging
 import re
 from datetime import date
 
-from books_crawler.models import (
-    IDENTIFIER_ISBN_10,
-    IDENTIFIER_ISBN_13,
-    PRECISION_DAY,
-    PRECISION_MONTH,
-    PRECISION_YEAR,
-    ROLE_AUTHOR,
-    ROLE_EDITOR,
-    ROLE_ILLUSTRATOR,
-    ROLE_ORIGINAL_AUTHOR,
-    ROLE_OTHER,
-    ROLE_TRANSLATOR,
-    Identifier,
-)
+from books_crawler.models import ContributorRole, Identifier, IdentifierType, PublishedDatePrecision
 
 log = logging.getLogger("books_crawler.normalize")
 
@@ -37,12 +24,12 @@ LANGUAGE_MAP: dict[str, str] = {
 }
 
 # crawler.md §8: 博客來 contributor label → role. Unknown labels → OTHER.
-ROLE_MAP: dict[str, str] = {
-    "作者": ROLE_AUTHOR,
-    "原文作者": ROLE_ORIGINAL_AUTHOR,
-    "譯者": ROLE_TRANSLATOR,
-    "編者": ROLE_EDITOR,
-    "繪者": ROLE_ILLUSTRATOR,
+ROLE_MAP: dict[str, ContributorRole] = {
+    "作者": ContributorRole.AUTHOR,
+    "原文作者": ContributorRole.ORIGINAL_AUTHOR,
+    "譯者": ContributorRole.TRANSLATOR,
+    "編者": ContributorRole.EDITOR,
+    "繪者": ContributorRole.ILLUSTRATOR,
 }
 
 _WHITESPACE = re.compile(r"\s+")
@@ -78,13 +65,13 @@ def normalize_role_label(raw: str) -> str:
     return value.rstrip("：:").strip()
 
 
-def map_contributor_role(raw: str) -> str:
+def map_contributor_role(raw: str) -> ContributorRole:
     """Map a 博客來 contributor label (作者 / 譯者 / ...) to a contributor role."""
     label = normalize_role_label(raw)
     role = ROLE_MAP.get(label)
     if role is None:
         log.debug("contributor label %r has no role mapping; using OTHER", label)
-        return ROLE_OTHER
+        return ContributorRole.OTHER
     return role
 
 
@@ -111,14 +98,14 @@ def normalize_isbn(raw: str | None) -> Identifier | None:
         return None
     cleaned = _ISBN_SEPARATORS.sub("", raw).upper()
     if len(cleaned) == 10 and _ISBN_10.match(cleaned) and _isbn10_valid(cleaned):
-        return Identifier(IDENTIFIER_ISBN_10, cleaned)
+        return Identifier(IdentifierType.ISBN_10, cleaned)
     if len(cleaned) == 13 and _ISBN_13.match(cleaned) and _isbn13_valid(cleaned):
-        return Identifier(IDENTIFIER_ISBN_13, cleaned)
+        return Identifier(IdentifierType.ISBN_13, cleaned)
     log.warning("ignoring invalid ISBN %r", raw.strip())
     return None
 
 
-def parse_published_date(raw: str | None) -> tuple[date | None, str | None]:
+def parse_published_date(raw: str | None) -> tuple[date | None, PublishedDatePrecision | None]:
     """Parse 出版日期 keeping its real precision (never fabricates missing parts).
 
     ``2026/10/11`` → (2026-10-11, DAY); ``2026/10`` → (2026-10-01, MONTH); ``2026`` →
@@ -135,10 +122,10 @@ def parse_published_date(raw: str | None) -> tuple[date | None, str | None]:
     year_text, month_text, day_text = match.groups()
     try:
         if day_text is not None:
-            return date(int(year_text), int(month_text), int(day_text)), PRECISION_DAY
+            return date(int(year_text), int(month_text), int(day_text)), PublishedDatePrecision.DAY
         if month_text is not None:
-            return date(int(year_text), int(month_text), 1), PRECISION_MONTH
-        return date(int(year_text), 1, 1), PRECISION_YEAR
+            return date(int(year_text), int(month_text), 1), PublishedDatePrecision.MONTH
+        return date(int(year_text), 1, 1), PublishedDatePrecision.YEAR
     except ValueError:
         log.warning("invalid calendar date %r; storing NULL", value)
         return None, None

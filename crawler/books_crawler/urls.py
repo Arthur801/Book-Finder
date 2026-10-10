@@ -1,10 +1,12 @@
-"""Product URL canonicalization: the identity of a books.com.tw source.
+"""Product URL canonicalization: the identity of a books.com.tw Book Source.
 
-ASSUMPTION (re-check against the real fixtures once captured):
-    Product pages are addressed as ``https://www.books.com.tw/products/<id>`` where ``<id>``
-    is alphanumeric (the documented examples are 10-digit numeric ids). Query strings
-    (tracking parameters such as ``loc=``) and fragments carry no identity and are dropped.
-    Relative paths and the ``books.com.tw`` host without ``www`` are accepted and normalized.
+Verified against the saved pages in ``crawler/tests/fixtures`` (2026-10-11): ranking rows and
+detail pages link products as ``https://www.books.com.tw/products/<10 digits>`` with tracking
+query strings such as ``?loc=P_0003_001`` or ``?loc=hot_003``. The query string carries no
+identity and is dropped. The 100 ranking URLs of the saved chart are unique after canonicalization.
+
+Accepted inputs: absolute ``http``/``https`` URLs on ``books.com.tw`` or ``www.books.com.tw``,
+protocol-relative and root-relative paths. Anything else is not a product URL and is rejected.
 
 Canonical form: ``https://www.books.com.tw/products/<id>`` (no trailing slash, no query).
 """

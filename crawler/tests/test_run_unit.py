@@ -4,9 +4,9 @@ from datetime import datetime, timezone
 
 from books_crawler.cli import main
 from books_crawler.fetcher import FetchError
-from books_crawler.models import RankingRow
-from books_crawler.parsers import parse_detail_html, parse_ranking_html
-from books_crawler.run import STATUS_FAILED, RunDependencies, format_report, run_once
+from books_crawler.models import RankingRow, RunStatus
+from books_crawler.parsers import RANKING_PAGE_URL, parse_detail_html, parse_ranking_html
+from books_crawler.run import RunDependencies, format_report, run_once
 from tests.fakes import (
     RANKING_HTML,
     FakeFetcher,
@@ -17,7 +17,6 @@ from tests.fakes import (
 )
 
 NOW = datetime(2026, 10, 11, 4, 0, tzinfo=timezone.utc)
-RANKING_URL = "https://www.books.com.tw/web/sys_saletopb/books/?attribute=7"
 
 
 class RecordingConnect:
@@ -29,56 +28,55 @@ class RecordingConnect:
         raise AssertionError("database must not be touched when the ranking is invalid")
 
 
-def _deps(fetcher, rows, connect, ranking_parser=None):
+def _deps(fetcher, rows, connect):
     return RunDependencies(
         fetcher=fetcher,
-        parse_ranking=ranking_parser or fake_ranking_parser(rows),
+        parse_ranking=fake_ranking_parser(rows),
         parse_detail=fake_detail_parser({}),
         connect=connect,
         clock=lambda: NOW,
-        ranking_url=RANKING_URL,
     )
 
 
 def test_incomplete_ranking_fails_before_database_and_detail_fetches():
-    fetcher = FakeFetcher(pages={RANKING_URL: RANKING_HTML})
+    fetcher = FakeFetcher(pages={RANKING_PAGE_URL: RANKING_HTML})
     connect = RecordingConnect()
 
     report = run_once(_deps(fetcher, ranking_rows(99), connect), run_id="run-1")
 
-    assert report.status == STATUS_FAILED
+    assert report.status is RunStatus.FAILED
     assert report.exit_code == 1
     assert connect.calls == 0
-    assert fetcher.calls == [RANKING_URL]
+    assert fetcher.calls == [RANKING_PAGE_URL]
     assert "expected 100" in report.error
 
 
 def test_duplicate_url_ranking_fails_before_database():
     rows = ranking_rows(100)
     rows[1] = RankingRow(rank=2, url=product_url(1))
-    fetcher = FakeFetcher(pages={RANKING_URL: RANKING_HTML})
+    fetcher = FakeFetcher(pages={RANKING_PAGE_URL: RANKING_HTML})
     connect = RecordingConnect()
 
     report = run_once(_deps(fetcher, rows, connect))
 
-    assert report.status == STATUS_FAILED
+    assert report.status is RunStatus.FAILED
     assert connect.calls == 0
 
 
 def test_ranking_fetch_error_fails_run():
-    fetcher = FakeFetcher(failures={RANKING_URL: FetchError("HTTP 403")})
+    fetcher = FakeFetcher(failures={RANKING_PAGE_URL: FetchError("HTTP 403")})
     connect = RecordingConnect()
 
     report = run_once(_deps(fetcher, [], connect))
 
-    assert report.status == STATUS_FAILED
+    assert report.status is RunStatus.FAILED
     assert report.exit_code == 1
     assert "HTTP 403" in report.error
     assert connect.calls == 0
 
 
 def test_real_parsers_reject_a_page_that_is_not_the_ranking_and_fail_the_run():
-    fetcher = FakeFetcher(pages={RANKING_URL: "<html><body>not a ranking</body></html>"})
+    fetcher = FakeFetcher(pages={RANKING_PAGE_URL: "<html><body>not a ranking</body></html>"})
     connect = RecordingConnect()
     deps = RunDependencies(
         fetcher=fetcher,
@@ -86,19 +84,18 @@ def test_real_parsers_reject_a_page_that_is_not_the_ranking_and_fail_the_run():
         parse_detail=parse_detail_html,
         connect=connect,
         clock=lambda: NOW,
-        ranking_url=RANKING_URL,
     )
 
     report = run_once(deps)
 
-    assert report.status == STATUS_FAILED
+    assert report.status is RunStatus.FAILED
     assert report.exit_code == 1
     assert "ParseError" in report.error
     assert connect.calls == 0
 
 
 def test_format_report_has_required_fields():
-    fetcher = FakeFetcher(pages={RANKING_URL: RANKING_HTML})
+    fetcher = FakeFetcher(pages={RANKING_PAGE_URL: RANKING_HTML})
     report = run_once(_deps(fetcher, ranking_rows(10), RecordingConnect()), run_id="run-42")
 
     line = format_report(report)

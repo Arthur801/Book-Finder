@@ -1,3 +1,4 @@
+import logging
 from datetime import date
 
 import pytest
@@ -66,6 +67,14 @@ def test_normalize_isbn_rejects_invalid_values(raw):
 )
 def test_map_language(raw, expected):
     assert map_language(raw) == expected
+
+
+def test_unmapped_language_label_is_logged_and_stored_as_null(caplog):
+    caplog.set_level(logging.WARNING, logger="books_crawler.normalize")
+
+    assert map_language("德文") is None
+
+    assert "unmapped language label '德文'" in caplog.text
 
 
 # Contributor role mapping (crawler.md §8)

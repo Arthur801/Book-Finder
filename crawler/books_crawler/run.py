@@ -1,17 +1,19 @@
-"""One crawler run: ranking → resolve/persist books → replace bestsellers (crawler.md §3, §11).
+"""One crawler run: ranking → resolve sources to Books → replace bestsellers (crawler.md §3, §11).
 
 Issue #6 scope: success path only. Any failure fails the whole run; retry and skip
 (PARTIAL_SUCCESS, crawler.md §6) are issue #7. The per-row step is ``_resolve_row`` so #7 can
 wrap it with retry/skip without changing the flow.
 
 Resolution of a ranking row (crawler.md §5):
-1. Known BOOKS_COM_TW source URL → reuse its Book, no detail request.
+1. Known BOOKS_COM_TW Book Source URL → reuse its Book, no detail request.
 2. Unknown URL → fetch and parse the detail page, then:
-   a. an ISBN-13 (then ISBN-10) of the product matches an existing Book → attach a new
-      BOOKS_COM_TW source to that Book; the Book's metadata is not changed;
+   a. an ISBN-13 (then ISBN-10) of the detail page matches an existing Book → attach a new
+      BOOKS_COM_TW Book Source to that Book; the Book's metadata is not changed;
    b. otherwise → create a new Book.
-A Book may appear at most once in a ranking (``bestsellers.book_id`` is unique); a second rank
-resolving to the same Book fails the run.
+
+A Book may appear at most once in a ranking (``bestsellers.book_id`` is unique). Any rank that
+would resolve to a Book already used by another rank fails the run. This is a temporary rule,
+to be revisited in issue #7 (crawler.md §5).
 """
 
 from __future__ import annotations
@@ -28,19 +30,18 @@ import psycopg
 
 from books_crawler import db
 from books_crawler.fetcher import Fetcher
-from books_crawler.models import RankingRow, SnapshotRow
+from books_crawler.models import RankingRow, RunStatus, SnapshotRow, SourceRef
 from books_crawler.parsers import RANKING_PAGE_URL, DetailParser, RankingParser
 from books_crawler.ranking import validate_ranking, validate_snapshot
 
 log = logging.getLogger("books_crawler.run")
 
-STATUS_SUCCESS = "SUCCESS"
-STATUS_FAILED = "FAILED"
-EXIT_CODES = {STATUS_SUCCESS: 0, STATUS_FAILED: 1}
+EXIT_SUCCESS = 0
+EXIT_FAILED = 1
 
 
 class DuplicateBookInRankingError(RuntimeError):
-    """Two ranking rows resolve to the same Book, which the bestseller table cannot hold."""
+    """Two ranking rows would resolve to the same Book, which the bestseller table cannot hold."""
 
 
 def utc_now() -> datetime:
@@ -54,13 +55,12 @@ class RunDependencies:
     parse_detail: DetailParser
     connect: Callable[[], psycopg.Connection]
     clock: Callable[[], datetime] = utc_now
-    ranking_url: str = RANKING_PAGE_URL
 
 
 @dataclass
 class RunReport:
     run_id: str
-    status: str
+    status: RunStatus
     started_at: datetime
     finished_at: datetime
     ranking_count: int = 0
@@ -75,7 +75,7 @@ class RunReport:
 
     @property
     def exit_code(self) -> int:
-        return EXIT_CODES[self.status]
+        return EXIT_SUCCESS if self.status is RunStatus.SUCCESS else EXIT_FAILED
 
 
 def format_report(report: RunReport) -> str:
@@ -112,7 +112,7 @@ def _resolve_row(
     deps: RunDependencies,
     report: RunReport,
     ranked_book_ids: set[UUID],
-) -> db.SourceRef:
+) -> SourceRef:
     """Resolve one ranking row to a Book. Known URLs are reused without fetching the detail page."""
     existing = db.find_source(conn, row.url)
     if existing is not None:
@@ -122,40 +122,43 @@ def _resolve_row(
 
     html = deps.fetcher.get(row.url)
     draft = deps.parse_detail(html, row.url)
-    try:
-        persisted = db.persist_new_product(conn, draft, deps.clock(), reserved_book_ids=ranked_book_ids)
-    except db.BookAlreadyRankedError as exc:
-        raise DuplicateBookInRankingError(
-            f"rank {row.rank} ({row.url}) matches an ISBN of Book {exc.book_id}, which another rank "
-            "in this ranking already uses; bestsellers.book_id must be unique"
-        ) from exc
+    match = db.find_book_by_isbn(conn, draft.identifiers)
+    if match is not None:
+        _reject_if_ranked(match.book_id, row, ranked_book_ids)
 
-    if persisted.matched_identifier is not None:
-        report.existing_book_count += 1
-        report.attached_source_count += 1
-        log.info(
-            "attached BOOKS_COM_TW source to existing Book: rank=%d url=%s matched=%s:%s book_id=%s",
-            row.rank,
-            row.url,
-            persisted.matched_identifier.identifier_type,
-            persisted.matched_identifier.identifier_value,
-            persisted.ref.book_id,
-        )
-    else:
+    ref = db.persist_new_source(
+        conn,
+        draft,
+        deps.clock(),
+        attach_to_book_id=match.book_id if match is not None else None,
+    )
+    if match is None:
         report.new_book_count += 1
-    return persisted.ref
+        return ref
+
+    report.existing_book_count += 1
+    report.attached_source_count += 1
+    log.info(
+        "attached BOOKS_COM_TW source to existing Book: rank=%d url=%s matched=%s:%s book_id=%s",
+        row.rank,
+        row.url,
+        match.identifier.identifier_type,
+        match.identifier.identifier_value,
+        match.book_id,
+    )
+    return ref
 
 
 def run_once(deps: RunDependencies, run_id: str | None = None) -> RunReport:
     """Execute one crawl. Never raises: failures are reported through ``RunReport``."""
     report = RunReport(
         run_id=run_id or str(uuid.uuid4()),
-        status=STATUS_FAILED,
+        status=RunStatus.FAILED,
         started_at=deps.clock(),
         finished_at=deps.clock(),
     )
     try:
-        html = deps.fetcher.get(deps.ranking_url)
+        html = deps.fetcher.get(RANKING_PAGE_URL)
         rows = validate_ranking(deps.parse_ranking(html))
         report.ranking_count = len(rows)
 
@@ -169,7 +172,7 @@ def run_once(deps: RunDependencies, run_id: str | None = None) -> RunReport:
             replacement = validate_snapshot(snapshot)
             db.replace_bestsellers(conn, replacement, captured_at=deps.clock())
 
-        report.status = STATUS_SUCCESS
+        report.status = RunStatus.SUCCESS
     except Exception as exc:  # any failure fails the run; the previous bestsellers are untouched
         report.error = f"{type(exc).__name__}: {exc}"
         log.error("run failed: %s", report.error)

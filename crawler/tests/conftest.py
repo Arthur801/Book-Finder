@@ -1,9 +1,12 @@
 """Shared fixtures: a throwaway pgvector PostgreSQL with the EF Core schema.
 
-- The container is started with the Docker CLI (``pgvector/pgvector:pg17``) once per session
-  and removed afterwards. Tests never use DATABASE_URL or any real/dev database.
-- The schema is produced by EF Core: ``dotnet build`` + ``dotnet ef migrations script --idempotent``
-  from the repository root. The crawler itself never runs DDL; this DDL is applied by the test setup.
+- The container is managed by Testcontainers (``testcontainers[postgres]``, image
+  ``pgvector/pgvector:pg17``). It is removed when the session ends, and also when startup fails,
+  because the context manager calls ``stop()`` on a failed ``start()``. Ryuk removes anything left
+  behind if pytest is killed. Tests never use DATABASE_URL or any real/dev database.
+- The EF schema is generated BEFORE the container starts, so a dotnet/EF failure never leaves a
+  container running. Generation: ``dotnet build`` + ``dotnet ef migrations script --idempotent``
+  from the repository root. The crawler itself never runs DDL; this DDL is applied by test setup.
 - Each DB test starts from empty crawler tables (TRUNCATE).
 """
 
@@ -12,15 +15,18 @@ from __future__ import annotations
 import shutil
 import subprocess
 import time
-import uuid
 from collections.abc import Iterator
 from pathlib import Path
 
 import psycopg
 import pytest
+from testcontainers.community.postgres import PostgresContainer
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PG_IMAGE = "pgvector/pgvector:pg17"
+PG_USER = "crawler_test"
+PG_PASSWORD = "crawler_test"
+PG_DATABASE = "crawler_test"
 CRAWLER_TABLES = "bestsellers, book_subjects, book_contributors, book_identifiers, book_sources, books"
 
 
@@ -36,38 +42,6 @@ def _wait_for_postgres(url: str, timeout: float = 120.0) -> None:
             last_error = exc
             time.sleep(1)
     raise RuntimeError(f"throwaway PostgreSQL did not become ready: {last_error}")
-
-
-@pytest.fixture(scope="session")
-def postgres_url() -> Iterator[str]:
-    docker = shutil.which("docker")
-    if docker is None:
-        pytest.skip("Docker CLI not available; integration tests need a throwaway PostgreSQL")
-    name = f"bf6-crawler-test-{uuid.uuid4().hex[:8]}"
-    started = subprocess.run(
-        [
-            docker, "run", "-d", "--name", name,
-            "-e", "POSTGRES_USER=crawler_test",
-            "-e", "POSTGRES_PASSWORD=crawler_test",
-            "-e", "POSTGRES_DB=crawler_test",
-            "-p", "127.0.0.1::5432",
-            PG_IMAGE,
-        ],
-        capture_output=True,
-        text=True,
-    )
-    if started.returncode != 0:
-        pytest.fail(f"docker run failed: {started.stderr.strip()}")
-    try:
-        port_lines = subprocess.run(
-            [docker, "port", name, "5432/tcp"], capture_output=True, text=True, check=True
-        ).stdout.strip().splitlines()
-        port = port_lines[0].rsplit(":", 1)[-1]
-        url = f"postgresql://crawler_test:crawler_test@127.0.0.1:{port}/crawler_test"
-        _wait_for_postgres(url)
-        yield url
-    finally:
-        subprocess.run([docker, "rm", "-f", name], capture_output=True)
 
 
 @pytest.fixture(scope="session")
@@ -91,6 +65,15 @@ def ef_schema_sql(tmp_path_factory) -> str:
     if generated.returncode != 0:
         pytest.fail(f"dotnet ef migrations script failed: {generated.stderr or generated.stdout}")
     return script.read_text(encoding="utf-8-sig")
+
+
+@pytest.fixture(scope="session")
+def postgres_url(ef_schema_sql: str) -> Iterator[str]:
+    container = PostgresContainer(PG_IMAGE, username=PG_USER, password=PG_PASSWORD, dbname=PG_DATABASE, driver=None)
+    with container:
+        url = container.get_connection_url(driver=None)
+        _wait_for_postgres(url)
+        yield url
 
 
 @pytest.fixture(scope="session")

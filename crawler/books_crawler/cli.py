@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 import os
 import sys
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 
 from books_crawler import db
 from books_crawler.fetcher import HttpFetcher
@@ -30,8 +30,7 @@ def _configure_logging() -> logging.Logger:
     return root
 
 
-def main(argv: Sequence[str] | None = None, environ: Mapping[str, str] | None = None) -> int:
-    del argv  # no options yet
+def main(environ: Mapping[str, str] | None = None) -> int:
     _configure_logging()
     log = logging.getLogger("books_crawler.cli")
     env = os.environ if environ is None else environ
