@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/tests/">
     <Project Path="tests/DatabaseIntegration/DatabaseIntegration.csproj" />
+    <Project Path="tests/WebIntegration/WebIntegration.csproj" />
   </Folder>
   <Project Path="Book-Finder.csproj" />
 </Solution>

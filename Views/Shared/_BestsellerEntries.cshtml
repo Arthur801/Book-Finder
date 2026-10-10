@@ -1,0 +1,33 @@
+@model Book_Finder.Models.BestsellerListViewModel
+
+@if (Model.IsEmpty)
+{
+    <p class="text-muted">榜單尚未建立</p>
+}
+else
+{
+    <p class="text-muted small mb-2">榜單更新時間：<span class="updated-at">@Model.UpdatedAtText</span></p>
+    <ol class="list-unstyled bestseller-list mb-0">
+        @foreach (var entry in Model.Entries)
+        {
+            <li class="bestseller-entry d-flex align-items-center gap-3 py-2 border-bottom" data-rank="@entry.Rank">
+                <span class="rank fw-bold text-end" style="min-width: 2.5rem;">@entry.Rank</span>
+                @if (entry.ThumbnailUrl is not null)
+                {
+                    <img class="cover" src="@entry.ThumbnailUrl" alt="" width="48" height="68" loading="lazy" style="object-fit: cover;" />
+                }
+                else
+                {
+                    <span class="cover cover-placeholder text-muted small" style="width: 48px;">無封面</span>
+                }
+                <div class="flex-grow-1">
+                    <a class="book-title" href="/books/@entry.BookId">@entry.Title</a>
+                    @if (!string.IsNullOrEmpty(entry.Authors))
+                    {
+                        <div class="authors text-muted small">@entry.Authors</div>
+                    }
+                </div>
+            </li>
+        }
+    </ol>
+}

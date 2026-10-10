@@ -1,8 +1,27 @@
-﻿@{
-    ViewData["Title"] = "Home Page";
-}
+@model Book_Finder.Models.BestsellerListViewModel
 
-<div class="text-center">
-    <h1 class="display-4">Welcome</h1>
-    <p>Learn about <a href="https://learn.microsoft.com/aspnet/core">building Web apps with ASP.NET Core</a>.</p>
-</div>
+<section class="mb-5">
+    <h1 class="h3 mb-3">找書</h1>
+
+    <form method="get" action="/search" role="search" class="mb-4">
+        <label for="search-q" class="form-label">搜尋書名、作者或出版社</label>
+        <div class="input-group">
+            <input id="search-q" type="search" name="q" class="form-control" placeholder="例：PostgreSQL" />
+            <button class="btn btn-primary" type="submit">搜尋</button>
+        </div>
+    </form>
+
+    <form method="get" action="/ai">
+        <label for="ai-request" class="form-label">用一句話描述你想讀的書（AI 推薦）</label>
+        <textarea id="ai-request" name="q" class="form-control mb-2" rows="2" placeholder="例：想學資料庫入門，最好有實作練習"></textarea>
+        <button class="btn btn-outline-primary" type="submit">AI 推薦</button>
+    </form>
+</section>
+
+<section>
+    <div class="d-flex justify-content-between align-items-baseline mb-2">
+        <h2 class="h4 mb-0">暢銷榜前 10 名</h2>
+        <a href="/bestsellers">查看完整榜單</a>
+    </div>
+    <partial name="_BestsellerEntries" model="Model" />
+</section>
