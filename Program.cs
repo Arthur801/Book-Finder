@@ -1,5 +1,8 @@
+using Book_Finder.Application.Bestsellers;
+using Book_Finder.Infrastructure.Caching;
 using Book_Finder.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Pgvector.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -11,6 +14,14 @@ var connectionString = builder.Configuration.GetConnectionString("DefaultConnect
     ?? throw new InvalidOperationException("缺少 ConnectionStrings:DefaultConnection 資料庫連線設定");
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(connectionString, postgres => postgres.UseVector()));
+
+// Bestseller read: EF Core reader wrapped by a process-local cache (ADR-005).
+builder.Services.AddMemoryCache();
+builder.Services.AddScoped<EfBestsellerReader>();
+builder.Services.AddScoped<IBestsellerReader>(provider => new CachedBestsellerReader(
+    provider.GetRequiredService<EfBestsellerReader>(),
+    provider.GetRequiredService<IMemoryCache>()));
+builder.Services.AddScoped<BestsellerService>();
 
 var app = builder.Build();
 
@@ -36,3 +47,6 @@ app.MapControllerRoute(
 
 
 app.Run();
+
+// Exposes the entry point to tests/WebIntegration (WebApplicationFactory<Program>).
+public partial class Program { }

@@ -42,6 +42,7 @@ Docs/
 │   └── ui-flow.md
 ├── testing/
 │   └── test-plan.md
+├── Implementation-Report/   ← agent 實作報告（實作紀錄，非規格；不得作為 authority 引用）
 └── deployment/
     └── deployment.md
 ```

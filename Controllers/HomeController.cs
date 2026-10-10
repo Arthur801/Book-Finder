@@ -1,19 +1,16 @@
 using System.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
+using Book_Finder.Application.Bestsellers;
 using Book_Finder.Models;
 
 namespace Book_Finder.Controllers;
 
-public class HomeController : Controller
+public class HomeController(BestsellerService bestsellers) : Controller
 {
-    public IActionResult Index()
+    public async Task<IActionResult> Index(CancellationToken cancellationToken)
     {
-        return View();
-    }
-
-    public IActionResult Privacy()
-    {
-        return View();
+        var snapshot = await bestsellers.GetTopAsync(BestsellerService.HomeTopCount, cancellationToken);
+        return View(BestsellerListViewModel.From(snapshot));
     }
 
     [ResponseCache(Duration = 0, Location = ResponseCacheLocation.None, NoStore = true)]
