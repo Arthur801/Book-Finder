@@ -89,15 +89,28 @@ Existing：
 reuse book_id
 do not fetch detail
 do not update Book metadata
+mark Book Source last_seen_at（僅於本次成功 run 的榜單替換 transaction 中，見 §10）
 ```
 
-New：
+New（`source_url` 尚未存在）：
 
 ```text
 fetch detail（retry）
 normalize
-persist Book + related source rows
+ISBN 比對（僅依序：ISBN-13 → ISBN-10；data-model §6）：
+  命中既有 Book
+    → 只新增一筆 BOOKS_COM_TW book_sources，指向該既有 Book
+    → 不新增 Book；不修改該 Book 的 metadata、identifiers、contributors、subjects（不做 canonical merge）
+    → 此商品的 bestseller row 使用既有 book_id 與新的 source id
+  未命中（或商品沒有 ISBN）
+    → persist Book + related source rows
+  （不得依書名／作者相似度合併）
+單次 transaction 完成上述寫入（每個商品一個 transaction）
 ```
+
+同一 Book 只能出現在榜單一次（`bestsellers.book_id` UNIQUE）。若兩個排名列解析到同一 Book（例如一個既有商品，另一個新商品的 ISBN 命中同一 Book；或兩個新商品共用一個 ISBN），本次 run 失敗（FAILED，榜單不變），錯誤訊息需指出衝突的排名。
+  **暫定（temporary）**：上述「同一 Book 出現兩次 → run 失敗」為暫定規則，於 #7 重新檢討（較可能的方向：跳過後一個排名，與 PARTIAL_SUCCESS 一致）。
+命中既有 Book 時記錄 INFO log：rank、url、命中的 ISBN、book_id。
 
 ## 6. Retry 與 Skip
 
@@ -141,6 +154,12 @@ skipped_count > 10 → run = FAILED，不替換榜單
 | `book_contributors` | 作者/原文作者/譯者等 | no |
 | `book_subjects` | 本書分類 | no |
 | `book_sources.source_url` | 商品 URL | yes |
+
+本書分類（`book_subjects`，source_type `BOOKS_COM_TW`）的規則：
+
+- 商品頁上**每一個** `本書分類` 群組中的**每一層**分類都保存為一筆 subject（例如 `人文社科`、`政治`、`政治人物`）。
+- 去重後保存（PK 為 `(book_id, subject, source_type)`），依頁面出現順序。
+- 規格只說「本書分類」，未規定層級；此為 2026-10-11 的產品決策。
 
 博客來無可靠獨立 subtitle 欄位：`books.subtitle = NULL`，不得由商品標題自行拆解。
 
@@ -218,10 +237,14 @@ source_id = same Book's BOOKS_COM_TW source
 BEGIN
 DELETE current bestsellers
 INSERT snapshot rows
+UPDATE book_sources SET last_seen_at = captured_at
+       WHERE id IN (snapshot source_ids)   -- 所有榜上的 Book Source，既有與新寫入者皆然
 COMMIT
 ```
 
-任一 SQL 失敗：`ROLLBACK`；上一份有效榜單保留，run = FAILED。
+- `last_seen_at` 只更新 Book Source 的來源紀錄；Book 的 metadata 永不因此改變。
+- 與榜單替換同一 transaction：失敗的 run 不更新任何 `last_seen_at`。
+- 任一 SQL 失敗：`ROLLBACK`；上一份有效榜單與 `last_seen_at` 保留，run = FAILED。
 
 ## 11. Run Status
 
@@ -241,8 +264,9 @@ started_at
 finished_at
 status
 ranking_count
-existing_book_count
+existing_book_count       （含以 ISBN 附加到既有 Book 的新商品）
 new_book_count
+attached_source_count     （existing_book_count 中以 ISBN 附加者）
 skipped_count
 skipped: [{rank, url, error_type, error_message, attempts}]
 ```

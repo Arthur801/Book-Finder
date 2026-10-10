@@ -172,6 +172,8 @@ UNIQUE(source_type, external_id) WHERE external_id IS NOT NULL
 
 博客來 crawler 仍以商品 URL 判斷同一來源紀錄是否已存在。
 
+`last_seen_at`：博客來 crawler 在每次成功 run 的榜單替換 transaction 中，將榜上所有 BOOKS_COM_TW 來源的 `last_seen_at` 設為該次 run 的 captured_at（既有與新寫入者皆然）。這是來源紀錄的 metadata；Book 本身的欄位不因此改變。失敗的 run 不更新任何 `last_seen_at`。
+
 ---
 
 ### 5.3 `book_identifiers`
@@ -438,6 +440,11 @@ existing Book
 ```
 
 不得建立 duplicate Book。
+
+博客來 crawler 對新商品（其 BOOKS_COM_TW `source_url` 尚未存在）套用相同的 ISBN-13 → ISBN-10 比對，但**不做 canonical merge**：
+命中既有 Book 時只新增一筆 BOOKS_COM_TW `book_sources` 指向該 Book，不修改該 Book 的 metadata、identifiers、contributors 或 subjects。
+同一 Book 不得在同一份榜單中出現兩次（`bestsellers.book_id` UNIQUE）。**暫定（temporary）**：目前此情況使本次 run 失敗；將於 #7 重新檢討（較可能的方向：跳過後一個排名，與 PARTIAL_SUCCESS 一致）。
+（決策：Crawler ISBN 比對與附加來源，依使用者決定採用此方式。）
 
 ---
 
