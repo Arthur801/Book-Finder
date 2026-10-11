@@ -2,6 +2,7 @@ using Book_Finder.Application.Bestsellers;
 using Book_Finder.Application.Catalog;
 using Book_Finder.Infrastructure.Caching;
 using Book_Finder.Infrastructure.Persistence;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Pgvector.EntityFrameworkCore;
@@ -35,6 +36,12 @@ builder.Services.AddScoped<IBookSearch, EfBookSearch>();
 builder.Services.AddScoped<BookSearchService>();
 
 var app = builder.Build();
+
+// nginx runs on the same host; retain the framework's trusted loopback proxies.
+app.UseForwardedHeaders(new ForwardedHeadersOptions
+{
+    ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
+});
 
 // Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())

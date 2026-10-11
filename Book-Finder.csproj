@@ -12,6 +12,9 @@
     <Compile Remove="tests/**/*.cs" />
     <Content Remove="tests/**" />
     <None Remove="tests/**" />
+    <!-- Web releases exclude crawler diagnostics and local development tooling. -->
+    <Content Update="crawler/**;dotnet-tools.json;skills-lock.json"
+             CopyToPublishDirectory="Never" />
     <InternalsVisibleTo Include="DatabaseIntegration" />
   </ItemGroup>
 
