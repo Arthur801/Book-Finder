@@ -107,11 +107,6 @@ class RunLedger:
         """The rows that may replace the bestsellers, at their original ranks (gaps kept)."""
         return tuple(self._snapshot)
 
-    @property
-    def restricted_ranks(self) -> tuple[int, ...]:
-        """Ranks skipped as restricted member pages; they must not appear in the snapshot."""
-        return tuple(item.rank for item in self._skipped if item.is_restricted)
-
     def record(self, outcome: ResolvedRow | SkippedRow) -> None:
         """Account for the next row. Raises ``ValueError`` when called out of order or after an abort."""
         if self.aborted:

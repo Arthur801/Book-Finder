@@ -7,7 +7,9 @@ Rules:
   block, so a failure always rolls back exactly that unit of work.
 - The schema is owned by EF Core and has no DB defaults, so UUIDs and timestamps come from here.
 - Decisions (which Book a new source belongs to, whether a Book may be ranked twice) are made by
-  the caller (``run``). This module only looks up and writes.
+  the caller (``run``). This module only looks up and writes, except for the one bestseller rule
+  the schema does not enforce (a ranked source must be a BOOKS_COM_TW source of the same Book),
+  which ``replace_bestsellers`` checks inside its own transaction.
 """
 
 from __future__ import annotations
@@ -28,6 +30,10 @@ from books_crawler.models import (
     SourceRef,
     SourceType,
 )
+
+
+class SnapshotValidationError(Exception):
+    """A snapshot row's source is not a BOOKS_COM_TW Book Source of that row's Book (crawler.md §10)."""
 
 
 def connect(database_url: str) -> psycopg.Connection:
@@ -59,15 +65,6 @@ def find_book_by_isbn(conn: psycopg.Connection, identifiers: Sequence[Identifier
             if row is not None:
                 return IsbnMatch(book_id=row[0], identifier=identifier)
     return None
-
-
-def booksdotcom_source_books(conn: psycopg.Connection, source_ids: Sequence[UUID]) -> dict[UUID, UUID]:
-    """Map each BOOKS_COM_TW Book Source id among ``source_ids`` to the Book it belongs to."""
-    rows = conn.execute(
-        "SELECT id, book_id FROM book_sources WHERE source_type = %s AND id = ANY(%s)",
-        (SourceType.BOOKS_COM_TW, list(source_ids)),
-    ).fetchall()
-    return {row[0]: row[1] for row in rows}
 
 
 def _insert_source(conn: psycopg.Connection, source_id: UUID, book_id: UUID, source_url: str, now: datetime) -> None:
@@ -148,13 +145,30 @@ def persist_new_source(
 
 
 def replace_bestsellers(conn: psycopg.Connection, rows: Sequence[SnapshotRow], captured_at: datetime) -> None:
-    """Replace the whole bestseller list and mark its sources as seen, in one transaction.
+    """Replace the whole bestseller list and mark its sources as seen, in one transaction (crawler.md §10).
+
+    First, every row's ``source_id`` must be a BOOKS_COM_TW Book Source of that row's own Book, or
+    ``SnapshotValidationError`` is raised before the current list is touched. The other snapshot
+    rules are not repeated here: rank range and uniqueness and ``book_id`` uniqueness are schema
+    constraints, and ``RunLedger`` only puts resolved rows at their original ranks into a snapshot.
 
     In the same transaction, ``last_seen_at`` of every Book Source in the snapshot is set to
-    ``captured_at`` (source metadata only; Book metadata is never touched). If any statement fails,
-    everything rolls back: the previous list and the previous ``last_seen_at`` values stay intact.
+    ``captured_at`` (source metadata only; Book metadata is never touched). If any check or
+    statement fails, everything rolls back: the previous list and ``last_seen_at`` values stay intact.
     """
+    source_ids = [row.source_id for row in rows]
     with conn.transaction():
+        owners = dict(
+            conn.execute(
+                "SELECT id, book_id FROM book_sources WHERE source_type = %s AND id = ANY(%s)",
+                (SourceType.BOOKS_COM_TW, source_ids),
+            ).fetchall()
+        )
+        for row in rows:
+            if owners.get(row.source_id) != row.book_id:
+                raise SnapshotValidationError(
+                    f"rank {row.rank}: source {row.source_id} is not a BOOKS_COM_TW source of Book {row.book_id}"
+                )
         conn.execute("DELETE FROM bestsellers")
         with conn.cursor() as cursor:
             cursor.executemany(
@@ -163,5 +177,5 @@ def replace_bestsellers(conn: psycopg.Connection, rows: Sequence[SnapshotRow], c
             )
         conn.execute(
             "UPDATE book_sources SET last_seen_at = %s WHERE id = ANY(%s)",
-            (captured_at, [row.source_id for row in rows]),
+            (captured_at, source_ids),
         )

@@ -326,7 +326,7 @@ MVP 可先使用 exact vector search。只有量測證明需要 ANN 時再新增
 | `source_id`   | `uuid`        |   no | FK →`book_sources.id`  |
 | `captured_at` | `timestamptz` |   no |                         |
 
-新榜單通過 crawler 驗證（見 `Docs/modules/crawler.md`）後才能 transaction replace；crawler failure 不得先清空上一版有效榜單。
+新榜單在 replace 的同一 transaction 內驗證後才寫入（見 `Docs/modules/crawler.md` §10）；任何驗證或寫入失敗都 rollback，crawler failure 不得清空上一版有效榜單。
 
 ---
 

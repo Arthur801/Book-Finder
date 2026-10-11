@@ -57,7 +57,7 @@ from books_crawler.models import (
     SourceRef,
 )
 from books_crawler.parsers import RANKING_PAGE_URL, DetailParser, RankingParser, RestrictedBookError
-from books_crawler.ranking import validate_ranking, validate_snapshot
+from books_crawler.ranking import validate_ranking
 from books_crawler.redact import redact
 
 log = logging.getLogger("books_crawler.run")
@@ -324,10 +324,7 @@ def run_once(deps: RunDependencies, run_id: str | None = None) -> RunReport:
                 if ledger.aborted:
                     break
             if not ledger.aborted:
-                snapshot = ledger.snapshot
-                source_books = db.booksdotcom_source_books(conn, [item.source_id for item in snapshot])
-                replacement = validate_snapshot(snapshot, source_books, restricted_ranks=ledger.restricted_ranks)
-                db.replace_bestsellers(conn, replacement, captured_at=deps.clock())
+                db.replace_bestsellers(conn, ledger.snapshot, captured_at=deps.clock())
     except Exception as exc:  # any failure fails the run; the previous bestsellers are untouched
         error = redact(f"{type(exc).__name__}: {exc}")
 

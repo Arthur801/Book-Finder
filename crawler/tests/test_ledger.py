@@ -142,7 +142,7 @@ def test_restricted_rows_are_skipped_but_are_not_errors():
     assert report.status is RunStatus.PARTIAL_SUCCESS
     assert (report.skipped_count, report.restricted_book_count, report.error_count) == (30, 30, 0)
     assert report.consecutive_error_count == 0
-    assert ledger.restricted_ranks == tuple(range(1, 31))
+    assert [item.rank for item in report.skipped if item.is_restricted] == list(range(1, 31))
 
 
 @pytest.mark.parametrize(

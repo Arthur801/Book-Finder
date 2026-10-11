@@ -48,9 +48,9 @@ flowchart TD
     E --> I
     F --> I
     I -->|Yes| C
-    I -->|No| J{Snapshot valid?}
+    I -->|No| J{Sources valid inside the replacement transaction?}
     J -->|No| X
-    J -->|Yes| K[Atomic replacement; SUCCESS or PARTIAL_SUCCESS]
+    J -->|Yes| K[Replacement committed; SUCCESS or PARTIAL_SUCCESS]
 ```
 
 ## 4. Ranking Contract
@@ -243,27 +243,27 @@ Snapshot row：
 rank, book_id, source_id, captured_at
 ```
 
-Replace 前必須驗證（任一失敗 → run FAILED，榜單不變）：
-
-```text
-0 ≤ row_count ≤ 100 - restricted_book_count （不以累計錯誤數設定最低筆數）
-restricted_ranks 與 snapshot ranks 不重疊；restricted_ranks 必須在 1..100 且 unique
-rank ⊆ 1..100 and unique                  （允許缺號，不得重新編號）
-book_id unique
-source_id = same Book's BOOKS_COM_TW source
-    （以資料庫查詢 source_id → book_id，須為 source_type = BOOKS_COM_TW 且 book_id 相同）
-```
-
-更新：
+Replace 在單一 transaction 內完成；任一失敗 → ROLLBACK，run FAILED，上一份榜單與 `last_seen_at` 不變（`db.replace_bestsellers`）：
 
 ```text
 BEGIN
+檢查每列 source_id 為該列 Book 的 BOOKS_COM_TW 來源
+       （查詢 source_id → book_id、source_type；不符即 SnapshotValidationError，尚未刪除現有榜單）
 DELETE current bestsellers
 INSERT snapshot rows
 UPDATE book_sources SET last_seen_at = captured_at
        WHERE id IN (snapshot source_ids)   -- 所有榜上的 Book Source，既有與新寫入者皆然
 COMMIT
 ```
+
+其他條件由誰保證（不在 replace 時重複檢查）：
+
+- rank 在 1..100 且不重複：排行榜驗證（§4）只產生 rank 1..100 各一次；schema（`ck_bestsellers_rank`、rank 主鍵）再擋一次，違反即 rollback。
+- `book_id` 不重複：`RunLedger` 拒絕重複的 Book（§5）；schema 的 `book_id` unique index 再擋一次。
+- 不重新編號；被跳過與限制級的排名不進 snapshot，因此筆數 ≤ 100 − 被跳過數：`RunLedger` 只把成功解析的列依原始 rank 放進 snapshot（§6、§11）。
+- 沒有最低筆數：`RunLedger` 與 replace 都不以累計錯誤數設下限；空 snapshot 也會替換（清空）榜單。
+
+`last_seen_at` 規則：
 
 - `last_seen_at` 只更新 Book Source 的來源紀錄；Book 的 metadata 永不因此改變。
 - 與榜單替換同一 transaction：失敗的 run 不更新任何 `last_seen_at`。

@@ -1,4 +1,4 @@
-"""Ranking validation (crawler.md §4) and snapshot validation (crawler.md §10).
+"""Ranking validation (crawler.md §4).
 
 The ranking page is all-or-nothing: any violation raises and the run fails without touching the
 current bestsellers. Skipping applies only to new detail pages (run.py, crawler.md §6); it never
@@ -10,10 +10,9 @@ the rows validated here already carry canonical URLs.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
-from uuid import UUID
+from collections.abc import Iterable, Sequence
 
-from books_crawler.models import RankingRow, SnapshotRow
+from books_crawler.models import RankingRow
 
 EXPECTED_RANKING_COUNT = 100
 
@@ -22,18 +21,9 @@ class RankingValidationError(Exception):
     """The scraped ranking is incomplete or inconsistent."""
 
 
-class SnapshotValidationError(Exception):
-    """The bestseller snapshot to be written is inconsistent."""
-
-
 def _has_exact_ranks(ranks: Iterable[int]) -> bool:
     """True when the ranks are exactly 1..100, each once (crawler.md §4)."""
     return sorted(ranks) == list(range(1, EXPECTED_RANKING_COUNT + 1))
-
-
-def _has_unique_ranks_in_range(ranks: Sequence[int]) -> bool:
-    """True when every rank is within 1..100 and no rank appears twice (snapshot may have gaps)."""
-    return all(1 <= rank <= EXPECTED_RANKING_COUNT for rank in ranks) and len(set(ranks)) == len(ranks)
 
 
 def validate_ranking(rows: Sequence[RankingRow]) -> list[RankingRow]:
@@ -57,36 +47,3 @@ def validate_ranking(rows: Sequence[RankingRow]) -> list[RankingRow]:
         if first != row.rank:
             raise RankingValidationError(f"duplicate product URL at ranks {first} and {row.rank}: {row.url}")
     return ordered
-
-
-def validate_snapshot(rows: Sequence[SnapshotRow], source_books: Mapping[UUID, UUID],
-                      *, restricted_ranks: Sequence[int] = ()) -> list[SnapshotRow]:
-    """Check the rows that will replace ``bestsellers`` (crawler.md §10).
-
-    - excludes explicit restricted ranks; no minimum row count (run checks error streaks);
-    - ranks within 1..100 and unique (gaps are allowed, renumbering is not);
-    - ``book_id`` unique (``bestsellers.book_id`` is UNIQUE);
-    - every ``source_id`` is a BOOKS_COM_TW Book Source of that row's own Book.
-
-    ``source_books`` maps the ``source_id`` of each BOOKS_COM_TW Book Source to its ``book_id``, as
-    read from the database by the caller. A source missing from the mapping is not valid.
-    """
-    if not _has_unique_ranks_in_range(restricted_ranks):
-        raise SnapshotValidationError("restricted ranks must be within 1..100 and unique")
-    if set(restricted_ranks) & {row.rank for row in rows}:
-        raise SnapshotValidationError("restricted ranks must not appear in the snapshot")
-    maximum_rows = EXPECTED_RANKING_COUNT - len(restricted_ranks)
-    if len(rows) > maximum_rows:
-        raise SnapshotValidationError(
-            f"snapshot must have 0..{maximum_rows} rows, got {len(rows)}"
-        )
-    if not _has_unique_ranks_in_range([row.rank for row in rows]):
-        raise SnapshotValidationError("snapshot ranks must be within 1..100 and unique")
-    if len({row.book_id for row in rows}) != len(rows):
-        raise SnapshotValidationError("snapshot book_id must be unique")
-    for row in rows:
-        if source_books.get(row.source_id) != row.book_id:
-            raise SnapshotValidationError(
-                f"rank {row.rank}: source {row.source_id} is not a BOOKS_COM_TW source of Book {row.book_id}"
-            )
-    return sorted(rows, key=lambda item: item.rank)

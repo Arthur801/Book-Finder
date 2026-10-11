@@ -604,15 +604,63 @@ def test_failed_snapshot_replacement_keeps_previous_list_and_last_seen(db_url):
         SnapshotRow(rank=rank, book_id=books[rank], source_id=source_id)
         for rank, source_id in sources
     ]
-    # Rank 50 references a Book that does not exist: the INSERT fails after 49 rows were written.
-    snapshot[49] = SnapshotRow(rank=50, book_id=uuid.uuid4(), source_id=sources[49][1])
+    # Rank 50 repeats rank 49's Book and source: it passes the source check, but the schema's unique
+    # bestsellers.book_id makes the INSERT fail after 49 rows were written.
+    snapshot[49] = SnapshotRow(rank=50, book_id=books[49], source_id=sources[48][1])
 
     with psycopg.connect(db_url, autocommit=True) as conn:
-        with pytest.raises(psycopg.errors.ForeignKeyViolation):
+        with pytest.raises(psycopg.errors.UniqueViolation):
             db.replace_bestsellers(conn, snapshot, captured_at=LATER)
 
     assert bestsellers(db_url) == previous
     assert query(db_url, "SELECT id, last_seen_at FROM book_sources ORDER BY id") == sources_before
+
+
+@pytest.mark.parametrize("case", ["another_books_source", "google_books_source", "missing_source"])
+def test_replacement_rejects_a_source_that_is_not_the_books_own_books_com_tw_source(db_url, case):
+    """crawler.md §10: checked inside the replacement transaction, before the current list is deleted."""
+    run(db_url, ranking_rows(100))
+    previous = bestsellers(db_url)
+    snapshot = [SnapshotRow(rank=rank, book_id=book_id, source_id=source_id) for rank, book_id, source_id, _ in previous]
+    target = snapshot[4]
+    if case == "another_books_source":
+        bad_source = snapshot[5].source_id
+    else:
+        bad_source = uuid.uuid4()
+    if case == "google_books_source":
+        query(
+            db_url,
+            """
+            INSERT INTO book_sources (id, book_id, source_type, external_id, source_url, first_seen_at, last_seen_at)
+            VALUES (%s, %s, 'GOOGLE_BOOKS', 'volume-1', 'https://books.google.com/books?id=volume-1', %s, %s)
+            RETURNING id
+            """,
+            (bad_source, target.book_id, NOW, NOW),
+        )
+    sources_before = query(db_url, "SELECT id, last_seen_at FROM book_sources ORDER BY id")
+    snapshot[4] = SnapshotRow(rank=5, book_id=target.book_id, source_id=bad_source)
+
+    with db.connect(db_url) as conn:
+        with pytest.raises(
+            db.SnapshotValidationError,
+            match=f"rank 5: source {bad_source} is not a BOOKS_COM_TW source of Book {target.book_id}",
+        ):
+            db.replace_bestsellers(conn, snapshot, captured_at=LATER)
+
+    assert bestsellers(db_url) == previous
+    assert query(db_url, "SELECT id, last_seen_at FROM book_sources ORDER BY id") == sources_before
+
+
+def test_an_empty_snapshot_still_replaces_the_list(db_url):
+    """crawler.md §10: no minimum row count, even when every rank was skipped."""
+    run(db_url, ranking_rows(100), now=NOW)
+    seen_before = query(db_url, "SELECT id, last_seen_at FROM book_sources ORDER BY id")
+
+    with db.connect(db_url) as conn:
+        db.replace_bestsellers(conn, [], captured_at=LATER)
+
+    assert bestsellers(db_url) == []
+    assert query(db_url, "SELECT id, last_seen_at FROM book_sources ORDER BY id") == seen_before
 
 
 # ---------------------------------------------------------------------------
