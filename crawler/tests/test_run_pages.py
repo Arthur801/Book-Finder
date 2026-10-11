@@ -270,7 +270,7 @@ def test_category_page_that_keeps_failing_is_skipped_after_three_attempts_and_th
     assert [(page.url, page.failure.error_type, page.failure.attempts) for page in report.skipped_pages] == [
         (CATEGORY_2, SkipReason.FETCH_ERROR, 3)
     ]
-    assert report.skipped_pages[0].failure.error_message == "ranking page failed after 3 attempts: HTTP 403"
+    assert report.skipped_pages[0].failure.error_message == "category page failed after 3 attempts: HTTP 403"
 
 
 def test_category_page_rows_are_not_checked_against_the_bestseller_rules(store, monkeypatch):

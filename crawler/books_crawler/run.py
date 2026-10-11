@@ -198,16 +198,21 @@ def _duplicate_message(book_id: UUID, ranked: Mapping[UUID, int]) -> str:
     return f"resolves to Book {book_id}, which rank {ranked[book_id]} already uses; bestsellers.book_id must be unique"
 
 
-def _fetch_ranking_page(deps: RunDependencies, url: str = RANKING_PAGE_URL) -> str:
-    """Fetch the ranking page with the shared retry loop; failure after all attempts fails the run."""
+def _fetch_page_with_retries(deps: RunDependencies, url: str, label: str = "ranking page") -> str:
+    """Fetch a ranking-style page with the shared retry loop (crawler.md §4, §16).
+
+    Returns the HTML, or raises FetchError after MAX_ATTEMPTS failed attempts. What that
+    error means is up to the caller: the daily and first-book runs fail on it, pages mode skips the
+    category page. label names the page in the log and in the error text.
+    """
     last_error: FetchError | None = None
     for attempt in _attempts(deps):
         try:
             return deps.fetcher.get(url)
         except FetchError as exc:
             last_error = exc
-            log.warning("ranking page attempt %d/%d failed: %s", attempt, MAX_ATTEMPTS, redact(str(exc)))
-    raise FetchError(f"ranking page failed after {MAX_ATTEMPTS} attempts: {last_error}") from last_error
+            log.warning("%s attempt %d/%d failed: %s", label, attempt, MAX_ATTEMPTS, redact(str(exc)))
+    raise FetchError(f"{label} failed after {MAX_ATTEMPTS} attempts: {last_error}") from last_error
 
 
 def _log_attempt_failed(row: RankingRow, attempt: int, failure: Failure) -> None:
@@ -339,7 +344,7 @@ def run_first_book(deps: RunDependencies, run_id: str | None = None) -> RunRepor
     ranking_count = 0
     error: str | None = None
     try:
-        rows = validate_ranking(deps.parse_ranking(_fetch_ranking_page(deps)))
+        rows = validate_ranking(deps.parse_ranking(_fetch_page_with_retries(deps, RANKING_PAGE_URL)))
         ranking_count = len(rows)
         row = rows[0]
         with deps.connect() as conn:
@@ -370,7 +375,7 @@ def run_once(deps: RunDependencies, run_id: str | None = None) -> RunReport:
     ranking_count = 0
     error: str | None = None
     try:
-        html = _fetch_ranking_page(deps)
+        html = _fetch_page_with_retries(deps, RANKING_PAGE_URL)
         rows = validate_ranking(deps.parse_ranking(html))
         ranking_count = len(rows)
 
@@ -416,7 +421,7 @@ def run_pages(deps: RunDependencies, page_urls: Sequence[str], run_id: str | Non
             for page_url in page_urls:
                 log.info("importing page: %s", page_url)
                 try:
-                    rows = deps.parse_ranking(_fetch_ranking_page(deps, page_url))
+                    rows = deps.parse_ranking(_fetch_page_with_retries(deps, page_url, "category page"))
                 except FetchError as exc:
                     failure = _failure(SkipReason.FETCH_ERROR, str(exc), MAX_ATTEMPTS)
                     ledger.record_page_skipped(SkippedPage(url=page_url, failure=failure))
