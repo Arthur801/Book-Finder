@@ -28,12 +28,14 @@
 q = trim(input)
 q 為空 → 回傳空結果（不列出全部書籍）
 
-normalized = remove "-" / whitespace, uppercase
+normalized = NFKC(q)（全形數字、全形 X、全形連字號轉成半形）, remove "-" / whitespace, uppercase
 normalized 符合 ISBN-13（13 位數字）或 ISBN-10（9 位數字 + 數字或 X）
     → ISBN 模式
 否則
-    → 關鍵字模式
+    → 關鍵字模式（比對用原本的 q，不做 NFKC）
 ```
+
+全形轉半形只用於 ISBN 判定（使用者，2026-10-11）：台灣使用者常以全形輸入法輸入 ISBN。
 
 ### 3.2 比對
 
