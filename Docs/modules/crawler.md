@@ -155,6 +155,7 @@ ISBN 比對（僅依序：ISBN-13 → ISBN-10；data-model §6）：
 - 明確的限制級會員頁：直接跳過、不重試，`consecutive_error_count = 0`。
 - 連續 20 本一般錯誤仍繼續；第 21 本時立刻中止，run = FAILED、記錄 `aborted_at_rank`，不再處理後續排名。
 - `error_count` 僅為整次累計統計，沒有上限。只要沒有連續 21 本錯誤，處理完 100 個排名且 snapshot 有效，就替換榜單；有任何跳過時為 PARTIAL_SUCCESS。
+- 以上計數與中止規則實作於 `crawler/books_crawler/ledger.py` 的 `RunLedger`（見 §11）；重試與「跳過哪一列」仍由 `run.py` 的 resolver 決定。
 
 中止前已各自 commit 的新 Book 保留（§9，每本書各自一個 transaction），但不屬於新榜單；上一份榜單與所有既有來源的 `last_seen_at` 不變。排行榜不完整、環境或 snapshot 交易失敗仍使整次 FAILED，此規則不放寬其他失敗條件。
 
@@ -276,6 +277,8 @@ COMMIT
 | `PARTIAL_SUCCESS` | 有書跳過，完整處理 100 個排名，且未連續 21 本一般錯誤 | 替換 | 0 |
 | `FAILED` | 排行榜不完整、連續一般錯誤 > 20、snapshot 驗證或替換失敗 | 不變 | 非 0 |
 
+實作：§6 的連續錯誤計數與中止、本節的狀態判定，以及 run log 的計數欄位，集中在 `crawler/books_crawler/ledger.py` 的 `RunLedger`。每日 run 的上限為 20；單書匯入（§13.1）用上限 0，因此唯一一列一般失敗即 FAILED、限制級為 PARTIAL_SUCCESS。中止時 `error=` 為 `run aborted at rank <rank> after <n> consecutive error(s) (limit <limit>): <error_type>: <error_message>`。每次 FAILED（含中止）只記一行 ERROR：每日 run 為 `run failed: <error>`，單書匯入為 `first-book import failed: <error>`；被跳過的列另由 ledger 記 WARNING（限制級為 INFO）。
+
 ## 12. Logging
 
 每次 run 至少記錄（stdout）：
@@ -293,7 +296,7 @@ skipped_count            （所有跳過，含限制級）
 restricted_book_count    （限制級，不算錯誤）
 error_count              （skipped_count - restricted_book_count；統計用，無累計上限）
 consecutive_error_count  （目前連續一般錯誤數；非錯誤列歸零）
-aborted_at_rank           （連續一般錯誤達 21 而中止時為該排名；否則 none）
+aborted_at_rank           （連續一般錯誤超過上限而中止時為該排名；否則 none。每日 run 上限 20，即第 21 本；單書匯入上限 0，即 rank 1 一般失敗時為 1）
 skipped: [{rank, url, error_type, error_message, attempts}]
 ```
 

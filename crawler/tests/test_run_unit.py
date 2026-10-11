@@ -6,10 +6,11 @@ import pytest
 
 from books_crawler.cli import main
 from books_crawler.fetcher import BrowserUnavailableError, FetchError
+from books_crawler.ledger import RunReport
 from books_crawler.models import Failure, RankingRow, RunStatus, SkipReason, SkippedRow
 from books_crawler.parsers import RANKING_PAGE_URL, parse_detail_html, parse_ranking_html
 from books_crawler.redact import redact
-from books_crawler.run import RunDependencies, RunReport, backoff_seconds, format_report, run_once
+from books_crawler.run import RunDependencies, backoff_seconds, format_report, run_once
 from tests.fakes import (
     RANKING_HTML,
     FakeFetcher,

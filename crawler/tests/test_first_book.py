@@ -1,5 +1,6 @@
 """Single-book import: only rank 1 is resolved; the bestseller snapshot is never replaced."""
 
+import logging
 from contextlib import nullcontext
 from uuid import uuid4
 
@@ -62,7 +63,8 @@ def test_known_first_book_does_not_fetch_detail_or_write(monkeypatch):
     assert deps.fetcher.calls == [RANKING_PAGE_URL]
 
 
-def test_first_book_challenge_exhausts_retries_and_fails(monkeypatch):
+def test_first_book_challenge_exhausts_retries_and_fails(monkeypatch, caplog):
+    caplog.set_level(logging.INFO, logger="books_crawler")
     first = ranking_rows()[0].url
     deps, _ = dependencies(lambda: nullcontext(object()), failures={first: FetchError("Cloudflare challenge")})
     monkeypatch.setattr(db, "find_source", lambda *args: None)
@@ -70,8 +72,12 @@ def test_first_book_challenge_exhausts_retries_and_fails(monkeypatch):
     report = run_first_book(deps)
     assert report.status is RunStatus.FAILED
     assert report.exit_code == 1
+    assert (report.aborted_at_rank, report.consecutive_error_count) == (1, 1)
     assert report.skipped[0].failure.attempts == 3
-    assert report.error.startswith("FirstBookImportError: rank 1 import failed (fetch_error)")
+    assert report.error == "run aborted at rank 1 after 1 consecutive error(s) (limit 0): fetch_error: Cloudflare challenge"
+    assert [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR] == [
+        f"first-book import failed: {report.error}"
+    ]
     assert deps.fetcher.calls == [RANKING_PAGE_URL, first, first, first]
     assert deps.sleep.calls == [1.0, 2.0]
 
@@ -89,7 +95,7 @@ def test_first_book_database_failure_is_not_reported_as_a_fetch_error(monkeypatc
     assert report.status is RunStatus.FAILED
     assert report.exit_code == 1
     assert report.skipped[0].failure.error_type == "database_error"
-    assert report.error.startswith("FirstBookImportError: rank 1 import failed (database_error)")
+    assert report.error.startswith("run aborted at rank 1 after 1 consecutive error(s) (limit 0): database_error: ")
     assert "FetchError" not in report.error
     assert deps.fetcher.calls == [RANKING_PAGE_URL, first]
 

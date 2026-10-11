@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
-from enum import StrEnum
+from enum import Enum, StrEnum
 from uuid import UUID
 
 
@@ -51,6 +51,14 @@ class SkipReason(StrEnum):
     DATABASE_ERROR = "database_error"
     DUPLICATE_BOOK_IN_RANKING = "duplicate_book_in_ranking"
     RESTRICTED_BOOK = "restricted_book"
+
+
+class Resolution(Enum):
+    """How a ranking row was resolved to a Book (crawler.md §5). In-process only: never stored or logged."""
+
+    EXISTING_SOURCE = "existing_source"  # known BOOKS_COM_TW source URL; no detail request
+    ISBN_ATTACHED = "isbn_attached"  # new source attached to an existing Book by ISBN
+    NEW_BOOK = "new_book"  # new source and a new Book
 
 
 @dataclass(frozen=True)
@@ -138,6 +146,15 @@ class SourceRef:
 
     source_id: UUID
     book_id: UUID
+
+
+@dataclass(frozen=True)
+class ResolvedRow:
+    """A ranking row that resolved to a Book; it goes into the snapshot at its original rank."""
+
+    rank: int
+    source_ref: SourceRef
+    resolution: Resolution
 
 
 @dataclass(frozen=True)

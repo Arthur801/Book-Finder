@@ -50,7 +50,7 @@ Embedding fake 回傳可控向量（例：固定維度 1536、由測試指定相
 | REC-03 | Candidate Set ≥ 5 時 Google Books fake 未被呼叫 |
 | REC-06 | 排序結果不含 Candidate Set 外的 Book，且 ≤ 10 |
 | REC-11 | 達上限時所有外部 fake 未被呼叫 |
-| CRAWL-05 | 連續一般錯誤 20 本仍繼續、21 本立即中止且 Bestseller／既有 last_seen_at 不變；交錯 50 本錯誤仍更新。成功、重用與限制級重設計數；每本重試只計一次最終錯誤 |
+| CRAWL-05 | 計數規則以 `RunLedger` 單元測試涵蓋（`crawler/tests/test_ledger.py`，不需資料庫）：連續一般錯誤 20 本仍繼續、21 本立即中止（含第 21 本落在 rank 100）；成功、重用、ISBN 附加與限制級重設計數；累計錯誤無上限；上限 0（單書匯入）。資料保護以 DB 整合測試涵蓋：中止時 Bestseller／既有 last_seen_at 不變、之後的排名不再請求、中止前已 commit 的新書保留；交錯 50 本錯誤仍替換；重試後成功只計一次結果 |
 | data-model §10 | constraint 測試（`tests/DatabaseIntegration/constraints.sql`） |
 
 ## 6. 執行

@@ -96,36 +96,6 @@ def skipped_ranks(report) -> list[int]:
     return [item.rank for item in report.skipped]
 
 
-@pytest.mark.parametrize("error_count", [0, 20, 21])
-def test_restricted_books_skip_once_before_error_streak_boundary(db_url, error_count):
-    rows = ranking_rows()
-    restricted = {row.url for row in rows[:20]}
-    fetcher = FakeFetcher(pages={RANKING_PAGE_URL: RANKING_HTML, **{row.url: "<detail/>" for row in rows}},
-                          failures={row.url: FetchError("temporary error") for row in rows[20:20 + error_count]})
-
-    def parse(html, url):
-        if url in restricted:
-            raise RestrictedBookError("restricted product requires member login")
-        return make_draft(url)
-
-    sleep = FakeSleep()
-    deps = RunDependencies(fetcher, fake_ranking_parser(rows), parse,
-                           lambda: db.connect(db_url), clock=lambda: NOW, sleep=sleep)
-    report = run_once(deps)
-    assert report.restricted_book_count == 20
-    assert report.error_count == error_count
-    assert all(fetcher.calls.count(url) == 1 for url in restricted)
-    assert all(item.failure.attempts == 1 for item in report.skipped[:20])
-    if error_count <= 20:
-        assert report.status is RunStatus.PARTIAL_SUCCESS
-        assert count(db_url, "bestsellers") == 80 - error_count
-        assert [row[0] for row in bestsellers(db_url)] == list(range(21 + error_count, 101))
-    else:
-        assert report.status is RunStatus.FAILED
-        assert report.aborted_at_rank == 41
-        assert count(db_url, "bestsellers") == 0
-
-
 def _seed_with_identifiers(db_url, identifiers_by_rank: dict[int, tuple]):
     """Run 1: 100 products (urls 1..100); the given ranks carry the given identifiers."""
     rows = ranking_rows(100)
@@ -684,14 +654,17 @@ def test_failed_run_leaves_last_seen_unchanged(db_url):
 # Consecutive error threshold (crawler.md §6, §11; CRAWL-05) and run log (crawler.md §12)
 # ---------------------------------------------------------------------------
 
+# The streak and status rules themselves are covered in test_ledger.py; these cases check what only
+# a real run against the database shows: what an abort leaves behind, and that scattered errors
+# still replace the list.
 @pytest.mark.parametrize("failing_ranks, expected_status, abort_rank", [
-    (set(range(1, 21)), RunStatus.PARTIAL_SUCCESS, None),
-    (set(range(1, 22)), RunStatus.FAILED, 21),
-    (set(range(80, 101)), RunStatus.FAILED, 100),
-    (set(range(1, 101, 2)), RunStatus.PARTIAL_SUCCESS, None),
-    (set(range(1, 21)) | set(range(22, 42)), RunStatus.PARTIAL_SUCCESS, None),
+    (set(range(1, 22)), RunStatus.FAILED, 21),  # early abort: later ranks are never requested
+    (set(range(80, 101)), RunStatus.FAILED, 100),  # late abort: books committed before it stay
+    (set(range(1, 101, 2)), RunStatus.PARTIAL_SUCCESS, None),  # 50 scattered errors still replace
 ])
-def test_error_streak_boundaries_and_scattered_errors(db_url, caplog, failing_ranks, expected_status, abort_rank):
+def test_abort_keeps_previous_data_and_scattered_errors_still_replace(
+    db_url, caplog, failing_ranks, expected_status, abort_rank
+):
     caplog.set_level(logging.INFO, logger="books_crawler")
     run(db_url, ranking_rows(), now=NOW)
     previous = bestsellers(db_url)
@@ -716,11 +689,39 @@ def test_error_streak_boundaries_and_scattered_errors(db_url, caplog, failing_ra
         old_urls = [item[0] for item in seen_before]
         assert query(db_url, "SELECT source_url, last_seen_at FROM book_sources WHERE source_url = ANY(%s) ORDER BY source_url", (old_urls,)) == seen_before
         assert f"aborted_at_rank={abort_rank}" in caplog.text
+        assert report.error.startswith(
+            f"run aborted at rank {abort_rank} after 21 consecutive error(s) (limit 20): fetch_error: "
+        )
+        # One ERROR line per failed run, with the same prefix as every other failure (crawler.md §11).
+        assert [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR] == [f"run failed: {report.error}"]
         # Successfully committed new books before a late abort remain in Catalog.
         assert count(db_url, "books") == 100 + processed - len(expected_errors)
     else:
         assert [item[0] for item in bestsellers(db_url)] == [rank for rank in range(1, 101) if rank not in failing_ranks]
         assert {item[3] for item in bestsellers(db_url)} == {LATER}
+
+
+def test_each_restricted_page_is_requested_once_and_leaves_a_gap(db_url):
+    rows = ranking_rows()
+    restricted = {row.url for row in rows if row.rank in {3, 4, 5, 50, 100}}
+    fetcher = FakeFetcher(pages={RANKING_PAGE_URL: RANKING_HTML, **{row.url: "<detail/>" for row in rows}})
+
+    def parse(html, url):
+        if url in restricted:
+            raise RestrictedBookError("restricted product requires member login")
+        return make_draft(url)
+
+    sleep = FakeSleep()
+    deps = RunDependencies(fetcher, fake_ranking_parser(rows), parse, lambda: db.connect(db_url), clock=lambda: NOW, sleep=sleep)
+    report = run_once(deps)
+
+    assert report.status is RunStatus.PARTIAL_SUCCESS
+    assert (report.restricted_book_count, report.error_count) == (5, 0)
+    assert all(fetcher.calls.count(url) == 1 for url in restricted)
+    assert all(item.failure.attempts == 1 for item in report.skipped)
+    assert sleep.calls == []  # no retry backoff
+    assert [row[0] for row in bestsellers(db_url)] == [rank for rank in range(1, 101) if rank not in {3, 4, 5, 50, 100}]
+    assert query(db_url, "SELECT count(*) FROM book_sources WHERE source_url = ANY(%s)", (list(restricted),)) == [(0,)]
 
 
 def test_eventual_success_after_retries_resets_twenty_errors(db_url):
@@ -733,48 +734,6 @@ def test_eventual_success_after_retries_resets_twenty_errors(db_url):
     assert report.aborted_at_rank is None
     assert fetcher.calls.count(rows[20].url) == 3
     assert count(db_url, "bestsellers") == 60
-
-
-@pytest.mark.parametrize("failure_kind", ["parse", "database"])
-def test_terminal_parse_and_database_errors_also_abort_at_twenty_one(db_url, monkeypatch, failure_kind):
-    rows = ranking_rows()
-    if failure_kind == "database":
-        def fail_write(*args, **kwargs):
-            raise psycopg.OperationalError("simulated write failure")
-        monkeypatch.setattr(db, "persist_new_source", fail_write)
-    report, fetcher = run(db_url, rows, transient_parse={row.url: 3 for row in rows} if failure_kind == "parse" else None)
-    assert report.status is RunStatus.FAILED
-    assert report.error_count == report.consecutive_error_count == 21
-    assert report.aborted_at_rank == 21
-    assert all(item.failure.error_type == failure_kind + "_error" for item in report.skipped)
-    assert all(item.failure.attempts == 3 for item in report.skipped)
-    assert rows[21].url not in fetcher.calls
-    assert count(db_url, "bestsellers") == 0
-
-
-@pytest.mark.parametrize("interrupt", ["existing", "restricted"])
-def test_non_error_row_resets_streak_even_without_new_book_import(db_url, interrupt):
-    run(db_url, ranking_rows(), now=NOW)
-    rows = ranking_rows(offset=100)
-    if interrupt == "existing":
-        rows[20] = RankingRow(rank=21, url=product_url(1))
-    failures = {row.url: FetchError("HTTP 500") for row in rows if row.rank in set(range(1, 21)) | set(range(22, 42))}
-    fetcher = FakeFetcher(pages={RANKING_PAGE_URL: RANKING_HTML, **{row.url: "<detail/>" for row in rows}}, failures=failures)
-
-    def parse(html, url):
-        if interrupt == "restricted" and url == rows[20].url:
-            raise RestrictedBookError("restricted product requires member login")
-        return make_draft(url)
-
-    report = run_once(RunDependencies(fetcher, fake_ranking_parser(rows), parse,
-                                     lambda: db.connect(db_url), clock=lambda: LATER, sleep=FakeSleep()))
-    assert report.status is RunStatus.PARTIAL_SUCCESS
-    assert report.error_count == 40
-    assert report.consecutive_error_count == 0
-    assert report.aborted_at_rank is None
-    assert report.restricted_book_count == (1 if interrupt == "restricted" else 0)
-    assert fetcher.calls.count(rows[20].url) == (1 if interrupt == "restricted" else 0)
-    assert count(db_url, "bestsellers") == (59 if interrupt == "restricted" else 60)
 
 
 def test_run_log_has_the_required_fields_and_no_database_url(db_url, caplog):

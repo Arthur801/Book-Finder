@@ -22,6 +22,10 @@ the outcome is deterministic); the earlier rank keeps the Book (crawler.md §5).
 
 A browser that cannot be started raises ``BrowserUnavailableError``. That is not a ``FetchError``,
 so it is neither retried nor skipped per row: it fails the whole run.
+
+Every row outcome goes, in rank order, to a ``RunLedger`` (``ledger.py``), which owns the counters,
+the consecutive-error streak and abort, the snapshot rows and the final status. This module only
+does the I/O: fetching, parsing, writing and publishing.
 """
 
 from __future__ import annotations
@@ -31,7 +35,7 @@ import logging
 import time
 import uuid
 from collections.abc import Callable, Iterator, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
@@ -40,27 +44,23 @@ import psycopg
 
 from books_crawler import db
 from books_crawler.fetcher import FetchError, Fetcher
+from books_crawler.ledger import RunLedger, RunReport
 from books_crawler.models import (
     BookDraft,
     Failure,
     IsbnMatch,
     RankingRow,
-    RunStatus,
+    Resolution,
+    ResolvedRow,
     SkipReason,
     SkippedRow,
-    SnapshotRow,
     SourceRef,
 )
 from books_crawler.parsers import RANKING_PAGE_URL, DetailParser, RankingParser, RestrictedBookError
 from books_crawler.ranking import validate_ranking, validate_snapshot
 from books_crawler.redact import redact
 
-MAX_CONSECUTIVE_ERRORS = 20
-
 log = logging.getLogger("books_crawler.run")
-
-EXIT_SUCCESS = 0
-EXIT_FAILED = 1
 
 MAX_ATTEMPTS = 3  # crawler.md §6: total attempts, first try included
 BACKOFF_BASE_SECONDS = 1.0  # sleep before attempt n (n = 2, 3) is 1s, then 2s
@@ -68,18 +68,6 @@ BACKOFF_BASE_SECONDS = 1.0  # sleep before attempt n (n = 2, 3) is 1s, then 2s
 
 class DuplicateBookInRankingError(RuntimeError):
     """A later ranking row resolves to a Book that an earlier rank already uses (not retried)."""
-
-
-class ConsecutiveErrorLimitError(RuntimeError):
-    """More than ``MAX_CONSECUTIVE_ERRORS`` consecutive rows failed: the run fails (crawler.md §6, CRAWL-05)."""
-
-
-class FirstBookImportError(RuntimeError):
-    """The single-book import skipped rank 1 for a reason other than a restricted page."""
-
-    def __init__(self, failure: Failure) -> None:
-        super().__init__(f"rank 1 import failed ({failure.error_type}): {failure.error_message}")
-        self.failure = failure
 
 
 class _AttemptFailed(Exception):
@@ -119,43 +107,6 @@ class RunDependencies:
     clock: Callable[[], datetime] = utc_now
     # Injected so that retry backoff never really waits in tests.
     sleep: Callable[[float], None] = time.sleep
-
-
-@dataclass
-class RunReport:
-    run_id: str
-    status: RunStatus
-    started_at: datetime
-    finished_at: datetime
-    ranking_count: int = 0
-    # Rows resolved to an existing Book: known source URL, or new product attached by ISBN.
-    existing_book_count: int = 0
-    # Rows that created a new Book.
-    new_book_count: int = 0
-    # Subset of existing_book_count: new products attached to an existing Book by ISBN.
-    attached_source_count: int = 0
-    skipped: list[SkippedRow] = field(default_factory=list)
-    # Current streak of terminal non-restricted row failures.
-    consecutive_error_count: int = 0
-    # Rank of the 21st consecutive error; the run stopped there.
-    aborted_at_rank: int | None = None
-    error: str | None = None
-
-    @property
-    def skipped_count(self) -> int:
-        return len(self.skipped)
-
-    @property
-    def restricted_book_count(self) -> int:
-        return sum(item.is_restricted for item in self.skipped)
-
-    @property
-    def error_count(self) -> int:
-        return self.skipped_count - self.restricted_book_count
-
-    @property
-    def exit_code(self) -> int:
-        return EXIT_FAILED if self.status is RunStatus.FAILED else EXIT_SUCCESS
 
 
 def format_report(report: RunReport) -> str:
@@ -265,12 +216,12 @@ def _resolve_row(
     conn: psycopg.Connection,
     row: RankingRow,
     deps: RunDependencies,
-    report: RunReport,
     ranked: Mapping[UUID, int],
-) -> SourceRef | SkippedRow:
+) -> ResolvedRow | SkippedRow:
     """Resolve one ranking row to a Book, or skip it (crawler.md §5, §6).
 
-    ``ranked`` maps each Book already used by an earlier rank to that rank.
+    ``ranked`` maps each Book already used by an earlier rank to that rank (``RunLedger.ranked``).
+    A row that would reuse one of those Books is skipped here, before anything is written.
     """
     existing = db.find_source(conn, row.url)
     if existing is not None:
@@ -278,8 +229,7 @@ def _resolve_row(
             # The detail page is never fetched for a known URL, so no attempt was made.
             message = _duplicate_message(existing.book_id, ranked)
             return _skipped(row, _failure(SkipReason.DUPLICATE_BOOK_IN_RANKING, message, attempts=0))
-        report.existing_book_count += 1
-        return existing
+        return ResolvedRow(rank=row.rank, source_ref=existing, resolution=Resolution.EXISTING_SOURCE)
 
     draft: BookDraft | None = None
     last_failure: Failure | None = None
@@ -306,10 +256,7 @@ def _resolve_row(
             return _skipped(row, _failure(SkipReason.DUPLICATE_BOOK_IN_RANKING, str(exc), attempts=attempt))
 
         if match is None:
-            report.new_book_count += 1
-            return ref
-        report.existing_book_count += 1
-        report.attached_source_count += 1
+            return ResolvedRow(rank=row.rank, source_ref=ref, resolution=Resolution.NEW_BOOK)
         log.info(
             "attached BOOKS_COM_TW source to existing Book: rank=%d url=%s matched=%s:%s book_id=%s",
             row.rank,
@@ -318,7 +265,7 @@ def _resolve_row(
             match.identifier.identifier_value,
             match.book_id,
         )
-        return ref
+        return ResolvedRow(rank=row.rank, source_ref=ref, resolution=Resolution.ISBN_ATTACHED)
 
     assert last_failure is not None  # the loop runs at least once and only continues on failure
     return _skipped(row, last_failure)
@@ -330,88 +277,68 @@ def run_first_book(deps: RunDependencies, run_id: str | None = None) -> RunRepor
     The ranking page is still validated in full. Resolution, normalization, ISBN matching,
     transactions and retry rules are shared with the daily crawler.
     """
-    report = RunReport(
-        run_id=run_id or str(uuid.uuid4()),
-        status=RunStatus.FAILED,
-        started_at=deps.clock(),
-        finished_at=deps.clock(),
-    )
+    started_at = deps.clock()
+    # Limit 0: a general error on the only row fails the import; a restricted page is a partial success.
+    ledger = RunLedger(max_consecutive_errors=0)
+    ranking_count = 0
+    error: str | None = None
     try:
         rows = validate_ranking(deps.parse_ranking(_fetch_ranking_page(deps)))
-        report.ranking_count = len(rows)
+        ranking_count = len(rows)
         row = rows[0]
         with deps.connect() as conn:
-            outcome = _resolve_row(conn, row, deps, report, {})
-            if isinstance(outcome, SkippedRow):
-                report.skipped.append(outcome)
-                if not outcome.is_restricted:
-                    raise FirstBookImportError(outcome.failure)
-                report.status = RunStatus.PARTIAL_SUCCESS
-            else:
-                report.status = RunStatus.SUCCESS
-                log.info("rank=1 url=%s book_id=%s source_id=%s", row.url, outcome.book_id, outcome.source_id)
+            outcome = _resolve_row(conn, row, deps, ledger.ranked)
+        ledger.record(outcome)
+        if isinstance(outcome, ResolvedRow):
+            ref = outcome.source_ref
+            log.info("rank=1 url=%s book_id=%s source_id=%s", row.url, ref.book_id, ref.source_id)
     except Exception as exc:
-        report.error = redact(f"{type(exc).__name__}: {exc}")
+        error = redact(f"{type(exc).__name__}: {exc}")
+    report = ledger.report(
+        run_id=run_id or str(uuid.uuid4()),
+        started_at=started_at,
+        finished_at=deps.clock(),
+        ranking_count=ranking_count,
+        error=error,
+    )
+    if report.error:
         log.error("first-book import failed: %s", report.error)
-    report.finished_at = deps.clock()
     log.info("mode=first-book %s", format_report(report))
     return report
 
 
 def run_once(deps: RunDependencies, run_id: str | None = None) -> RunReport:
     """Execute one crawl. Never raises: failures are reported through ``RunReport``."""
-    report = RunReport(
-        run_id=run_id or str(uuid.uuid4()),
-        status=RunStatus.FAILED,
-        started_at=deps.clock(),
-        finished_at=deps.clock(),
-    )
+    started_at = deps.clock()
+    ledger = RunLedger()
+    ranking_count = 0
+    error: str | None = None
     try:
         html = _fetch_ranking_page(deps)
         rows = validate_ranking(deps.parse_ranking(html))
-        report.ranking_count = len(rows)
+        ranking_count = len(rows)
 
         with deps.connect() as conn:
-            snapshot: list[SnapshotRow] = []
-            ranked: dict[UUID, int] = {}
             for row in rows:
-                outcome = _resolve_row(conn, row, deps, report, ranked)
-                if isinstance(outcome, SkippedRow):
-                    report.skipped.append(outcome)
-                    log_skip = log.info if outcome.is_restricted else log.warning
-                    log_skip(
-                        "rank %d skipped after %d attempt(s) (%s): %s",
-                        outcome.rank,
-                        outcome.failure.attempts,
-                        outcome.failure.error_type,
-                        outcome.failure.error_message,
-                    )
-                    if outcome.is_restricted:
-                        report.consecutive_error_count = 0
-                    else:
-                        report.consecutive_error_count += 1
-                    if report.consecutive_error_count > MAX_CONSECUTIVE_ERRORS:
-                        # Stop early: a layout change would otherwise cost retries on every remaining row.
-                        report.aborted_at_rank = row.rank
-                        raise ConsecutiveErrorLimitError(
-                            f"{report.consecutive_error_count} consecutive ranking rows failed, more than the limit of {MAX_CONSECUTIVE_ERRORS}"
-                        )
-                    continue
-                report.consecutive_error_count = 0
-                ranked[outcome.book_id] = row.rank
-                snapshot.append(SnapshotRow(rank=row.rank, book_id=outcome.book_id, source_id=outcome.source_id))
-
-            status = RunStatus.PARTIAL_SUCCESS if report.skipped_count else RunStatus.SUCCESS
-            source_books = db.booksdotcom_source_books(conn, [item.source_id for item in snapshot])
-            restricted_ranks = [item.rank for item in report.skipped if item.is_restricted]
-            replacement = validate_snapshot(snapshot, source_books, restricted_ranks=restricted_ranks)
-            db.replace_bestsellers(conn, replacement, captured_at=deps.clock())
-
-        report.status = status
+                ledger.record(_resolve_row(conn, row, deps, ledger.ranked))
+                if ledger.aborted:
+                    break
+            if not ledger.aborted:
+                snapshot = ledger.snapshot
+                source_books = db.booksdotcom_source_books(conn, [item.source_id for item in snapshot])
+                replacement = validate_snapshot(snapshot, source_books, restricted_ranks=ledger.restricted_ranks)
+                db.replace_bestsellers(conn, replacement, captured_at=deps.clock())
     except Exception as exc:  # any failure fails the run; the previous bestsellers are untouched
-        report.error = redact(f"{type(exc).__name__}: {exc}")
-        log.error("run failed: %s", report.error)
+        error = redact(f"{type(exc).__name__}: {exc}")
 
-    report.finished_at = deps.clock()
+    report = ledger.report(
+        run_id=run_id or str(uuid.uuid4()),
+        started_at=started_at,
+        finished_at=deps.clock(),
+        ranking_count=ranking_count,
+        error=error,
+    )
+    if report.error:  # one ERROR line per failed run, abort included
+        log.error("run failed: %s", report.error)
     log.info("%s", format_report(report))
     return report
