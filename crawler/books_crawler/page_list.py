@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from books_crawler.redact import redact
 from books_crawler.urls import is_category_ranking_url
 
 log = logging.getLogger("books_crawler.page_list")
@@ -32,7 +33,7 @@ def load_page_urls(path: Path) -> list[str]:
     try:
         text = path.read_text(encoding="utf-8-sig")
     except (OSError, UnicodeDecodeError) as exc:
-        raise PageListError(f"cannot read category pages file {path}: {exc}") from exc
+        raise PageListError(redact(f"cannot read category pages file {path}: {exc}")) from exc
     urls: list[str] = []
     seen: set[str] = set()
     for number, raw_line in enumerate(text.splitlines(), start=1):
@@ -40,7 +41,8 @@ def load_page_urls(path: Path) -> list[str]:
         if not line or line.startswith("#"):
             continue
         if not is_category_ranking_url(line):
-            raise PageListError(f"{path} line {number}: not a books.com.tw category 7-day ranking URL: {line}")
+            # The line itself is not echoed: it may carry credentials (crawler.md §12).
+            raise PageListError(f"{path} line {number}: not a books.com.tw category 7-day ranking URL")
         if line in seen:
             log.info("dropped duplicate category page URL at %s line %d: %s", path, number, line)
             continue

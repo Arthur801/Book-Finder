@@ -761,3 +761,20 @@ def test_a_malformed_url_line_is_a_config_error_naming_the_line_not_a_crash(monk
     assert seen == {"runs": [], "fetcher": None}
     errors = [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR]
     assert len(errors) == 1 and "line 2" in errors[0] and str(path) in errors[0]
+
+
+@pytest.mark.parametrize(
+    "line",
+    ["https://user:s3cret-pass@www.books.com.tw/web/sys_saletopb/books/01/?attribute=7", "postgresql://crawler:s3cret-pass@db.internal/books"],
+    ids=["credentials-in-url", "database-url"],
+)
+def test_a_secret_in_a_rejected_page_list_line_never_reaches_the_log(monkeypatch, tmp_path, caplog, line):
+    caplog.set_level(logging.INFO, logger="books_crawler")
+    path = write_page_list(tmp_path, f"{line}\n")
+    stub_runs(monkeypatch)
+
+    assert cli.main({**DATABASE, PAGES_FILE_ENV: str(path)}, mode=CrawlerMode.PAGES) == cli.EXIT_CONFIG_ERROR
+    logged = "\n".join(r.getMessage() for r in caplog.records)
+    assert "s3cret-pass" not in logged
+    assert "db.internal" not in logged
+    assert "line 1" in logged

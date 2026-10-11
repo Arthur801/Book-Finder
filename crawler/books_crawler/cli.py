@@ -40,6 +40,7 @@ from books_crawler.fetcher import (
 )
 from books_crawler.page_list import PAGES_FILE_ENV, PageListError, load_page_urls, resolve_pages_file
 from books_crawler.parsers import parse_detail_html, parse_ranking_html
+from books_crawler.redact import redact
 from books_crawler.run import RunDependencies, run_first_book, run_once, run_pages
 
 EXIT_CONFIG_ERROR = 2
@@ -108,7 +109,7 @@ def main(environ: Mapping[str, str] | None = None, *, mode: CrawlerMode = Crawle
         try:
             page_urls = load_page_urls(resolve_pages_file(env.get(PAGES_FILE_ENV, "")))
         except PageListError as exc:
-            log.error("%s", exc)
+            log.error("%s", redact(str(exc)))
             return EXIT_CONFIG_ERROR
 
     fetcher = create_fetcher(kind, navigation_timeout_ms=navigation_timeout_ms)
