@@ -62,3 +62,20 @@ INFO  mode=pages run_id=<uuid> started_at=... finished_at=... status=PARTIAL_SUC
 2. **分類榜補書的排程未定義**：crontab 目前只含每日完整 run。
 3. **真實網站驗證未做**：分類頁的實際解析與 Cloudflare 行為需在 EC2 上另行授權後驗證。
 4. **Commit `10da061` 未再拆分**：其中各部分互相依賴（ledger、run、cli 與測試需同時變更），拆分會造成中間 commit 無法通過測試。
+
+## Code Review 與修正
+
+Code review 的 7 項發現（4 項必修、3 項順手清理）逐一修正，每項以 TDD 完成並跑完整 crawler 套件。修正 commit 皆為新增，未 amend、rebase 或 push。
+
+| # | 發現 | 修正 | Commit | 測試 |
+|---|---|---|---|---|
+| 1 | 清單中的 `https://[` 造成 `ValueError` traceback（exit 1），而非 exit 2 | `urls.is_category_ranking_url` 對無法解析的字串回傳 False；清單驗證統一為 `PageListError`（ERROR + exit 2，不發出請求） | `16fcb17` | `test_a_malformed_url_line_is_a_config_error_naming_the_line_not_a_crash`；`test_urls` 新增 `https://[` 案例 |
+| 2 | 清單錯誤訊息回顯原始行（可能含憑證），且未經 `redact` | 訊息不回顯行內容，只含檔案與行號；清單與 CLI 的錯誤文字都經 `redact` | `844e0e3` | `test_a_secret_in_a_rejected_page_list_line_never_reaches_the_log[credentials-in-url / database-url]` |
+| 4 | `_fetch_ranking_page` 名稱與訊息為「ranking page」，分類頁被跳過卻寫成該文字 | 改為 `_fetch_page_with_retries(deps, url, label="ranking page")`；分類頁傳 `"category page"`；daily 與 first-book 的文字不變 | `c9b3155` | 既有 `test_category_page_that_keeps_failing_...` 的斷言改為 `category page failed after 3 attempts` |
+| 5 | `PagesLedger` 與 `RunLedger` 的 skip log 與計數初始化重複 | 抽出 `_log_skipped_row(outcome, where)` 與 `_new_counts()`；輸出文字不變 | `cf7e9f6` | `test_a_skipped_row_is_logged_with_its_page_url_and_attempts`（特性測試，修改前即通過） |
+| 3 | `run.py`、`ledger.py`、`urls.py` 的模組 docstring 未涵蓋 pages mode | 補充 `PagesLedger`（crawler.md §16）與 category URL 檢查的說明 | `7fcd636` | 僅文件，無新測試 |
+| 6 | 本報告與 crawler.md §16 需同步 | 本節與 crawler.md §16.3 的一句（錯誤行不回顯內容） | 本文件所在 commit（不列入自身 SHA） | — |
+
+修正後 crawler 套件為 **367 passed**（修正前 362）。
+
+未處理項目（依審查指示列為已接受的判斷）：以 mode 欄位取代 `pages_total is None` 推斷、book-counts 值型別、將 FakeStore 與 FakeClosingFetcher 併入 `tests/fakes.py`、分類頁 HTML fixture（需使用者提供真實頁面）。

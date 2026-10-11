@@ -404,7 +404,7 @@ python -m books_crawler.pages
   - scheme 為 `https`，host 為 `www.books.com.tw`；
   - path 為 `/web/sys_saletopb/books/<兩位數分類>/`；
   - query 必須含 `attribute=7`，且 query 只能有 `attribute` 與 `loc` 兩個 key；`loc` 的值不驗證（僅為追蹤參數）。
-- 驗證在任何 request 之前完成。檔案無法讀取（含非 UTF-8）、任一行不合格、或清單沒有任何 URL 時：記一行 ERROR（含檔案路徑與行號），**exit code 2**，不建立 fetcher、不發出任何請求。
+- 驗證在任何 request 之前完成。檔案無法讀取（含非 UTF-8）、任一行不合格、或清單沒有任何 URL 時：記一行 ERROR（含檔案路徑與行號，但不回顯該行內容，因其可能含憑證；訊息經 `redact`），**exit code 2**，不建立 fetcher、不發出任何請求。
 
 ### 16.4 每個分類頁的流程
 
