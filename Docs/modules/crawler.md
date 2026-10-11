@@ -124,6 +124,8 @@ ISBN 比對（僅依序：ISBN-13 → ISBN-10；data-model §6）：
 
 **限制級例外（使用者，2026-10-11）**：來源回應明確包含「限制級商品」與「登入會員」，且沒有書籍內容容器時，直接跳過，`error_type=restricted_book`，不重試、不寫入資料、不累加連續錯誤並將連續錯誤計數歸零；`attempts` 保留實際嘗試次數。只有明確的會員限制頁適用；Cloudflare、HTTP 484、網站連線異常頁與一般解析／資料庫錯誤仍屬一般錯誤，單本最終失敗才累加一次連續錯誤。被排除的排名保留缺號；`restricted_book_count` 與累計 `error_count` 都沒有中止上限。
 
+實測（2026-10-11，使用者授權的本機 curl 抓取）：未登入時，限制級書籍回傳 **HTTP 200** 的會員限制頁，以 JavaScript `alert` 與 `location.href` 導向登入頁，不是 HTTP 3xx redirect，因此會由 fetcher 原樣交給 parser 判定（fixture：`crawler/tests/fixtures/restricted_gate_0011063006.html`）。登入後的同一本書是帶「限制級商品」標章的完整頁面，不屬於會員限制頁。
+
 單一新書最多 3 次嘗試（含第一次）。下列失敗可重試：
 
 | 失敗 | 來源 | `error_type` | 下一次嘗試的範圍 |

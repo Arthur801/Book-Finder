@@ -324,3 +324,18 @@ run_id=7f3c2a10-0000-4000-8000-000000000007 started_at=2026-10-11T04:00:05+00:00
 同一輪 review 另修正測試的寫法不一致，測試內容不變：`test_db_integration.py`、`test_first_book.py`、`test_parsers_real_fixtures.py`、`test_ranking.py` 新增的單引號字串改為雙引號；前三個檔案重複的 `from books_crawler.parsers import` 合併為一行。重跑結果同樣是 **259 passed**。
 
 另將 `SkipLimitExceededError` 改名為 `ConsecutiveErrorLimitError`：它現在表示「連續一般錯誤超過上限」，不是舊的「跳過數超過上限」。docstring 改為引用 `MAX_CONSECUTIVE_ERRORS`，不再寫死 20。run log 的 `error=` 欄位會顯示新的類別名稱；中止條件、`aborted_at_rank` 與 exit code 都不變。重跑結果同樣是 **259 passed**。
+
+### 限制級頁面的真實 fixture（2026-10-11，解決「未解決事項更新」第 6 項）
+
+- 使用者以瀏覽器另存 0011063006（舞臺下的單向愛戀 Re (首刷限定版) 全）。這是**登入後的完整頁面**，只有「限制級商品」標章，沒有會員限制。已依命名慣例改名為 `crawler/tests/fixtures/detail_0011063006.html`。
+- 未登入時實際收到的頁面，取自使用者授權的本機 curl 實測紀錄（`crawler/artifacts/verification/top100-random-20261011T001507Z/`，該次 run 的 rank 2，就是同一本書），原樣複製為 `crawler/tests/fixtures/restricted_gate_0011063006.html`。`requests.json` 記錄這次回應為 **HTTP 200**、1517 bytes，沒有 `cf-mitigated`；內容是 JavaScript `alert` 加上 `location.href` 導向登入頁，不是 HTTP 3xx。同一次 run 的 13 本限制級書籍都以 `restricted_book`、`attempts=1` 跳過，與這個觀察一致。
+- 結論：code review 擔心的「會員限制頁若是非 200 或 redirect，會被 fetcher 當成一般錯誤」不會發生。程式不需要修改，以下測試把真實行為固定下來：
+
+| 測試 | 驗證內容 |
+|---|---|
+| `test_real_restricted_member_gate_is_recognized` | 真實會員限制頁 → `RestrictedBookError` |
+| `test_restricted_badge_on_a_real_product_page_is_not_a_member_gate`；`CASES["0011063006"]` | 登入後的完整頁面不會被誤判為限制級，書目欄位正確解析 |
+| `test_real_restricted_member_gate_reaches_the_parser_unchanged` | `CurlCffiFetcher` 收到真實會員限制頁（HTTP 200）時原樣回傳，不保存失敗診斷，parser 判定為限制級 |
+| `test_real_restricted_member_gate_is_skipped_once_and_leaves_a_gap` | 真實排行榜 + 真實詳細頁 + 真實會員限制頁的完整 run：PARTIAL_SUCCESS，rank 2 只抓一次並缺號，`restricted_book_count=1`、`error_count=0`，沒有寫入 `book_sources` |
+
+原本用人工撰寫 HTML 的兩個限制級 parser 測試，改由上表的真實 fixture 測試取代。`crawler/tests/fixtures/README.md` 與 `Docs/modules/crawler.md` §6 補上實測結果。重跑 `.venv/bin/python -m pytest crawler/tests -q -p no:cacheprovider`，結果 **263 passed**。

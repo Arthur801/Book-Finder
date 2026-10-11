@@ -1,4 +1,4 @@
-"""Parser tests against the real pages saved by the user (crawler/tests/fixtures, 2026-10-11).
+"""Parser tests against the real pages in crawler/tests/fixtures (2026-10-11; see its README).
 
 Expected values were read from the fixtures themselves. Negative cases are derived from the real
 pages in code (see tests/fakes.py); no HTML structure is invented.
@@ -23,6 +23,7 @@ from books_crawler.parsers import (
 from books_crawler.ranking import RankingValidationError, validate_ranking
 from tests.fakes import (
     RANKING_FIXTURE,
+    RESTRICTED_GATE_FIXTURE,
     detail_fixture_name,
     detail_with_extra_title_outside_container,
     detail_with_second_subject_group,
@@ -40,16 +41,6 @@ from tests.fakes import (
 # Ranking page
 # ---------------------------------------------------------------------------
 
-
-def test_explicit_restricted_member_gate_is_recognized():
-    html = '<script>alert("本商品為限制級商品，限18歲以上會員瀏覽，請先登入會員。");</script>'
-    with pytest.raises(RestrictedBookError, match="requires member login"):
-        parse_detail_html(html, product_url(1063006))
-
-
-def test_restricted_words_inside_a_real_product_are_not_a_member_gate():
-    html = '<div class="main_column"><h1>限制級商品與登入會員</h1></div>'
-    assert parse_detail_html(html, product_url(1063006)).title == "限制級商品與登入會員"
 
 def test_ranking_fixture_yields_exactly_100_rows_ranked_1_to_100():
     rows = parse_ranking_html(fixture_html(RANKING_FIXTURE))
@@ -199,6 +190,20 @@ CASES = {
         description_startswith="這本書寫盡了你從出生到離世，",
         thumbnail_contains="0011057581.jpg",
     ),
+    # Restricted book, saved by the user while logged in: the full page with a 限制級商品 badge.
+    "0011063006": dict(
+        title="舞臺下的單向愛戀 Re (首刷限定版) 全",
+        publisher="東立",
+        published=(date(2026, 10, 7), "DAY"),
+        language="zh-TW",
+        page_count=170,
+        identifiers=(Identifier("ISBN_13", "9786260279233"),),
+        contributors=(Contributor(1, "大島かもめ", "AUTHOR"), Contributor(2, "加奈", "TRANSLATOR")),
+        subjects=("漫畫/圖文書", "BL"),
+        toc_startswith=None,  # no 目錄 section on this page
+        description_startswith="知名偶像團體《ＩＮＣＩＴＥ》的成員",
+        thumbnail_contains="0011063006.jpg",
+    ),
 }
 
 
@@ -234,6 +239,24 @@ def test_detail_parser_accepts_tracking_url_and_canonicalizes_it():
     )
 
     assert draft.source_url == product_url(11062550)
+
+
+# ---------------------------------------------------------------------------
+# Restricted books (crawler.md §6): the logged-out member gate vs. the logged-in page
+# ---------------------------------------------------------------------------
+
+def test_real_restricted_member_gate_is_recognized():
+    html = fixture_html(RESTRICTED_GATE_FIXTURE)
+
+    with pytest.raises(RestrictedBookError, match="requires member login"):
+        parse_detail_html(html, product_url(11063006))
+
+
+def test_restricted_badge_on_a_real_product_page_is_not_a_member_gate():
+    html = fixture_html(detail_fixture_name("0011063006"))
+    assert "限制級商品" in html  # the badge is on the page, but there is product content and no login gate
+
+    assert parse_detail_html(html, product_url(11063006)).title == "舞臺下的單向愛戀 Re (首刷限定版) 全"
 
 
 # ---------------------------------------------------------------------------

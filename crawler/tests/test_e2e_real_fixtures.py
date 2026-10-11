@@ -18,6 +18,7 @@ from books_crawler.parsers import RANKING_PAGE_URL, parse_detail_html, parse_ran
 from books_crawler.run import RunDependencies, run_once
 from tests.fakes import (
     RANKING_FIXTURE,
+    RESTRICTED_GATE_FIXTURE,
     FakeFetcher,
     FakeSleep,
     detail_fixture_name,
@@ -38,6 +39,8 @@ REAL_PRODUCTS = {
     "0011062550": 1,
     "0011057581": 17,
 }
+# (product id, rank in the ranking fixture) of the restricted book whose member gate is a fixture.
+RESTRICTED_PRODUCT = (11063006, 2)
 DERIVED_NEW_SOURCE_URL = product_url(9999999999)
 DERIVED_RANK = 50
 
@@ -113,6 +116,31 @@ def test_real_fixtures_run_writes_100_bestsellers_and_the_four_real_books(seeded
         source_url = product_url(int(product_id))
         book_id = query(seeded_db, "SELECT book_id FROM book_sources WHERE source_url = %s", (source_url,))[0][0]
         assert snapshot[rank - 1][1] == book_id, f"rank {rank} should point at {product_id}"
+
+
+def test_real_restricted_member_gate_is_skipped_once_and_leaves_a_gap(db_url):
+    """Rank 2 (0011063006) returns the real member gate: skipped without retry, not an error."""
+    restricted_url = product_url(RESTRICTED_PRODUCT[0])
+    ranking_urls = [row.url for row in parse_ranking_html(fixture_html(RANKING_FIXTURE))]
+    with_detail_pages = {product_url(int(pid)) for pid in REAL_PRODUCTS} | {restricted_url}
+    seed_existing_sources(db_url, [url for url in ranking_urls if url not in with_detail_pages])
+    pages = {**real_detail_pages(), restricted_url: fixture_html(RESTRICTED_GATE_FIXTURE)}
+
+    report, fetcher = run_with(db_url, fixture_html(RANKING_FIXTURE), pages)
+
+    assert report.status is RunStatus.PARTIAL_SUCCESS
+    assert report.exit_code == 0
+    assert (report.restricted_book_count, report.error_count, report.consecutive_error_count) == (1, 0, 0)
+    skipped = report.skipped[0]
+    assert (skipped.rank, skipped.url, skipped.failure.error_type, skipped.failure.attempts) == (
+        RESTRICTED_PRODUCT[1],
+        restricted_url,
+        "restricted_book",
+        1,
+    )
+    assert fetcher.detail_calls().count(restricted_url) == 1
+    assert [row[0] for row in bestsellers(db_url)] == [rank for rank in range(1, 101) if rank != RESTRICTED_PRODUCT[1]]
+    assert query(db_url, "SELECT count(*) FROM book_sources WHERE source_url = %s", (restricted_url,)) == [(0,)]
 
 
 def test_real_books_are_written_with_the_expected_columns(successful_baseline):

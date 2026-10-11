@@ -24,6 +24,8 @@ RANKING_HTML = "<ranking/>"
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 RANKING_FIXTURE = "ranking_books_7d_top100.html"
+# The logged-out response for restricted book 0011063006 (HTTP 200, JavaScript redirect to login).
+RESTRICTED_GATE_FIXTURE = "restricted_gate_0011063006.html"
 
 
 def product_url(number: int) -> str:

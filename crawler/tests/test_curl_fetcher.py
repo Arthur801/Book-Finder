@@ -6,6 +6,8 @@ import pytest
 from curl_cffi import requests
 
 from books_crawler.fetcher import CurlCffiFetcher, FetchError
+from books_crawler.parsers import RestrictedBookError, parse_detail_html
+from tests.fakes import RESTRICTED_GATE_FIXTURE, fixture_html, product_url
 
 
 def _fetcher(**kwargs):
@@ -126,6 +128,19 @@ def test_http_200_connection_error_page_is_not_a_product(tmp_path):
     with pytest.raises(FetchError, match="website connection-error page"):
         fetcher.get("https://example.test")
     assert next(tmp_path.glob("*.html")).read_text() == html
+
+
+def test_real_restricted_member_gate_reaches_the_parser_unchanged(tmp_path):
+    # The real logged-out response is HTTP 200 and redirects to login with JavaScript, not with a 3xx.
+    gate = fixture_html(RESTRICTED_GATE_FIXTURE)
+    fetcher = _fetcher(session=FakeCurlSession(FakeCurlResponse(html=gate)), diagnostic_dir=tmp_path)
+
+    html = fetcher.get(product_url(11063006))
+
+    assert html == gate
+    assert list(tmp_path.iterdir()) == []  # not a fetch failure, so no diagnostics are saved
+    with pytest.raises(RestrictedBookError):
+        parse_detail_html(html, product_url(11063006))
 
 
 def test_connection_error_phrase_inside_real_content_does_not_block():
