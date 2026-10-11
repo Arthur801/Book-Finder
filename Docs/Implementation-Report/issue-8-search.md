@@ -136,103 +136,106 @@ Code review 結果：無阻斷性問題。審查者以一次性 Postgres 驗證�
 
 | 檔案 | 類型 | 說明 |
 |---|---|---|
-| `Controllers/SearchController.cs` | 新增 | `[HttpGet("/search")]`，參數 `q`、`page`；`page` 非整數或小於 1 → 第 1 頁；只呼叫 `BookSearchService.SearchAsync` |
+| `Controllers/SearchController.cs` | 新增 | `[HttpGet("/search")]`，參數 `q`、`page`。頁碼解析為任意長度整數：非整數或小於 1 → 第 1 頁；超過 `int` 範圍者上限為 `int.MaxValue`。`page` 超過最後一頁（有結果時）→ 302 重導到最後一頁、同一 `q`；只呼叫 `BookSearchService` |
 | `Models/PageWindow.cs` | 新增 | 純函式 `PageWindow.For(currentPage, totalPages)`：≤ 10 頁全列；否則第 1 頁、最後一頁與目前頁前後各 2 頁，不相鄰處放 `null`（「…」） |
-| `Models/SearchResultsViewModel.cs` | 新增 | `SearchResultsViewModel.From(query, page)`、`SearchResultItemViewModel`、`PageLinkViewModel`；作者以「、」連接、出版日期經 `PublishedDateText.Format`、分頁 URL `/search?q={escaped}&page={n}` |
-| `Views/Search/Index.cshtml` | 新增 | 搜尋框、「共 N 筆，第 p／P 頁」、結果列表（封面或「無封面」、書名連結、作者、出版社、出版日期）、上一頁／頁碼／下一頁；無結果時「找不到符合的書」 |
-| `Views/Shared/_SearchForm.cshtml` | 新增 | 首頁與搜尋頁共用的搜尋表單（label 與 input 完全相同，預填目前 `q`） |
-| `Views/Home/Index.cshtml` | 修改 | 搜尋表單改用 `_SearchForm`；label 由「搜尋書名、作者或出版社」改為「搜尋書名、作者或 ISBN」（對齊 book-catalog.md §3.2，出版社不被搜尋） |
-| `tests/UnitTests/PageWindowTests.cs` | 新增 | 分頁視窗 11 個案例（0、1、10、11 頁；25 頁的首、中、末頁；超出範圍與小於 1 的頁碼） |
-| `tests/WebIntegration/SearchPageTests.cs` | 新增 | `/search` HTTP 層測試 33 個案例（含 Theory 展開） |
-| `Docs/Implementation-Report/issue-8-search.md` | 修改 | 追加本節 |
+| `Models/SearchResultsViewModel.cs` | 新增 | `From(query, page)`、`UrlFor(query, page)`（公開，供 controller 重導）、`SearchResultItemViewModel`、`PageLinkViewModel`。`q` 一律 trim 後使用；作者以「、」連接；缺值一律為 `null`（不留空白字串）；分頁連結永不超過最後一頁 |
+| `Views/Search/Index.cshtml` | 新增 | 搜尋框、「共 N 筆，第 p／P 頁」、結果列表（`data-book-id`、封面或「無封面」、書名連結、作者、出版社、出版日期）、分頁列（`nav.search-pager`，目前頁 `aria-current="page"`，不可用的上一頁／下一頁 `aria-disabled="true"`）；無結果時「找不到符合的書」，且無分頁列 |
+| `Views/Shared/_SearchForm.cshtml` | 新增 | 首頁與搜尋頁共用的搜尋表單，預填 trim 後的 `q`（Razor 編碼） |
+| `Views/Home/Index.cshtml` | 修改 | 搜尋表單改用 `_SearchForm`；label 改為「搜尋書名、作者或 ISBN」（book-catalog.md §3.2，出版社不被搜尋） |
+| `tests/UnitTests/PageWindowTests.cs` | 新增 | 分頁視窗 11 個案例（0、1、10、11 頁；25 頁的首、中、末頁；超出範圍與小於 1 的目前頁） |
+| `tests/WebIntegration/SearchPageTests.cs` | 新增 | `/search` HTTP 層測試 39 個案例（含 Theory 展開） |
+| `tests/WebIntegration/HtmlPage.cs` | 修改 | 新增搜尋頁用的測試 helper：`SearchResultBookIds`、`ResultItems`、`PagerEntries`、`SearchBoxValue`、`GetUndecodedAsync`；以 `[GeneratedRegex]` 實作。#9 的 helper 與既有 helper 不變 |
+| `Docs/Implementation-Report/issue-8-search.md` | 修改 | 本節（M2 節不變） |
 
-未修改 `Application/Catalog/*`、`EfBookSearch.cs`、`Program.cs`、既有測試與規格文件。`Views/Shared/_Layout.cshtml` 未改；既有 `LayoutAndHomeTests` 只檢查 `action="/search"` 與 `name="q"`，不依賴舊 label，因此未修改任何既有測試。
+未修改 `Application/Catalog/*`、`EfBookSearch.cs`、`Program.cs`、既有測試與規格文件。
 
 ### 實作思路
 
-- **Controller 只做一件事**：解析 `page`（`long.TryParse`，失敗 → 1；成功 → 夾到 `1..int.MaxValue`，超大頁碼仍落在範圍外而得到空結果頁）後呼叫 `BookSearchService`，不接觸 Google Books、embedding 或 LLM。頁碼下限 1 由 `BookSearchService` 保證。
-- **分頁視窗（`PageWindow`）**：先把目前頁夾到 `1..P`，再取前後各 2 頁，並加入第 1 頁與最後一頁放入有序集合；相鄰數字之間不連續即插入 `null`。純函式，無 I/O。
-- **ViewModel 的 prev／next**：上一頁為 `min(p − 1, P)`（從超出範圍的頁回到最後一個真實頁）；下一頁只在 `p < P` 時存在；目前頁在頁碼列中不產生連結。
-- **結果項目**：作者只來自 `BookSearchHit.Authors`（已是 AUTHOR 角色），無作者時整行不顯示；出版社、出版日期、封面同樣缺值即省略。`ViewModel` 不含 description 與 table of contents 欄位（AGENTS.md §1.3）。
-- **共用表單**：`_SearchForm` 以 `@model string` 接收目前 `q`，首頁傳 `string.Empty`，搜尋頁傳 `Model.Query`，label 與 input 不會因兩頁而分歧。
+- **Controller**：先解析頁碼，再呼叫 `BookSearchService`。若 `TotalCount > 0 && Page > TotalPages`，回 302（`Redirect`）到 `SearchResultsViewModel.UrlFor(q, TotalPages)`；無結果時不重導，直接顯示「找不到符合的書」（200）。
+- **頁碼解析**：`BigInteger.TryParse`（`NumberStyles.Integer`，Invariant）。無法解析（含 `null`、空字串、`abc`、`1.5`）或小於 1 → 1。大於 `int.MaxValue`（含超過 64 位元者）→ `int.MaxValue`，因此必然超過最後一頁而重導。
+- **分頁視窗（`PageWindow`）**：先把目前頁夾到 `1..P` 再取前後各 2 頁，並加入第 1 頁與最後一頁；相鄰數字不連續即插入 `null`。純函式，無 I/O。
+- **ViewModel**：`q` 先 trim，之後搜尋框、分頁連結與重導 URL 都用 trim 後的值。上一頁為 `Page − 1`（以 `TotalPages` 為上限）；下一頁只在 `Page < TotalPages` 時存在，因此分頁連結永不超過最後一頁。`SummaryText` 只在有結果時產生。
+- **缺值一律 `null`**：作者（無 AUTHOR 時）、出版社（空白時）、封面 URL（空白時）、出版日期（精度缺漏時）在 ViewModel 正規化為 `null`；View 只用 `is not null` 判斷。
+- **語意化標記**：結果項目 `li[data-book-id]`，欄位以 `authors`、`publisher`、`published-date`、`book-title`、`cover`、`cover-placeholder` 等 class 標示；分頁以 `aria-current`、`aria-disabled` 與 `href` 表示狀態。測試以這些標記解析，不依賴 Bootstrap 樣式 class。
+- **共用表單**：`_SearchForm` 以 `@model string` 接收 trim 後的 `q`；首頁傳 `string.Empty`，搜尋頁傳 `Model.Query`。
 
 ### 執行紀錄（Log）
 
-1. 讀取共同指示、M2 程式與報告、`book-catalog.md` §2–§4.1、`ui-flow.md` §3.2／§3.5／§3.6、`product-requirements.md` SEARCH-01～04、issue #8 內文、既有 Bestseller 與 WebIntegration 測試。
-2. TDD 紅燈：
-   - 先寫 `tests/UnitTests/PageWindowTests.cs`；`dotnet test tests/UnitTests` 因 `PageWindow` 不存在而編譯失敗（CS0103）。
-   - 先寫 `tests/WebIntegration/SearchPageTests.cs`（不含 controller、view）；`dotnet test tests/WebIntegration --filter SearchPageTests` 結果 `Failed!  - Failed: 32, Passed: 0, Skipped: 0, Total: 32`。
-3. 綠燈：實作 `PageWindow.cs`，`PageWindowTests` 全部通過；再實作 `SearchController.cs`、`SearchResultsViewModel.cs`、`Views/Search/Index.cshtml`、`_SearchForm.cshtml`，並把首頁表單改為 partial；搜尋頁測試全部通過。
-4. 補充 M2 留下的未解決事項 3（未配對代理字元）：新增 `Lone_surrogate_in_the_query_does_not_fail_the_request`（`q=%ED%A0%80`），回應 200，M2 的代理字元擔憂經 HTTP 驗證無問題。
-5. 最終建置與全部測試（見驗證結果）。
+1. 第一輪（commit `8684513` 分頁視窗、`0efed0b` 搜尋頁）：讀取 M2 程式、規格與既有 WebIntegration 測試，依 TDD 先寫測試（UnitTests 紅燈為 `PageWindow` 不存在的 CS0103；WebIntegration 紅燈為 `Failed: 32, Passed: 0`），再實作 `PageWindow`、controller、ViewModel、views 與共用表單。
+2. 主 session 合併 issue #9 到 `main`，並將本分支 rebase 到新的 `main`：M3 的 commit hash 變為 `8684513`、`0efed0b`（舊 hash 已不存在）。
+3. 規格變更 `1e5429d`（`book-catalog.md` §3.3，使用者決定 D3）：超出最後一頁不再顯示空結果頁，改為重導到最後一頁；取代 issue #8 原本「超出範圍時回傳空結果頁」。
+4. 主 session 的 `f233b9d`（`WebFixture` 關閉 config reload）：每個測試 host 會佔用 Linux inotify instances，每次測試執行 85 個 host 會耗盡配額。此 commit 必須保留，本模組未回滾。
+5. 本次 code review 修正（commit `53c0391` 與 `795d77a`）。TDD：先改寫 `SearchPageTests.cs` 與 `HtmlPage.cs` helper，`dotnet test tests/WebIntegration --filter SearchPageTests` 紅燈 `Failed: 29, Passed: 10, Total: 39`；再實作 controller 重導、頁碼解析、ViewModel 與 view，綠燈。
+6. 以 `git diff --check` 檢查後 commit。
+
+### Code Review 與修正
+
+Code review 結果：無阻斷性問題；issue #8 的 AC 全部有對應測試。以下為審查意見與處理（新增 commit，未改寫歷史）。
+
+| # | 審查意見 | 處理 |
+|---|---|---|
+| 1 | D3：超出最後一頁應重導（302）到最後一頁，而非空結果頁；頁碼列不得連結到最後一頁之後；極大整數頁碼也視為超出範圍 | 採用。`SearchController` 在 `TotalCount > 0 && Page > TotalPages` 時 `Redirect`；頁碼解析改用 `BigInteger`，超過 `int` 者上限為 `int.MaxValue`。移除舊的「超出範圍只顯示 共 N 筆」行為。測試：`Page_past_the_last_page_redirects_to_the_last_page_with_the_same_query`（`3`、`99999999999999999999`、`2147483648`；302 與 `Location`）、`Page_past_the_end_of_an_empty_result_shows_not_found_and_no_pager`（200、無分頁列）、`Last_page_has_a_disabled_next_and_no_link_past_the_last_page` |
+| 2 | 搜尋框應預填 trim 後的 q（規格 q = trim(input)） | 採用。ViewModel 的 `Query` 與所有分頁連結都使用 trim 後的值。測試：`Search_box_is_prefilled_with_the_trimmed_query` |
+| 3 | 未以原始 HTML 驗證 escape（`<script>`、`"`、`&`、`#`） | 採用。測試：`Query_and_pager_urls_are_html_encoded_in_the_raw_page`，以未解碼的 body 驗證 `value="&lt;script&gt;&quot;&amp;#"`、`href="/search?q=%3Cscript%3E%22%26%23&amp;page=2"`，且原始 HTML 不含 `<script>`。注意：`HtmlPage.GetRawAsync` 會做 `HtmlDecode`，無法驗證 escape，因此新增 `GetUndecodedAsync`（回傳未解碼的 body），`GetRawAsync` 保持不變（#9 的測試使用它） |
+| 4 | 測試 helper 應移入 `HtmlPage.cs`、以 `[GeneratedRegex]` 實作；改用 `using System.Net`；斷言不依賴 Bootstrap 樣式 | 採用。`ResultBookIds` 改名為 `SearchResultBookIds`（與 `ResultItems`、`PagerEntries`、`SearchBoxValue` 同在 `HtmlPage`）；結果項目加 `data-book-id`；分頁以 `PagerEntries` 一次解析（text、href、current、disabled）；`CountOccurrences` 因無呼叫者已刪除（`795d77a`） |
+| 5 | 重複的簡介不顯示測試 | 採用。拆為兩個：`Description_and_publisher_are_not_searched`（只驗證搜尋不比對簡介與出版社）與 `Seeded_description_and_table_of_contents_never_appear_in_the_results_html`（同時帶簡介與目錄標記，驗證皆不輸出） |
+| 6 | `PageWindowTests` 名稱與斷言不符（名為 no ellipsis，實際有兩個） | 採用。改名為 `Eleven_pages_in_the_middle_show_an_ellipsis_on_each_side` |
+| 7 | controller 註解說 service 夾住小於 1 的頁碼（實際由 controller 處理）；ViewModel 的 `text` 名稱含糊；空作者與其他缺值的 null 不一致；view 的判斷不一致 | 採用。controller 註解改為正確描述解析規則；`text` 改為 `queryText`；缺值一律 `null`；view 統一用 `is not null` |
+| 8 | 報告需補上 Code Review 節、D3、rebase 與 inotify 修正，並更新測試數與未解決事項 | 採用（本節） |
 
 ### 驗證結果
 
-逐條對照 issue #8 AC 與需求。
+逐條對照 issue #8 AC、`book-catalog.md` §3 與 D3。
 
 **Issue #8 Acceptance criteria**
 
 | AC | 結果 | 測試 |
 |---|---|---|
-| `978-986-xxx` 含連字號、空白、小寫 x 可判定為 ISBN，只回傳完全相符的書 | ✅ | `Isbn_with_hyphens_spaces_or_lowercase_x_finds_only_that_book`（4 案例：`978-986-1234-56-7`、`978 986 1234 567`、`1-55860-832-x`、`1 55860 832 x`）；判定邊界的純函式測試為 M2 的 `SearchQueryTests`（25 案例） |
-| 12 位數字不被當成 ISBN | ✅ | `Twelve_digits_are_not_an_isbn_so_a_thirteen_digit_isbn_with_that_prefix_is_not_returned`（輸入 `978986123456`，前綴相同的 ISBN-13 書不回傳） |
-| 書名片段與作者片段都能找到書；不比對簡介 | ✅ | `Title_fragment_and_author_fragment_both_find_the_book`（`學習入`、`王小明`、`小明`）；`Description_and_publisher_are_not_searched_and_the_description_never_renders` |
-| 輸入 `%` 不會匹配所有書 | ✅ | `Percent_underscore_and_backslash_are_matched_literally`（`%`） |
+| `978-986-xxx` 含連字號、空白、小寫 x 判定為 ISBN，只回傳完全相符的書 | ✅ | `Isbn_with_hyphens_spaces_or_lowercase_x_finds_only_that_book`（4 案例）；判定邊界的純函式測試為 M2 的 `SearchQueryTests` |
+| 12 位數字不被當成 ISBN | ✅ | `Twelve_digits_are_not_an_isbn_so_a_thirteen_digit_isbn_with_that_prefix_is_not_returned` |
+| 書名片段與作者片段都能找到書；不比對簡介 | ✅ | `Title_fragment_and_author_fragment_both_find_the_book`（3 案例）；`Description_and_publisher_are_not_searched` |
+| `%` 不會匹配所有書 | ✅ | `Percent_underscore_and_backslash_are_matched_literally`（`%`、`_`、`\`） |
 | 排序符合規則；第 21 筆在第 2 頁 | ✅ | `Exact_title_ignoring_case_comes_first_then_newest_date_with_null_dates_last`；`Twenty_first_match_is_on_page_two_with_the_count_line` |
 | 空白輸入回傳空結果，不列出全部書籍 | ✅ | `Blank_input_shows_no_results_and_does_not_list_every_book`（`q=`、`q=%20%20`）；`Search_without_a_query_string_shows_no_results` |
-| ISBN 判定以純函式 unit test 涵蓋邊界 | ✅（M2） | `SearchQueryTests`（M2 已完成）；M3 另有 `PageWindowTests` 11 案例 |
-| `dotnet test` 通過 | ✅ | 見下方執行結果 |
+| ISBN 判定以純函式 unit test 涵蓋邊界 | ✅ | M2 的 `SearchQueryTests`；M3 的 `PageWindowTests`（11 案例） |
+| `dotnet test` 通過 | ✅ | 見下方「建置與測試」 |
 
-**book-catalog.md 與 ui-flow.md 規則**
+**book-catalog.md §3 與 D3**
 
 | 規則 | 結果 | 測試 |
 |---|---|---|
-| §3.1 全形 ISBN（NFKC）找到書 | ✅ | `Full_width_isbn_input_finds_the_book`（`９７８－…` 與 `１５５８６０８３２ｘ`） |
-| §3.2 `OTHER` 類型不參與 ISBN 比對 | ✅ | `Other_identifier_with_the_same_value_is_not_matched_in_isbn_mode` |
-| §3.2 `%`、`_`、`\` 字面比對 | ✅ | `Percent_underscore_and_backslash_are_matched_literally`（三個 Theory 案例） |
-| §3.2 不比對出版社、簡介 | ✅ | `Description_and_publisher_are_not_searched_and_the_description_never_renders` |
-| §3.3 無效頁碼（`abc`、`0`、`-1`）視為第 1 頁 | ✅ | `Page_that_is_not_a_positive_integer_shows_the_first_page` |
-| §3.3 超出範圍頁回傳空結果、不報錯，提供回上一頁連結 | ✅ | `Page_past_the_end_shows_no_results_but_links_back_to_the_last_page` |
+| §3.1 全形 ISBN（NFKC）找到書 | ✅ | `Full_width_isbn_input_finds_the_book`（2 案例） |
+| §3.2 `OTHER` 不參與 ISBN 比對 | ✅ | `Other_identifier_with_the_same_value_is_not_matched_in_isbn_mode` |
+| §3.2 `%`、`_`、`\` 字面比對 | ✅ | `Percent_underscore_and_backslash_are_matched_literally` |
+| §3.2 不比對簡介、出版社 | ✅ | `Description_and_publisher_are_not_searched` |
+| §3.3 `page` 非整數或小於 1 → 第 1 頁 | ✅ | `Page_that_is_not_an_integer_or_below_one_shows_the_first_page`（`abc`、`0`、`-1`、`1.5`） |
+| §3.3（D3）超出最後一頁 → 302 到最後一頁，同一 q | ✅ | `Page_past_the_last_page_redirects_to_the_last_page_with_the_same_query`（`3`、極大整數、`2147483648`） |
+| §3.3（D3）超出最後一頁的 `Location` 保留同一 q | ✅ | 同上（`Location` 與 `SearchUrl("分頁測試", "2")` 相等） |
+| §3.3（D3）查無結果時 `page=5` → 200「找不到符合的書」、無分頁 | ✅ | `Page_past_the_end_of_an_empty_result_shows_not_found_and_no_pager` |
+| §3.3（D3）末頁的下一頁為停用，頁碼列不連結最後一頁之後 | ✅ | `Last_page_has_a_disabled_next_and_no_link_past_the_last_page` |
 | §3.3 「共 N 筆，第 p／P 頁」 | ✅ | `Twenty_first_match_is_on_page_two_with_the_count_line` |
-| §3.3 頁碼：≤ 10 頁全列；超過時首、末、前後各 2 頁，其餘「…」 | ✅ | `PageWindowTests` 全部；`Pager_shows_ellipses_and_the_current_window_when_there_are_more_than_ten_pages`（201 筆、11 頁、第 5 頁） |
-| §3.4 作者只列 AUTHOR，以「、」連接 | ✅ | `Result_items_show_authors_only_publisher_year_precision_date_and_placeholder_cover` |
-| §3.4 出版日期依精度（YEAR → `2011`） | ✅ | 同上（`published-date` 為 `2011`，且不含 `2011-03`） |
-| §3.4 封面或「無封面」佔位 | ✅ | `Cover_is_shown_when_present_and_placeholder_when_not`；同上 |
-| §3.4 缺值整列省略 | ✅ | `Missing_author_publisher_and_date_are_left_out_of_the_item` |
-| §3.4 連結 `/books/{id}` | ✅ | `Result_items_...`（`href="/books/{id}"`）；所有 `ResultBookIds` 斷言 |
-| §3.5 搜尋框預填目前 q | ✅ | `Search_box_is_prefilled_with_the_query` |
-| §3.5 空白或查無結果顯示「找不到符合的書」 | ✅ | `Blank_input_...`、`Twelve_digits_...`、`Other_identifier_...`、`Description_and_publisher_...` |
-| §3.2 首頁與搜尋頁 label 為「搜尋書名、作者或 ISBN」 | ✅ | `Home_and_search_page_label_the_search_box_with_title_author_or_isbn`（`/` 與 `/search`） |
-| ui-flow §3.2 首頁搜尋框送出至 `/search?q=` | ✅ | 既有 `LayoutAndHomeTests.Home_shows_search_and_ai_entry_forms_and_link_to_full_ranking` 仍通過 |
-| AGENTS.md §1.3 / "Book 內容顯示"：不輸出簡介與目錄 | ✅ | `Seeded_description_never_appears_in_the_results_html`（description 與 table of contents 都帶標記） |
-| §3.4 結果的書名、作者、出版社等只用 Local DB | ✅ | `SearchController` 只依賴 `BookSearchService`（程式碼審查） |
-| §7 查無結果時不呼叫 Google Books | ⏸ 未測 | 尚無 Google Books adapter，見未解決事項 |
+| §3.3 頁碼：≤ 10 頁全列；超過時首、末、前後各 2 頁，其餘「…」 | ✅ | `PageWindowTests`（全部）；`Pager_shows_ellipses_and_the_current_window_when_there_are_more_than_ten_pages`（序列完全相等） |
+| §3.4 作者只列 AUTHOR，以「、」連接；缺值為 `null` | ✅ | `Result_item_shows_authors_only_publisher_year_precision_date_and_placeholder_cover`；`Missing_author_publisher_and_date_are_not_rendered` |
+| §3.4 出版日期依精度（YEAR → `2011`） | ✅ | 同上 |
+| §3.4 封面或「無封面」 | ✅ | `Cover_is_shown_when_present_and_placeholder_when_not` |
+| §3.4 連結 `/books/{id}` | ✅ | `Result_item_shows_...`（`BookId`）與各 `SearchResultBookIds` 斷言 |
+| §3.5 搜尋框預填 trim 後的 q | ✅ | `Search_box_is_prefilled_with_the_trimmed_query` |
+| §3.5 空白或查無結果 → 「找不到符合的書」 | ✅ | `Blank_input_...`、`Twelve_digits_...`、`Other_identifier_...`、`Description_and_publisher_are_not_searched` |
+| §3.2 首頁與搜尋頁 label「搜尋書名、作者或 ISBN」 | ✅ | `Home_and_search_page_label_the_search_box_with_title_author_or_isbn`（`/` 與 `/search`） |
+| ui-flow §3.2 首頁搜尋框送出至 `/search?q=` | ✅ | 既有 `LayoutAndHomeTests.Home_shows_search_and_ai_entry_forms_and_link_to_full_ranking` |
+| AGENTS.md §1.3「Book 內容顯示」：不輸出簡介與目錄 | ✅ | `Seeded_description_and_table_of_contents_never_appear_in_the_results_html` |
+| 轉義：查詢與分頁 URL 在原始 HTML 中正確編碼 | ✅ | `Query_and_pager_urls_are_html_encoded_in_the_raw_page` |
+| M2 交接：代理字元不使請求失敗 | ✅ | `Lone_surrogate_in_the_query_does_not_fail_the_request`（200） |
 
-**Controller 與 M2 handover 項目**
+**建置與測試（commit `795d77a` 之後，Windows 端經 WSL 執行）**
 
-| 項目 | 結果 | 測試 |
-|---|---|---|
-| M2 #1：`%`、`_`、`\` 字面比對 | ✅ | `Percent_underscore_and_backslash_are_matched_literally` |
-| M2 #2：出版日期 NULL 排最後 | ✅ | `Exact_title_ignoring_case_comes_first_then_newest_date_with_null_dates_last` |
-| M2 #3：只列 Author 角色（譯者不列出） | ✅ | `Result_items_show_authors_only_...`（譯者甲不出現） |
-| M2 #4：第 2 頁第 21 筆 | ✅ | `Twenty_first_match_is_on_page_two_with_the_count_line` |
-| M2 #5：完全相符（忽略大小寫）優先 | ✅ | `Exact_title_ignoring_case_comes_first_...`（`python`、`PYTHON` 排在前） |
-| M2 #6：全形 ISBN 命中正確書 | ✅ | `Full_width_isbn_input_finds_the_book` |
-| M2 #3（未解決）：未配對代理字元 | ✅ | `Lone_surrogate_in_the_query_does_not_fail_the_request`（200） |
-
-**建置與測試（Windows 端經 WSL 執行，commit 前）**
-
-- `dotnet build --no-incremental`：`0 Warning(s)`、`0 Error(s)`
-- `dotnet test tests/UnitTests`：`Passed!  - Failed:     0, Passed:    82, Skipped:     0, Total:    82, Duration: 51 ms - UnitTests.dll (net10.0)`（M2 的 71 + M3 的 `PageWindowTests` 11）
+- `dotnet build`：`0 Warning(s)`、`0 Error(s)`
+- `dotnet test tests/UnitTests`：`Passed!  - Failed:     0, Passed:    87, Skipped:     0, Total:    87, Duration: 47 ms - UnitTests.dll (net10.0)`
 - `dotnet test tests/DatabaseIntegration`：`Passed!  - Failed:     0, Passed:    12, Skipped:     0, Total:    12, Duration: 4 s - DatabaseIntegration.dll (net10.0)`
-- `dotnet test tests/WebIntegration`：`Passed!  - Failed:     0, Passed:    53, Skipped:     0, Total:    53, Duration: 4 s - WebIntegration.dll (net10.0)`（既有 20 + M3 的 `SearchPageTests` 33）
+- `dotnet test tests/WebIntegration`：`Passed!  - Failed:     0, Passed:    91, Skipped:     0, Total:    91, Duration: 6 s - WebIntegration.dll (net10.0)`（其中 `SearchPageTests` 為 39 個案例）
 
 ### 未解決事項
 
 1. **§7「查無結果時不呼叫 Google Books」未測試**：專案尚無 Google Books adapter，需等 AI 推薦相關 ticket 建立 adapter 後，以 fake adapter 驗證沒有呼叫。
-2. **呈現上的本地決定（可逆，請審閱）**：
-   - 超出範圍頁（例 `page=30`、共 25 頁）：頁碼列以第 25 頁為中心（1、…、23、24、25）；上一頁指向第 25 頁；只顯示「共 N 筆」，不顯示「第 p／P 頁」。規格只說「回傳空結果頁」，未規定頁碼列與計數文字，因此採此最小處理。
-   - `page` 為超過 `int` 範圍的整數：夾到 `int.MaxValue`，得到超出範圍的空結果頁（而非視為第 1 頁）。規格「非整數 → 第 1 頁」不涵蓋此情況，屬整數但極大，故採此處理。
-   - 搜尋框預填的是使用者輸入的原始 `q`（未 trim）。
-3. **頁面未以瀏覽器實際檢視**：版面（手機寬度、封面尺寸、分頁換行）只經 HTML 測試驗證，未做視覺檢查。
-4. 未建立 `/search` 的 JSON 端點（ui-flow 與規格皆無此需求）。
+2. **GitHub issue #8 內文仍寫「超出範圍時回傳空結果頁」**：已由 D3（`book-catalog.md` §3.3）取代。本次未修改 issue 內文，是否更新請使用者決定。
+3. **頁面未在瀏覽器中實際檢視**：版面（手機寬度、封面尺寸、分頁換行）只經 HTML 測試驗證，未做視覺檢查。
