@@ -5,7 +5,8 @@ using Microsoft.EntityFrameworkCore;
 namespace Book_Finder.Infrastructure.Persistence;
 
 // Projects only the columns the detail page may show: description and table of contents are never selected (BOOK-05).
-// One small query per child table, each filtered by book id; ordering is applied here, not by the database.
+// One small query per child table, each filtered by book id. Contributors and sources are ordered in SQL; identifiers
+// and subjects are ordered in memory (ISBN_13 first, and subjects in ordinal order independent of DB collation).
 internal sealed class EfBookDetailReader(AppDbContext db) : IBookDetailReader
 {
     public async Task<BookDetail?> ReadAsync(Guid bookId, CancellationToken cancellationToken)

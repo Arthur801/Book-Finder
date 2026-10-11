@@ -3,6 +3,7 @@
 - Issue：#9 Book 詳細頁（BOOK-01～05）
 - Branch：`issue-9-book-detail`（from `main`）
 - 規格：`Docs/modules/book-catalog.md` §4、§4.1、§5（catalog-display-rules 分支的更新版，含使用者 2026-10-11 決定）；`Docs/requirements/product-requirements.md` BOOK-01～05；`AGENTS.md` §1.3「Book 內容顯示」
+- 排序與快取規則的來源：使用者 2026-10-11 的決定記錄於 `catalog-display-rules` 分支的 `Docs/modules/book-catalog.md` §4.1 與 §5。該分支尚未進入 main；主 session 會把它合併到 main，並在 M5 前將本分支 rebase 到 main，屆時本分支的文件與程式一致。在此之前，本分支的 `Docs/modules/book-catalog.md` 仍是舊版，本報告的規則以上述更新版為準。
 - 日期：2026-10-11
 
 本檔為 issue #9 的實作紀錄，各模組依序以「## Mx ...」新增章節。本節為 M4。
@@ -19,6 +20,8 @@
 | `Infrastructure/Caching/CachedBookDetailReader.cs` | 新增 | `IMemoryCache` 裝飾器，TTL 10 分鐘，以 Book id 為 key；找不到的 Book 不快取 |
 | `Program.cs` | 修改 | 註冊 `EfBookDetailReader` 與以 `CachedBookDetailReader` 包裝的 `IBookDetailReader`（與 Bestseller 相同寫法） |
 | `tests/UnitTests/CachedBookDetailReaderTests.cs` | 新增 | 4 個快取行為測試（TTL、重複讀取只呼叫一次、不同 Book 分開快取、找不到不快取） |
+| `tests/UnitTests/RecordingMemoryCache.cs` | 新增 | 測試共用的 `RecordingMemoryCache`（原本只在 `CachedBestsellerReaderTests` 內，抽出後兩個測試類別共用） |
+| `tests/UnitTests/CachedBestsellerReaderTests.cs` | 修改 | 移除重複的 `RecordingMemoryCache`，改用共用 helper；測試行為不變 |
 | `tests/UnitTests/BookDetailContractTests.cs` | 新增 | 反射守門測試：`BookDetail*` 型別不得有名稱含 Description／TableOfContents 的屬性（BOOK-05） |
 | `Docs/Implementation-Report/issue-9-book-detail.md` | 新增 | 本報告 |
 
@@ -58,6 +61,13 @@
    ```
 
 5. `git diff --check` 無輸出（通過）。
+6. Code review 修正後（見「Code Review 與修正」）重新執行建置與單元測試：
+
+   ```text
+       0 Error(s)
+       0 Warning(s)
+   Passed!  - Failed:     0, Passed:    14, Skipped:     0, Total:    14, Duration: 35 ms - UnitTests.dll (net10.0)
+   ```
 
 ### 驗證結果（逐條對照需求）
 
@@ -76,17 +86,33 @@
 | 建置 0 warnings／0 errors | `dotnet build` | 通過（見下方） |
 | Unit tests 全數通過 | `dotnet test tests/UnitTests` | 通過（見下方） |
 
-建置與測試結果（WSL，`dotnet build` 於 solution 根目錄）：
+建置與測試結果（code review 修正後的最終執行，WSL，`dotnet build` 於 solution 根目錄；測試總數 14，其中本模組新增 5 個）：
 
 ```text
     0 Error(s)
     0 Warning(s)
-Passed!  - Failed:     0, Passed:    14, Skipped:     0, Total:    14, Duration: 38 ms - UnitTests.dll (net10.0)
+Passed!  - Failed:     0, Passed:    14, Skipped:     0, Total:    14, Duration: 35 ms - UnitTests.dll (net10.0)
 ```
+
+### Code Review 與修正
+
+Coordinator 的 code review 沒有阻擋性問題；EF 查詢已由 reviewer 對暫時的 PostgreSQL 驗證。依建議做以下修正（另起一個 commit，未 amend）：
+
+1. `EfBookDetailReader` 註解：原本寫「排序在此完成、非資料庫」不正確。實際上貢獻者與來源在 SQL 排序；ISBN 與分類在記憶體排序（ISBN-13 優先；分類需要不受 DB collation 影響的 ordinal 排序）。
+2. `CachedBookDetailReader`：改用泛型 `cache.TryGetValue<BookDetail>`，key 前綴改為 `private const string KeyPrefix`。仍採 `TryGetValue`＋`Set`，不使用 `GetOrCreateAsync`（後者會快取 `null`）。
+3. `BookDetail` 的註解改用領域用語，不再使用 `contributor_order`、`first_seen_at` 等欄位名；語意不變。
+4. `BookDetailContractTests`：`Assert.Equal(4, ...)` 加註解，說明這是刻意的 tripwire，新增 `BookDetail*` 型別時必須有意識地更新守門測試。
+5. `RecordingMemoryCache` 抽成共用測試 helper `tests/UnitTests/RecordingMemoryCache.cs`，`CachedBookDetailReaderTests` 與 `CachedBestsellerReaderTests` 共用；行為不變。
+6. 本報告補充排序與快取規則的來源（見「規格」），並新增本節與測試數字的更新。
+
+**M5 必須明確斷言**（目前 repo 內的單元測試未涵蓋 EF 排序）：
+
+- ISBN 順序：ISBN-13 在 ISBN-10 之前，`OTHER` 類型的 identifier 不顯示。
+- 來源順序：依 `first_seen_at`，同時間再依 `id`。
 
 ### 未解決事項
 
-- **EF 查詢未在資料庫上執行**：本模組依指示未新增 DB 測試。`EfBookDetailReader` 的 SQL 翻譯（enum 比較、`Distinct`、投影到 record 建構子）尚未實際對 PostgreSQL 執行；需由 M5 以 WebIntegration 透過 `/books/{id}` 驗證。
+- **EF 查詢的 repo 內測試**：本模組依指示未新增 DB 測試。`EfBookDetailReader` 的 SQL 翻譯與排序雖已由 reviewer 以暫時 PostgreSQL 驗證，repo 內仍無對應的自動化測試；M5 的 WebIntegration 透過 `/books/{id}` 驗證時，須依上節明確斷言 ISBN 與來源順序。
 - **Program.cs 的 DI 解析**：單元測試未涵蓋；M5 的 WebApplicationFactory 測試會實際解析 `IBookDetailReader`。
 - **§8 分類層級順序**：屬進階目標，MVP 依分類文字排序，未實作。
 - **快取為 process-local**：多實例部署時各自快取，與 Bestseller 相同限制；TTL 10 分鐘內 Book 更新可能延遲可見。

@@ -9,10 +9,12 @@ public sealed class CachedBookDetailReader(IBookDetailReader inner, IMemoryCache
 {
     public static readonly TimeSpan Ttl = TimeSpan.FromMinutes(10);
 
+    private const string KeyPrefix = "books:detail:";
+
     public async Task<BookDetail?> ReadAsync(Guid bookId, CancellationToken cancellationToken)
     {
-        var key = $"books:detail:{bookId}";
-        if (cache.TryGetValue(key, out var cached) && cached is BookDetail detail)
+        var key = $"{KeyPrefix}{bookId}";
+        if (cache.TryGetValue<BookDetail>(key, out var detail))
             return detail;
 
         var loaded = await inner.ReadAsync(bookId, cancellationToken);

@@ -1,6 +1,5 @@
 using Book_Finder.Application.Catalog;
 using Book_Finder.Infrastructure.Caching;
-using Microsoft.Extensions.Caching.Memory;
 
 namespace UnitTests;
 
@@ -82,26 +81,5 @@ public sealed class CachedBookDetailReaderTests
             Calls++;
             return Task.FromResult(detail);
         }
-    }
-
-    // Real MemoryCache that records every entry it creates, so the TTL the decorator set can be read back.
-    private sealed class RecordingMemoryCache : IMemoryCache
-    {
-        private readonly MemoryCache inner = new(new MemoryCacheOptions());
-
-        public List<ICacheEntry> CreatedEntries { get; } = [];
-
-        public bool TryGetValue(object key, out object? value) => inner.TryGetValue(key, out value);
-
-        public ICacheEntry CreateEntry(object key)
-        {
-            var entry = inner.CreateEntry(key);
-            CreatedEntries.Add(entry);
-            return entry;
-        }
-
-        public void Remove(object key) => inner.Remove(key);
-
-        public void Dispose() => inner.Dispose();
     }
 }

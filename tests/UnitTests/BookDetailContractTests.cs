@@ -13,6 +13,7 @@ public sealed class BookDetailContractTests
             .Where(type => type.Namespace == typeof(BookDetail).Namespace && type.Name.StartsWith(nameof(BookDetail)))
             .ToList();
 
+        // Deliberate tripwire: a new BookDetail* type must be added to this guard consciously, not slip past it.
         Assert.Equal(4, types.Count);
 
         var forbidden = types

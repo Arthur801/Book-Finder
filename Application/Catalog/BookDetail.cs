@@ -12,10 +12,10 @@ public sealed record BookDetail(
     PublishedDatePrecision? PublishedDatePrecision,
     int? PageCount,
     string? ThumbnailUrl,
-    IReadOnlyList<BookDetailContributor> Contributors,   // ordered by contributor_order
-    IReadOnlyList<BookDetailIdentifier> Identifiers,     // only ISBN_13 and ISBN_10; ISBN_13 first, then ISBN_10, then by value
-    IReadOnlyList<string> Subjects,                      // distinct subject texts from every source type, ordered with StringComparer.Ordinal
-    IReadOnlyList<BookDetailSource> Sources);            // ordered by first_seen_at, then id
+    IReadOnlyList<BookDetailContributor> Contributors,   // in the source's contributor order
+    IReadOnlyList<BookDetailIdentifier> Identifiers,     // only ISBN-13 and ISBN-10; ISBN-13 first, then ISBN-10, each sorted by value
+    IReadOnlyList<string> Subjects,                      // distinct subject texts from all sources, sorted ordinally
+    IReadOnlyList<BookDetailSource> Sources);            // the Book Source seen first comes first; ties broken by Id
 
 public sealed record BookDetailContributor(short Order, string Name, ContributorRole Role);
 
