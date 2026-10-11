@@ -30,8 +30,10 @@ public sealed record ContributorSeed(short ContributorOrder, string Name, Contri
 public sealed record SubjectSeed(string Subject, SourceType SourceType = SourceType.BooksComTw);
 
 // SourceUrl left out is derived from the source's own id (or the Google Books external id), so every
-// source gets a unique URL, even two sources of the same type on one Book.
-public sealed record SourceSeed(SourceType SourceType, string? SourceUrl = null, string? ExternalId = null);
+// source gets a unique URL, even two sources of the same type on one Book. FirstSeenAt left out means "now"
+// (UTC); give it when a test depends on which source was seen first (it must be a UTC DateTime).
+public sealed record SourceSeed(
+    SourceType SourceType, string? SourceUrl = null, string? ExternalId = null, DateTime? FirstSeenAt = null);
 
 public sealed record SeededSource(Guid Id, SourceType SourceType, string SourceUrl);
 
@@ -104,7 +106,7 @@ public static class CatalogSeed
                     SourceType = source.SourceType,
                     ExternalId = source.ExternalId,
                     SourceUrl = seededSource.SourceUrl,
-                    FirstSeenAt = now,
+                    FirstSeenAt = source.FirstSeenAt ?? now,
                     LastSeenAt = now
                 });
                 sources.Add(seededSource);

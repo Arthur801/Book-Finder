@@ -1,0 +1,48 @@
+@model Book_Finder.Models.BookDetailViewModel
+
+<article class="book-detail row g-4">
+    <div class="col-12 col-sm-4 col-md-3">
+        @if (Model.ThumbnailUrl is not null)
+        {
+            <img class="cover img-fluid" src="@Model.ThumbnailUrl" alt="@Model.Title" loading="lazy" />
+        }
+        else
+        {
+            <div class="cover cover-placeholder text-muted small d-flex align-items-center justify-content-center border" style="aspect-ratio: 3 / 4;">無封面</div>
+        }
+    </div>
+    <div class="col-12 col-sm-8 col-md-9">
+        <h1 class="h3">@Model.Title</h1>
+        @if (Model.Subtitle is not null)
+        {
+            <p class="subtitle text-muted">@Model.Subtitle</p>
+        }
+        @foreach (var group in Model.Contributors)
+        {
+            <p class="contributor mb-1">@group.Text</p>
+        }
+
+        @if (Model.InfoRows.Count > 0)
+        {
+            <dl class="book-info row mt-3 mb-4">
+                @foreach (var row in Model.InfoRows)
+                {
+                    <dt class="col-sm-3">@row.Label</dt>
+                    <dd class="col-sm-9">@row.Value</dd>
+                }
+            </dl>
+        }
+
+        @if (Model.Links.Count > 0)
+        {
+            <div class="book-links d-flex flex-wrap gap-2">
+                @foreach (var link in Model.Links)
+                {
+                    <a class="btn @(link.IsPrimary ? "btn-primary" : "btn-outline-secondary")" href="@link.Url" target="_blank" rel="noopener noreferrer">@link.Text</a>
+                }
+            </div>
+        }
+    </div>
+</article>
+
+<section id="library"></section>
