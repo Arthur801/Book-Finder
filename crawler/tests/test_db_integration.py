@@ -13,14 +13,15 @@ import psycopg
 import pytest
 
 from books_crawler import db
-from books_crawler.fetcher import BrowserUnavailableError, FetchError, PlaywrightFetcher
+from books_crawler.browser import PlaywrightFetcher
+from books_crawler.fetcher import BrowserUnavailableError, FetchError
 from books_crawler.models import Contributor, ContributorRole, RankingRow, RunStatus, SnapshotRow
 from books_crawler.normalize import map_language, normalize_isbn
 from books_crawler.parsers import RANKING_PAGE_URL, ParseError, RestrictedBookError
 from books_crawler.run import RunDependencies, run_once
+from tests.browser_fakes import FakeBrowserContext, launching
 from tests.fakes import (
     RANKING_HTML,
-    FakeBrowserContext,
     FakeFetcher,
     FakeSleep,
     fake_detail_parser,
@@ -827,8 +828,7 @@ def test_browser_crash_during_navigation_is_retried_and_the_row_is_written(db_ur
     target = rows[0].url
     pages = {RANKING_PAGE_URL: RANKING_HTML, **{row.url: "<detail/>" for row in rows}}
     context = FakeBrowserContext(pages=pages, goto_failures={target: 2})  # two crashes, then the page loads
-    fetcher = PlaywrightFetcher(delay_seconds=0)
-    fetcher._context = context  # the fake context stands in for a started browser
+    fetcher = PlaywrightFetcher(delay_seconds=0, launch=launching(context))  # no real browser starts
     sleep = FakeSleep()
     try:
         report, _ = run(db_url, rows, sleep=sleep, fetcher=fetcher)

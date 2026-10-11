@@ -23,7 +23,7 @@ sudo python -m playwright install-deps chromium
 | 環境變數 | 說明 |
 |---|---|
 | `DATABASE_URL` | 共用 PostgreSQL 連線字串（必填；不會寫入 log）。 |
-| `CRAWLER_FETCHER` | 頁面取得方式：`curl`（預設，curl_cffi Chrome fingerprint）、`browser`（headless Chromium）或 `http`（requests，僅供除錯；博客來會回傳 Cloudflare challenge）。其他值為設定錯誤（exit code 2）。 |
+| `CRAWLER_FETCHER` | 頁面取得方式：`curl`（預設，curl_cffi Chrome fingerprint）或 `browser`（headless Chromium，僅供診斷）。其他值（含已移除的 `http`）為設定錯誤（exit code 2）。 |
 | `CRAWLER_NAV_TIMEOUT_MS` | 瀏覽器導覽逾時，單位毫秒，整數 1～300000，預設 `30000`。空值使用預設；非整數、0、負數或超過上限為設定錯誤（exit code 2）。只影響 `browser` fetcher。 |
 
 ## 執行
@@ -47,13 +47,13 @@ Exit code：0 = SUCCESS 或 PARTIAL_SUCCESS（榜單已替換；PARTIAL_SUCCESS 
 
 先抓取並驗證完整的中文書 7 日 TOP 100 排行榜，再只處理 rank 1；其他 99 本不查詢或抓取詳細頁。新書寫入 `books`、`book_sources`、ISBN、作者與分類等關聯資料；既有商品 URL 直接重用，ISBN 命中則只附加來源。此入口不替換 `bestsellers`，不更新既有來源的 `last_seen_at`，不影響每日完整榜單流程。
 
-Exit code：0 = 第一名成功匯入、已存在或為限制級而直接跳過；1 = 抓取／解析／寫入失敗；2 = 設定錯誤。失敗仍沿用最多 3 次嘗試，若是 Cloudflare challenge 也會保存診斷檔案。log 顯示 `mode=first-book`、第一名 URL、成功的 `book_id` 與 `source_id`。
+Exit code：0 = 第一名成功匯入、已存在或為限制級而直接跳過；1 = 抓取／解析／寫入失敗；2 = 設定錯誤。失敗仍沿用最多 3 次嘗試，頁面被判定失敗（challenge、連線異常頁、非 200）時也會保存診斷檔案。log 顯示 `mode=first-book`、第一名 URL、成功的 `book_id` 與 `source_id`。
 
 ## 查看 Cloudflare 驗證頁
 
-預設 curl fetcher 遇到非 200 或 challenge 會保存 HTML 與診斷 JSON 到 `crawler/artifacts/challenges/`，不產生截圖。以下單頁檢查工具使用 Playwright，需另外安裝 Chromium。
+兩種 fetcher 用同一套規則判定頁面失敗：Cloudflare challenge、無書籍內容的網站連線異常頁（即使 HTTP 200）或非 200。預設 curl fetcher 遇到這些情況會保存 HTML 與診斷 JSON 到 `crawler/artifacts/challenges/`，不產生截圖。以下單頁檢查工具使用 Playwright，需另外安裝 Chromium。
 
-Browser fetcher 偵測到 challenge 時，在關閉分頁前自動保存當下的 `.png` 截圖、`.html` DOM 與 `.json` 診斷資料（URL、標題、HTTP status、`cf-mitigated` / `cf-ray` / `content-type`）。預設位置為 `crawler/artifacts/challenges/`，log 會列出絕對路徑；每次嘗試使用不同檔名。保存失敗只記 WARNING，不改變原本的重試／跳過結果。
+Browser fetcher 判定頁面失敗時，在關閉分頁前自動保存當下的 `.png` 截圖、`.html` DOM 與 `.json` 診斷資料（URL、標題、HTTP status、`cf-mitigated` / `cf-ray` / `content-type`）。預設位置為 `crawler/artifacts/challenges/`，log 會列出絕對路徑；每次嘗試使用不同檔名。保存失敗只記 WARNING，不改變原本的重試／跳過結果。
 
 只查看單一頁面，不需要 `DATABASE_URL`、不寫資料庫、不重試：
 

@@ -62,7 +62,7 @@ Crawler 非機密環境變數（`crawler/README.md`）：
 
 | 環境變數 | 預設 | 說明 |
 |---|---|---|
-| `CRAWLER_FETCHER` | `curl` | 頁面取得方式：`curl`（curl_cffi）、`browser`（headless Chromium）或 `http`（僅供除錯）。其他值 → exit code 2。 |
+| `CRAWLER_FETCHER` | `curl` | 頁面取得方式：`curl`（curl_cffi）或 `browser`（headless Chromium，僅供診斷）。其他值 → exit code 2。 |
 | `CRAWLER_NAV_TIMEOUT_MS` | `30000` | 瀏覽器導覽逾時（毫秒，1～300000；空值為預設）。不合法 → exit code 2。 |
 
 `DATABASE_URL` 仍是 secret，不在此表中。

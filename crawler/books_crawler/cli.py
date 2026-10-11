@@ -2,8 +2,8 @@
 
 Environment:
     DATABASE_URL            PostgreSQL connection URL of the shared database (required; secret, never logged).
-    CRAWLER_FETCHER         Page fetcher: ``curl`` (default, Chrome fingerprint, crawler.md §15),
-                            ``browser`` (Playwright), or ``http`` (requests; debugging only).
+    CRAWLER_FETCHER         Page fetcher: ``curl`` (default, Chrome fingerprint, crawler.md §15)
+                            or ``browser`` (Playwright; diagnostics only).
     CRAWLER_NAV_TIMEOUT_MS  Browser navigation timeout in milliseconds (1..300000; default 30000).
                             Empty means the default. Only used by the browser fetcher.
 
@@ -23,10 +23,8 @@ from books_crawler import db
 from books_crawler.fetcher import (
     DEFAULT_NAVIGATION_TIMEOUT_MS,
     MAX_NAVIGATION_TIMEOUT_MS,
-    CurlCffiFetcher,
     FetcherKind,
-    HttpFetcher,
-    PlaywrightFetcher,
+    create_fetcher,
 )
 from books_crawler.parsers import parse_detail_html, parse_ranking_html
 from books_crawler.run import RunDependencies, run_first_book, run_once
@@ -83,13 +81,7 @@ def main(environ: Mapping[str, str] | None = None, *, first_book: bool = False) 
         log.error("%s must be %s, not %r", FETCHER_ENV, choices, raw_kind)
         return EXIT_CONFIG_ERROR
 
-    fetcher: HttpFetcher | PlaywrightFetcher | CurlCffiFetcher
-    if kind is FetcherKind.CURL:
-        fetcher = CurlCffiFetcher()
-    elif kind is FetcherKind.BROWSER:
-        fetcher = PlaywrightFetcher(navigation_timeout_ms=navigation_timeout_ms)
-    else:
-        fetcher = HttpFetcher()
+    fetcher = create_fetcher(kind, navigation_timeout_ms=navigation_timeout_ms)
     log.info("using %s fetcher", kind.value)
 
     deps = RunDependencies(
@@ -98,7 +90,7 @@ def main(environ: Mapping[str, str] | None = None, *, first_book: bool = False) 
         parse_detail=parse_detail_html,
         connect=lambda: db.connect(database_url),
     )
-    # The browser must be closed however the run ends: normal result, FAILED, or an exception.
+    # The fetcher must be closed however the run ends: normal result, FAILED, or an exception.
     try:
         runner = run_first_book if first_book else run_once
         return runner(deps).exit_code

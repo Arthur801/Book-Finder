@@ -1,4 +1,4 @@
-"""PlaywrightFetcher against LOCAL pages only, plus CLI fetcher wiring.
+"""PlaywrightFetcher against LOCAL pages only.
 
 The browser tests start headless Chromium and load pages from a throwaway HTTP server bound to
 127.0.0.1. Nothing here connects to books.com.tw. If Chromium cannot be launched, the browser
@@ -18,18 +18,9 @@ import pytest
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import sync_playwright
 
-from books_crawler import cli
-from books_crawler.fetcher import (
-    BROWSER_USER_AGENT,
-    DEFAULT_NAVIGATION_TIMEOUT_MS,
-    BrowserUnavailableError,
-    CurlCffiFetcher,
-    FetchError,
-    HttpFetcher,
-    PlaywrightFetcher,
-    _is_challenge_page,
-)
-from tests.fakes import FakeBrowserContext, FakePage, FakeResponse
+from books_crawler.browser import BROWSER_USER_AGENT, PlaywrightFetcher
+from books_crawler.fetcher import BrowserUnavailableError, FetchError
+from tests.browser_fakes import FakeBrowserContext, FakeDriver, FakePage, FakeResponse, launching
 
 NORMAL_HTML = (
     "<!doctype html><html><head><meta charset=\"utf-8\"><title>博客來 測試頁</title></head>"
@@ -165,10 +156,12 @@ def test_browser_uses_desktop_user_agent_and_zh_tw_locale(chromium_ready, local_
 
 
 @pytest.mark.parametrize(("path", "message"), [("/missing", "HTTP 404"), ("/unavailable", "HTTP 503")])
-def test_non_200_response_raises_fetch_error(chromium_ready, local_site, path, message):
-    with PlaywrightFetcher(delay_seconds=0) as fetcher:
+def test_non_200_response_raises_fetch_error_and_saves_diagnostics(chromium_ready, local_site, path, message, tmp_path):
+    with PlaywrightFetcher(delay_seconds=0, diagnostic_dir=tmp_path) as fetcher:
         with pytest.raises(FetchError, match=message):
             fetcher.get(local_site.url(path))
+    assert len(list(tmp_path.glob("*.html"))) == 1
+    assert len(list(tmp_path.glob("*.json"))) == 1
 
 
 def test_navigation_timeout_raises_fetch_error(chromium_ready, local_site):
@@ -179,7 +172,7 @@ def test_navigation_timeout_raises_fetch_error(chromium_ready, local_site):
 
 @pytest.mark.parametrize("path", ["/challenge-title", "/challenge-header", "/challenge-header-403"])
 def test_cloudflare_challenge_raises_fetch_error(chromium_ready, local_site, path, tmp_path):
-    with PlaywrightFetcher(delay_seconds=0, challenge_dir=tmp_path) as fetcher:
+    with PlaywrightFetcher(delay_seconds=0, diagnostic_dir=tmp_path) as fetcher:
         with pytest.raises(FetchError, match="challenge"):
             fetcher.get(local_site.url(path))
     assert len(list(tmp_path.glob("*.png"))) == 1
@@ -245,8 +238,8 @@ def test_one_browser_is_reused_across_gets(chromium_ready, local_site):
         assert first.is_connected()
 
 
-def test_browser_is_closed_when_a_get_raises(chromium_ready, local_site):
-    fetcher = PlaywrightFetcher(delay_seconds=0)
+def test_browser_is_closed_when_a_get_raises(chromium_ready, local_site, tmp_path):
+    fetcher = PlaywrightFetcher(delay_seconds=0, diagnostic_dir=tmp_path)
     with pytest.raises(FetchError):
         with fetcher:
             fetcher.get(local_site.url("/normal"))
@@ -292,29 +285,22 @@ def test_missing_chromium_raises_browser_unavailable_with_install_hint(monkeypat
     assert fetcher.browser is None
 
 
-class _FakeDriver:
-    """Stands in for the Playwright driver and its chromium launcher (no browser involved)."""
+class _FakeLaunchingDriver:
+    """Stands in for ``sync_playwright()`` and its chromium launcher, for the default launch's cleanup."""
 
-    def __init__(self, launch_error: Exception | None = None) -> None:
+    def __init__(self, launch_error: Exception) -> None:
         self.stopped = False
         self._launch_error = launch_error
         self.chromium = self
 
+    def start(self) -> _FakeLaunchingDriver:
+        return self
+
     def launch(self, headless: bool):
-        if self._launch_error is not None:
-            raise self._launch_error
-        raise AssertionError("these tests never reach a successful launch")
+        raise self._launch_error
 
     def stop(self) -> None:
         self.stopped = True
-
-
-class _FakeSyncPlaywright:
-    def __init__(self, driver: _FakeDriver) -> None:
-        self._driver = driver
-
-    def start(self) -> _FakeDriver:
-        return self._driver
 
 
 class _NewPageCrashes(FakeBrowserContext):
@@ -333,31 +319,18 @@ class _ContextWithFailingPageClose(FakeBrowserContext):
         return _PageCloseFails(self)
 
 
-def _fetcher_over(context: FakeBrowserContext, driver: _FakeDriver | None = None) -> PlaywrightFetcher:
-    """A fetcher whose browser context is the given fake; nothing is started."""
-    fetcher = PlaywrightFetcher(delay_seconds=0)
-    fetcher._context = context
-    fetcher._playwright = driver
-    return fetcher
+def _fetcher_over(context: FakeBrowserContext, driver: FakeDriver | None = None, **options) -> PlaywrightFetcher:
+    """A fetcher whose launch hands over the given fake context; no browser is started."""
+    return PlaywrightFetcher(delay_seconds=0, launch=launching(context, driver), **options)
 
 
 class _CapturedChallengePage(FakePage):
-    @property
-    def url(self):
-        return self._url
-
     def goto(self, url, **kwargs):
         super().goto(url, **kwargs)
         headers = {"cf-ray": "fixture-ray", "set-cookie": "secret-cookie"}
         if self._context.header_challenge:
             headers["cf-mitigated"] = "challenge"
         return FakeResponse(200, headers)
-
-    def title(self):
-        return "歡迎光臨博客來"
-
-    def query_selector(self, selector):
-        return None
 
     def screenshot(self, *, path, full_page, timeout):
         assert not self.closed
@@ -382,8 +355,7 @@ class _CapturedChallengeContext(FakeBrowserContext):
 def test_challenge_artifacts_are_saved_before_close_and_attempts_do_not_overwrite(tmp_path, header_challenge):
     url = "https://www.books.com.tw/products/0011063006"
     context = _CapturedChallengeContext(url, header_challenge=header_challenge)
-    with PlaywrightFetcher(delay_seconds=0, challenge_dir=tmp_path) as fetcher:
-        fetcher._context = context
+    with _fetcher_over(context, diagnostic_dir=tmp_path) as fetcher:
         for _ in range(2):
             with pytest.raises(FetchError, match="challenge"):
                 fetcher.get(url)
@@ -407,14 +379,57 @@ def test_capture_failure_preserves_challenge_error_and_closes_page(tmp_path, fai
     if failure == "directory":
         target.write_text("not a directory")
     context = _CapturedChallengeContext(url, screenshot_failure=failure == "screenshot")
-    with PlaywrightFetcher(delay_seconds=0, challenge_dir=target) as fetcher:
-        fetcher._context = context
-        with pytest.raises(FetchError, match=r"blocked by a Cloudflare challenge \(cf-mitigated\)"):
+    with _fetcher_over(context, diagnostic_dir=target) as fetcher:
+        with pytest.raises(FetchError, match="blocked by a Cloudflare challenge"):
             fetcher.get(url)
         assert context.open_pages == 0
     if failure == "screenshot":
         assert len(list(target.glob("*.html"))) == 1
         assert len(list(target.glob("*.json"))) == 1
+
+
+def test_connection_error_page_is_a_fetch_error_and_saves_diagnostics(tmp_path):
+    url = "https://www.books.com.tw/products/0000000006"
+    html = "<html><body><h2>您的連線暫時異常 請稍後再嘗試 謝謝！</h2></body></html>"
+    fetcher = _fetcher_over(FakeBrowserContext(pages={url: html}), diagnostic_dir=tmp_path)
+
+    with pytest.raises(FetchError, match="website connection-error page"):
+        fetcher.get(url)
+    assert next(tmp_path.glob("*.html")).read_text() == html
+
+
+class _ContentFailsAfterHeaderChallenge(FakeBrowserContext):
+    """A challenge response whose page is navigating away again, so reading its DOM fails."""
+
+    def new_page(self):
+        self.open_pages += 1
+        page = FakePage(self)
+
+        def content():
+            raise PlaywrightError("Unable to retrieve content because the page is navigating")
+
+        page.content = content
+        return page
+
+
+def test_header_challenge_is_reported_and_saved_even_when_the_page_content_cannot_be_read(tmp_path):
+    url = "https://www.books.com.tw/products/0000000008"
+    context = _ContentFailsAfterHeaderChallenge(pages={url: ""}, response_headers={"cf-mitigated": "challenge"})
+    fetcher = _fetcher_over(context, diagnostic_dir=tmp_path)
+
+    with pytest.raises(FetchError, match="blocked by a Cloudflare challenge"):
+        fetcher.get(url)
+    assert len(list(tmp_path.glob("*.json"))) == 1
+    assert context.open_pages == 0
+
+
+def test_a_launched_fake_browser_is_exposed_until_close():
+    fetcher = _fetcher_over(FakeBrowserContext(pages={"https://example.test/": "<html></html>"}))
+    fetcher.get("https://example.test/")
+
+    assert fetcher.browser is not None
+    fetcher.close()
+    assert fetcher.browser is None
 
 
 def test_new_page_crash_is_wrapped_into_fetch_error():
@@ -444,12 +459,11 @@ def test_failing_page_close_never_masks_the_original_fetch_error():
         fetcher.get("https://www.books.com.tw/products/0000000003")  # goto fails: no such page
 
 
-def test_browser_start_failure_is_browser_unavailable_and_not_a_fetch_error(monkeypatch):
-    def broken_driver():
+def test_browser_start_failure_is_browser_unavailable_and_not_a_fetch_error():
+    def broken_launch():
         raise RuntimeError("driver process could not be started")
 
-    monkeypatch.setattr("books_crawler.fetcher.sync_playwright", broken_driver)
-    fetcher = PlaywrightFetcher(delay_seconds=0)
+    fetcher = PlaywrightFetcher(delay_seconds=0, launch=broken_launch)
 
     with pytest.raises(BrowserUnavailableError, match="playwright install chromium") as info:
         fetcher.get("https://www.books.com.tw/products/0000000004")
@@ -457,8 +471,9 @@ def test_browser_start_failure_is_browser_unavailable_and_not_a_fetch_error(monk
 
 
 def test_chromium_launch_failure_stops_the_driver_and_is_browser_unavailable(monkeypatch):
-    driver = _FakeDriver(launch_error=PlaywrightError("Executable doesn't exist at /no/chromium"))
-    monkeypatch.setattr("books_crawler.fetcher.sync_playwright", lambda: _FakeSyncPlaywright(driver))
+    # The default launch cleans up after itself, so this replaces Playwright's own entry point.
+    driver = _FakeLaunchingDriver(launch_error=PlaywrightError("Executable doesn't exist at /no/chromium"))
+    monkeypatch.setattr("books_crawler.browser.sync_playwright", lambda: driver)
     fetcher = PlaywrightFetcher(delay_seconds=0)
 
     with pytest.raises(BrowserUnavailableError, match="playwright install chromium"):
@@ -472,119 +487,11 @@ def test_close_stops_the_driver_even_when_closing_the_context_fails():
         def close(self) -> None:
             raise PlaywrightError("context already gone")
 
-    driver = _FakeDriver()
+    driver = FakeDriver()
     fetcher = _fetcher_over(_ContextCloseFails(pages={}), driver)
+    with pytest.raises(FetchError):
+        fetcher.get("https://www.books.com.tw/products/0000000007")  # starts the (fake) browser
 
     fetcher.close()  # no exception: the failure is logged, the rest of the shutdown still runs
 
     assert driver.stopped
-
-
-@pytest.mark.parametrize(
-    ("title", "has_content", "expected"),
-    [
-        ("歡迎光臨博客來", False, True),
-        ("歡迎光臨博客來", True, False),
-        ("博客來-中文書>暢銷榜", False, False),
-        ("", False, False),
-    ],
-)
-def test_challenge_detection_needs_the_title_and_no_page_content(title, has_content, expected):
-    assert _is_challenge_page(title, has_content) is expected
-
-
-# ---------------------------------------------------------------------------
-# CLI wiring (no browser, no database)
-# ---------------------------------------------------------------------------
-
-
-class _RunResult:
-    def __init__(self, exit_code: int) -> None:
-        self.exit_code = exit_code
-
-
-class SpyFetcher:
-    def __init__(self, **_options) -> None:
-        self.closed = 0
-
-    def close(self) -> None:
-        self.closed += 1
-
-
-def _stub_run(monkeypatch, *, exit_code: int = 0, error: Exception | None = None) -> dict:
-    seen: dict = {}
-
-    def fake_run_once(deps):
-        seen["fetcher"] = deps.fetcher
-        if error is not None:
-            raise error
-        return _RunResult(exit_code)
-
-    monkeypatch.setattr(cli, "run_once", fake_run_once)
-    return seen
-
-
-def test_cli_uses_curl_fetcher_by_default(monkeypatch):
-    seen = _stub_run(monkeypatch)
-
-    assert cli.main({"DATABASE_URL": "postgresql://unused"}) == 0
-    assert isinstance(seen["fetcher"], CurlCffiFetcher)
-
-
-def test_cli_switches_to_http_fetcher_with_environment_variable(monkeypatch):
-    seen = _stub_run(monkeypatch)
-
-    assert cli.main({"DATABASE_URL": "postgresql://unused", "CRAWLER_FETCHER": " HTTP "}) == 0
-    assert isinstance(seen["fetcher"], HttpFetcher)
-
-
-def test_cli_rejects_unknown_fetcher_as_configuration_error(monkeypatch):
-    seen = _stub_run(monkeypatch)
-
-    assert cli.main({"DATABASE_URL": "postgresql://unused", "CRAWLER_FETCHER": "selenium"}) == cli.EXIT_CONFIG_ERROR
-    assert seen == {}
-
-
-def test_cli_closes_fetcher_when_the_run_raises(monkeypatch):
-    monkeypatch.setattr(cli, "CurlCffiFetcher", SpyFetcher)
-    seen = _stub_run(monkeypatch, error=RuntimeError("unexpected"))
-
-    with pytest.raises(RuntimeError, match="unexpected"):
-        cli.main({"DATABASE_URL": "postgresql://unused"})
-    assert seen["fetcher"].closed == 1
-
-
-def test_cli_closes_fetcher_when_the_run_fails_normally(monkeypatch):
-    monkeypatch.setattr(cli, "CurlCffiFetcher", SpyFetcher)
-    seen = _stub_run(monkeypatch, exit_code=1)
-
-    assert cli.main({"DATABASE_URL": "postgresql://unused"}) == 1
-    assert seen["fetcher"].closed == 1
-
-
-def test_cli_passes_the_navigation_timeout_to_the_browser_fetcher(monkeypatch):
-    seen = _stub_run(monkeypatch)
-
-    assert cli.main({"DATABASE_URL": "postgresql://unused", "CRAWLER_FETCHER": "browser", "CRAWLER_NAV_TIMEOUT_MS": " 45000 "}) == 0
-    assert seen["fetcher"].navigation_timeout_ms == 45000
-
-
-def test_cli_uses_the_default_navigation_timeout_when_unset(monkeypatch):
-    seen = _stub_run(monkeypatch)
-
-    assert cli.main({"DATABASE_URL": "postgresql://unused", "CRAWLER_FETCHER": "browser", "CRAWLER_NAV_TIMEOUT_MS": ""}) == 0
-    assert seen["fetcher"].navigation_timeout_ms == DEFAULT_NAVIGATION_TIMEOUT_MS
-
-
-@pytest.mark.parametrize("raw", ["abc", "0", "-5", "1.5", "4e4", "300001"])
-def test_invalid_navigation_timeout_is_a_configuration_error(monkeypatch, raw):
-    seen = _stub_run(monkeypatch)
-
-    assert cli.main({"DATABASE_URL": "postgresql://unused", "CRAWLER_FETCHER": "browser", "CRAWLER_NAV_TIMEOUT_MS": raw}) == cli.EXIT_CONFIG_ERROR
-    assert seen == {}
-
-
-def test_fetcher_kinds_are_the_documented_values():
-    from books_crawler.fetcher import FetcherKind
-
-    assert [kind.value for kind in FetcherKind] == ["browser", "http", "curl"]

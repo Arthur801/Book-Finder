@@ -346,24 +346,24 @@ review/update Docs/data/data-model.md
 
 正式預設 fetcher 改為 `curl_cffi==0.16.3` 的 Chrome fingerprint（使用者於 2026-10-11 明確核准），`CRAWLER_FETCHER=curl`。
 
-- 介面仍為 `get(url) -> str`；一次 run 共用同一 session，結束時含失敗一定關閉。
+- 介面（`fetcher.Fetcher`）：`get(url) -> str` 與 `close()`。`get` 的錯誤只有兩種：`FetchError`（該頁抓取失敗，交給 §6 重試或跳過）與 `BrowserUnavailableError`（環境無法使用瀏覽器，整次 run FAILED）。fetcher 由 `fetcher.create_fetcher(kind)` 依 `CRAWLER_FETCHER` 建立；一次 run 共用同一 session，結束時含失敗一定關閉。
 - 循序執行；每次請求獨立以 uniform(3, 30) 取樣等待目標（秒），含第一次與重試；前次請求完成後的解析、DB 工作與重試 backoff 計入間隔，不重複加等。若這些工作已超過目標，就直接發出下一次請求；實際間隔可能因此超過 30 秒。不自動跟隨 redirect，3xx 視為非 200 的抓取失敗，避免未經節流的隱藏請求。
 - 使用 curl_cffi 內建 `impersonate="chrome"` 與 `Accept-Language: zh-TW,zh;q=0.9`，保持 TLS 憑證驗證；request timeout 為 30 秒。
-- 非 200、Cloudflare challenge、無書籍內容的「您的連線暫時異常」頁（即使 HTTP 200）或 request error 包成 `FetchError`，沿用 §4／§6 的重試與跳過政策，不自動切換 fingerprint 或 fetcher。
-- 非 200 或 challenge 保存原始 HTML 與選定診斷 JSON（無 cookie／request headers），不產生 PNG；保存失敗不取代抓取失敗。
+- 回應分類（`fetcher.classify_page`，curl 與 browser 共用），依序判斷：Cloudflare challenge（`cf-mitigated: challenge` header，或 challenge 標題且沒有主要內容容器）→ 無書籍內容的「您的連線暫時異常」頁（即使 HTTP 200）→ 非 200。任一成立或 request error 即包成 `FetchError`，訊息文字兩個 adapter 相同；沿用 §4／§6 的重試與跳過政策，不自動切換 fingerprint 或 fetcher。
+- 分類為失敗的頁面保存原始 HTML 與選定診斷 JSON（無 cookie／request headers）；curl 不產生 PNG。保存失敗不取代抓取失敗。
 - Existing Book 不重抓、完整 100 筆 ranking 驗證、連續一般錯誤超過 20 本才中止與 atomic snapshot replacement 均維持；限制級跳過另計。
-- `browser` 與 `http` 保留為手動選擇的診斷入口。curl_cffi 不執行 JavaScript，無法保證通過所有詳細頁的 Cloudflare 規則。
+- `browser` 保留為手動選擇的診斷入口（2026-10-11 起不再提供 `http`）。curl_cffi 不執行 JavaScript，無法保證通過所有詳細頁的 Cloudflare 規則。
 - 單元／整合測試不連線博客來；本次使用者授權的真實網站匯入另外記錄成果。
 
 ### 15.1 可選的 browser fetcher
 
-博客來對一般 HTTP client 回傳 Cloudflare challenge，可選的 browser fetcher 以 Playwright 驅動 headless Chromium；正式預設為 §15 的 curl fetcher。
+博客來對一般 HTTP client 回傳 Cloudflare challenge，可選的 browser fetcher（`books_crawler/browser.py`）以 Playwright 驅動 headless Chromium；正式預設為 §15 的 curl fetcher。只有選擇 `browser` 時才載入 Playwright，curl 模式不需要安裝它。
 
-- 介面不變：`get(url) -> str`，回傳頁面載入完成後的 HTML；解析器與 DB 邏輯不依賴 fetcher 的實作。
+- 介面同 §15（`get` 與 `close`）：`get` 回傳頁面載入完成後的 HTML；解析器與 DB 邏輯不依賴 fetcher 的實作。
 - 一次 run 共用同一個瀏覽器 context，結束時（含失敗）一定關閉瀏覽器。
 - 循序請求，預設每次請求使用 3～30 秒隨機間隔（同 §15）；只抓排行榜頁與資料庫尚未有的新書詳細頁。
-- 頁面仍是 challenge 頁、HTTP 非 200、逾時，或瀏覽器在頁面載入中崩潰（任何 Playwright 錯誤），一律包成 `FetchError`，視為該頁抓取失敗，交給 §6 的重試與跳過處理。
-- 偵測到 challenge 時，在關閉分頁前保存當下 PNG、HTML 與選定的診斷資訊至 `crawler/artifacts/challenges/`，並記錄檔案位置；每次嘗試使用不同檔名，不保存 cookie 或 request headers。輸出失敗不取代原本的 `FetchError`。單頁診斷入口與使用方式見 `crawler/README.md`，不存取 DB、不重試、不解驗證。
+- 頁面經 §15 的共用回應分類判定為失敗（challenge、連線異常頁、HTTP 非 200）、逾時，或瀏覽器在頁面載入中崩潰（任何 Playwright 錯誤），一律包成 `FetchError`，視為該頁抓取失敗，交給 §6 的重試與跳過處理。
+- 分類為失敗時，在關閉分頁前保存當下 PNG、HTML 與選定的診斷資訊至 `crawler/artifacts/challenges/`，並記錄檔案位置；每次嘗試使用不同檔名，不保存 cookie 或 request headers。輸出失敗不取代原本的 `FetchError`。單頁診斷入口與使用方式見 `crawler/README.md`，不存取 DB、不重試、不解驗證。
 - 排行榜頁抓取失敗：與 §4 一致，套用相同的重試政策（最多 3 次，第 2 次前等 1s、第 3 次前等 2s；決策：使用者，2026-10-11；D2）。3 次仍失敗則整次 FAILED，不跳過。排行榜頁的解析失敗（頁面結構不符，`ParseError`）與筆數、rank、URL 驗證失敗是確定性的，不重試，直接 FAILED。
 - 無法啟動瀏覽器（Chromium 未安裝、缺少系統函式庫、driver 無法啟動）拋出 `BrowserUnavailableError`。它不是 `FetchError`：不重試、不跳過單本書，整次 run FAILED。
 - 導覽逾時可由環境變數 `CRAWLER_NAV_TIMEOUT_MS` 設定（毫秒，1～300000，預設 30000；空值為預設；不合法 → 設定錯誤，exit code 2）。見 `crawler/README.md`。
