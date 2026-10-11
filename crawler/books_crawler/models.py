@@ -8,7 +8,7 @@ exactly the stored vocabulary of ``Docs/data/data-model.md`` (``BOOKS_COM_TW``, 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date
 from enum import Enum, StrEnum
 from uuid import UUID
 
@@ -86,6 +86,14 @@ class SkippedRow:
     def is_restricted(self) -> bool:
         """A restricted member-only page: skipped without retry and not counted as an error."""
         return self.failure.error_type == SkipReason.RESTRICTED_BOOK
+
+
+@dataclass(frozen=True)
+class SkippedPage:
+    """A category ranking page skipped in pages mode because it could not be fetched or parsed (crawler.md §16)."""
+
+    url: str
+    failure: Failure
 
 
 @dataclass(frozen=True)
@@ -172,14 +180,3 @@ class SnapshotRow:
     rank: int
     book_id: UUID
     source_id: UUID
-
-@dataclass(frozen=True)
-class ImportReport:
-    run_id: str
-    started_at: datetime
-    finished_at: datetime
-    error: str | None = None
-
-    @property
-    def exit_code(self) -> int:
-        return 1 if self.error is not None else 0

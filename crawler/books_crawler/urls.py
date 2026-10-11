@@ -19,29 +19,6 @@ from urllib.parse import parse_qs, urljoin, urlsplit
 SITE_ORIGIN = "https://www.books.com.tw"
 _ACCEPTED_HOSTS = frozenset({"www.books.com.tw", "books.com.tw"})
 _PRODUCT_PATH = re.compile(r"^/products/([0-9A-Za-z]+)/?$")
-PAGE_URLS=[
-    "https://www.books.com.tw/web/sys_saletopb/books/01/?attribute=7&loc=P_0002_002",
-    "https://www.books.com.tw/web/sys_saletopb/books/02/?attribute=7&loc=P_0002_003",
-    "https://www.books.com.tw/web/sys_saletopb/books/03/?attribute=7&loc=P_0002_004",
-    "https://www.books.com.tw/web/sys_saletopb/books/04/?attribute=7&loc=P_0002_005",
-    "https://www.books.com.tw/web/sys_saletopb/books/07/?attribute=7&loc=P_0002_006",
-    "https://www.books.com.tw/web/sys_saletopb/books/12/?attribute=7&loc=P_0002_007",
-    "https://www.books.com.tw/web/sys_saletopb/books/06/?attribute=7&loc=P_0002_008",
-    "https://www.books.com.tw/web/sys_saletopb/books/08/?attribute=7&loc=P_0002_009",
-    "https://www.books.com.tw/web/sys_saletopb/books/09/?attribute=7&loc=P_0002_010",
-    "https://www.books.com.tw/web/sys_saletopb/books/10/?attribute=7&loc=P_0002_011",
-    "https://www.books.com.tw/web/sys_saletopb/books/11/?attribute=7&loc=P_0002_012",
-    "https://www.books.com.tw/web/sys_saletopb/books/14/?attribute=7&loc=P_0002_013",
-    "https://www.books.com.tw/web/sys_saletopb/books/24/?attribute=7&loc=P_0002_014",
-    "https://www.books.com.tw/web/sys_saletopb/books/13/?attribute=7&loc=P_0002_015",
-    "https://www.books.com.tw/web/sys_saletopb/books/22/?attribute=7&loc=P_0002_016",
-    "https://www.books.com.tw/web/sys_saletopb/books/15/?attribute=7&loc=P_0002_017",
-    "https://www.books.com.tw/web/sys_saletopb/books/16/?attribute=7&loc=P_0002_018",
-    "https://www.books.com.tw/web/sys_saletopb/books/17/?attribute=7&loc=P_0002_019",
-    "https://www.books.com.tw/web/sys_saletopb/books/18/?attribute=7&loc=P_0002_020",
-    "https://www.books.com.tw/web/sys_saletopb/books/19/?attribute=7&loc=P_0002_021",
-    "https://www.books.com.tw/web/sys_saletopb/books/20/?attribute=7&loc=P_0002_022"
-]
 
 _CATEGORY_RANKING_PATH = re.compile(r"^/web/sys_saletopb/books/[0-9]{2}/$")
 

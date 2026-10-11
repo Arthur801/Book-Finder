@@ -133,7 +133,7 @@ def test_first_book_cli_selects_runner_and_closes_fetcher(monkeypatch):
     monkeypatch.setattr(cli, "create_fetcher", lambda kind, **options: fetcher)
     monkeypatch.setattr(cli, "run_once", lambda *args: pytest.fail("must use single-book runner"))
     monkeypatch.setattr(cli, "run_first_book", lambda deps: type("Report", (), {"exit_code": 1})())
-    assert cli.main({"DATABASE_URL": "postgresql://unused"}, first_book=True) == 1
+    assert cli.main({"DATABASE_URL": "postgresql://unused"}, mode=cli.CrawlerMode.FIRST_BOOK) == 1
     assert closed == [True]
 
 

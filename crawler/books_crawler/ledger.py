@@ -30,6 +30,7 @@ from books_crawler.models import (
     Resolution,
     ResolvedRow,
     RunStatus,
+    SkippedPage,
     SkippedRow,
     SnapshotRow,
 )
@@ -44,7 +45,7 @@ log = logging.getLogger("books_crawler.ledger")
 
 @dataclass
 class RunReport:
-    """The outcome of one run, as logged on one line (crawler.md §12). Built by ``RunLedger.report``."""
+    """The outcome of one run, as logged on one line (crawler.md §12). Built by ``RunLedger.report`` or ``PagesLedger.report``."""
 
     run_id: str
     status: RunStatus
@@ -63,6 +64,10 @@ class RunReport:
     # Rank where the consecutive-error limit was exceeded; the run stopped there.
     aborted_at_rank: int | None = None
     error: str | None = None
+    # Pages mode only (crawler.md §16); None / empty for the daily and first-book runs.
+    pages_total: int | None = None  # category pages processed, fetched or skipped
+    rows_seen: int | None = None  # rows of the processed pages, each given one outcome
+    skipped_pages: list[SkippedPage] = field(default_factory=list)
 
     @property
     def skipped_count(self) -> int:
@@ -79,6 +84,97 @@ class RunReport:
     @property
     def exit_code(self) -> int:
         return EXIT_FAILED if self.status is RunStatus.FAILED else EXIT_SUCCESS
+
+
+def _status(error: str | None, *, partial: bool) -> RunStatus:
+    """The run status shared by every mode: FAILED on any error, else PARTIAL_SUCCESS when something was skipped."""
+    if error is not None:
+        return RunStatus.FAILED
+    return RunStatus.PARTIAL_SUCCESS if partial else RunStatus.SUCCESS
+
+
+def _book_counts(counts: Mapping[Resolution, int]) -> tuple[int, int, int]:
+    """(existing, new, attached) Book counts for the run line; attached is a subset of existing."""
+    attached = counts[Resolution.ISBN_ATTACHED]
+    return counts[Resolution.EXISTING_SOURCE] + attached, counts[Resolution.NEW_BOOK], attached
+
+
+class PagesLedger:
+    """Accounts for one pages-mode run (crawler.md §16, pages mode).
+
+    Pages mode only supplements the Catalog: it has no snapshot, no rank order, no duplicate-Book
+    rule and no consecutive-error limit. A row failure never stops the run; a category page that
+    could not be fetched or parsed is recorded as a skipped page. Status and exit code follow the
+    same rules as ``RunLedger`` (``_status``), with one extra rule: when every configured page was
+    skipped, the run fails.
+    """
+
+    def __init__(self) -> None:
+        self._pages_total = 0
+        self._skipped_pages: list[SkippedPage] = []
+        self._rows_seen = 0
+        self._skipped: list[SkippedRow] = []
+        self._counts = {resolution: 0 for resolution in Resolution}
+
+    def record_page_ok(self) -> None:
+        """A category page was fetched and parsed; its rows are recorded next."""
+        self._pages_total += 1
+
+    def record_page_skipped(self, page: SkippedPage) -> None:
+        """A category page was skipped after its attempts (crawler.md §16)."""
+        self._pages_total += 1
+        self._skipped_pages.append(page)
+        log.warning(
+            "category page skipped after %d attempt(s) (%s): %s: %s",
+            page.failure.attempts,
+            page.failure.error_type,
+            page.url,
+            page.failure.error_message,
+        )
+
+    def record(self, outcome: ResolvedRow | SkippedRow) -> None:
+        """Account for one row of a processed page. Rank and Book identity are not checked across pages."""
+        self._rows_seen += 1
+        if isinstance(outcome, SkippedRow):
+            self._skipped.append(outcome)
+            log_skip = log.info if outcome.is_restricted else log.warning
+            log_skip(
+                "page rank %d (%s) skipped after %d attempt(s) (%s): %s",
+                outcome.rank,
+                outcome.url,
+                outcome.failure.attempts,
+                outcome.failure.error_type,
+                outcome.failure.error_message,
+            )
+        else:
+            self._counts[outcome.resolution] += 1
+
+    def report(
+        self,
+        *,
+        run_id: str,
+        started_at: datetime,
+        finished_at: datetime,
+        error: str | None = None,
+    ) -> RunReport:
+        """The run result. ``error`` is a failure that stops the run (database, browser, unexpected)."""
+        if error is None and self._pages_total and len(self._skipped_pages) == self._pages_total:
+            error = f"all {self._pages_total} category page(s) failed"
+        existing, new, attached = _book_counts(self._counts)
+        return RunReport(
+            run_id=run_id,
+            status=_status(error, partial=bool(self._skipped or self._skipped_pages)),
+            started_at=started_at,
+            finished_at=finished_at,
+            existing_book_count=existing,
+            new_book_count=new,
+            attached_source_count=attached,
+            skipped=list(self._skipped),
+            error=error,
+            pages_total=self._pages_total,
+            rows_seen=self._rows_seen,
+            skipped_pages=list(self._skipped_pages),
+        )
 
 
 class RunLedger:
@@ -139,21 +235,15 @@ class RunLedger:
         """The run result. ``error`` is a failure outside the rows (ranking page, transaction, browser)."""
         if error is None and self._abort_reason is not None:
             error = self._abort_reason
-        if error is not None:
-            status = RunStatus.FAILED
-        elif self._skipped:
-            status = RunStatus.PARTIAL_SUCCESS
-        else:
-            status = RunStatus.SUCCESS
-        attached = self._counts[Resolution.ISBN_ATTACHED]
+        existing, new, attached = _book_counts(self._counts)
         return RunReport(
             run_id=run_id,
-            status=status,
+            status=_status(error, partial=bool(self._skipped)),
             started_at=started_at,
             finished_at=finished_at,
             ranking_count=ranking_count,
-            existing_book_count=self._counts[Resolution.EXISTING_SOURCE] + attached,
-            new_book_count=self._counts[Resolution.NEW_BOOK],
+            existing_book_count=existing,
+            new_book_count=new,
             attached_source_count=attached,
             skipped=list(self._skipped),
             consecutive_error_count=self._streak,

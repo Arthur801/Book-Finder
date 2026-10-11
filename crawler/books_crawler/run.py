@@ -34,7 +34,7 @@ import json
 import logging
 import time
 import uuid
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -44,15 +44,15 @@ import psycopg
 
 from books_crawler import db
 from books_crawler.fetcher import Fetcher, FetchError
-from books_crawler.ledger import RunLedger, RunReport
+from books_crawler.ledger import PagesLedger, RunLedger, RunReport
 from books_crawler.models import (
     BookDraft,
     Failure,
-    ImportReport,
     IsbnMatch,
     RankingRow,
     Resolution,
     ResolvedRow,
+    SkippedPage,
     SkippedRow,
     SkipReason,
     SourceRef,
@@ -65,7 +65,6 @@ from books_crawler.parsers import (
 )
 from books_crawler.ranking import validate_ranking
 from books_crawler.redact import redact
-from books_crawler.urls import PAGE_URLS
 
 log = logging.getLogger("books_crawler.run")
 
@@ -127,23 +126,37 @@ class RunDependencies:
 
 
 def format_report(report: RunReport) -> str:
-    """One line per run for stdout (crawler.md §12). ``skipped`` is a JSON list of the skipped rows."""
+    """One line per run for stdout (crawler.md §12, §16). ``skipped`` is a JSON list of the skipped rows.
+
+    Pages mode (``pages_total`` is set) reports its page and row counters instead of the ranking
+    counters, and adds ``skipped_pages`` (crawler.md §16).
+    """
     fields: dict[str, Any] = {
         "run_id": report.run_id,
         "started_at": report.started_at.isoformat(),
         "finished_at": report.finished_at.isoformat(),
         "status": report.status,
-        "ranking_count": report.ranking_count,
-        "existing_book_count": report.existing_book_count,
-        "new_book_count": report.new_book_count,
-        "attached_source_count": report.attached_source_count,
-        "skipped_count": report.skipped_count,
-        "restricted_book_count": report.restricted_book_count,
-        "error_count": report.error_count,
-        "consecutive_error_count": report.consecutive_error_count,
-        "aborted_at_rank": "none" if report.aborted_at_rank is None else report.aborted_at_rank,
-        "exit_code": report.exit_code,
     }
+    if report.pages_total is None:
+        fields["ranking_count"] = report.ranking_count
+    else:
+        fields["pages_total"] = report.pages_total
+        fields["pages_skipped"] = len(report.skipped_pages)
+        fields["rows_seen"] = report.rows_seen
+    fields.update(
+        {
+            "existing_book_count": report.existing_book_count,
+            "new_book_count": report.new_book_count,
+            "attached_source_count": report.attached_source_count,
+            "skipped_count": report.skipped_count,
+            "restricted_book_count": report.restricted_book_count,
+            "error_count": report.error_count,
+        }
+    )
+    if report.pages_total is None:
+        fields["consecutive_error_count"] = report.consecutive_error_count
+        fields["aborted_at_rank"] = "none" if report.aborted_at_rank is None else report.aborted_at_rank
+    fields["exit_code"] = report.exit_code
     line = " ".join(f"{key}={value}" for key, value in fields.items())
     skipped = [
         {
@@ -156,6 +169,17 @@ def format_report(report: RunReport) -> str:
         for item in report.skipped
     ]
     line += f" skipped={json.dumps(skipped, ensure_ascii=False)}"
+    if report.pages_total is not None:
+        skipped_pages = [
+            {
+                "url": item.url,
+                "error_type": item.failure.error_type,
+                "error_message": item.failure.error_message,
+                "attempts": item.failure.attempts,
+            }
+            for item in report.skipped_pages
+        ]
+        line += f" skipped_pages={json.dumps(skipped_pages, ensure_ascii=False)}"
     if report.error:
         line += f" error={report.error!r}"
     return redact(line)
@@ -372,50 +396,49 @@ def run_once(deps: RunDependencies, run_id: str | None = None) -> RunReport:
     log.info("%s", format_report(report))
     return report
 
-def run_pages(deps: RunDependencies, run_id: str | None = None) -> ImportReport:
-    """Execute pages crawl. Never raises: failures are reported through ``RunReport``."""
+
+def run_pages(deps: RunDependencies, page_urls: Sequence[str], run_id: str | None = None) -> RunReport:
+    """Supplement the Catalog from category 7-day ranking pages (crawler.md §16, pages mode).
+
+    The pages are not the bestseller ranking: nothing is written to ``bestsellers`` and no
+    ``last_seen_at`` is updated. Rows are resolved with the rules of the daily run (§5, §6), but a
+    row failure never stops the run. A page that cannot be fetched (after ``MAX_ATTEMPTS``) or
+    parsed is recorded as a skipped page and the run goes on. The run fails only when it cannot
+    continue: an error escaping row resolution (for example the database), ``BrowserUnavailableError``,
+    or every page skipped. Pages already written stay written (one transaction per Book).
+    Never raises: failures are reported through ``RunReport``.
+    """
     started_at = deps.clock()
-    
-    
+    ledger = PagesLedger()
     error: str | None = None
     try:
         with deps.connect() as conn:
-            for page_url in PAGE_URLS:
+            for page_url in page_urls:
                 log.info("importing page: %s", page_url)
-                html = _fetch_ranking_page(deps, page_url)
-                rows = deps.parse_ranking(html)
+                try:
+                    rows = deps.parse_ranking(_fetch_ranking_page(deps, page_url))
+                except FetchError as exc:
+                    failure = _failure(SkipReason.FETCH_ERROR, str(exc), MAX_ATTEMPTS)
+                    ledger.record_page_skipped(SkippedPage(url=page_url, failure=failure))
+                    continue
+                except ValueError as exc:  # ParseError: the page is not a category ranking page
+                    failure = _failure(SkipReason.PARSE_ERROR, str(exc), attempts=1)
+                    ledger.record_page_skipped(SkippedPage(url=page_url, failure=failure))
+                    continue
+                ledger.record_page_ok()
                 for row in rows:
-                    outcome = _resolve_row(conn, row, deps, ranked={},)
-
-                    # 一般書籍失敗只記錄第一個錯誤，繼續匯入。
-                    if (
-                        isinstance(outcome, SkippedRow)
-                        and not outcome.is_restricted
-                        and error is None
-                    ):
-                        error = redact(
-                            f"page={page_url} product={row.url}: "
-                            f"{outcome.failure.error_type}: "
-                            f"{outcome.failure.error_message}"
-                        )
-                
-    except Exception as exc:  # any failure fails the run; the previous bestsellers are untouched
+                    # No ranked map: the same Book may appear on several pages (the database deduplicates by URL).
+                    ledger.record(_resolve_row(conn, row, deps, ranked={}))
+    except Exception as exc:  # the run cannot continue; the Catalog keeps what was already committed
         error = redact(f"{type(exc).__name__}: {exc}")
 
-    report = ImportReport(
+    report = ledger.report(
         run_id=run_id or str(uuid.uuid4()),
         started_at=started_at,
         finished_at=deps.clock(),
         error=error,
     )
-        
-    if report.error is not None:  # one ERROR line per failed run, abort included
-        log.error("run failed: %s", report.error)
-    log.info(
-        "mode=import run_id=%s started_at=%s finished_at=%s error=%r",
-        report.run_id,
-        report.started_at.isoformat(),
-        report.finished_at.isoformat(),
-        report.error,
-    )
+    if report.error:  # one ERROR line per failed run
+        log.error("pages import failed: %s", report.error)
+    log.info("mode=pages %s", format_report(report))
     return report

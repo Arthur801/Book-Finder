@@ -8,6 +8,7 @@ functions; the DB tests use the throwaway ``db_url`` PostgreSQL only.
 from __future__ import annotations
 
 import logging
+import runpy
 from contextlib import nullcontext
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
@@ -16,9 +17,10 @@ import psycopg
 import pytest
 
 from books_crawler import cli, db
-from books_crawler import run as run_module
+from books_crawler.cli import CrawlerMode
 from books_crawler.fetcher import BrowserUnavailableError, FetcherKind, FetchError
-from books_crawler.models import Identifier, IdentifierType, IsbnMatch, RankingRow, SourceRef
+from books_crawler.models import Identifier, IdentifierType, IsbnMatch, RankingRow, RunStatus, SkipReason, SourceRef
+from books_crawler.page_list import PAGES_FILE_ENV
 from books_crawler.parsers import RANKING_PAGE_URL, ParseError, RestrictedBookError
 from books_crawler.run import RunDependencies, run_once, run_pages
 from tests.fakes import (
@@ -132,7 +134,6 @@ def crawl(
         failures=failures,
         transient_failures=transient,
     )
-    monkeypatch.setattr(run_module, "PAGE_URLS", list(rows_by_url) if category_urls is None else category_urls)
     deps = RunDependencies(
         fetcher=fetcher,
         parse_ranking=parse_category,
@@ -141,7 +142,8 @@ def crawl(
         clock=lambda: NOW,
         sleep=FakeSleep(),
     )
-    return run_pages(deps, run_id=run_id), deps
+    page_urls = list(rows_by_url) if category_urls is None else category_urls
+    return run_pages(deps, page_urls, run_id=run_id), deps
 
 
 # ---------------------------------------------------------------------------
@@ -225,16 +227,21 @@ def test_new_source_whose_isbn_is_already_catalogued_attaches_to_that_book(store
     assert [attach for _, attach in store.persisted] == [owner]  # attached, not a new Book
 
 
-def test_unparseable_category_page_stops_the_list_and_keeps_books_from_earlier_pages(store, monkeypatch):
+def test_unparseable_category_page_is_skipped_without_retry_and_the_list_continues(store, monkeypatch):
     rows = {CATEGORY_1: ranking_rows(2), CATEGORY_2: ranking_rows(1, offset=2), CATEGORY_3: ranking_rows(1, offset=3)}
     error = ParseError("ranking page is not the 7日暢銷榜 (simulated)")
 
     report, deps = crawl(monkeypatch, rows, parse_errors={CATEGORY_2: error})
 
-    assert report.exit_code == 1
-    assert report.error.startswith("ParseError: ")
-    assert deps.fetcher.calls == [CATEGORY_1, product_url(1), product_url(2), CATEGORY_2]  # no retry, no page 3
-    assert store.persisted_urls() == [product_url(1), product_url(2)]
+    assert deps.fetcher.calls.count(CATEGORY_2) == 1  # a parse failure is deterministic: no retry
+    assert deps.fetcher.calls.count(CATEGORY_3) == 1  # the list goes on
+    assert store.persisted_urls() == [product_url(1), product_url(2), product_url(4)]
+    assert report.error is None
+    assert report.exit_code == 0
+    assert report.status is RunStatus.PARTIAL_SUCCESS
+    assert [(page.url, page.failure.error_type, page.failure.attempts) for page in report.skipped_pages] == [
+        (CATEGORY_2, SkipReason.PARSE_ERROR, 1)
+    ]
 
 
 def test_category_page_fetch_is_retried_then_the_list_continues(store, monkeypatch):
@@ -248,17 +255,22 @@ def test_category_page_fetch_is_retried_then_the_list_continues(store, monkeypat
     assert store.persisted_urls() == [product_url(1), product_url(2)]
 
 
-def test_category_page_that_keeps_failing_stops_the_run_after_three_attempts(store, monkeypatch):
+def test_category_page_that_keeps_failing_is_skipped_after_three_attempts_and_the_list_continues(store, monkeypatch):
     rows = {CATEGORY_1: ranking_rows(1), CATEGORY_2: ranking_rows(1, offset=1), CATEGORY_3: ranking_rows(1, offset=2)}
 
     report, deps = crawl(monkeypatch, rows, failures={CATEGORY_2: FetchError("HTTP 403")})
 
-    assert report.exit_code == 1
-    assert "ranking page failed after 3 attempts: HTTP 403" in report.error
     assert deps.fetcher.calls.count(CATEGORY_2) == 3
-    assert CATEGORY_3 not in deps.fetcher.calls
+    assert CATEGORY_3 in deps.fetcher.calls
     assert deps.sleep.calls == RETRY_SLEEPS
-    assert store.persisted_urls() == [product_url(1)]
+    assert store.persisted_urls() == [product_url(1), product_url(3)]
+    assert report.error is None
+    assert report.exit_code == 0
+    assert report.status is RunStatus.PARTIAL_SUCCESS
+    assert [(page.url, page.failure.error_type, page.failure.attempts) for page in report.skipped_pages] == [
+        (CATEGORY_2, SkipReason.FETCH_ERROR, 3)
+    ]
+    assert report.skipped_pages[0].failure.error_message == "ranking page failed after 3 attempts: HTTP 403"
 
 
 def test_category_page_rows_are_not_checked_against_the_bestseller_rules(store, monkeypatch):
@@ -288,8 +300,12 @@ def test_detail_that_keeps_failing_is_skipped_after_three_attempts_and_the_page_
     assert deps.fetcher.calls.count(product_url(2)) == 3
     assert deps.sleep.calls == RETRY_SLEEPS
     assert store.persisted_urls() == [product_url(1), product_url(3)]
-    assert report.exit_code == 1
-    assert report.error == f"page={CATEGORY_1} product={product_url(2)}: fetch_error: HTTP 500"
+    assert report.error is None
+    assert report.exit_code == 0
+    assert report.status is RunStatus.PARTIAL_SUCCESS
+    assert [(row.url, row.failure.error_type, row.failure.attempts) for row in report.skipped] == [
+        (product_url(2), SkipReason.FETCH_ERROR, 3)
+    ]
 
 
 def test_detail_parse_error_is_retried_three_times_then_skipped_as_parse_error(store, monkeypatch):
@@ -301,7 +317,11 @@ def test_detail_parse_error_is_retried_three_times_then_skipped_as_parse_error(s
 
     assert deps.fetcher.calls.count(product_url(1)) == 3  # the page is fetched again on every attempt
     assert store.persisted_urls() == [product_url(2)]
-    assert report.error.startswith(f"page={CATEGORY_1} product={product_url(1)}: parse_error: ")
+    assert report.error is None
+    assert report.status is RunStatus.PARTIAL_SUCCESS
+    assert [(row.rank, row.failure.error_type, row.failure.attempts) for row in report.skipped] == [
+        (1, SkipReason.PARSE_ERROR, 3)
+    ]
 
 
 def test_restricted_member_page_is_skipped_without_retry_and_is_not_an_error(store, monkeypatch):
@@ -318,14 +338,15 @@ def test_restricted_member_page_is_skipped_without_retry_and_is_not_an_error(sto
     assert store.persisted_urls() == [product_url(1), product_url(3)]
 
 
-def test_only_the_first_general_error_is_reported_while_every_row_is_still_tried(store, monkeypatch):
+def test_every_failed_row_is_recorded_and_none_of_them_stops_the_run(store, monkeypatch):
     rows = {CATEGORY_1: ranking_rows(3)}
 
     report, deps = crawl(monkeypatch, rows, failures={product_url(1): FetchError("a"), product_url(3): FetchError("b")})
 
     assert deps.fetcher.calls.count(product_url(3)) == 3
-    assert report.error.startswith(f"page={CATEGORY_1} product={product_url(1)}: fetch_error: a")
-    assert product_url(3) not in report.error
+    assert report.error is None
+    assert [row.url for row in report.skipped] == [product_url(1), product_url(3)]
+    assert store.persisted_urls() == [product_url(2)]
 
 
 def test_browser_unavailable_on_a_detail_page_fails_the_run_without_retry(store, monkeypatch):
@@ -395,19 +416,6 @@ def test_duplicate_page_url_in_the_list_is_fetched_twice_and_its_products_writte
     assert store.persisted_urls() == [product_url(1), product_url(2)]
 
 
-def test_non_books_url_in_the_list_is_requested_as_given_and_fails_the_run(store, monkeypatch):
-    rows = {CATEGORY_1: ranking_rows(1), CATEGORY_2: ranking_rows(1, offset=1)}
-    foreign = "https://example.com/not-books"
-
-    report, deps = crawl(monkeypatch, rows, category_urls=[CATEGORY_1, foreign, CATEGORY_2])
-
-    assert foreign in deps.fetcher.calls  # no URL validation before the request
-    assert deps.fetcher.calls.count(foreign) == 3
-    assert report.exit_code == 1
-    assert CATEGORY_2 not in deps.fetcher.calls
-    assert store.persisted_urls() == [product_url(1)]
-
-
 def test_database_error_text_with_a_connection_string_is_redacted_in_the_report(store, monkeypatch):
     def failing_persist(conn, draft, now, attach_to_book_id=None):
         raise psycopg.OperationalError("connect failed: postgresql://crawler:s3cret@db.internal/books")
@@ -416,10 +424,11 @@ def test_database_error_text_with_a_connection_string_is_redacted_in_the_report(
 
     report, _ = crawl(monkeypatch, {CATEGORY_1: ranking_rows(1)})
 
-    assert report.exit_code == 1
-    assert "s3cret" not in report.error
-    assert "db.internal" not in report.error
-    assert "postgresql://<redacted>" in report.error
+    message = report.skipped[0].failure.error_message  # a write failure is a retried, skipped row
+    assert report.skipped[0].failure.error_type is SkipReason.DATABASE_ERROR
+    assert "s3cret" not in message
+    assert "db.internal" not in message
+    assert "postgresql://<redacted>" in message
 
 
 def test_run_logs_each_page_and_one_summary_line_with_the_run_id(store, monkeypatch, caplog):
@@ -430,10 +439,12 @@ def test_run_logs_each_page_and_one_summary_line_with_the_run_id(store, monkeypa
     messages = [record.getMessage() for record in caplog.records]
     assert f"importing page: {CATEGORY_1}" in messages
     assert f"importing page: {CATEGORY_2}" in messages
-    summary = [message for message in messages if message.startswith("mode=import ")]
+    summary = [message for message in messages if message.startswith("mode=pages ")]
     assert summary == [
-        "mode=import run_id=run-log-1 started_at=2026-10-11T04:00:00+00:00 "
-        "finished_at=2026-10-11T04:00:00+00:00 error=None"
+        "mode=pages run_id=run-log-1 started_at=2026-10-11T04:00:00+00:00 "
+        "finished_at=2026-10-11T04:00:00+00:00 status=SUCCESS pages_total=2 pages_skipped=0 rows_seen=2 "
+        "existing_book_count=0 new_book_count=2 attached_source_count=0 skipped_count=0 "
+        "restricted_book_count=0 error_count=0 exit_code=0 skipped=[] skipped_pages=[]"
     ]
 
 
@@ -443,7 +454,57 @@ def test_failed_run_logs_exactly_one_error_line(store, monkeypatch, caplog):
     crawl(monkeypatch, {CATEGORY_1: ranking_rows(1)}, failures={CATEGORY_1: FetchError("HTTP 403")})
 
     errors = [record.getMessage() for record in caplog.records if record.levelno >= logging.ERROR]
-    assert errors == ["run failed: FetchError: ranking page failed after 3 attempts: HTTP 403"]
+    assert errors == ["pages import failed: all 1 category page(s) failed"]
+
+
+def test_every_configured_page_failing_fails_the_run_with_exit_one(store, monkeypatch):
+    rows = {CATEGORY_1: ranking_rows(1), CATEGORY_2: ranking_rows(1, offset=1)}
+
+    report, deps = crawl(monkeypatch, rows, failures={CATEGORY_1: FetchError("HTTP 403"), CATEGORY_2: FetchError("HTTP 500")})
+
+    assert report.status is RunStatus.FAILED
+    assert report.exit_code == 1
+    assert report.error == "all 2 category page(s) failed"
+    assert store.persisted_urls() == []
+    assert len(report.skipped_pages) == 2
+
+
+def test_more_than_twenty_consecutive_row_failures_do_not_stop_the_run(store, monkeypatch):
+    rows = {CATEGORY_1: ranking_rows(26)}
+    failures = {product_url(n): FetchError("HTTP 500") for n in range(1, 26)}
+
+    report, deps = crawl(monkeypatch, rows, failures=failures)
+
+    assert report.error is None
+    assert report.exit_code == 0
+    assert report.skipped_count == 25
+    assert deps.fetcher.detail_calls()[-1] == product_url(26)  # the last row of the list was still processed
+    assert store.persisted_urls() == [product_url(26)]
+
+
+def test_the_report_counts_pages_rows_and_book_outcomes(store, monkeypatch):
+    known = SourceRef(source_id=uuid4(), book_id=uuid4())
+    store.sources[product_url(1)] = known
+    rows = {
+        CATEGORY_1: [RankingRow(rank=1, url=product_url(1)), RankingRow(rank=2, url=product_url(2))],
+        CATEGORY_2: [RankingRow(rank=1, url=product_url(3)), RankingRow(rank=2, url=product_url(4))],
+    }
+    parse = detail_parser(
+        {url: make_draft(url) for url in products_of(rows)},
+        {product_url(2): RestrictedBookError("restricted product requires member login")},
+    )
+
+    report, _ = crawl(monkeypatch, rows, parse_detail=parse, failures={product_url(4): FetchError("HTTP 500")}, category_urls=[CATEGORY_1, CATEGORY_2, CATEGORY_1])
+
+    assert report.pages_total == 3
+    assert report.rows_seen == 6
+    assert report.existing_book_count == 2  # product 1 (known) and product 1 again on the third page
+    assert report.new_book_count == 1  # product 3
+    assert report.attached_source_count == 0
+    assert report.restricted_book_count == 2  # product 2 is restricted on both pages it appears on
+    assert report.error_count == 1  # product 4: three failed attempts
+    assert report.skipped_pages == []
+    assert report.status is RunStatus.PARTIAL_SUCCESS
 
 
 # ---------------------------------------------------------------------------
@@ -515,20 +576,24 @@ def test_isbn_match_attaches_a_second_source_to_the_existing_book_and_keeps_its_
     assert count(db_url, "book_sources") == 2
 
 
-def test_books_written_before_a_later_page_fails_are_kept(db_url, monkeypatch):
-    rows = {CATEGORY_1: ranking_rows(2), CATEGORY_2: ranking_rows(1, offset=2)}
+def test_books_are_kept_when_a_later_page_is_skipped_and_the_run_completes(db_url, monkeypatch):
+    rows = {CATEGORY_1: ranking_rows(2), CATEGORY_2: ranking_rows(1, offset=2), CATEGORY_3: ranking_rows(1, offset=3)}
 
     report, _ = crawl(monkeypatch, rows, failures={CATEGORY_2: FetchError("HTTP 403")}, connect=lambda: db.connect(db_url))
 
-    assert report.exit_code == 1
-    assert count(db_url, "books") == 2
-    assert count(db_url, "book_sources") == 2
+    assert report.exit_code == 0
+    assert report.status is RunStatus.PARTIAL_SUCCESS
+    assert count(db_url, "books") == 3
+    assert count(db_url, "book_sources") == 3
     assert count(db_url, "bestsellers") == 0
 
 
 # ---------------------------------------------------------------------------
-# CLI wiring: pages mode (runner and fetcher stubbed, no network, no database)
+# CLI wiring: pages mode (runners and fetcher stubbed, no network, no database)
 # ---------------------------------------------------------------------------
+
+PAGE1 = "https://www.books.com.tw/web/sys_saletopb/books/01/?attribute=7&loc=P_0002_002"
+PAGE2 = "https://www.books.com.tw/web/sys_saletopb/books/02/?attribute=7&loc=P_0002_003"
 
 
 class FakeRunResult:
@@ -547,43 +612,51 @@ class FakeClosingFetcher:
         self.closed += 1
 
 
-def stub_pages_run(monkeypatch, *, exit_code: int = 0, error: Exception | None = None) -> dict:
-    seen: dict = {"runs": 0}
+def stub_runs(monkeypatch, *, exit_code: int = 0, error: Exception | None = None) -> dict:
+    """Stub the fetcher factory and the three runners. ``seen["runs"]`` records (mode, runner arguments)."""
+    seen: dict = {"runs": [], "fetcher": None}
 
     def create_fetcher(kind, *, navigation_timeout_ms):
-        seen["kind"] = kind
-        seen["navigation_timeout_ms"] = navigation_timeout_ms
         seen["fetcher"] = FakeClosingFetcher()
         return seen["fetcher"]
 
-    def stubbed_run_pages(deps):
-        seen["runs"] += 1
-        assert deps.fetcher is seen["fetcher"]
-        if error is not None:
-            raise error
-        return FakeRunResult(exit_code)
+    def runner(name):
+        def run(deps, *args):
+            assert deps.fetcher is seen["fetcher"]
+            seen["runs"].append((name, args))
+            if error is not None:
+                raise error
+            return FakeRunResult(exit_code)
+
+        return run
 
     monkeypatch.setattr(cli, "create_fetcher", create_fetcher)
-    monkeypatch.setattr(cli, "run_pages", stubbed_run_pages)
-    monkeypatch.setattr(cli, "run_once", lambda deps: pytest.fail("pages mode must not run the daily crawl"))
-    monkeypatch.setattr(cli, "run_first_book", lambda deps: pytest.fail("pages mode must not run the first-book import"))
+    monkeypatch.setattr(cli, "run_once", runner("daily"))
+    monkeypatch.setattr(cli, "run_first_book", runner("first-book"))
+    monkeypatch.setattr(cli, "run_pages", runner("pages"))
     return seen
+
+
+def write_page_list(tmp_path, text: str):
+    path = tmp_path / "pages.txt"
+    path.write_text(text, encoding="utf-8")
+    return path
 
 
 @pytest.mark.parametrize("exit_code", [0, 1])
 def test_pages_mode_selects_the_category_runner_and_returns_its_exit_code(monkeypatch, exit_code):
-    seen = stub_pages_run(monkeypatch, exit_code=exit_code)
+    seen = stub_runs(monkeypatch, exit_code=exit_code)
 
-    assert cli.main(DATABASE, pages=True) == exit_code
-    assert seen["runs"] == 1
+    assert cli.main(DATABASE, mode=CrawlerMode.PAGES) == exit_code
+    assert [name for name, _ in seen["runs"]] == ["pages"]
     assert seen["fetcher"].closed == 1
 
 
 def test_pages_mode_closes_the_fetcher_when_the_run_raises(monkeypatch):
-    seen = stub_pages_run(monkeypatch, error=RuntimeError("unexpected"))
+    seen = stub_runs(monkeypatch, error=RuntimeError("unexpected"))
 
     with pytest.raises(RuntimeError, match="unexpected"):
-        cli.main(DATABASE, pages=True)
+        cli.main(DATABASE, mode=CrawlerMode.PAGES)
     assert seen["fetcher"].closed == 1
 
 
@@ -596,15 +669,84 @@ def test_pages_mode_closes_the_fetcher_when_the_run_raises(monkeypatch):
     ],
 )
 def test_pages_mode_configuration_error_exits_2_before_any_fetcher_or_run(monkeypatch, environ):
-    seen = stub_pages_run(monkeypatch)
+    seen = stub_runs(monkeypatch)
 
-    assert cli.main(environ, pages=True) == cli.EXIT_CONFIG_ERROR
-    assert seen == {"runs": 0}
+    assert cli.main(environ, mode=CrawlerMode.PAGES) == cli.EXIT_CONFIG_ERROR
+    assert seen == {"runs": [], "fetcher": None}
 
 
 def test_pages_mode_passes_the_browser_settings_to_the_fetcher_factory(monkeypatch):
-    seen = stub_pages_run(monkeypatch)
+    seen = stub_runs(monkeypatch)
+    settings: dict = {}
 
-    assert cli.main({**DATABASE, "CRAWLER_FETCHER": "browser", "CRAWLER_NAV_TIMEOUT_MS": "45000"}, pages=True) == 0
-    assert seen["kind"] is FetcherKind.BROWSER
-    assert seen["navigation_timeout_ms"] == 45000
+    def create_fetcher(kind, *, navigation_timeout_ms):
+        settings.update(kind=kind, navigation_timeout_ms=navigation_timeout_ms)
+        seen["fetcher"] = FakeClosingFetcher()
+        return seen["fetcher"]
+
+    monkeypatch.setattr(cli, "create_fetcher", create_fetcher)
+
+    assert cli.main({**DATABASE, "CRAWLER_FETCHER": "browser", "CRAWLER_NAV_TIMEOUT_MS": "45000"}, mode=CrawlerMode.PAGES) == 0
+    assert settings == {"kind": FetcherKind.BROWSER, "navigation_timeout_ms": 45000}
+
+
+@pytest.mark.parametrize("entry_module, runner_name", [
+    ("books_crawler.__main__", "daily"),
+    ("books_crawler.first_book", "first-book"),
+    ("books_crawler.pages", "pages"),
+])
+def test_each_entry_point_runs_its_own_mode(monkeypatch, entry_module, runner_name):
+    seen = stub_runs(monkeypatch)
+    monkeypatch.setenv("DATABASE_URL", "postgresql://unused")
+    monkeypatch.delenv("CRAWLER_FETCHER", raising=False)
+    monkeypatch.delenv("CRAWLER_NAV_TIMEOUT_MS", raising=False)
+    monkeypatch.delenv(PAGES_FILE_ENV, raising=False)
+
+    with pytest.raises(SystemExit) as exit_info:
+        runpy.run_module(entry_module, run_name="__main__")
+
+    assert exit_info.value.code == 0
+    assert [name for name, _ in seen["runs"]] == [runner_name]
+
+
+@pytest.mark.parametrize(
+    "content",
+    [None, "# nothing here\n\n", f"{PAGE1}\nhttps://example.com/not-books\n", "https://www.books.com.tw/web/sys_saletopb/books/?attribute=7\n"],
+    ids=["missing-file", "only-comments", "non-books-url", "overall-daily-ranking-page"],
+)
+def test_an_invalid_page_list_exits_2_before_any_fetch_or_run(monkeypatch, tmp_path, content):
+    path = tmp_path / "pages.txt"
+    if content is not None:
+        path.write_text(content, encoding="utf-8")
+    seen = stub_runs(monkeypatch)
+
+    assert cli.main({**DATABASE, PAGES_FILE_ENV: str(path)}, mode=CrawlerMode.PAGES) == cli.EXIT_CONFIG_ERROR
+    assert seen == {"runs": [], "fetcher": None}
+
+
+def test_the_config_error_names_the_file_and_the_line(monkeypatch, tmp_path, caplog):
+    caplog.set_level(logging.INFO, logger="books_crawler")
+    path = write_page_list(tmp_path, f"# comment\n{PAGE1}\nhttps://example.com/not-books\n")
+    stub_runs(monkeypatch)
+
+    assert cli.main({**DATABASE, PAGES_FILE_ENV: str(path)}, mode=CrawlerMode.PAGES) == cli.EXIT_CONFIG_ERROR
+    errors = [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR]
+    assert len(errors) == 1
+    assert str(path) in errors[0] and "line 3" in errors[0]
+
+
+def test_the_env_var_selects_the_page_list_that_pages_mode_reads(monkeypatch, tmp_path):
+    path = write_page_list(tmp_path, f"{PAGE2}\n{PAGE1}\n")
+    seen = stub_runs(monkeypatch)
+
+    assert cli.main({**DATABASE, PAGES_FILE_ENV: str(path)}, mode=CrawlerMode.PAGES) == 0
+    assert seen["runs"] == [("pages", ([PAGE2, PAGE1],))]
+
+
+@pytest.mark.parametrize("mode, runner_name", [(CrawlerMode.DAILY, "daily"), (CrawlerMode.FIRST_BOOK, "first-book")])
+def test_daily_and_first_book_ignore_the_page_list_env_var(monkeypatch, tmp_path, mode, runner_name):
+    seen = stub_runs(monkeypatch)
+    missing = tmp_path / "missing.txt"
+
+    assert cli.main({**DATABASE, PAGES_FILE_ENV: str(missing)}, mode=mode) == 0
+    assert [name for name, _ in seen["runs"]] == [runner_name]
