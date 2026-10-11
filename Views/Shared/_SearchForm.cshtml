@@ -1,0 +1,9 @@
+@model string
+
+<form method="get" action="/search" role="search" class="mb-4">
+    <label for="search-q" class="form-label">搜尋書名、作者或 ISBN</label>
+    <div class="input-group">
+        <input id="search-q" type="search" name="q" class="form-control" value="@Model" placeholder="例：PostgreSQL" />
+        <button class="btn btn-primary" type="submit">搜尋</button>
+    </div>
+</form>

@@ -6,13 +6,7 @@
 <section class="mb-5">
     <h1 class="h3 mb-3">找書</h1>
 
-    <form method="get" action="/search" role="search" class="mb-4">
-        <label for="search-q" class="form-label">搜尋書名、作者或出版社</label>
-        <div class="input-group">
-            <input id="search-q" type="search" name="q" class="form-control" placeholder="例：PostgreSQL" />
-            <button class="btn btn-primary" type="submit">搜尋</button>
-        </div>
-    </form>
+    <partial name="_SearchForm" model="string.Empty" />
 
     <form method="get" action="/ai">
         <label for="ai-request" class="form-label">用一句話描述你想讀的書（AI 推薦）</label>
