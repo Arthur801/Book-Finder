@@ -17,14 +17,12 @@ public class BooksController(IBookDetailReader books) : Controller
         if (detail is null)
             return NotFoundPage();
 
-        ViewData["Title"] = detail.Title;
         return View(BookDetailViewModel.From(detail));
     }
 
     private IActionResult NotFoundPage()
     {
         Response.StatusCode = StatusCodes.Status404NotFound;
-        ViewData["Title"] = "找不到這本書";
         return View("NotFound");
     }
 }

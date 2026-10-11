@@ -1,5 +1,4 @@
 using System.Net;
-using System.Text.RegularExpressions;
 using Book_Finder.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 
@@ -32,10 +31,22 @@ public sealed class BookDetailPageTests(WebFixture fixture)
         Assert.Contains(">三體</h1>", html);
         Assert.Contains("地球往事", html);
         Assert.Contains("作者：劉慈欣", html);
-        Assert.Equal("貓頭鷹", InfoValue(html, "出版社"));
-        Assert.Equal("2011-03-15", InfoValue(html, "出版日期"));
-        Assert.Equal("320 頁", InfoValue(html, "頁數"));
+        Assert.Equal("貓頭鷹", HtmlPage.InfoValue(html, "出版社"));
+        Assert.Equal("2011-03-15", HtmlPage.InfoValue(html, "出版日期"));
+        Assert.Equal("320 頁", HtmlPage.InfoValue(html, "頁數"));
         Assert.Contains("src=\"https://img.example.test/three-body.jpg\"", html);
+    }
+
+    [Fact]
+    public async Task Detail_page_title_is_the_book_title()
+    {
+        await fixture.ResetDatabaseAsync();
+        var book = await AddBookAsync(new BookSeed("三體"));
+        await using var app = fixture.CreateFactory();
+
+        var html = await app.CreateClient().GetPageAsync(DetailPath(book));
+
+        Assert.Equal("三體 - 好想找書", HtmlPage.PageTitle(html));
     }
 
     [Theory]
@@ -55,7 +66,7 @@ public sealed class BookDetailPageTests(WebFixture fixture)
 
         var html = await app.CreateClient().GetPageAsync(DetailPath(book));
 
-        Assert.Equal(expected, InfoValue(html, "出版日期"));
+        Assert.Equal(expected, HtmlPage.InfoValue(html, "出版日期"));
     }
 
     [Fact]
@@ -87,14 +98,13 @@ public sealed class BookDetailPageTests(WebFixture fixture)
 
         var html = await app.CreateClient().GetPageAsync(DetailPath(book));
 
-        Assert.Contains(
-            "<a class=\"btn btn-primary\" href=\"https://www.books.com.tw/products/0010000001\" target=\"_blank\" rel=\"noopener noreferrer\">在博客來查看完整介紹</a>",
-            html);
-        Assert.Equal(1, CountOf("btn-primary", html));
+        Assert.Equal(
+            [Primary("https://www.books.com.tw/products/0010000001", "在博客來查看完整介紹")],
+            HtmlPage.ExternalLinks(html));
     }
 
     [Fact]
-    public async Task Books_com_tw_and_google_books_sources_show_two_links_with_books_com_tw_primary()
+    public async Task Books_com_tw_and_google_books_sources_render_exactly_two_links_with_books_com_tw_primary()
     {
         await fixture.ResetDatabaseAsync();
         var book = await AddBookAsync(new BookSeed("三體")
@@ -109,33 +119,35 @@ public sealed class BookDetailPageTests(WebFixture fixture)
 
         var html = await app.CreateClient().GetPageAsync(DetailPath(book));
 
-        var primary = html.IndexOf("在博客來查看完整介紹", StringComparison.Ordinal);
-        var secondary = html.IndexOf("在 Google Books 查看", StringComparison.Ordinal);
-        Assert.True(primary >= 0, "primary Books.com.tw button is missing");
-        Assert.True(secondary >= 0, "secondary Google Books link is missing");
-        Assert.True(primary < secondary, "the Books.com.tw button must come before the Google Books link");
-        Assert.Contains(
-            "<a class=\"btn btn-outline-secondary\" href=\"https://books.google.com/books?id=vol-both\" target=\"_blank\" rel=\"noopener noreferrer\">在 Google Books 查看</a>",
-            html);
-        Assert.Equal(1, CountOf("btn-primary", html));
+        // Books.com.tw comes first even though the Google Books source was inserted first.
+        Assert.Equal(
+            [
+                Primary("https://www.books.com.tw/products/0010000002", "在博客來查看完整介紹"),
+                Secondary("https://books.google.com/books?id=vol-both", "在 Google Books 查看"),
+            ],
+            HtmlPage.ExternalLinks(html));
     }
 
     [Fact]
-    public async Task Google_books_only_book_has_its_google_books_link_as_the_primary_button()
+    public async Task Google_books_only_book_has_its_google_books_link_as_the_primary_button_and_hides_description_and_toc()
     {
         await fixture.ResetDatabaseAsync();
         var book = await AddBookAsync(new BookSeed("只有 Google")
         {
+            Description = "簡介標記ZZ-GOOGLE-DESC",
+            TableOfContents = "目錄標記ZZ-GOOGLE-TOC",
             Sources = [new SourceSeed(SourceType.GoogleBooks, SourceUrl: "https://books.google.com/books?id=vol-only", ExternalId: "vol-only")],
         });
         await using var app = fixture.CreateFactory();
 
         var html = await app.CreateClient().GetPageAsync(DetailPath(book));
 
-        Assert.Contains(
-            "<a class=\"btn btn-primary\" href=\"https://books.google.com/books?id=vol-only\" target=\"_blank\" rel=\"noopener noreferrer\">在 Google Books 查看</a>",
-            html);
+        Assert.Equal(
+            [Primary("https://books.google.com/books?id=vol-only", "在 Google Books 查看")],
+            HtmlPage.ExternalLinks(html));
         Assert.DoesNotContain("在博客來", html);
+        Assert.DoesNotContain("ZZ-GOOGLE-DESC", html);
+        Assert.DoesNotContain("ZZ-GOOGLE-TOC", html);
     }
 
     [Fact]
@@ -155,13 +167,12 @@ public sealed class BookDetailPageTests(WebFixture fixture)
 
         var html = await app.CreateClient().GetPageAsync(DetailPath(book));
 
-        Assert.Contains(
-            "<a class=\"btn btn-primary\" href=\"https://www.books.com.tw/products/early\" target=\"_blank\" rel=\"noopener noreferrer\">在博客來查看完整介紹</a>",
-            html);
-        Assert.Contains(
-            "<a class=\"btn btn-outline-secondary\" href=\"https://www.books.com.tw/products/late\" target=\"_blank\" rel=\"noopener noreferrer\">在博客來查看</a>",
-            html);
-        Assert.Equal(1, CountOf("btn-primary", html));
+        Assert.Equal(
+            [
+                Primary("https://www.books.com.tw/products/early", "在博客來查看完整介紹"),
+                Secondary("https://www.books.com.tw/products/late", "在博客來查看"),
+            ],
+            HtmlPage.ExternalLinks(html));
     }
 
     [Fact]
@@ -179,11 +190,14 @@ public sealed class BookDetailPageTests(WebFixture fixture)
         });
         await using var app = fixture.CreateFactory();
 
-        var html = await app.CreateClient().GetPageAsync(DetailPath(book));
+        var links = HtmlPage.ExternalLinks(await app.CreateClient().GetPageAsync(DetailPath(book)));
 
-        var anchors = Regex.Matches(html, "<a [^>]*href=\"https://[^\"]*\"[^>]*>").Select(match => match.Value).ToList();
-        Assert.Equal(3, anchors.Count);
-        Assert.All(anchors, anchor => Assert.Contains("target=\"_blank\" rel=\"noopener noreferrer\"", anchor));
+        Assert.Equal(3, links.Count);
+        Assert.All(links, link =>
+        {
+            Assert.Equal("_blank", link.Target);
+            Assert.Equal("noopener noreferrer", link.Rel);
+        });
     }
 
     [Fact]
@@ -195,8 +209,72 @@ public sealed class BookDetailPageTests(WebFixture fixture)
 
         var html = await app.CreateClient().GetPageAsync(DetailPath(book));
 
-        Assert.DoesNotContain("btn-primary", html);
-        Assert.DoesNotContain("btn-outline-secondary", html);
+        Assert.Empty(HtmlPage.ExternalLinks(html));
+        Assert.DoesNotContain("btn", HtmlPage.BookArticle(html));
+    }
+
+    [Theory]
+    [InlineData("javascript:alert(1)")]
+    [InlineData("/relative/products/1")]
+    [InlineData("ftp://www.books.com.tw/products/1")]
+    public async Task Books_com_tw_source_with_an_unsafe_url_gets_no_link(string url)
+    {
+        await fixture.ResetDatabaseAsync();
+        var book = await AddBookAsync(new BookSeed("三體")
+        {
+            Sources = [new SourceSeed(SourceType.BooksComTw, SourceUrl: url)],
+        });
+        await using var app = fixture.CreateFactory();
+
+        var html = await app.CreateClient().GetPageAsync(DetailPath(book));
+
+        Assert.Empty(HtmlPage.ExternalLinks(html));
+        Assert.DoesNotContain("在博客來", html);
+        Assert.DoesNotContain(url, html);
+    }
+
+    [Fact]
+    public async Task Unsafe_earliest_books_com_tw_source_is_skipped_and_the_next_safe_one_is_primary()
+    {
+        await fixture.ResetDatabaseAsync();
+        var book = await AddBookAsync(new BookSeed("三體")
+        {
+            Sources =
+            [
+                new SourceSeed(SourceType.BooksComTw, SourceUrl: "javascript:alert(1)", FirstSeenAt: EarlierSeen),
+                new SourceSeed(SourceType.BooksComTw, SourceUrl: "https://www.books.com.tw/products/safe", FirstSeenAt: LaterSeen),
+            ],
+        });
+        await using var app = fixture.CreateFactory();
+
+        var html = await app.CreateClient().GetPageAsync(DetailPath(book));
+
+        Assert.Equal(
+            [Primary("https://www.books.com.tw/products/safe", "在博客來查看完整介紹")],
+            HtmlPage.ExternalLinks(html));
+        Assert.DoesNotContain("javascript:", html);
+    }
+
+    [Fact]
+    public async Task Unsafe_books_com_tw_source_falls_back_to_a_safe_google_books_primary()
+    {
+        await fixture.ResetDatabaseAsync();
+        var book = await AddBookAsync(new BookSeed("三體")
+        {
+            Sources =
+            [
+                new SourceSeed(SourceType.BooksComTw, SourceUrl: "//evil.example.test/products/1", FirstSeenAt: EarlierSeen),
+                new SourceSeed(SourceType.GoogleBooks, SourceUrl: "https://books.google.com/books?id=ok", ExternalId: "ok"),
+            ],
+        });
+        await using var app = fixture.CreateFactory();
+
+        var html = await app.CreateClient().GetPageAsync(DetailPath(book));
+
+        Assert.Equal(
+            [Primary("https://books.google.com/books?id=ok", "在 Google Books 查看")],
+            HtmlPage.ExternalLinks(html));
+        Assert.DoesNotContain("evil.example.test", html);
     }
 
     [Fact]
@@ -241,9 +319,9 @@ public sealed class BookDetailPageTests(WebFixture fixture)
 
         var html = await app.CreateClient().GetPageAsync(DetailPath(book));
 
-        Assert.Equal("9789862620998", InfoValue(html, "ISBN-13"));
-        Assert.Equal("9862620998", InfoValue(html, "ISBN-10"));
-        Assert.True(html.IndexOf("ISBN-13", StringComparison.Ordinal) < html.IndexOf("ISBN-10", StringComparison.Ordinal));
+        Assert.Equal(
+            [("ISBN-13", "9789862620998"), ("ISBN-10", "9862620998")],
+            HtmlPage.InfoRows(html).Where(row => row.Label.StartsWith("ISBN", StringComparison.Ordinal)));
         Assert.DoesNotContain("OTHER-ID-998877", html);
     }
 
@@ -266,7 +344,25 @@ public sealed class BookDetailPageTests(WebFixture fixture)
         var html = await app.CreateClient().GetPageAsync(DetailPath(book));
 
         // Ordinal: ASCII before CJK, and 歷 (U+6B77) before 科 (U+79D1).
-        Assert.Equal("Art、歷史、科幻", InfoValue(html, "分類"));
+        Assert.Equal("Art、歷史、科幻", HtmlPage.InfoValue(html, "分類"));
+    }
+
+    [Theory]
+    [InlineData("   ")]
+    [InlineData("")]
+    public async Task Blank_subject_is_ignored_and_the_subjects_row_is_omitted_when_none_remain(string subject)
+    {
+        await fixture.ResetDatabaseAsync();
+        var book = await AddBookAsync(new BookSeed("三體")
+        {
+            Subjects = [new SubjectSeed(subject)],
+        });
+        await using var app = fixture.CreateFactory();
+
+        var html = await app.CreateClient().GetPageAsync(DetailPath(book));
+
+        Assert.Null(HtmlPage.InfoValue(html, "分類"));
+        Assert.DoesNotContain("分類", HtmlPage.BookArticle(html));
     }
 
     [Fact]
@@ -277,13 +373,33 @@ public sealed class BookDetailPageTests(WebFixture fixture)
         await using var app = fixture.CreateFactory();
 
         var html = await app.CreateClient().GetPageAsync(DetailPath(book));
+        var article = HtmlPage.BookArticle(html);
 
-        Assert.Contains(">只有書名</h1>", html);
-        Assert.Contains("無封面", html);
-        Assert.DoesNotContain("<dt", html);
-        Assert.DoesNotContain("<dd", html);
-        Assert.DoesNotContain("class=\"subtitle", html);
-        Assert.DoesNotContain("—", html);
+        Assert.Contains(">只有書名</h1>", article);
+        Assert.Contains("無封面", article);
+        Assert.Empty(HtmlPage.InfoRows(html));
+        Assert.DoesNotContain("<dt", article);
+        Assert.DoesNotContain("<dd", article);
+        Assert.DoesNotContain("class=\"subtitle", article);
+        Assert.DoesNotContain("—", article);
+    }
+
+    [Theory]
+    [InlineData("javascript:alert(1)")]
+    [InlineData("/covers/three-body.jpg")]
+    [InlineData("ftp://img.example.test/three-body.jpg")]
+    public async Task Thumbnail_that_is_not_an_absolute_http_url_is_treated_as_missing(string url)
+    {
+        await fixture.ResetDatabaseAsync();
+        var book = await AddBookAsync(new BookSeed("三體") { ThumbnailUrl = url, Sources = [] });
+        await using var app = fixture.CreateFactory();
+
+        var html = await app.CreateClient().GetPageAsync(DetailPath(book));
+        var article = HtmlPage.BookArticle(html);
+
+        Assert.Contains("無封面", article);
+        Assert.DoesNotContain("<img", article);
+        Assert.DoesNotContain(url, html);
     }
 
     [Fact]
@@ -292,11 +408,22 @@ public sealed class BookDetailPageTests(WebFixture fixture)
         await fixture.ResetDatabaseAsync();
         await using var app = fixture.CreateFactory();
 
-        var (status, html) = await GetRawAsync(app.CreateClient(), $"/books/{Guid.NewGuid()}");
+        var (status, html) = await app.CreateClient().GetRawAsync($"/books/{Guid.NewGuid()}");
 
         Assert.Equal(HttpStatusCode.NotFound, status);
         Assert.Contains("找不到這本書", html);
         Assert.Matches("<a [^>]*href=\"/\"[^>]*>回到首頁</a>", html);
+    }
+
+    [Fact]
+    public async Task Not_found_page_title_is_the_not_found_message()
+    {
+        await fixture.ResetDatabaseAsync();
+        await using var app = fixture.CreateFactory();
+
+        var (_, html) = await app.CreateClient().GetRawAsync($"/books/{Guid.NewGuid()}");
+
+        Assert.Equal("找不到這本書 - 好想找書", HtmlPage.PageTitle(html));
     }
 
     [Theory]
@@ -307,7 +434,7 @@ public sealed class BookDetailPageTests(WebFixture fixture)
         await fixture.ResetDatabaseAsync();
         await using var app = fixture.CreateFactory();
 
-        var (status, html) = await GetRawAsync(app.CreateClient(), path);
+        var (status, html) = await app.CreateClient().GetRawAsync(path);
 
         Assert.Equal(HttpStatusCode.NotFound, status);
         Assert.Contains("找不到這本書", html);
@@ -325,8 +452,10 @@ public sealed class BookDetailPageTests(WebFixture fixture)
         Assert.Contains("<section id=\"library\"></section>", html);
     }
 
+    // The HTTP test proves a second request is served from the cache in the same app instance;
+    // the 10-minute TTL itself is asserted by CachedBookDetailReaderTests.
     [Fact]
-    public async Task Detail_is_served_from_the_cache_within_one_app_instance()
+    public async Task Second_request_within_one_app_instance_is_served_from_the_cache()
     {
         await fixture.ResetDatabaseAsync();
         var book = await AddBookAsync(new BookSeed("原書名"));
@@ -351,19 +480,9 @@ public sealed class BookDetailPageTests(WebFixture fixture)
 
     private static string DetailPath(SeededBook book) => $"/books/{book.BookId}";
 
-    // Gets a page without asserting the status, and decodes the HTML like GetPageAsync does.
-    private static async Task<(HttpStatusCode Status, string Html)> GetRawAsync(HttpClient client, string url)
-    {
-        var response = await client.GetAsync(url);
-        return (response.StatusCode, WebUtility.HtmlDecode(await response.Content.ReadAsStringAsync()));
-    }
+    private static RenderedLink Primary(string href, string text) =>
+        new(href, "btn btn-primary", text, "_blank", "noopener noreferrer");
 
-    // The value of one labelled row (<dt>label</dt><dd>value</dd>), or null when the row is not rendered.
-    private static string? InfoValue(string html, string label)
-    {
-        var match = Regex.Match(html, $"<dt[^>]*>{Regex.Escape(label)}</dt>\\s*<dd[^>]*>([^<]*)</dd>");
-        return match.Success ? match.Groups[1].Value : null;
-    }
-
-    private static int CountOf(string text, string html) => Regex.Matches(html, Regex.Escape(text)).Count;
+    private static RenderedLink Secondary(string href, string text) =>
+        new(href, "btn btn-outline-secondary", text, "_blank", "noopener noreferrer");
 }

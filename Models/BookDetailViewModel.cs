@@ -20,7 +20,7 @@ public sealed record BookDetailViewModel(
         new(
             detail.Title,
             Optional(detail.Subtitle),
-            Optional(detail.ThumbnailUrl),
+            WebUrlOrNull(detail.ThumbnailUrl),
             ContributorDisplay.GroupByRole(detail.Contributors.Select(contributor =>
                 new ContributorName(contributor.Order, contributor.Name, contributor.Role))),
             InfoRowsOf(detail),
@@ -32,22 +32,21 @@ public sealed record BookDetailViewModel(
         var rows = new List<BookInfoRow>();
         AddRow(rows, "出版社", Optional(detail.Publisher));
         AddRow(rows, "出版日期", PublishedDateText.Format(detail.PublishedDate, detail.PublishedDatePrecision));
-        foreach (var identifier in detail.Identifiers)
-        {
-            // Only ISBN-13 and ISBN-10 reach here (the reader filters OTHER); the reader orders ISBN-13 first.
-            var label = identifier.Type switch
-            {
-                IdentifierType.Isbn13 => "ISBN-13",
-                IdentifierType.Isbn10 => "ISBN-10",
-                _ => null,
-            };
-            if (label is not null)
-                rows.Add(new BookInfoRow(label, identifier.Value));
-        }
-        AddRow(rows, "分類", detail.Subjects.Count > 0 ? string.Join("、", detail.Subjects) : null);
+        // The reader passes only ISBN-13 and ISBN-10, ISBN-13 first, so the page keeps that order.
+        rows.AddRange(detail.Identifiers.Select(identifier => new BookInfoRow(IdentifierLabel(identifier.Type), identifier.Value)));
+        var subjects = detail.Subjects.Where(subject => !string.IsNullOrWhiteSpace(subject)).ToList();
+        AddRow(rows, "分類", subjects.Count > 0 ? string.Join("、", subjects) : null);
         AddRow(rows, "頁數", detail.PageCount is { } pages ? $"{pages} 頁" : null);
         return rows;
     }
+
+    // Exhaustive on purpose: OTHER identifiers are filtered out by the reader and must never reach the page.
+    private static string IdentifierLabel(IdentifierType type) => type switch
+    {
+        IdentifierType.Isbn13 => "ISBN-13",
+        IdentifierType.Isbn10 => "ISBN-10",
+        _ => throw new InvalidOperationException($"Identifier type {type} must not reach the Book detail page."),
+    };
 
     private static void AddRow(List<BookInfoRow> rows, string label, string? value)
     {
@@ -55,12 +54,14 @@ public sealed record BookDetailViewModel(
             rows.Add(new BookInfoRow(label, value));
     }
 
-    // One link per Book Source. The first Books.com.tw source is the main button; without one, the first
-    // Google Books source is the main button. Sources keep the reader's order (first seen, then id).
+    // One link per safe Book Source (an absolute http or https URL; any other source is skipped entirely).
+    // The first Books.com.tw source is the main button; without one, the first Google Books source is.
+    // Sources keep the reader's order (first seen, then id).
     private static IReadOnlyList<BookLink> LinksOf(IReadOnlyList<BookDetailSource> sources)
     {
-        var booksComTw = sources.Where(source => source.Type == SourceType.BooksComTw).ToList();
-        var googleBooks = sources.Where(source => source.Type == SourceType.GoogleBooks).ToList();
+        var safe = sources.Where(source => WebUrlOrNull(source.Url) is not null).ToList();
+        var booksComTw = safe.Where(source => source.Type == SourceType.BooksComTw).ToList();
+        var googleBooks = safe.Where(source => source.Type == SourceType.GoogleBooks).ToList();
         var links = new List<BookLink>();
 
         if (booksComTw.Count > 0)
@@ -76,6 +77,14 @@ public sealed record BookDetailViewModel(
 
         return links;
     }
+
+    // Only absolute http or https URLs are kept; anything else (javascript:, relative, other schemes) becomes null.
+    private static string? WebUrlOrNull(string? url) =>
+        url is not null
+            && Uri.TryCreate(url, UriKind.Absolute, out var uri)
+            && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps)
+                ? url
+                : null;
 
     // Blank text counts as missing, like NULL.
     private static string? Optional(string? value) => string.IsNullOrWhiteSpace(value) ? null : value;
