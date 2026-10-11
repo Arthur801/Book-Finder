@@ -13,6 +13,10 @@ public sealed class WebFixture : IAsyncLifetime
 {
     private readonly PostgreSqlContainer container = new PostgreSqlBuilder("pgvector/pgvector:pg17").Build();
 
+    // Every test starts its own host, and each host would watch appsettings*.json for changes. With dozens of hosts
+    // in one test process that exhausts Linux's per-user inotify instances (default 128), so config reload is off.
+    static WebFixture() => Environment.SetEnvironmentVariable("DOTNET_hostBuilder__reloadConfigOnChange", "false");
+
     public async Task InitializeAsync()
     {
         await container.StartAsync();
