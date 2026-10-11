@@ -116,3 +116,104 @@ Coordinator 的 code review 沒有阻擋性問題；EF 查詢已由 reviewer 對
 - **Program.cs 的 DI 解析**：單元測試未涵蓋；M5 的 WebApplicationFactory 測試會實際解析 `IBookDetailReader`。
 - **§8 分類層級順序**：屬進階目標，MVP 依分類文字排序，未實作。
 - **快取為 process-local**：多實例部署時各自快取，與 Bestseller 相同限制；TTL 10 分鐘內 Book 更新可能延遲可見。
+
+## M5 Book 詳細頁
+
+### 變更檔案
+
+| 檔案 | 類型 | 說明 |
+|---|---|---|
+| `Controllers/BooksController.cs` | 新增 | `[HttpGet("/books/{id}")]`；非 GUID 或查無 Book 時回 404 與「找不到這本書」頁 |
+| `Models/BookDetailViewModel.cs` | 新增 | `BookDetailViewModel.From(BookDetail)`，產出可直接顯示的標題、副標、封面、貢獻者行、資訊列與連結；不含 description／table of contents；另含 `BookInfoRow`、`BookLink` 兩個 record |
+| `Views/Books/Detail.cshtml` | 新增 | 封面（或「無封面」）、書名 `<h1>`、副標、貢獻者行、資訊列（`<dl>`）、外部連結按鈕、空的 `<section id="library">` |
+| `Views/Books/NotFound.cshtml` | 新增 | 404 頁：「找不到這本書」與回首頁連結 |
+| `tests/WebIntegration/BookDetailPageTests.cs` | 新增 | 20 個 HTTP 層測試 |
+| `tests/WebIntegration/CatalogSeed.cs` | 修改 | `SourceSeed` 新增選用參數 `DateTime? FirstSeenAt = null`；`AddBooksAsync` 以 `source.FirstSeenAt ?? now` 寫入 `first_seen_at`（預設行為不變） |
+| `Docs/Implementation-Report/issue-9-book-detail.md` | 修改 | 本節 |
+
+未修改 `Program.cs`：M4 已註冊 `IBookDetailReader`（以 `CachedBookDetailReader` 包裝），控制器直接依賴該介面。
+
+### 實作思路
+
+- **路由與 404**：`/books/{id}` 以 attribute route 掛在 `BooksController`，`id` 以字串接收，先以 `Guid.TryParse` 判斷；非 GUID 與查無資料都走同一個 404 路徑（`Response.StatusCode = 404` 再回傳 `NotFound` view），不呼叫 DB 的非法值不會造成 500。
+- **Contract（BOOK-05）**：`BookDetailViewModel` 只有書名、副標、封面、貢獻者行、資訊列、連結六類屬性，沒有 description／table of contents。控制器只把 `BookDetail` 轉成 view model，不把 `BookDetail` 直接交給 view。
+- **貢獻者**：`ContributorDisplay.GroupByRole` 把 `BookDetailContributor` 映射為 `ContributorName` 後分組，顯示 `ContributorGroup.Text`（例「作者：甲、丙」）。
+- **出版日期**：`PublishedDateText.Format`，精度由資料決定，不補日期。
+- **ISBN**：每個 `BookDetailIdentifier` 一列，標籤依型別為 `ISBN-13`／`ISBN-10`；`OTHER` 不產生列。順序由 M4 reader 保證（ISBN-13 在前）。
+- **分類**：reader 已 distinct＋ordinal 排序，view model 以「、」連接。
+- **缺值**：`Optional()` 把空白字串視為缺值；資訊列只在有值時加入，因此沒有空標籤、也沒有「—」。
+- **連結**（book-catalog.md §4.1）：
+  - 有博客來來源：第一個（reader 順序，即 `first_seen_at` 再 `id`）為主要按鈕「在博客來查看完整介紹」；其餘博客來為次要「在博客來查看」；Google Books 一律次要「在 Google Books 查看」。
+  - 只有 Google Books：第一個 Google Books 為主要按鈕，其餘次要。
+  - 沒有來源：沒有連結。
+  - 所有外部連結 `target="_blank" rel="noopener noreferrer"`。
+- **Library 區塊**：`<section id="library"></section>`，無內容。
+- **快取**：詳細頁讀取走 `CachedBookDetailReader`（M4），本模組不另加快取邏輯；測試驗證同一 app instance 內第二次請求不會反映資料庫變更。
+
+### 執行紀錄（Log）
+
+1. 先寫測試（TDD red）：`BookDetailPageTests` 20 個與既有 `CatalogSeedTests` 6 個一起執行，先因 `DbSet<Book>.SingleAsync` 缺 `using Microsoft.EntityFrameworkCore` 編譯失敗，補 using 後：
+
+   ```text
+   Failed!  - Failed:    20, Passed:     6, Skipped:     0, Total:    26, Duration: 1 s - WebIntegration.dll (net10.0)
+   ```
+
+   失敗的 20 個皆為 `BookDetailPageTests`（路由不存在，頁面回 404）；`CatalogSeedTests` 6 個通過，代表 `FirstSeenAt` 選用參數不破壞既有行為。
+2. 實作 `BooksController`、`BookDetailViewModel`、`Detail.cshtml`、`NotFound.cshtml`，並在 `CatalogSeed` 加入 `FirstSeenAt`。
+3. 綠燈：同一組測試 `Passed!  - Failed:     0, Passed:    26, Skipped:     0, Total:    26`。
+4. 全部執行（見下方「驗證結果」）；`git diff --check` 無輸出。
+5. 程式碼 commit `b4d2aaf`（Add Book detail page at /books/{id}）。
+
+### 驗證結果（逐條對照需求）
+
+Issue #9 驗收條件：
+
+| 需求 | 測試 | 結果 |
+|---|---|---|
+| 基本書目欄位正確顯示（書名、副標、作者、出版社、日期、頁數、封面） | `Basic_fields_are_rendered` | 通過 |
+| 有簡介與目錄的書，HTML 不出現其文字（以特徵字串斷言） | `Description_and_table_of_contents_are_never_rendered` | 通過 |
+| 有博客來來源 → 「在博客來查看完整介紹」主要按鈕，連到 `source_url` | `Books_com_tw_source_is_a_primary_button_to_its_source_url` | 通過 |
+| 博客來＋Google Books → 兩個連結（博客來為主要） | `Books_com_tw_and_google_books_sources_show_two_links_with_books_com_tw_primary` | 通過 |
+| 只有 Google Books → Google Books 連結為主要按鈕 | `Google_books_only_book_has_its_google_books_link_as_the_primary_button` | 通過 |
+| 只有年份的出版日期只顯示年份 | `Published_date_is_shown_at_its_stored_precision`（Year 案例，`2011`） | 通過 |
+| 不存在的 id 回傳 404 | `Unknown_book_id_returns_404_with_not_found_message` | 通過 |
+| 以 HTTP 層測試；`dotnet test` 通過 | 本模組全部測試（WebIntegration） | 通過 |
+
+明確規則（任務指定）：
+
+| 規則 | 測試 | 結果 |
+|---|---|---|
+| 年月精度顯示 `2011-03`、日精度 `2011-03-15` | `Published_date_is_shown_at_its_stored_precision`（Month、Day 案例） | 通過 |
+| 貢獻者依角色分組，角色依首次出現的 `contributor_order`；組內依順序、「、」連接 | `Contributors_are_grouped_by_role_in_first_appearance_order` | 通過 |
+| ISBN-13 在 ISBN-10 之前；`OTHER` 值不顯示（M4 未解決事項） | `Isbn_13_is_shown_before_isbn_10_and_other_identifiers_are_not_shown` | 通過 |
+| 分類依 ordinal 排序、distinct、「、」連接（M4 未解決事項） | `Subjects_are_distinct_in_ordinal_order_and_joined_with_a_dunhao` | 通過 |
+| 缺值欄位整列不顯示（無 `<dt>`、`<dd>`、副標 class），顯示「無封面」 | `Book_with_only_a_title_renders_no_optional_rows_and_shows_the_cover_placeholder` | 通過 |
+| 兩個博客來來源：`first_seen_at` 較早者為主要按鈕，較晚者為次要「在博客來查看」（測試刻意把較晚來源先插入） | `Earlier_seen_books_com_tw_source_is_primary_and_later_one_is_secondary` | 通過 |
+| 非 GUID id（`/books/abc`、`/books/123`）回傳 404 | `Id_that_is_not_a_guid_returns_404`（2 案例） | 通過 |
+| `<section id="library">` 存在 | `Page_has_an_empty_library_placeholder_section` | 通過 |
+| 快取：首次請求後改書名，同一 app instance 頁面不變（10 分鐘快取） | `Detail_is_served_from_the_cache_within_one_app_instance` | 通過 |
+| 外部連結皆 `target="_blank" rel="noopener noreferrer"` | `Every_external_link_opens_in_a_new_tab_with_noopener` | 通過 |
+| 沒有來源的書沒有連結 | `Book_without_sources_has_no_external_links` | 通過 |
+| `CatalogSeedTests` 維持綠燈（`FirstSeenAt` 不破壞既有行為） | `tests/WebIntegration` 的 `CatalogSeedTests`（6 個） | 通過 |
+
+M4 Code Review 指定的「必須明確斷言」（ISBN 順序、OTHER 不顯示、來源順序依 `first_seen_at`）已分別由上表的 ISBN、兩個博客來來源測試覆蓋，EF 查詢現在由 HTTP 測試在 repo 內實際執行（M4 時僅有 reviewer 的暫時 PostgreSQL 驗證）。
+
+建置與測試（WSL，`dotnet build` 於根目錄，`dotnet test` 逐一執行三個專案）：
+
+```text
+    0 Warning(s)
+    0 Error(s)
+Passed!  - Failed:     0, Passed:    36, Skipped:     0, Total:    36, Duration: 42 ms - UnitTests.dll (net10.0)
+Passed!  - Failed:     0, Passed:    12, Skipped:     0, Total:    12, Duration: 4 s - DatabaseIntegration.dll (net10.0)
+Passed!  - Failed:     0, Passed:    40, Skipped:     0, Total:    40, Duration: 3 s - WebIntegration.dll (net10.0)
+```
+
+`dotnet build tests/WebIntegration --no-incremental` 亦為 0 warnings、0 errors。
+
+### 未解決事項
+
+- **瀏覽器視覺檢查未做**：驗證以 HTTP 層測試（HTML 內容與屬性）為主，未以瀏覽器實際檢視版面（封面比例、按鈕換行）。
+- **多個相同類型 ISBN**：`BookDetailViewModel` 每個 identifier 各產生一列；資料模型假設同一 Book 每種 ISBN 型別通常只有一個，若未來出現多個，會全部列出，這是有意的選擇而非規格明定。
+- **未知 `SourceType`**：目前 enum 只有 `BooksComTw` 與 `GoogleBooks`，連結邏輯以這兩者過濾；若日後新增來源類型，需同步更新 `BookDetailViewModel.LinksOf`，否則該來源不會產生連結（規格要求每個來源一個連結，這點需在新增來源時一併處理）。
+- **§8 分類層級順序**：仍為進階目標，MVP 依分類文字排序。
+- **`Docs/modules/book-catalog.md` 狀態**：本 worktree 的版本已含 §4.1 與使用者 2026-10-11 的決定，與 M4 報告開頭「本分支仍是舊版」的敘述不一致；本模組依本 worktree 內的版本實作。
