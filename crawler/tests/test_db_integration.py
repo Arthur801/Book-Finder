@@ -301,6 +301,76 @@ def test_detail_page_fetch_is_retried_when_the_parse_fails_at_first(db_url):
     assert query(db_url, "SELECT count(*) FROM book_sources WHERE source_url = %s", (target,)) == [(1,)]
 
 
+def test_fetch_retry_that_reaches_a_restricted_page_is_skipped_as_restricted_after_two_attempts(db_url):
+    rows = ranking_rows(100, offset=100)
+    target = rows[0].url
+    fetcher = FakeFetcher(
+        pages={RANKING_PAGE_URL: RANKING_HTML, **{row.url: "<detail/>" for row in rows}},
+        transient_failures={target: 1},
+    )
+
+    def parse(html, url):
+        if url == target:
+            raise RestrictedBookError("restricted product requires member login")
+        return make_draft(url)
+
+    sleep = FakeSleep()
+    deps = RunDependencies(
+        fetcher,
+        fake_ranking_parser(rows),
+        parse,
+        lambda: db.connect(db_url),
+        clock=lambda: NOW,
+        sleep=sleep,
+    )
+
+    report = run_once(deps)
+
+    assert report.status is RunStatus.PARTIAL_SUCCESS
+    assert skipped_ranks(report) == [1]
+    failure = report.skipped[0].failure
+    assert (failure.error_type, failure.attempts) == ("restricted_book", 2)
+    assert fetcher.calls.count(target) == 2  # attempt 1 failed to fetch; attempt 2 reached the restricted page
+    assert sleep.calls == [1.0]  # one backoff: before attempt 2, none after the restricted outcome
+    assert (report.restricted_book_count, report.error_count) == (1, 0)
+    assert query(db_url, "SELECT count(*) FROM book_sources WHERE source_url = %s", (target,)) == [(0,)]
+
+
+def test_write_retry_that_finds_an_isbn_used_by_an_earlier_rank_is_skipped_as_duplicate_after_two_attempts(
+    db_url, monkeypatch
+):
+    isbn = normalize_isbn("978-0-306-40615-7")
+    _seed_with_identifiers(db_url, {1: (isbn,)})  # Book A carries the ISBN and is used by rank 1 below
+    rows = [RankingRow(rank=1, url=product_url(1)), RankingRow(rank=2, url=product_url(201))] + [
+        RankingRow(rank=rank, url=product_url(200 + rank)) for rank in range(3, 101)
+    ]
+    drafts = {row.url: make_draft(row.url) for row in rows}
+    drafts[product_url(201)] = make_draft(product_url(201), identifiers=(isbn,))
+    real_find = db.find_book_by_isbn
+    failed = {"once": False}
+
+    def flaky_find(conn, identifiers):
+        # The first DB call of rank 2's write step fails; the retry's ISBN lookup then succeeds.
+        if identifiers == (isbn,) and not failed["once"]:
+            failed["once"] = True
+            raise psycopg.OperationalError("simulated connection drop during the ISBN lookup")
+        return real_find(conn, identifiers)
+
+    monkeypatch.setattr(db, "find_book_by_isbn", flaky_find)
+    sleep = FakeSleep()
+
+    report, fetcher = run(db_url, rows, drafts, sleep=sleep)
+
+    assert failed["once"]
+    assert report.status is RunStatus.PARTIAL_SUCCESS
+    assert skipped_ranks(report) == [2]
+    failure = report.skipped[0].failure
+    assert (failure.error_type, failure.attempts) == ("duplicate_book_in_ranking", 2)
+    assert fetcher.calls.count(product_url(201)) == 1  # the write is retried with the parsed draft, not refetched
+    assert sleep.calls == [1.0]
+    assert query(db_url, "SELECT count(*) FROM book_sources WHERE source_url = %s", (product_url(201),)) == [(0,)]
+
+
 # ---------------------------------------------------------------------------
 # ISBN attach policy (crawler.md §5, data-model §6)
 # ---------------------------------------------------------------------------
