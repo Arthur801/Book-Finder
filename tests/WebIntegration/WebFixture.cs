@@ -28,13 +28,23 @@ public sealed class WebFixture : IAsyncLifetime
     // A new host per test: IMemoryCache lives in the app instance, so a fresh host keeps cached snapshots from leaking between tests.
     public BookFinderFactory CreateFactory() => new(container.GetConnectionString());
 
-    // Removes every Bestseller and the Books behind it. Tests run serially in one collection, so this is the only isolation needed.
-    public async Task ResetCatalogAsync()
+    // Empties every application table (the migration history stays). Tests run serially in one collection, so this
+    // is the only isolation needed; tables added by later migrations are picked up without changing this method.
+    public async Task ResetDatabaseAsync()
     {
         await using var db = CreateContext();
-        await db.Bestsellers.ExecuteDeleteAsync();
-        await db.Books.ExecuteDeleteAsync();
+        var tables = await db.Database.SqlQueryRaw<string>(
+                "SELECT table_name AS \"Value\" FROM information_schema.tables " +
+                "WHERE table_schema = 'public' AND table_type = 'BASE TABLE' AND table_name <> '__EFMigrationsHistory'")
+            .ToListAsync();
+        if (tables.Count == 0)
+            return;
+        // Table names cannot be SQL parameters; they come from information_schema and are quoted as identifiers.
+        var truncate = "TRUNCATE " + string.Join(", ", tables.Select(QuoteIdentifier)) + " CASCADE";
+        await db.Database.ExecuteSqlRawAsync(truncate);
     }
+
+    internal static string QuoteIdentifier(string name) => "\"" + name.Replace("\"", "\"\"") + "\"";
 }
 
 public sealed class BookFinderFactory(string connectionString) : WebApplicationFactory<Program>

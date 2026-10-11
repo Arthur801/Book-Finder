@@ -11,7 +11,7 @@ public sealed class LayoutAndHomeTests(WebFixture fixture)
     [InlineData("/bestsellers")]
     public async Task Shared_navbar_links_to_sections_and_auth_entry_points(string path)
     {
-        await fixture.ResetCatalogAsync();
+        await fixture.ResetDatabaseAsync();
         await using var app = fixture.CreateFactory();
 
         var html = await app.CreateClient().GetPageAsync(path);
@@ -27,7 +27,7 @@ public sealed class LayoutAndHomeTests(WebFixture fixture)
     [Fact]
     public async Task Privacy_boilerplate_page_is_removed()
     {
-        await fixture.ResetCatalogAsync();
+        await fixture.ResetDatabaseAsync();
         await using var app = fixture.CreateFactory();
         var client = app.CreateClient();
 
@@ -41,7 +41,7 @@ public sealed class LayoutAndHomeTests(WebFixture fixture)
     [Fact]
     public async Task Home_shows_search_and_ai_entry_forms_and_link_to_full_ranking()
     {
-        await fixture.ResetCatalogAsync();
+        await fixture.ResetDatabaseAsync();
         await using var app = fixture.CreateFactory();
 
         var html = await app.CreateClient().GetPageAsync("/");
