@@ -28,7 +28,7 @@ Canonical `Book` 僅保存產品需要的共通資料；來源 identity 另存�
 
 | Canonical field     | 博客來                 | Google Books               | Rule                                   |
 | ------------------- | ---------------------- | -------------------------- | -------------------------------------- |
-| `title`             | 商品標題               | `volumeInfo.title`         | required                               |
+| `title`             | 書名                   | `volumeInfo.title`         | required                               |
 | `subtitle`          | 無穩定獨立欄位         | `volumeInfo.subtitle`      | nullable；不得由博客來標題字串自行拆解 |
 | `contributors`      | 作者、原文作者、譯者等 | `volumeInfo.authors[]`     | `book_contributors`                    |
 | `publisher`         | 出版社                 | `volumeInfo.publisher`     | nullable                               |
@@ -38,11 +38,11 @@ Canonical `Book` 僅保存產品需要的共通資料；來源 identity 另存�
 | `ISBN`              | 詳細資料 ISBN          | `industryIdentifiers[]`    | `book_identifiers`                     |
 | `page_count`        | 規格中的頁數，若存在   | `volumeInfo.pageCount`     | nullable                               |
 | `categories`        | 本書分類               | `volumeInfo.categories[]`  | `book_subjects`                        |
-| `thumbnail_url`     | 商品封面圖片           | `imageLinks.*`             | nullable                               |
+| `thumbnail_url`     | 封面圖片               | `imageLinks.*`             | nullable                               |
 | `table_of_contents` | 目錄，若頁面存在       | 無標準`VolumeInfo` 欄位    | nullable                               |
 | `source identity`   | 商品 URL               | Volume ID                  | `book_sources`                         |
 
-博客來 parser 不得假設所有商品都有頁數、目錄或相同 DOM 結構；必要欄位解析失敗時應 fail loudly，不得大量寫入空值。
+博客來 parser 不得假設所有詳細頁都有頁數、目錄或相同 DOM 結構；必要欄位解析失敗時應 fail loudly，不得大量寫入空值。
 
 ### 2.1 Language normalization
 
@@ -443,9 +443,9 @@ existing Book
 
 不得建立 duplicate Book。
 
-博客來 crawler 對新商品（其 BOOKS_COM_TW `source_url` 尚未存在）套用相同的 ISBN-13 → ISBN-10 比對，但**不做 canonical merge**：
+博客來 crawler 對新來源（其 BOOKS_COM_TW `source_url` 尚未存在）套用相同的 ISBN-13 → ISBN-10 比對，但**不做 canonical merge**：
 命中既有 Book 時只新增一筆 BOOKS_COM_TW `book_sources` 指向該 Book，不修改該 Book 的 metadata、identifiers、contributors 或 subjects。
-同一 Book 不得在同一份榜單中出現兩次（`bestsellers.book_id` UNIQUE）。若較後面的排名解析到較前面排名已使用的 Book（既有商品與 ISBN 附加的新商品，或兩個新商品共用 ISBN），**跳過較後面的排名**：該商品不建立 `book_sources`，計入跳過數（1～10 為 PARTIAL_SUCCESS，超過 10 為 FAILED）；較前面的排名保留該 Book。詳見 `Docs/modules/crawler.md` §5。
+同一 Book 不得在同一份榜單中出現兩次（`bestsellers.book_id` UNIQUE）。若較後面的排名解析到較前面排名已使用的 Book（既有來源與以 ISBN 附加的新來源，或兩個新來源共用 ISBN），**跳過較後面的排名**：該排名不建立 `book_sources`，計入一次一般錯誤的連續計數（連續超過 20 本才 FAILED，累計錯誤無上限；成功、重用或限制級跳過重設連續計數）；較前面的排名保留該 Book。詳見 `Docs/modules/crawler.md` §5。
 （決策：Crawler ISBN 比對與附加來源，依使用者決定採用此方式。）
 
 ---
@@ -577,8 +577,8 @@ Catalog 子表 `book_identifiers`、`book_contributors`、`book_subjects` 的 `b
 
 目前博客來中文書商品頁可觀察到：
 
-- 商品標題；
-- 作者，且部分商品另列原文作者、譯者；
+- 書名；
+- 作者，且部分書籍另列原文作者、譯者；
 - 出版社；
 - 出版日期；
 - 語言；

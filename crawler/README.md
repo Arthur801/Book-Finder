@@ -1,6 +1,6 @@
 # 博客來 crawler
 
-每日取得博客來中文書 7 日 TOP 100，更新 Bestseller 榜單（`Docs/modules/crawler.md`）。頁面以 Playwright 驅動的 headless Chromium 取得（`Docs/architecture/architecture-decisions.md` ADR-006）。
+每日取得博客來中文書 7 日 TOP 100，更新 Bestseller 榜單（`Docs/modules/crawler.md`）。正式預設以 curl_cffi 的 Chrome fingerprint 取得頁面，每次請求使用 3～30 秒的隨機間隔，包含第一次和重試，循序抓取。
 
 ## 安裝
 
@@ -8,6 +8,7 @@
 
 ```bash
 pip install -r requirements.txt
+# 只有 CRAWLER_FETCHER=browser 或本機瀏覽器測試才需要：
 python -m playwright install chromium
 ```
 
@@ -22,17 +23,46 @@ sudo python -m playwright install-deps chromium
 | 環境變數 | 說明 |
 |---|---|
 | `DATABASE_URL` | 共用 PostgreSQL 連線字串（必填；不會寫入 log）。 |
-| `CRAWLER_FETCHER` | 頁面取得方式：`browser`（預設，headless Chromium）或 `http`（requests，僅供除錯；博客來會回傳 Cloudflare challenge）。其他值為設定錯誤（exit code 2）。 |
+| `CRAWLER_FETCHER` | 頁面取得方式：`curl`（預設，curl_cffi Chrome fingerprint）、`browser`（headless Chromium）或 `http`（requests，僅供除錯；博客來會回傳 Cloudflare challenge）。其他值為設定錯誤（exit code 2）。 |
 | `CRAWLER_NAV_TIMEOUT_MS` | 瀏覽器導覽逾時，單位毫秒，整數 1～300000，預設 `30000`。空值使用預設；非整數、0、負數或超過上限為設定錯誤（exit code 2）。只影響 `browser` fetcher。 |
 
 ## 執行
+
+限制級會員登入頁直接跳過、不重試；log 另列 `restricted_book_count`，不計入 `error_count`，並重設 `consecutive_error_count`；累計錯誤沒有上限，連續 21 本一般錯誤才中止。排名不重新編號。其他 HTTP／解析／DB 錯誤仍遵守重試和榜單保護規則。解析、DB 工作與 retry backoff 計入隨機等待目標；工作超過目標時實際間隔可能超過 30 秒。
 
 ```bash
 cd crawler
 DATABASE_URL=postgresql://... python -m books_crawler
 ```
 
-Exit code：0 = SUCCESS 或 PARTIAL_SUCCESS（榜單已替換；PARTIAL_SUCCESS 表示有 1～10 本被跳過），1 = FAILED（榜單不變），2 = 設定錯誤。
+Exit code：0 = SUCCESS 或 PARTIAL_SUCCESS（榜單已替換；PARTIAL_SUCCESS 表示有書被跳過，未出現連續 21 本一般錯誤），1 = FAILED（榜單不變），2 = 設定錯誤。
+
+## 只匯入排行榜第一名
+
+沿用上述環境變數，在 `crawler/` 執行：
+
+```bash
+../.venv/bin/python -m books_crawler.first_book
+```
+
+先抓取並驗證完整的中文書 7 日 TOP 100 排行榜，再只處理 rank 1；其他 99 本不查詢或抓取詳細頁。新書寫入 `books`、`book_sources`、ISBN、作者與分類等關聯資料；既有商品 URL 直接重用，ISBN 命中則只附加來源。此入口不替換 `bestsellers`，不更新既有來源的 `last_seen_at`，不影響每日完整榜單流程。
+
+Exit code：0 = 第一名成功匯入、已存在或為限制級而直接跳過；1 = 抓取／解析／寫入失敗；2 = 設定錯誤。失敗仍沿用最多 3 次嘗試，若是 Cloudflare challenge 也會保存診斷檔案。log 顯示 `mode=first-book`、第一名 URL、成功的 `book_id` 與 `source_id`。
+
+## 查看 Cloudflare 驗證頁
+
+預設 curl fetcher 遇到非 200 或 challenge 會保存 HTML 與診斷 JSON 到 `crawler/artifacts/challenges/`，不產生截圖。以下單頁檢查工具使用 Playwright，需另外安裝 Chromium。
+
+Browser fetcher 偵測到 challenge 時，在關閉分頁前自動保存當下的 `.png` 截圖、`.html` DOM 與 `.json` 診斷資料（URL、標題、HTTP status、`cf-mitigated` / `cf-ray` / `content-type`）。預設位置為 `crawler/artifacts/challenges/`，log 會列出絕對路徑；每次嘗試使用不同檔名。保存失敗只記 WARNING，不改變原本的重試／跳過結果。
+
+只查看單一頁面，不需要 `DATABASE_URL`、不寫資料庫、不重試：
+
+```bash
+cd crawler
+../.venv/bin/python -m books_crawler.inspect_page https://www.books.com.tw/products/0011063006
+```
+
+可用 `--output-dir /tmp/books-challenge` 指定輸出位置。Exit code 0 表示正常取得頁面，1 表示抓取失敗（challenge 也算失敗）。以 PNG 查看當時畫面；HTML 保存當下 DOM，不保證離線開啟時外部資源仍可載入。輸出目錄已排除版本控制。
 
 ## 測試
 

@@ -252,3 +252,75 @@ run_id=7f3c2a10-0000-4000-8000-000000000007 started_at=2026-10-11T04:00:05+00:00
 4. **challenge 信號尚未在真實博客來頁面上驗證**（#24 已記錄）。
 5. **EC2 實測**：部署前仍需在 EC2 上確認瀏覽器 fetcher 能取得頁面（`deployment.md` §8、#21）。
 6. **backoff 的實際耗時**：每本被跳過的書額外耗時 3 秒（1s + 2s），加上最多 3 次 request；跳過上限 10 本時約 30 秒額外等待，可接受。
+
+## 後續更新（2026-10-11）：限制級跳過與連續錯誤中止
+
+> 本節接續原報告，記錄 PR #26 合併後依使用者指示所做的變更。上文保留當時的實作紀錄，其中「跳過超過 10 本即中止」「snapshot 至少 90 筆」等規則已被本節取代。架構決策檔中與 crawler fetcher 相關的 ADR（ADR-006 及之後的 ADR-007、ADR-008）已於 2026-10-11 刪除；上文若有引用，以及上文與本節有衝突時，現行規則一律以 `Docs/modules/crawler.md` 為準。
+
+### 行為
+
+- 排行榜頁最多抓取三次。解析或「完整 100 筆」驗證失敗屬於確定性錯誤，不重試，也不會跳過排行榜。
+- 新書每本最多嘗試三次（含第一次），retry backoff 為 1s、2s。抓取或解析失敗會重新抓頁；DB 寫入失敗則沿用已解析的 draft，只重試寫入。每次網路請求仍遵守 3～30 秒的隨機間隔，backoff 也計入等待目標。
+- 明確的限制級會員登入頁直接跳過：不重試、不寫入 Catalog，`restricted_book` 不算一般錯誤。
+- 已存在的來源直接重用。同一 Book 被較後面的 rank 重複使用時，確定性跳過、不重試，計為一次一般錯誤。
+
+### 中止規則（取代原本的「跳過超過 10 本」）
+
+- 依原始 rank 順序，每本書最終一般失敗時，`consecutive_error_count` 才加一；單本的多次重試只算一次。成功匯入、ISBN attach、重用既有 URL、限制級跳過都會把計數歸零。
+- 連續 20 本仍繼續；第 21 本立即 FAILED，記錄 `aborted_at_rank`，後面的排名不再抓取。累計的 `error_count` 沒有上限：交錯出現 50 本錯誤，或多組各 20 本錯誤，都仍會完成並替換 snapshot。排行榜、環境與交易錯誤仍可能使整次失敗。
+- 失敗時保留上一份 Bestseller 與既有來源的 `last_seen_at`；中止前已 commit 的新 Catalog Book 會保留。完成全榜後，沒有跳過為 SUCCESS，有跳過為 PARTIAL_SUCCESS。Exit code：0 為成功或部分成功、1 為 FAILED、2 為設定錯誤。
+
+### 變更檔案
+
+| 檔案 | 說明 |
+|---|---|
+| `crawler/books_crawler/run.py` | `MAX_CONSECUTIVE_ERRORS = 20`，每日 run 更新連續錯誤計數。`RunReport` 分別輸出 `skipped_count`、`restricted_book_count`、累計 `error_count`、目前的 `consecutive_error_count` 與 `aborted_at_rank`。所有錯誤訊息都經過 redact。移除與新政策不符的 `status_for_skipped_count()`，不保留兩套狀態判定。新增單書入口 `run_first_book` |
+| `crawler/books_crawler/ranking.py` | 移除 `MAX_SKIPPED_ROWS`、`MIN_SNAPSHOT_ROWS` 與由累計錯誤推出的最低筆數。保留 rank、來源歸屬、Book 唯一與限制級排除的驗證 |
+| `crawler/books_crawler/models.py` | `SkipReason` 新增 `RESTRICTED_BOOK = "restricted_book"`；`PARTIAL_SUCCESS` 的說明改為新規則 |
+| `crawler/books_crawler/parsers.py` | 偵測限制級會員頁（頁面同時有「限制級商品」與「登入會員」字樣，且沒有內容容器），拋出 `RestrictedBookError` |
+| `crawler/tests/test_run_unit.py`、`test_ranking.py`、`test_db_integration.py`、`test_parsers_real_fixtures.py` | 移除舊門檻的測試，改寫為新規則（見下表） |
+
+`first_book` 沿用相同的解析與重試政策：第一名為限制級時回 PARTIAL_SUCCESS／exit 0，一般失敗時回 FAILED／exit 1，兩種情況都不替換榜單。
+
+### 測試重整
+
+移除舊的 `test_status_thresholds`、90 筆最低值測試、10／11 本累計中止，以及 rank 11 early abort 測試，改用以下行為測試：
+
+| 案例 | 測試 |
+|---|---|
+| 連續 20、21 本；直到 rank 100 才出現第 21 本；交錯 50 本；兩組各 20 本 | `test_error_streak_boundaries_and_scattered_errors` |
+| 重試後成功仍會重設計數，不按請求次數計錯 | `test_eventual_success_after_retries_resets_twenty_errors` |
+| 既有來源與限制級在兩組錯誤之間重設計數 | `test_non_error_row_resets_streak_even_without_new_book_import` |
+| 解析與 DB 最終失敗同樣在第 21 本中止 | `test_terminal_parse_and_database_errors_also_abort_at_twenty_one` |
+| 限制級只抓一次，之後接 20／21 本錯誤的邊界 | `test_restricted_books_skip_once_before_error_streak_boundary` |
+| Snapshot 不以累計錯誤限制最低筆數 | `test_snapshot_has_no_total_error_count_minimum` |
+
+中止相關的測試另外檢查：後面的 URL 沒有被請求、每本最多三次、舊 snapshot 與 `last_seen_at` 完整保留、接近榜尾才中止時已 commit 的新書仍保留，以及 log 記錄了中止的排名。測試不連線博客來，DB 使用 disposable PostgreSQL。
+
+### 驗證
+
+2026-10-11 執行 `.venv/bin/python -m pytest crawler/tests -q -p no:cacheprovider`，結果 **258 passed in 38.64s**，沒有 skip。範圍涵蓋單元測試、真實 HTML fixtures、disposable PostgreSQL 整合測試與本機 Chromium 測試，測試不連線博客來；沒有對開發或正式資料庫套用 migration。`git diff --check` 通過。本次沒有重新做真實網站抓取，也沒有做 production／EC2 驗證。
+
+### 未解決事項更新
+
+1. 原第 1 項（FAILED 的 run 留下已 commit 的新 Book）仍然成立，觸發條件改為「連續第 21 本一般錯誤」。
+2. 原第 2 項（瀏覽器中途崩潰後不會自動重啟）只影響可選的 browser fetcher；之後的連續失敗仍受第 21 本規則保護。
+3. 原第 3、4、5 項維持不變。EC2 驗證改為驗證預設的 curl fetcher（`Docs/deployment/deployment.md` §8、#21）。
+4. 原第 6 項（backoff 耗時以 10 本上限估算）已不適用：沒有累計上限，加上每次請求 3～30 秒的隨機間隔，整次 run 會明顯變長。
+5. 新規則容許榜單筆數較少，這符合使用者本次的要求；但不保證能通過 Cloudflare。
+6. 限制級頁面的偵測只用一行人工撰寫的 HTML 測過 parser，沒有真實頁面的 fixture，也沒有走過 curl fetcher 的完整路徑。如果真實的會員限制頁回傳非 200 或 redirect，會被 fetcher 當成一般錯誤（2026-10-11 code review 指出）。
+
+### Code Review 與修正（2026-10-11）
+
+依雙軸 code review 修正下列兩項，行為規則不變：
+
+| 項目 | 發現 | 修正 |
+|---|---|---|
+| 限制級判斷重複 | `run.py` 有五處各自比對 `error_type == SkipReason.RESTRICTED_BOOK` | `SkippedRow` 新增 `is_restricted` 屬性，五處都改用它 |
+| 第一名錯誤類型 | `run_first_book` 不論失敗原因（解析、DB 或抓取），都拋 `FetchError("rank 1 import failed")`，所以 `report.error` 的類型標籤會誤導 | 新增 `FirstBookImportError`，訊息附上實際的 `error_type`，例如 `FirstBookImportError: rank 1 import failed (database_error): …`；exit code 不變 |
+
+新增測試 `test_first_book_database_failure_is_not_reported_as_a_fetch_error`，並在 `test_first_book_challenge_exhausts_retries_and_fails` 補上錯誤訊息的斷言。重跑 `.venv/bin/python -m pytest crawler/tests -q -p no:cacheprovider`，結果 **259 passed**；`git diff --check` 通過。
+
+同一輪 review 另修正測試的寫法不一致，測試內容不變：`test_db_integration.py`、`test_first_book.py`、`test_parsers_real_fixtures.py`、`test_ranking.py` 新增的單引號字串改為雙引號；前三個檔案重複的 `from books_crawler.parsers import` 合併為一行。重跑結果同樣是 **259 passed**。
+
+另將 `SkipLimitExceededError` 改名為 `ConsecutiveErrorLimitError`：它現在表示「連續一般錯誤超過上限」，不是舊的「跳過數超過上限」。docstring 改為引用 `MAX_CONSECUTIVE_ERRORS`，不再寫死 20。run log 的 `error=` 欄位會顯示新的類別名稱；中止條件、`aborted_at_rank` 與 exit code 都不變。重跑結果同樣是 **259 passed**。

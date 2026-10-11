@@ -329,3 +329,40 @@ Review 清單以下列編號列出。來源分類（Standards／Spec）未隨任
 - 貢獻者 `contributor_order` 採 1-based（與排行榜 rank 慣例一致；規格未明定）。
 - MONTH／YEAR 的 `published_date` 以當月 1 日、當年 1 月 1 日作為儲存錨點，精度由 `published_date_precision` 表示。
 - 行為變更：Docker 不可用時，整合測試現在會錯誤而非 skip（見「測試 DB 方案」）。
+
+## 後續更新（2026-10-11）：fetcher、限制級跳過與連續錯誤中止
+
+> 本節接續原報告，記錄 #7 與 #24 合併（PR #26）後依使用者指示所做的變更。上文保留當時的實作紀錄。架構決策檔中與 crawler fetcher 相關的 ADR（ADR-006 及之後的 ADR-007、ADR-008）已於 2026-10-11 刪除；上文若有引用，以及上文與本節有衝突時，現行規則一律以 `Docs/modules/crawler.md` 為準。
+
+### 變更摘要
+
+- **Fetcher**：每日流程預設改用 curl_cffi 的 Chrome fingerprint（`CRAWLER_FETCHER=curl`）。Playwright 改為可選的診斷 fetcher。細節見 `issue-24-playwright-fetcher.md` 的後續更新。
+- **錯誤政策**：新書最多嘗試三次（含第一次）。限制級會員頁直接跳過，不重試，也不算錯誤。按 rank 計算連續一般錯誤，第 21 本才中止；成功、重用與限制級跳過都會把計數歸零。累計錯誤沒有上限，snapshot 也不再要求至少 90 筆。完整處理後只要有跳過就是 PARTIAL_SUCCESS，並保留原始 rank 的缺號。細節見 `issue-7-crawler-retry-skip.md` 的後續更新。
+- **重複 Book**：較後面的排名若指向同一 Book，跳過該排名並計為一次一般錯誤，保留前面排名的資料。原報告「未解決事項」中 Q4（暫定）的「整次失敗」已不適用。
+- **單書入口**：新增 `python -m books_crawler.first_book`。它仍會驗證完整排名，但只解析 rank 1；只寫 Catalog，不替換 Bestseller，也不更新既有來源的 `last_seen_at`（`crawler.md` §13.1，使用者要求）。
+- **Snapshot 驗證**：仍檢查 rank 範圍與唯一、Book 唯一、來源必須是同一 Book 的 BOOKS_COM_TW source，並確認限制級排名不在 snapshot 中。連續錯誤由 run 流程檢查，不從 snapshot 筆數推斷。
+
+### 主要檔案（目前責任）
+
+| 責任 | 檔案（`crawler/books_crawler/`） |
+|---|---|
+| CLI 與每日／單書入口 | `cli.py`、`__main__.py`、`first_book.py` |
+| HTML 解析與正規化 | `parsers.py`、`normalize.py`、`urls.py`、`models.py` |
+| 排名驗證與匯入流程 | `ranking.py`、`run.py` |
+| Catalog transaction／snapshot replacement | `db.py` |
+
+沒有 C#、public API 或 schema migration 的變更。
+
+### 真實抓取紀錄
+
+使用者授權的本機真實抓取結果保存在 `crawler/artifacts/verification/top100-random-20261011T001507Z/summary.json`（artifact 不進 Git）。該次完整處理 100 個排名：重用 15、新增 66、限制級 13、一般錯誤 6，寫入 81 本 Book 與 81 筆 Bestseller。這次是在改成連續錯誤政策之前執行的，不能當作新中止條件的真實網站驗證；新政策只用離線測試驗證。EC2 排程與雲端 IP 行為尚未驗證。
+
+### 驗證
+
+2026-10-11 執行 `.venv/bin/python -m pytest crawler/tests -q -p no:cacheprovider`，結果 **258 passed in 38.64s**，沒有 skip。範圍涵蓋單元測試、真實 HTML fixtures、disposable PostgreSQL 整合測試與本機 Chromium 測試，測試不連線博客來。整合測試使用 Testcontainers 的 pgvector PostgreSQL，schema 由 EF migrations 產生，沒有對開發或正式資料庫套用 migration。`git diff --check` 通過。
+
+### 未解決事項更新
+
+- 「給 #7 的接續點」已由 #7 完成，錯誤政策後來又改為本節所述的連續錯誤規則。
+- 「正式抓取博客來（issue #21）」：預設 fetcher 已改為 curl_cffi，但 EC2 實測仍未完成；實測前不得啟用排程（`Docs/deployment/deployment.md` §8）。
+- 「真實 fixture 尚未覆蓋的情境」與「其他」維持不變。

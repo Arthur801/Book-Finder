@@ -16,8 +16,6 @@ from uuid import UUID
 from books_crawler.models import RankingRow, SnapshotRow
 
 EXPECTED_RANKING_COUNT = 100
-MAX_SKIPPED_ROWS = 10  # crawler.md §6: more skipped rows than this fails the run
-MIN_SNAPSHOT_ROWS = EXPECTED_RANKING_COUNT - MAX_SKIPPED_ROWS  # crawler.md §10
 
 
 class RankingValidationError(Exception):
@@ -61,10 +59,11 @@ def validate_ranking(rows: Sequence[RankingRow]) -> list[RankingRow]:
     return ordered
 
 
-def validate_snapshot(rows: Sequence[SnapshotRow], source_books: Mapping[UUID, UUID]) -> list[SnapshotRow]:
+def validate_snapshot(rows: Sequence[SnapshotRow], source_books: Mapping[UUID, UUID],
+                      *, restricted_ranks: Sequence[int] = ()) -> list[SnapshotRow]:
     """Check the rows that will replace ``bestsellers`` (crawler.md §10).
 
-    - 90..100 rows (at most ``MAX_SKIPPED_ROWS`` ranks missing);
+    - excludes explicit restricted ranks; no minimum row count (run checks error streaks);
     - ranks within 1..100 and unique (gaps are allowed, renumbering is not);
     - ``book_id`` unique (``bestsellers.book_id`` is UNIQUE);
     - every ``source_id`` is a BOOKS_COM_TW Book Source of that row's own Book.
@@ -72,9 +71,14 @@ def validate_snapshot(rows: Sequence[SnapshotRow], source_books: Mapping[UUID, U
     ``source_books`` maps the ``source_id`` of each BOOKS_COM_TW Book Source to its ``book_id``, as
     read from the database by the caller. A source missing from the mapping is not valid.
     """
-    if not MIN_SNAPSHOT_ROWS <= len(rows) <= EXPECTED_RANKING_COUNT:
+    if not _has_unique_ranks_in_range(restricted_ranks):
+        raise SnapshotValidationError("restricted ranks must be within 1..100 and unique")
+    if set(restricted_ranks) & {row.rank for row in rows}:
+        raise SnapshotValidationError("restricted ranks must not appear in the snapshot")
+    maximum_rows = EXPECTED_RANKING_COUNT - len(restricted_ranks)
+    if len(rows) > maximum_rows:
         raise SnapshotValidationError(
-            f"snapshot must have {MIN_SNAPSHOT_ROWS}..{EXPECTED_RANKING_COUNT} rows, got {len(rows)}"
+            f"snapshot must have 0..{maximum_rows} rows, got {len(rows)}"
         )
     if not _has_unique_ranks_in_range([row.rank for row in rows]):
         raise SnapshotValidationError("snapshot ranks must be within 1..100 and unique")

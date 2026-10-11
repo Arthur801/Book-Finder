@@ -58,4 +58,4 @@ def test_polite_delay_is_applied_between_requests_only():
     fetcher.get("https://example.test/b")
     fetcher.get("https://example.test/c")
 
-    assert sleeps == [1.5, 1.5]
+    assert sleeps == pytest.approx([1.5, 1.5], abs=0.01)

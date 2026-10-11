@@ -61,3 +61,6 @@ nunit-*.xml
 
 # python
 .venv/
+
+# Crawler page diagnostics
+/crawler/artifacts/

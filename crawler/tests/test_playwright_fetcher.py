@@ -7,9 +7,11 @@ tests are skipped with the command that installs it; the other tests always run.
 
 from __future__ import annotations
 
+import json
 import socket
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from urllib.parse import urlsplit
 
 import pytest
@@ -21,12 +23,13 @@ from books_crawler.fetcher import (
     BROWSER_USER_AGENT,
     DEFAULT_NAVIGATION_TIMEOUT_MS,
     BrowserUnavailableError,
+    CurlCffiFetcher,
     FetchError,
     HttpFetcher,
     PlaywrightFetcher,
     _is_challenge_page,
 )
-from tests.fakes import FakeBrowserContext, FakePage
+from tests.fakes import FakeBrowserContext, FakePage, FakeResponse
 
 NORMAL_HTML = (
     "<!doctype html><html><head><meta charset=\"utf-8\"><title>博客來 測試頁</title></head>"
@@ -175,10 +178,13 @@ def test_navigation_timeout_raises_fetch_error(chromium_ready, local_site):
 
 
 @pytest.mark.parametrize("path", ["/challenge-title", "/challenge-header", "/challenge-header-403"])
-def test_cloudflare_challenge_raises_fetch_error(chromium_ready, local_site, path):
-    with PlaywrightFetcher(delay_seconds=0) as fetcher:
+def test_cloudflare_challenge_raises_fetch_error(chromium_ready, local_site, path, tmp_path):
+    with PlaywrightFetcher(delay_seconds=0, challenge_dir=tmp_path) as fetcher:
         with pytest.raises(FetchError, match="challenge"):
             fetcher.get(local_site.url(path))
+    assert len(list(tmp_path.glob("*.png"))) == 1
+    assert len(list(tmp_path.glob("*.html"))) == 1
+    assert len(list(tmp_path.glob("*.json"))) == 1
 
 
 def test_challenge_title_on_a_page_with_content_is_not_a_challenge(chromium_ready, local_site):
@@ -335,6 +341,82 @@ def _fetcher_over(context: FakeBrowserContext, driver: _FakeDriver | None = None
     return fetcher
 
 
+class _CapturedChallengePage(FakePage):
+    @property
+    def url(self):
+        return self._url
+
+    def goto(self, url, **kwargs):
+        super().goto(url, **kwargs)
+        headers = {"cf-ray": "fixture-ray", "set-cookie": "secret-cookie"}
+        if self._context.header_challenge:
+            headers["cf-mitigated"] = "challenge"
+        return FakeResponse(200, headers)
+
+    def title(self):
+        return "歡迎光臨博客來"
+
+    def query_selector(self, selector):
+        return None
+
+    def screenshot(self, *, path, full_page, timeout):
+        assert not self.closed
+        assert full_page and timeout == 5000
+        if self._context.screenshot_failure:
+            raise PlaywrightError("screenshot failed")
+        Path(path).write_bytes(b"fake screenshot")
+
+
+class _CapturedChallengeContext(FakeBrowserContext):
+    def __init__(self, url, *, header_challenge=True, screenshot_failure=False):
+        super().__init__({url: CHALLENGE_HTML})
+        self.header_challenge = header_challenge
+        self.screenshot_failure = screenshot_failure
+
+    def new_page(self):
+        self.open_pages += 1
+        return _CapturedChallengePage(self)
+
+
+@pytest.mark.parametrize("header_challenge", [True, False])
+def test_challenge_artifacts_are_saved_before_close_and_attempts_do_not_overwrite(tmp_path, header_challenge):
+    url = "https://www.books.com.tw/products/0011063006"
+    context = _CapturedChallengeContext(url, header_challenge=header_challenge)
+    with PlaywrightFetcher(delay_seconds=0, challenge_dir=tmp_path) as fetcher:
+        fetcher._context = context
+        for _ in range(2):
+            with pytest.raises(FetchError, match="challenge"):
+                fetcher.get(url)
+            assert context.open_pages == 0
+    assert len(list(tmp_path.glob("*.png"))) == 2
+    assert len(list(tmp_path.glob("*.html"))) == 2
+    metadata = list(tmp_path.glob("*.json"))
+    assert len(metadata) == 2
+    data = json.loads(metadata[0].read_text())
+    assert data["requested_url"] == url
+    assert data["title"] == "歡迎光臨博客來"
+    assert data["headers"]["cf-ray"] == "fixture-ray"
+    assert "set-cookie" not in data["headers"]
+    assert next(tmp_path.glob("*.html")).read_text() == CHALLENGE_HTML
+
+
+@pytest.mark.parametrize("failure", ["directory", "screenshot"])
+def test_capture_failure_preserves_challenge_error_and_closes_page(tmp_path, failure):
+    url = "https://www.books.com.tw/products/0011063006"
+    target = tmp_path / "capture"
+    if failure == "directory":
+        target.write_text("not a directory")
+    context = _CapturedChallengeContext(url, screenshot_failure=failure == "screenshot")
+    with PlaywrightFetcher(delay_seconds=0, challenge_dir=target) as fetcher:
+        fetcher._context = context
+        with pytest.raises(FetchError, match=r"blocked by a Cloudflare challenge \(cf-mitigated\)"):
+            fetcher.get(url)
+        assert context.open_pages == 0
+    if failure == "screenshot":
+        assert len(list(target.glob("*.html"))) == 1
+        assert len(list(target.glob("*.json"))) == 1
+
+
 def test_new_page_crash_is_wrapped_into_fetch_error():
     fetcher = _fetcher_over(_NewPageCrashes(pages={}))
 
@@ -442,11 +524,11 @@ def _stub_run(monkeypatch, *, exit_code: int = 0, error: Exception | None = None
     return seen
 
 
-def test_cli_uses_browser_fetcher_by_default(monkeypatch):
+def test_cli_uses_curl_fetcher_by_default(monkeypatch):
     seen = _stub_run(monkeypatch)
 
     assert cli.main({"DATABASE_URL": "postgresql://unused"}) == 0
-    assert isinstance(seen["fetcher"], PlaywrightFetcher)
+    assert isinstance(seen["fetcher"], CurlCffiFetcher)
 
 
 def test_cli_switches_to_http_fetcher_with_environment_variable(monkeypatch):
@@ -464,7 +546,7 @@ def test_cli_rejects_unknown_fetcher_as_configuration_error(monkeypatch):
 
 
 def test_cli_closes_fetcher_when_the_run_raises(monkeypatch):
-    monkeypatch.setattr(cli, "PlaywrightFetcher", SpyFetcher)
+    monkeypatch.setattr(cli, "CurlCffiFetcher", SpyFetcher)
     seen = _stub_run(monkeypatch, error=RuntimeError("unexpected"))
 
     with pytest.raises(RuntimeError, match="unexpected"):
@@ -473,7 +555,7 @@ def test_cli_closes_fetcher_when_the_run_raises(monkeypatch):
 
 
 def test_cli_closes_fetcher_when_the_run_fails_normally(monkeypatch):
-    monkeypatch.setattr(cli, "PlaywrightFetcher", SpyFetcher)
+    monkeypatch.setattr(cli, "CurlCffiFetcher", SpyFetcher)
     seen = _stub_run(monkeypatch, exit_code=1)
 
     assert cli.main({"DATABASE_URL": "postgresql://unused"}) == 1
@@ -483,14 +565,14 @@ def test_cli_closes_fetcher_when_the_run_fails_normally(monkeypatch):
 def test_cli_passes_the_navigation_timeout_to_the_browser_fetcher(monkeypatch):
     seen = _stub_run(monkeypatch)
 
-    assert cli.main({"DATABASE_URL": "postgresql://unused", "CRAWLER_NAV_TIMEOUT_MS": " 45000 "}) == 0
+    assert cli.main({"DATABASE_URL": "postgresql://unused", "CRAWLER_FETCHER": "browser", "CRAWLER_NAV_TIMEOUT_MS": " 45000 "}) == 0
     assert seen["fetcher"].navigation_timeout_ms == 45000
 
 
 def test_cli_uses_the_default_navigation_timeout_when_unset(monkeypatch):
     seen = _stub_run(monkeypatch)
 
-    assert cli.main({"DATABASE_URL": "postgresql://unused", "CRAWLER_NAV_TIMEOUT_MS": ""}) == 0
+    assert cli.main({"DATABASE_URL": "postgresql://unused", "CRAWLER_FETCHER": "browser", "CRAWLER_NAV_TIMEOUT_MS": ""}) == 0
     assert seen["fetcher"].navigation_timeout_ms == DEFAULT_NAVIGATION_TIMEOUT_MS
 
 
@@ -498,11 +580,11 @@ def test_cli_uses_the_default_navigation_timeout_when_unset(monkeypatch):
 def test_invalid_navigation_timeout_is_a_configuration_error(monkeypatch, raw):
     seen = _stub_run(monkeypatch)
 
-    assert cli.main({"DATABASE_URL": "postgresql://unused", "CRAWLER_NAV_TIMEOUT_MS": raw}) == cli.EXIT_CONFIG_ERROR
+    assert cli.main({"DATABASE_URL": "postgresql://unused", "CRAWLER_FETCHER": "browser", "CRAWLER_NAV_TIMEOUT_MS": raw}) == cli.EXIT_CONFIG_ERROR
     assert seen == {}
 
 
 def test_fetcher_kinds_are_the_documented_values():
     from books_crawler.fetcher import FetcherKind
 
-    assert [kind.value for kind in FetcherKind] == ["browser", "http"]
+    assert [kind.value for kind in FetcherKind] == ["browser", "http", "curl"]

@@ -39,7 +39,7 @@ class ContributorRole(StrEnum):
 
 class RunStatus(StrEnum):
     SUCCESS = "SUCCESS"
-    PARTIAL_SUCCESS = "PARTIAL_SUCCESS"  # 1..10 skipped rows; bestsellers replaced (crawler.md §11)
+    PARTIAL_SUCCESS = "PARTIAL_SUCCESS"  # skipped rows, no streak above 20 non-restricted errors; snapshot replaced
     FAILED = "FAILED"  # bestsellers unchanged
 
 
@@ -50,6 +50,7 @@ class SkipReason(StrEnum):
     PARSE_ERROR = "parse_error"
     DATABASE_ERROR = "database_error"
     DUPLICATE_BOOK_IN_RANKING = "duplicate_book_in_ranking"
+    RESTRICTED_BOOK = "restricted_book"
 
 
 @dataclass(frozen=True)
@@ -72,6 +73,11 @@ class SkippedRow:
     rank: int
     url: str
     failure: Failure
+
+    @property
+    def is_restricted(self) -> bool:
+        """A restricted member-only page: skipped without retry and not counted as an error."""
+        return self.failure.error_type == SkipReason.RESTRICTED_BOOK
 
 
 @dataclass(frozen=True)

@@ -51,9 +51,11 @@ from books_crawler.models import (
     SnapshotRow,
     SourceRef,
 )
-from books_crawler.parsers import RANKING_PAGE_URL, DetailParser, RankingParser
-from books_crawler.ranking import MAX_SKIPPED_ROWS, validate_ranking, validate_snapshot
+from books_crawler.parsers import RANKING_PAGE_URL, DetailParser, RankingParser, RestrictedBookError
+from books_crawler.ranking import validate_ranking, validate_snapshot
 from books_crawler.redact import redact
+
+MAX_CONSECUTIVE_ERRORS = 20
 
 log = logging.getLogger("books_crawler.run")
 
@@ -68,8 +70,16 @@ class DuplicateBookInRankingError(RuntimeError):
     """A later ranking row resolves to a Book that an earlier rank already uses (not retried)."""
 
 
-class SkipLimitExceededError(RuntimeError):
-    """More than ``MAX_SKIPPED_ROWS`` rows were skipped: the run fails (crawler.md §6, CRAWL-05)."""
+class ConsecutiveErrorLimitError(RuntimeError):
+    """More than ``MAX_CONSECUTIVE_ERRORS`` consecutive rows failed: the run fails (crawler.md §6, CRAWL-05)."""
+
+
+class FirstBookImportError(RuntimeError):
+    """The single-book import skipped rank 1 for a reason other than a restricted page."""
+
+    def __init__(self, failure: Failure) -> None:
+        super().__init__(f"rank 1 import failed ({failure.error_type}): {failure.error_message}")
+        self.failure = failure
 
 
 class _AttemptFailed(Exception):
@@ -100,15 +110,6 @@ def _attempts(deps: RunDependencies) -> Iterator[int]:
         yield attempt
 
 
-def status_for_skipped_count(skipped_count: int) -> RunStatus:
-    """crawler.md §11: 0 skipped → SUCCESS, 1..10 → PARTIAL_SUCCESS, more → FAILED."""
-    if skipped_count == 0:
-        return RunStatus.SUCCESS
-    if skipped_count <= MAX_SKIPPED_ROWS:
-        return RunStatus.PARTIAL_SUCCESS
-    return RunStatus.FAILED
-
-
 @dataclass
 class RunDependencies:
     fetcher: Fetcher
@@ -134,13 +135,23 @@ class RunReport:
     # Subset of existing_book_count: new products attached to an existing Book by ISBN.
     attached_source_count: int = 0
     skipped: list[SkippedRow] = field(default_factory=list)
-    # Rank of the row whose skip pushed the count over the limit; the run stopped there.
+    # Current streak of terminal non-restricted row failures.
+    consecutive_error_count: int = 0
+    # Rank of the 21st consecutive error; the run stopped there.
     aborted_at_rank: int | None = None
     error: str | None = None
 
     @property
     def skipped_count(self) -> int:
         return len(self.skipped)
+
+    @property
+    def restricted_book_count(self) -> int:
+        return sum(item.is_restricted for item in self.skipped)
+
+    @property
+    def error_count(self) -> int:
+        return self.skipped_count - self.restricted_book_count
 
     @property
     def exit_code(self) -> int:
@@ -159,6 +170,9 @@ def format_report(report: RunReport) -> str:
         "new_book_count": report.new_book_count,
         "attached_source_count": report.attached_source_count,
         "skipped_count": report.skipped_count,
+        "restricted_book_count": report.restricted_book_count,
+        "error_count": report.error_count,
+        "consecutive_error_count": report.consecutive_error_count,
         "aborted_at_rank": "none" if report.aborted_at_rank is None else report.aborted_at_rank,
         "exit_code": report.exit_code,
     }
@@ -213,6 +227,8 @@ def _fetch_and_parse(row: RankingRow, deps: RunDependencies, attempt: int) -> Bo
     try:
         # ParseError (e.g. missing title or product container) and BookDraft validation are ValueErrors.
         return deps.parse_detail(html, row.url)
+    except RestrictedBookError:
+        raise
     except ValueError as exc:
         raise _AttemptFailed(_failure(SkipReason.PARSE_ERROR, str(exc), attempt)) from exc
 
@@ -272,6 +288,9 @@ def _resolve_row(
             if draft is None:
                 draft = _fetch_and_parse(row, deps, attempt)
             ref, match = _write_new_source(conn, draft, deps, ranked, attempt)
+        except RestrictedBookError as exc:
+            log.info("rank %d restricted product skipped without retry: %s", row.rank, row.url)
+            return _skipped(row, _failure(SkipReason.RESTRICTED_BOOK, str(exc), attempts=attempt))
         except _AttemptFailed as exc:
             last_failure = exc.failure
             log.warning(
@@ -305,6 +324,40 @@ def _resolve_row(
     return _skipped(row, last_failure)
 
 
+def run_first_book(deps: RunDependencies, run_id: str | None = None) -> RunReport:
+    """Import only rank 1 into the catalog; never replace the bestseller snapshot.
+
+    The ranking page is still validated in full. Resolution, normalization, ISBN matching,
+    transactions and retry rules are shared with the daily crawler.
+    """
+    report = RunReport(
+        run_id=run_id or str(uuid.uuid4()),
+        status=RunStatus.FAILED,
+        started_at=deps.clock(),
+        finished_at=deps.clock(),
+    )
+    try:
+        rows = validate_ranking(deps.parse_ranking(_fetch_ranking_page(deps)))
+        report.ranking_count = len(rows)
+        row = rows[0]
+        with deps.connect() as conn:
+            outcome = _resolve_row(conn, row, deps, report, {})
+            if isinstance(outcome, SkippedRow):
+                report.skipped.append(outcome)
+                if not outcome.is_restricted:
+                    raise FirstBookImportError(outcome.failure)
+                report.status = RunStatus.PARTIAL_SUCCESS
+            else:
+                report.status = RunStatus.SUCCESS
+                log.info("rank=1 url=%s book_id=%s source_id=%s", row.url, outcome.book_id, outcome.source_id)
+    except Exception as exc:
+        report.error = redact(f"{type(exc).__name__}: {exc}")
+        log.error("first-book import failed: %s", report.error)
+    report.finished_at = deps.clock()
+    log.info("mode=first-book %s", format_report(report))
+    return report
+
+
 def run_once(deps: RunDependencies, run_id: str | None = None) -> RunReport:
     """Execute one crawl. Never raises: failures are reported through ``RunReport``."""
     report = RunReport(
@@ -325,26 +378,33 @@ def run_once(deps: RunDependencies, run_id: str | None = None) -> RunReport:
                 outcome = _resolve_row(conn, row, deps, report, ranked)
                 if isinstance(outcome, SkippedRow):
                     report.skipped.append(outcome)
-                    log.warning(
+                    log_skip = log.info if outcome.is_restricted else log.warning
+                    log_skip(
                         "rank %d skipped after %d attempt(s) (%s): %s",
                         outcome.rank,
                         outcome.failure.attempts,
                         outcome.failure.error_type,
                         outcome.failure.error_message,
                     )
-                    if report.skipped_count > MAX_SKIPPED_ROWS:
+                    if outcome.is_restricted:
+                        report.consecutive_error_count = 0
+                    else:
+                        report.consecutive_error_count += 1
+                    if report.consecutive_error_count > MAX_CONSECUTIVE_ERRORS:
                         # Stop early: a layout change would otherwise cost retries on every remaining row.
                         report.aborted_at_rank = row.rank
-                        raise SkipLimitExceededError(
-                            f"{report.skipped_count} ranking rows skipped, more than the limit of {MAX_SKIPPED_ROWS}"
+                        raise ConsecutiveErrorLimitError(
+                            f"{report.consecutive_error_count} consecutive ranking rows failed, more than the limit of {MAX_CONSECUTIVE_ERRORS}"
                         )
                     continue
+                report.consecutive_error_count = 0
                 ranked[outcome.book_id] = row.rank
                 snapshot.append(SnapshotRow(rank=row.rank, book_id=outcome.book_id, source_id=outcome.source_id))
 
-            status = status_for_skipped_count(report.skipped_count)
+            status = RunStatus.PARTIAL_SUCCESS if report.skipped_count else RunStatus.SUCCESS
             source_books = db.booksdotcom_source_books(conn, [item.source_id for item in snapshot])
-            replacement = validate_snapshot(snapshot, source_books)
+            restricted_ranks = [item.rank for item in report.skipped if item.is_restricted]
+            replacement = validate_snapshot(snapshot, source_books, restricted_ranks=restricted_ranks)
             db.replace_bestsellers(conn, replacement, captured_at=deps.clock())
 
         report.status = status

@@ -66,6 +66,10 @@ class ParseError(ValueError):
     """The page is not the expected kind of page; the run must fail."""
 
 
+class RestrictedBookError(ParseError):
+    """The source explicitly requires an adult member login to view this product."""
+
+
 class _Row(NamedTuple):
     label: str
     value: str
@@ -241,6 +245,10 @@ def _thumbnail(container: Tag, title: str) -> str | None:
 def parse_detail_html(html: str, url: str) -> BookDraft:
     soup = BeautifulSoup(html, "html.parser")
     canonical_url = canonicalize_product_url(url)
+    if soup.select_one(_PRODUCT_CONTAINER) is None:
+        page_text = str(soup)
+        if "限制級商品" in page_text and "登入會員" in page_text:
+            raise RestrictedBookError(f"restricted product requires member login: {canonical_url}")
     container = _product_container(soup)
 
     heading = container.find("h1")

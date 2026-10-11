@@ -13,7 +13,13 @@ import pytest
 from bs4 import BeautifulSoup
 
 from books_crawler.models import Contributor, Identifier
-from books_crawler.parsers import RANKING_PAGE_URL, ParseError, parse_detail_html, parse_ranking_html
+from books_crawler.parsers import (
+    RANKING_PAGE_URL,
+    ParseError,
+    RestrictedBookError,
+    parse_detail_html,
+    parse_ranking_html,
+)
 from books_crawler.ranking import RankingValidationError, validate_ranking
 from tests.fakes import (
     RANKING_FIXTURE,
@@ -33,6 +39,17 @@ from tests.fakes import (
 # ---------------------------------------------------------------------------
 # Ranking page
 # ---------------------------------------------------------------------------
+
+
+def test_explicit_restricted_member_gate_is_recognized():
+    html = '<script>alert("本商品為限制級商品，限18歲以上會員瀏覽，請先登入會員。");</script>'
+    with pytest.raises(RestrictedBookError, match="requires member login"):
+        parse_detail_html(html, product_url(1063006))
+
+
+def test_restricted_words_inside_a_real_product_are_not_a_member_gate():
+    html = '<div class="main_column"><h1>限制級商品與登入會員</h1></div>'
+    assert parse_detail_html(html, product_url(1063006)).title == "限制級商品與登入會員"
 
 def test_ranking_fixture_yields_exactly_100_rows_ranked_1_to_100():
     rows = parse_ranking_html(fixture_html(RANKING_FIXTURE))

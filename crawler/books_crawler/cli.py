@@ -2,8 +2,8 @@
 
 Environment:
     DATABASE_URL            PostgreSQL connection URL of the shared database (required; secret, never logged).
-    CRAWLER_FETCHER         Page fetcher: ``browser`` (default, headless Chromium via Playwright, ADR-006)
-                            or ``http`` (requests; debugging only, blocked by books.com.tw's challenge).
+    CRAWLER_FETCHER         Page fetcher: ``curl`` (default, Chrome fingerprint, crawler.md §15),
+                            ``browser`` (Playwright), or ``http`` (requests; debugging only).
     CRAWLER_NAV_TIMEOUT_MS  Browser navigation timeout in milliseconds (1..300000; default 30000).
                             Empty means the default. Only used by the browser fetcher.
 
@@ -23,19 +23,21 @@ from books_crawler import db
 from books_crawler.fetcher import (
     DEFAULT_NAVIGATION_TIMEOUT_MS,
     MAX_NAVIGATION_TIMEOUT_MS,
+    CurlCffiFetcher,
     FetcherKind,
     HttpFetcher,
     PlaywrightFetcher,
 )
 from books_crawler.parsers import parse_detail_html, parse_ranking_html
-from books_crawler.run import RunDependencies, run_once
+from books_crawler.run import RunDependencies, run_first_book, run_once
 
 EXIT_CONFIG_ERROR = 2
 FETCHER_ENV = "CRAWLER_FETCHER"
 NAVIGATION_TIMEOUT_ENV = "CRAWLER_NAV_TIMEOUT_MS"
 
 
-def _configure_logging() -> logging.Logger:
+def configure_logging() -> logging.Logger:
+    """Send ``books_crawler`` logs to stdout at INFO; shared by every crawler entry point."""
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
     root = logging.getLogger("books_crawler")
@@ -57,8 +59,8 @@ def parse_navigation_timeout(raw: str) -> int:
     return milliseconds
 
 
-def main(environ: Mapping[str, str] | None = None) -> int:
-    _configure_logging()
+def main(environ: Mapping[str, str] | None = None, *, first_book: bool = False) -> int:
+    configure_logging()
     log = logging.getLogger("books_crawler.cli")
     env = os.environ if environ is None else environ
 
@@ -75,14 +77,16 @@ def main(environ: Mapping[str, str] | None = None) -> int:
 
     raw_kind = env.get(FETCHER_ENV, "")
     try:
-        kind = FetcherKind(raw_kind.strip().lower() or FetcherKind.BROWSER)
+        kind = FetcherKind(raw_kind.strip().lower() or FetcherKind.CURL)
     except ValueError:
         choices = " or ".join(f"'{item.value}'" for item in FetcherKind)
         log.error("%s must be %s, not %r", FETCHER_ENV, choices, raw_kind)
         return EXIT_CONFIG_ERROR
 
-    fetcher: HttpFetcher | PlaywrightFetcher
-    if kind is FetcherKind.BROWSER:
+    fetcher: HttpFetcher | PlaywrightFetcher | CurlCffiFetcher
+    if kind is FetcherKind.CURL:
+        fetcher = CurlCffiFetcher()
+    elif kind is FetcherKind.BROWSER:
         fetcher = PlaywrightFetcher(navigation_timeout_ms=navigation_timeout_ms)
     else:
         fetcher = HttpFetcher()
@@ -96,7 +100,8 @@ def main(environ: Mapping[str, str] | None = None) -> int:
     )
     # The browser must be closed however the run ends: normal result, FAILED, or an exception.
     try:
-        return run_once(deps).exit_code
+        runner = run_first_book if first_book else run_once
+        return runner(deps).exit_code
     finally:
         fetcher.close()
 

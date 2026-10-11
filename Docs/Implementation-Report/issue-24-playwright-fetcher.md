@@ -145,3 +145,85 @@
 ### 未處理的後續事項（本次審查新增的註記）
 
 - 瀏覽器中途崩潰後，`PlaywrightFetcher` 不會自動重新啟動瀏覽器；之後每次 `get` 都是 `FetchError`。在 #7 的 early abort 下會快速變成 FAILED。詳見 `issue-7-crawler-retry-skip.md` 的未解決事項。
+
+## 後續更新（2026-10-11）：預設改用 curl_cffi，Playwright 改為診斷用
+
+> 本節接續原報告，記錄 PR #26 合併後依使用者指示所做的變更。上文保留當時的實作紀錄。上文提到的 ADR-006，以及之後的 ADR-007、ADR-008，已於 2026-10-11 從 `Docs/architecture/architecture-decisions.md` 刪除；現行規則一律以 `Docs/modules/crawler.md` §15 為準。上文與本節有衝突時（例如「預設使用 `PlaywrightFetcher`」「預設間隔 1.0 秒」），以本節與 `crawler.md` 為準。
+
+### 變更檔案
+
+| 檔案 | 類型 | 說明 |
+|---|---|---|
+| `crawler/books_crawler/fetcher.py` | 修改 | 新增 `CurlCffiFetcher`；三種 fetcher 改用隨機間隔；新增網站連線異常頁的判斷 |
+| `crawler/books_crawler/cli.py` | 修改 | `FetcherKind` 新增 `curl`，並設為預設；新增 `first_book` 參數 |
+| `crawler/books_crawler/first_book.py` | 新增 | 只匯入榜首的入口（`crawler.md` §13.1） |
+| `crawler/books_crawler/inspect_page.py` | 新增 | 用 Playwright 抓單一頁面並保存驗證頁診斷，不存取 DB、不重試 |
+| `crawler/requirements.txt` | 修改 | 加入 `curl_cffi==0.16.3` |
+| `crawler/tests/test_curl_fetcher.py` | 新增 | curl fetcher 的離線測試 |
+| `crawler/tests/test_playwright_fetcher.py` | 修改 | 隨機間隔、診斷輸出與 CLI 接線 |
+| `.gitignore` | 修改 | 忽略 `/crawler/artifacts/`（診斷輸出） |
+
+### 正式 curl_cffi fetcher
+
+- `CRAWLER_FETCHER=curl` 為預設。釘選 `curl_cffi==0.16.3`，整個 run 共用一個 `Session(impersonate="chrome")`，使用 zh-TW Accept-Language，保留 TLS 驗證，timeout 30 秒。循序執行，不自動跟隨 redirect，3xx 一律視為抓取失敗。
+- 以下情況都包成 `FetchError`：非 200、`cf-mitigated: challenge`、challenge 標題且缺主要內容容器，以及沒有內容的網站連線異常頁（即使是 HTTP 200）。
+- 一般 HTTP、challenge 或網站錯誤時保存原始 HTML 與部分 JSON 資訊，不提供 PNG；保存失敗不會取代原本的抓取例外。
+- curl 不執行 JavaScript，也不會自動切換 fingerprint。
+
+### 可選的 Playwright fetcher
+
+- `CRAWLER_FETCHER=browser` 仍是上文描述的 headless Chromium 同步 API 實作，並沿用使用者核准的一般桌面 Chrome UA 與 zh-TW locale；`CRAWLER_NAV_TIMEOUT_MS` 可設定 1～300000 ms，預設 30000。
+- 遇到 `cf-mitigated: challenge`，或 challenge 標題且沒有 `.main_column` 時，在 page 關閉前保存 HTML、PNG 與 JSON。檔名使用 timestamp 加 UUID，避免重試互相覆蓋。只保存指定的回應 headers，不保存 cookie 或 request headers。檔案放在被 Git 忽略的 `crawler/artifacts/challenges/`。單一輸出失敗不影響其他輸出，也不會遮蔽 `FetchError`。
+
+### 節流
+
+- 三種 fetcher（curl、browser、http）預設每次請求（含第一次與重試）都獨立取樣 uniform(3,30) 秒，取代上文的固定 1.0 秒。
+- 從前一次請求結束起算，解析、DB 工作與 backoff 的時間都計入間隔；若已超過目標就不再額外 sleep，所以實際間隔可能超過 30 秒。
+- clock 與 sleep 可注入，方便離線驗證；固定 delay 只供 browser／http 的本機診斷使用。
+
+### 入口
+
+- 每日：`python -m books_crawler`
+- 只匯入榜首：`python -m books_crawler.first_book`（只寫 Catalog，不更新榜單）
+- 查看驗證頁：`python -m books_crawler.inspect_page URL --output-dir PATH`（使用 Playwright，不存取 DB、不重試）
+
+重試與中止由 run 負責：單本最多三次；限制級直接跳過並重設計數；連續一般錯誤第 21 本才中止，累計錯誤沒有上限（見 `issue-7-crawler-retry-skip.md` 的後續更新）。
+
+仍未使用 stealth 外掛、`navigator.webdriver` 修補、CAPTCHA 代解或代理 IP 輪替。`http` 是手動的 requests 診斷入口，仍沿用 requests 的自動 redirect 行為；只有正式的 curl fetcher 明確禁止 redirect。
+
+### 驗證
+
+- `test_curl_fetcher.py` 用 fake session 與 clock 驗證：session 設定、第一次與重試的節流、3／30 秒邊界、WAF 的 HTTP 200 頁、非 200、拒絕 redirect、例外遮罩與診斷失敗。
+- `test_playwright_fetcher.py` 用本機頁面與 fake context 驗證：DOM、challenge 截圖、檔名唯一、逾時、cleanup 與 CLI 接線。測試不連線博客來。
+- 2026-10-11 執行 `.venv/bin/python -m pytest crawler/tests -q -p no:cacheprovider`，結果 **258 passed in 38.64s**，沒有 skip。`git diff --check` 通過。
+- 使用者授權的真實本機 run 保存在 `crawler/artifacts/verification/top100-random-20261011T001507Z/summary.json`：完整處理 100 個排名，實際請求 85 個不同的來源 URL，重用 15、成功新增 66、限制級 13、一般錯誤 6；最終 Catalog 與 Bestseller 各 81 筆。前一次請求完成到下一次開始的最短間隔為 3.133 秒，取樣值都在 3～30 秒內。這是改成連續錯誤政策之前的結果，也不代表每一本書都能抓到。
+
+### 未解決事項更新
+
+1. 原第 1 項（EC2 實測）仍未完成，驗證對象改為預設的 curl fetcher。人工用 Chrome 能進入，不代表 headless browser 或其他 IP／session 也能通過；最初的 browser 抓取曾收到 `cf-mitigated` 並保存了診斷。
+2. 原第 2 項（Docker image）仍未實作。預設的 curl 模式不需要 Chromium，但 `fetcher.py` 在模組頂層 import playwright，所以 Playwright Python 套件仍是必要依賴（2026-10-11 code review 指出）。
+3. 原第 3～8 項維持不變。其中第 4 項（challenge 信號未在真實頁面驗證）也適用於 curl fetcher，因為它沿用同樣的 challenge 標題判斷；其餘各項只與可選的 browser fetcher 有關。
+4. 每日 cron 與 production 尚未驗證。
+
+### Code Review 與修正（2026-10-11）
+
+依雙軸 code review 修正下列項目，行為不變：
+
+| 項目 | 發現 | 修正 |
+|---|---|---|
+| 重複程式碼 | `CurlCffiFetcher._save_failure` 與 `PlaywrightFetcher._save_challenge` 各自組出 timestamp／UUID 檔名，也各自篩選並遮罩回應 headers | 抽出 `_new_diagnostic_base()`（建立目錄並回傳唯一檔名）、`_diagnostic_headers()` 與常數 `DIAGNOSTIC_HEADERS`，兩個 fetcher 共用；檔名格式、保存的欄位與 log 訊息不變 |
+| 寫法不一致 | `_wait_for_request`、`CurlCffiFetcher.__init__` 與 `session.get(...)` 用對齊縮排，與檔案內其他函式「一參數一行、結尾逗號」的寫法不同 | 統一為既有寫法 |
+| import 順序 | `fetcher.py` 的 stdlib import 未排序；`cli.py`、`test_playwright_fetcher.py` 的 `CurlCffiFetcher` 不在字母順序上；`test_playwright_fetcher.py` 的 `json` 排在 `socket` 後面，另在 fake 的 `screenshot()` 內 import `Path` | 依字母順序排列，`Path` 改在檔案頂端 import |
+| 測試替身命名 | `test_curl_fetcher.py` 的 fake 叫 `Response`、`Session`，不符合 `tests/fakes.py` 的 `Fake*` 慣例 | 改名為 `FakeCurlResponse`、`FakeCurlSession`（`FakeResponse` 已被 Playwright fake 使用） |
+| 引號 | `test_curl_fetcher.py` 使用單引號字串，既有程式用雙引號 | 改為雙引號；含雙引號的字串維持原樣 |
+
+重跑 `.venv/bin/python -m pytest crawler/tests -q -p no:cacheprovider`，結果 **259 passed**；`git diff --check` 通過。
+
+第二輪修正（同日，行為不變）：
+
+| 項目 | 發現 | 修正 |
+|---|---|---|
+| 隱性旗標 | `_wait_for_request(delay=None)` 的 `None` 同時代表「每次隨機取樣」與「第一次請求也要等」，三個 fetcher 也各自保存 `_last_finished`、`_sleep`、`_clock` | 改為 `_RequestPacer` 類別：`fixed_delay=None` 時，取樣函式與「第一次也等待」分別存成 `_next_target`、`_wait_before_first` 兩個具名屬性；三個 fetcher 都只呼叫 `wait()` 與 `finished()`。移除 `PlaywrightFetcher._wait_for_delay` |
+| 私有函式跨模組引用 | `inspect_page.py` import 了 `cli._configure_logging` | 改名為公開的 `cli.configure_logging()`，並補上 docstring |
+
+重跑 `.venv/bin/python -m pytest crawler/tests -q -p no:cacheprovider`，結果 **259 passed**；`git diff --check` 通過。

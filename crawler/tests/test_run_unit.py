@@ -9,7 +9,7 @@ from books_crawler.fetcher import BrowserUnavailableError, FetchError
 from books_crawler.models import Failure, RankingRow, RunStatus, SkipReason, SkippedRow
 from books_crawler.parsers import RANKING_PAGE_URL, parse_detail_html, parse_ranking_html
 from books_crawler.redact import redact
-from books_crawler.run import RunDependencies, RunReport, backoff_seconds, format_report, run_once, status_for_skipped_count
+from books_crawler.run import RunDependencies, RunReport, backoff_seconds, format_report, run_once
 from tests.fakes import (
     RANKING_HTML,
     FakeFetcher,
@@ -133,14 +133,6 @@ def test_real_parsers_reject_a_page_that_is_not_the_ranking_and_fail_the_run():
     assert connect.calls == 0
 
 
-@pytest.mark.parametrize(
-    "skipped, status",
-    [(0, RunStatus.SUCCESS), (1, RunStatus.PARTIAL_SUCCESS), (10, RunStatus.PARTIAL_SUCCESS), (11, RunStatus.FAILED)],
-)
-def test_status_thresholds(skipped, status):
-    assert status_for_skipped_count(skipped) is status
-
-
 @pytest.mark.parametrize("attempt, seconds", [(2, 1.0), (3, 2.0)])
 def test_backoff_schedule(attempt, seconds):
     assert backoff_seconds(attempt) == seconds
@@ -164,6 +156,7 @@ def test_format_report_has_required_fields():
         "skipped_count=0",
         "exit_code=1",
         "aborted_at_rank=none",
+        "consecutive_error_count=0",
         "skipped=[]",
     ):
         assert field in line
@@ -223,6 +216,7 @@ def test_skip_reason_values_are_the_stored_vocabulary():
         "parse_error",
         "database_error",
         "duplicate_book_in_ranking",
+        "restricted_book",
     ]
 
 

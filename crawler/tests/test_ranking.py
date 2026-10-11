@@ -86,12 +86,27 @@ def test_snapshot_with_gaps_from_skipped_ranks_passes():
     assert [row.rank for row in result][:4] == [1, 2, 4, 5]  # original ranks kept, not renumbered
 
 
-def test_snapshot_must_have_between_90_and_100_rows():
-    with pytest.raises(SnapshotValidationError, match="90..100 rows"):
-        validate_snapshot(_snapshot(89), {})
+@pytest.mark.parametrize("size", [0, 1, 50, 79, 89, 100])
+def test_snapshot_has_no_total_error_count_minimum(size):
+    rows = _snapshot(size)
+    assert len(validate_snapshot(rows, _owners(rows))) == size
 
-    rows = _snapshot(90)
-    assert len(validate_snapshot(rows, _owners(rows))) == 90
+
+def test_restricted_ranks_exclude_rows_without_a_total_error_limit():
+    rows = _snapshot()[20:60]
+    assert len(validate_snapshot(rows, _owners(rows), restricted_ranks=list(range(1, 21)))) == 40
+
+
+@pytest.mark.parametrize("restricted", [[1, 1], [0], [101]])
+def test_restricted_ranks_must_be_valid_and_unique(restricted):
+    with pytest.raises(SnapshotValidationError, match="restricted ranks"):
+        validate_snapshot([], {}, restricted_ranks=restricted)
+
+
+def test_restricted_rank_cannot_be_stored_in_snapshot():
+    rows = _snapshot()
+    with pytest.raises(SnapshotValidationError, match="must not appear"):
+        validate_snapshot(rows, _owners(rows), restricted_ranks=[1])
 
 
 def test_snapshot_ranks_must_be_within_range_and_unique():
