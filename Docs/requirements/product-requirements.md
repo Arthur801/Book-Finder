@@ -30,6 +30,7 @@
 | AI 書籍推薦與 AI 搜尋紀錄 | 書籍封面轉存（S3） | |
 | 註冊、登入、登出、目前使用者 | 書籍頁顯示 AI 摘要 | |
 | Library（加入、移除、Reading Status、1～5 星評分） | CI/CD | |
+| | 分類依來源層級順序顯示（`book_subjects` 順序欄位，見 `book-catalog.md` §8） | |
 
 ---
 

@@ -24,7 +24,7 @@ ORDER BY rank
 | 首頁 | rank 最小的 10 筆 + 「查看完整榜單」連結 |
 | `/bestsellers` | 全部（最多 100 筆），不分頁 |
 
-每筆顯示：排名、封面、書名、作者（`AUTHOR` 角色，依 `contributor_order`），點擊進入 `/books/{id}`。
+每筆顯示：排名、封面、書名、作者（`AUTHOR` 角色，依 `contributor_order`；不含 `ORIGINAL_AUTHOR` 等其他角色，使用者 2026-10-11），點擊進入 `/books/{id}`。
 
 ## 3. 排名缺號
 

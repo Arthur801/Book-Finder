@@ -39,7 +39,7 @@ normalized 符合 ISBN-13（13 位數字）或 ISBN-10（9 位數字 + 數字或
 
 | 模式 | 比對 |
 |---|---|
-| ISBN | `book_identifiers.identifier_value = normalized`（不做 ISBN-10 ↔ 13 互轉） |
+| ISBN | `book_identifiers.identifier_type IN (ISBN_13, ISBN_10) AND identifier_value = normalized`（不做 ISBN-10 ↔ 13 互轉；`OTHER` 類型不參與） |
 | 關鍵字 | `books.title ILIKE '%q%'` OR 任一 `book_contributors.name ILIKE '%q%'` |
 
 - 整段 `q` 當作一個字串比對，不拆詞。
@@ -57,14 +57,31 @@ normalized 符合 ISBN-13（13 位數字）或 ISBN-10（9 位數字 + 數字或
 
 - 每頁 20 筆，offset 分頁，`page` 從 1 開始。
 - `page` 超出範圍時回傳空結果頁，不報錯。
+- `page` 不是整數或小於 1 → 視為第 1 頁（使用者，2026-10-11）。
+- 分頁呈現（使用者，2026-10-11）：顯示「共 N 筆，第 p／P 頁」、上一頁／下一頁與頁碼連結；總頁數 ≤ 10 時列出全部頁碼，超過時只列第 1 頁、最後一頁與目前頁前後各 2 頁，其餘以「…」省略。總筆數以 COUNT 查詢取得。
 
 ### 3.4 結果項目
 
-每筆：`book_id`、書名、作者（`AUTHOR` 角色，依 `contributor_order`）、出版社、出版日期（依精度）、封面。
+每筆：`book_id`、書名、作者（只列 `AUTHOR` 角色，依 `contributor_order`，以「、」連接；不含 `ORIGINAL_AUTHOR` 等其他角色，與暢銷榜一致，使用者 2026-10-11）、出版社、出版日期（依精度，格式見 §4.1）、封面（沒有封面時顯示「無封面」佔位）。連結到 `/books/{id}`。
+
+### 3.5 搜尋結果頁 `/search?q=&page=`
+
+- 頁面上方有搜尋框，預填目前的 `q`。
+- 空白輸入或查無結果：顯示「找不到符合的書」（`ui-flow.md` §3.6）。
 
 ## 4. Book 詳細頁
 
 顯示欄位（BOOK-01）：title、subtitle、contributors（含角色）、publisher、published date（依 `published_date_precision` 顯示，BOOK-03）、ISBN、subjects、page count、thumbnail。
+
+### 4.1 顯示規則（使用者，2026-10-11）
+
+- 出版日期依精度（一般搜尋共用）：`YEAR` → `2011`，`MONTH` → `2011-03`，`DAY` → `2011-03-15`。
+- 貢獻者依角色分組，每組一行，例「作者：劉慈欣、作者乙」「譯者：譯者甲」。組的順序依各角色第一次出現的 `contributor_order`；組內名字依 `contributor_order`，以「、」連接。角色標籤：`AUTHOR` 作者、`ORIGINAL_AUTHOR` 原文作者、`TRANSLATOR` 譯者、`EDITOR` 編者、`ILLUSTRATOR` 繪者、`OTHER` 其他。
+- ISBN：`ISBN_13` 與 `ISBN_10` 分別標示顯示；`OTHER` 類型的 identifier 不顯示。
+- 分類：依分類文字排序，以「、」連接。`book_subjects` 沒有順序欄位，來源的層級順序（例：人文社科 > 政治 > 政治人物）無法還原；保留層級順序列為進階目標（§8）。
+- 沒有值的欄位（副標、出版社、出版日期、ISBN、分類、頁數）整列不顯示。沒有封面時顯示「無封面」佔位。
+- 外部連結以新分頁開啟（`target="_blank" rel="noopener noreferrer"`）。
+- Library 區塊在 Library 功能（#11）實作前只放一個空的容器（`<section id="library">`），畫面上不顯示任何內容。
 
 **不顯示 description 與 table of contents**（BOOK-05）：兩者只保存於資料庫供 Recommendation 讀取。Book 詳細頁的 view model 與任何 JSON 回應都不得包含這兩個欄位，避免日後誤顯示；書籍的完整介紹由來源網站提供。封面直接引用來源的 `thumbnail_url`，不轉存。
 
@@ -76,6 +93,8 @@ normalized 符合 ISBN-13（13 位數字）或 ISBN-10（9 位數字 + 數字或
 | `GOOGLE_BOOKS` | 在 Google Books 查看 | `source_url` |
 
 只有 Google Books 來源的書，Google Books 連結即為主要按鈕。
+
+同一本書有多個博客來來源時（使用者，2026-10-11）：`first_seen_at` 最早者（同時間再依 `id`）為主要按鈕「在博客來查看完整介紹」，其餘為次要連結「在博客來查看」；Google Books 來源維持「在 Google Books 查看」。
 
 Library 狀態（BOOK-04）：已登入且該書在 Library 中時，顯示並可修改 Reading Status 與評分（行為見 `user-library.md`）。Library 狀態不進入 cache。
 
@@ -113,3 +132,7 @@ Library 狀態（BOOK-04）：已登入且該書在 Library 中時，顯示並�
 - 排序：完全相符優先、出版日期新到舊、NULL 最後。
 - 查無結果時不呼叫 Google Books（以 fake adapter 驗證沒有呼叫）。
 - Google Books 寫入：ISBN 命中時不建立 duplicate Book；無 ISBN 時建立新 Book。
+
+## 8. 進階開發目標
+
+- 分類依來源層級順序顯示：在 `book_subjects` 加入順序欄位（例 `subject_order`），crawler 與 Google Books 寫入時保存來源順序，詳細頁依此排序。需要 schema 變更、EF migration 與 crawler 修改（L3），MVP 不做（使用者，2026-10-11）。
