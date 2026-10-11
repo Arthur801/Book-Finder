@@ -25,6 +25,15 @@ sudo python -m playwright install-deps chromium
 | `DATABASE_URL` | 共用 PostgreSQL 連線字串（必填；不會寫入 log）。 |
 | `CRAWLER_FETCHER` | 頁面取得方式：`curl`（預設，curl_cffi Chrome fingerprint）或 `browser`（headless Chromium，僅供診斷）。其他值（含已移除的 `http`）為設定錯誤（exit code 2）。 |
 | `CRAWLER_NAV_TIMEOUT_MS` | 瀏覽器導覽逾時，單位毫秒，整數 1～300000，預設 `30000`。空值使用預設；非整數、0、負數或超過上限為設定錯誤（exit code 2）。只影響 `browser` fetcher。 |
+| `CRAWLER_PAGES_FILE` | 分類榜補書模式（`books_crawler.pages`）的分類頁清單路徑。未設定或空白時使用 `crawler/category-pages.txt`；相對路徑以執行時的工作目錄解析。其他模式忽略此變數。 |
+
+本 README 提供三個執行入口：
+
+| 指令（於 `crawler/` 執行） | 用途 | 規則 |
+|---|---|---|
+| `python -m books_crawler` | 每日完整榜單 | `crawler.md` §1～§12 |
+| `../.venv/bin/python -m books_crawler.first_book` | 只匯入排行榜第一名 | `crawler.md` §13.1 |
+| `python -m books_crawler.pages` | 分類榜補書 | `crawler.md` §16 |
 
 ## 執行
 
@@ -48,6 +57,26 @@ Exit code：0 = SUCCESS 或 PARTIAL_SUCCESS（榜單已替換；PARTIAL_SUCCESS 
 先抓取並驗證完整的中文書 7 日 TOP 100 排行榜，再只處理 rank 1；其他 99 本不查詢或抓取詳細頁。新書寫入 `books`、`book_sources`、ISBN、作者與分類等關聯資料；既有商品 URL 直接重用，ISBN 命中則只附加來源。此入口不替換 `bestsellers`，不更新既有來源的 `last_seen_at`，不影響每日完整榜單流程。
 
 Exit code：0 = 第一名成功匯入、已存在或為限制級而直接跳過；1 = 抓取／解析／寫入失敗；2 = 設定錯誤。失敗仍沿用最多 3 次嘗試，頁面被判定失敗（challenge、連線異常頁、非 200）時也會保存診斷檔案。log 顯示 `mode=first-book`、第一名 URL、成功的 `book_id` 與 `source_id`。
+
+## 分類榜補書（pages mode）
+
+從博客來各分類的 7 日暢銷榜頁面補充 Catalog 的新書。此模式不是 Bestseller：不寫入 `bestsellers`，不更新 `last_seen_at`，不保存分類排名（`crawler.md` §16）。
+
+```bash
+cd crawler
+python -m books_crawler.pages
+```
+
+分類頁清單是 `crawler/category-pages.txt`（或 `CRAWLER_PAGES_FILE` 指向的檔案）。編輯方式：
+
+- 每行一個 URL，例如 `https://www.books.com.tw/web/sys_saletopb/books/01/?attribute=7&loc=P_0002_002`。
+- 以 `#` 開頭的行是註解；空行會被忽略；前後空白會被去除；重複的 URL 只保留第一次。
+- URL 必須是 `https://www.books.com.tw/web/sys_saletopb/books/<兩位數分類>/?attribute=7`，可加上 `loc` 參數；其他 query 參數不允許。
+- 新增或移除分類只要修改這個檔案，不需要改程式。
+
+清單在發出任何請求前驗證；有任何不合格的行、檔案無法讀取或清單為空時，log 會列出原因，exit code 為 2。
+
+單一分類頁抓取或解析失敗（抓取重試 3 次後仍失敗，或頁面不是分類榜）會被跳過，其餘分類頁照常處理。只有無法繼續的情況（例如資料庫查詢錯誤、browser 無法啟動，或所有分類頁都失敗）才會 FAILED。Exit code：0 = SUCCESS 或 PARTIAL_SUCCESS，1 = FAILED，2 = 設定錯誤。log 以 `mode=pages` 開頭，格式見 `crawler.md` §16.8。
 
 ## 查看 Cloudflare 驗證頁
 

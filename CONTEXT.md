@@ -16,6 +16,10 @@ _Avoid_: 書籍連結、外部書籍
 博客來中文書 7 日暢銷總榜目前最新的一份 TOP 100；系統不保留歷史榜單。
 _Avoid_: 排行榜歷史、榜單快照（指歷史時）
 
+**分類榜**／Category Ranking Page：
+博客來各分類的 7 日暢銷榜頁面。僅用於補充 Catalog 的新書（`crawler.md` §16）；不是 Bestseller，不寫入暢銷榜，也不保存分類排名。
+_Avoid_: 分類 Bestseller、分類暢銷榜
+
 ## 推薦（Recommendation）
 
 **Candidate Set**／候選集合：

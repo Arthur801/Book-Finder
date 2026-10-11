@@ -19,9 +19,11 @@
 
 不負責 Google Books、OpenAI、Embedding、Recommendation、Search、User、API、DDL。
 
+上述為每日完整榜單 run。分類榜補書模式（§16）是另一個入口，只補充 Catalog 的新書，不替換 `bestsellers`，不屬於本流程。
+
 ## 2. Invariants
 
-1. 目標固定為中文書 7 日暢銷總榜 TOP 100。
+1. 每日 run 的目標固定為中文書 7 日暢銷總榜 TOP 100（分類榜補書模式見 §16）。
 2. 博客來來源 identity = `BOOKS_COM_TW + source_url`。
 3. Existing `source_url` 不重抓 detail 頁、不覆寫 Book metadata。
 4. New Book 才抓 detail 頁 並依 `data-model.md` normalize。
@@ -75,6 +77,8 @@ product_url unique
 任一驗證失敗：整次 run failed，現有 Bestseller 不變。排行榜頁不適用「跳過」規則。
 
 排行榜頁 request 失敗（`FetchError`）時套用與 §6 相同的重試政策（最多 3 次，第 2 次前等 1s、第 3 次前等 2s）；3 次仍失敗即整次 FAILED。解析失敗（`ParseError`，例如不是 7 日暢銷榜頁）與筆數、rank、URL 驗證失敗是確定性的，不重試。
+
+（分類榜補書模式的分類頁沿用相同重試政策，但單頁失敗會被跳過而不使整次 run 失敗，見 §16。）
 
 ## 5. Book Resolution
 
@@ -146,7 +150,7 @@ ISBN 比對（僅依序：ISBN-13 → ISBN-10；data-model §6）：
 
 被跳過的書不建立任何資料列，也沒有失敗佇列。隔天若仍在榜上，它依然是新書，會自然再嘗試一次。
 
-排行榜頁（§4）的重試使用同一個 retry 迴圈，但它的失敗永遠不是「跳過」，見 §4 與 §15。
+排行榜頁（§4）的重試使用同一個 retry 迴圈，但它的失敗永遠不是「跳過」，見 §4 與 §15（分類榜補書模式的分類頁例外，見 §16）。
 
 連續錯誤中止規則（使用者，2026-10-11）：
 
@@ -277,11 +281,13 @@ COMMIT
 | `PARTIAL_SUCCESS` | 有書跳過，完整處理 100 個排名，且未連續 21 本一般錯誤 | 替換 | 0 |
 | `FAILED` | 排行榜不完整、連續一般錯誤 > 20、snapshot 驗證或替換失敗 | 不變 | 非 0 |
 
+本節為每日完整榜單 run 的規則（單書匯入見 §13.1，分類榜補書模式見 §16，其 exit code 與狀態規則不同）。
+
 實作：§6 的連續錯誤計數與中止、本節的狀態判定，以及 run log 的計數欄位，集中在 `crawler/books_crawler/ledger.py` 的 `RunLedger`。每日 run 的上限為 20；單書匯入（§13.1）用上限 0，因此唯一一列一般失敗即 FAILED、限制級為 PARTIAL_SUCCESS。中止時 `error=` 為 `run aborted at rank <rank> after <n> consecutive error(s) (limit <limit>): <error_type>: <error_message>`。每次 FAILED（含中止）只記一行 ERROR：每日 run 為 `run failed: <error>`，單書匯入為 `first-book import failed: <error>`；被跳過的列另由 ledger 記 WARNING（限制級為 INFO）。
 
 ## 12. Logging
 
-每次 run 至少記錄（stdout）：
+每次每日 run 至少記錄（stdout；分類榜補書模式的欄位見 §16）：
 
 ```text
 run_id
@@ -364,9 +370,98 @@ review/update Docs/data/data-model.md
 - 循序請求，預設每次請求使用 3～30 秒隨機間隔（同 §15）；只抓排行榜頁與資料庫尚未有的新書詳細頁。
 - 頁面經 §15 的共用回應分類判定為失敗（challenge、連線異常頁、HTTP 非 200）、逾時，或瀏覽器在頁面載入中崩潰（任何 Playwright 錯誤），一律包成 `FetchError`，視為該頁抓取失敗，交給 §6 的重試與跳過處理。
 - 分類為失敗時，在關閉分頁前保存當下 PNG、HTML 與選定的診斷資訊至 `crawler/artifacts/challenges/`，並記錄檔案位置；每次嘗試使用不同檔名，不保存 cookie 或 request headers。輸出失敗不取代原本的 `FetchError`。單頁診斷入口與使用方式見 `crawler/README.md`，不存取 DB、不重試、不解驗證。
-- 排行榜頁抓取失敗：與 §4 一致，套用相同的重試政策（最多 3 次，第 2 次前等 1s、第 3 次前等 2s；決策：使用者，2026-10-11；D2）。3 次仍失敗則整次 FAILED，不跳過。排行榜頁的解析失敗（頁面結構不符，`ParseError`）與筆數、rank、URL 驗證失敗是確定性的，不重試，直接 FAILED。
+- 排行榜頁抓取失敗：與 §4 一致，套用相同的重試政策（最多 3 次，第 2 次前等 1s、第 3 次前等 2s；決策：使用者，2026-10-11；D2）。3 次仍失敗則整次 FAILED，不跳過（分類榜補書模式的分類頁例外，見 §16）。排行榜頁的解析失敗（頁面結構不符，`ParseError`）與筆數、rank、URL 驗證失敗是確定性的，不重試，直接 FAILED。
 - 無法啟動瀏覽器（Chromium 未安裝、缺少系統函式庫、driver 無法啟動）拋出 `BrowserUnavailableError`。它不是 `FetchError`：不重試、不跳過單本書，整次 run FAILED。
 - 導覽逾時可由環境變數 `CRAWLER_NAV_TIMEOUT_MS` 設定（毫秒，1～300000，預設 30000；空值為預設；不合法 → 設定錯誤，exit code 2）。見 `crawler/README.md`。
 - 瀏覽器 context 的 User-Agent 與語系：使用一般桌面 Chrome User-Agent 與 `zh-TW` 語系（使用者於 2026-10-11 核准）。
 - 不使用反偵測或 stealth 外掛、`navigator.webdriver` 或 fingerprint 修補、CAPTCHA 代解服務或代理 IP 輪替。
 - 測試仍只用 HTML fixtures 與 fake fetcher，**測試中不啟動瀏覽器連線博客來**。瀏覽器 fetcher 本身只以本機假頁面（例如 Playwright 開啟本機 HTML 檔或 `data:` URL）驗證行為。
+
+## 16. Pages Mode（分類榜補書模式）
+
+### 16.1 定位
+
+- 目的：以博客來各分類的 7 日暢銷榜頁面補充 Catalog 的新書。此爬蟲以抓新書為主要目標。
+- **不是 Bestseller**：不寫入 `bestsellers`；不更新任何 `book_sources.last_seen_at`；不做 100 筆驗證與 snapshot 替換（§4、§10）；不套用榜內重複 Book 規則（§5）；不保存分類排名。
+- 因此 `rank`、排名缺號與「上一份有效榜單」等概念不適用。log 中的 `rank` 僅指該分類頁上的排名。
+- 本模式只寫 Catalog 相關資料表（§9）。
+
+### 16.2 入口
+
+```bash
+cd crawler
+python -m books_crawler.pages
+```
+
+`books_crawler.pages` 以 `pages` 模式呼叫 `cli.main`（與 `books_crawler`、`books_crawler.first_book` 並列）。
+
+### 16.3 分類頁清單（設定檔）
+
+- 預設檔案：`crawler/category-pages.txt`，以套件位置為基準，不依工作目錄。
+- 環境變數 `CRAWLER_PAGES_FILE`（非機密）：有值時改讀該路徑；相對路徑以執行時的工作目錄解析；空字串或只有空白視為未設定。
+- 格式：每行一個 URL；以 `#` 開頭的行為註解；空行忽略；前後空白去除；同一 URL 重複時只保留第一次（重複的行記 INFO log）。
+- 每個 URL 必須通過 `urls.is_category_ranking_url`：
+  - scheme 為 `https`，host 為 `www.books.com.tw`；
+  - path 為 `/web/sys_saletopb/books/<兩位數分類>/`；
+  - query 必須含 `attribute=7`，且 query 只能有 `attribute` 與 `loc` 兩個 key；`loc` 的值不驗證（僅為追蹤參數）。
+- 驗證在任何 request 之前完成。檔案無法讀取（含非 UTF-8）、任一行不合格、或清單沒有任何 URL 時：記一行 ERROR（含檔案路徑與行號），**exit code 2**，不建立 fetcher、不發出任何請求。
+
+### 16.4 每個分類頁的流程
+
+```text
+依清單順序處理每個 URL：
+  fetch（§15；最多 3 次，第 2 次前等 1s、第 3 次前等 2s，同 §4）
+    └ 3 次仍 FetchError → 跳過此頁（fetch_error，attempts = 3）
+  parse（parse_ranking）
+    └ ParseError 或其他 ValueError → 跳過此頁（parse_error，attempts = 1，不重試）
+  成功 → 依頁面順序逐列處理（見 §16.5）
+```
+
+- 單一分類頁被跳過後繼續下一頁，不影響其他頁。
+- 不要求頁面必須為 100 筆；列數依頁面而定。
+
+### 16.5 每列的規則
+
+- 每一列套用 §5（Book resolution）與 §7～§9（normalize、ISBN 比對、每本新 Book 一個 transaction）。
+- 單本新書的重試與跳過依 §6：最多 3 次嘗試；限制級會員頁直接跳過、不重試、不算錯誤。
+- **不套用榜內重複 Book 規則**：同一 Book 出現在多頁時不跳過。商品 URL 已存在者直接重用既有來源（§5 Existing）；新 URL 若 ISBN 命中既有 Book，則附加來源（§5 ISBN 命中）。
+- **不套用連續錯誤中止**：單列失敗只計入跳過與 `error_count`，不因連續失敗而中止，所有列都會處理。
+- 已 commit 的新 Book 保留（§9，每本書各自一個 transaction）。
+
+### 16.6 跳過與 FAILED 的界線
+
+單一分類頁或單列的失敗都不會使整次 run FAILED，只有下列情況才使 run FAILED（無法繼續）：
+
+| 情況 | 說明 |
+|---|---|
+| 列處理中有例外逸出 | 例如查詢既有 URL 的資料庫錯誤（`db.find_source`，不在 §6 重試範圍內）或其他未預期例外。寫入新書時的資料庫錯誤（ISBN 查詢、Book transaction）仍依 §6 重試，最後是跳過該列，不是 FAILED。 |
+| `BrowserUnavailableError` | browser fetcher 無法啟動（§15.1）。 |
+| 全部分類頁都被跳過 | 訊息為 `all <N> category page(s) failed`。 |
+
+### 16.7 Run status 與 exit code
+
+| Status | 條件 | Exit code |
+|---|---|---:|
+| `SUCCESS` | 無任何頁或列被跳過 | 0 |
+| `PARTIAL_SUCCESS` | 有分類頁或列被跳過（含限制級），且未 FAILED | 0 |
+| `FAILED` | §16.6 任一條件 | 1 |
+| 設定錯誤 | 分類頁清單不合法、fetcher 設定不合法（§15、§15.1） | 2 |
+
+### 16.8 Log
+
+- 每個分類頁開始：INFO `importing page: <url>`。
+- 分類頁被跳過：WARNING `category page skipped after <n> attempt(s) (<error_type>): <url>: <error_message>`。
+- 列被跳過：限制級為 INFO，其他為 WARNING `page rank <rank> (<url>) skipped after <n> attempt(s) (<error_type>): <error_message>`。
+- 每次 run 結束，一行 INFO `mode=pages` 加上 `key=value` 欄位，順序為：
+  `run_id`、`started_at`、`finished_at`、`status`、`pages_total`（處理過的分類頁數，含跳過）、`pages_skipped`、`rows_seen`、`existing_book_count`、`new_book_count`、`attached_source_count`、`skipped_count`、`restricted_book_count`、`error_count`、`exit_code`，之後為 `skipped=[{rank, url, error_type, error_message, attempts}]`、`skipped_pages=[{url, error_type, error_message, attempts}]`；run 失敗時再加 `error=`。
+  - 不包含 `ranking_count`、`consecutive_error_count`、`aborted_at_rank`（本模式沒有這些概念）。
+- FAILED 時只記一行 ERROR：`pages import failed: <error>`。
+- 所有 log 文字經 `redact` 遮罩（§12）。
+
+### 16.9 不寫入的資料
+
+- `bestsellers`（任何列都不寫）。
+- `book_sources.last_seen_at`（任何來源，包括本次重用或附加的來源，都不更新）。
+- 既有 Book 的 metadata（§5）。
+- 分類排名或分類榜快照（本模式不保存）。
+- §9 列出的使用者、推薦相關資料表。

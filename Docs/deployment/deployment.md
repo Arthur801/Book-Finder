@@ -72,6 +72,7 @@ Crawler 非機密環境變數（`crawler/README.md`）：
 |---|---|---|
 | `CRAWLER_FETCHER` | `curl` | 頁面取得方式：`curl`（curl_cffi）或 `browser`（headless Chromium，僅供診斷）。其他值 → exit code 2。 |
 | `CRAWLER_NAV_TIMEOUT_MS` | `30000` | 瀏覽器導覽逾時（毫秒，1～300000；空值為預設）。不合法 → exit code 2。 |
+| `CRAWLER_PAGES_FILE` | `crawler/category-pages.txt` | 分類榜補書模式（`crawler.md` §16）的分類頁清單路徑；僅 `books_crawler.pages` 使用。清單不合法 → exit code 2。 |
 
 `DATABASE_URL` 仍是 secret，不在此表中。
 
@@ -108,6 +109,9 @@ Crawler 每日 **04:00 (GMT+8)**。EC2 host 時區維持 UTC，crontab：
 - 非 0 exit code 代表 run FAILED（`crawler.md` §11）。
 - 同時間只會有一個 crawler（每日一次、run 時間遠小於 24 小時），MVP 不加鎖。
 - **啟用排程前須在 EC2 上實測**：手動執行一次 crawler，確認預設 curl fetcher 從 EC2 能取得排行榜頁與商品頁，沒有停在 Cloudflare challenge（`crawler.md` §15）。若被擋下，不啟用排程，評估授權資料管道等替代方案。
+- 上方 crontab 只包含每日完整榜單 run。分類榜補書模式（`python -m books_crawler.pages`，`crawler.md` §16）目前未列入排程。
+- **分類頁清單需隨 crawler runtime 存在**：分類榜補書模式需要 `crawler/category-pages.txt`（預設路徑），或以 `CRAWLER_PAGES_FILE` 指向的檔案存在於執行環境中。
+- **未解決**：repo 目前沒有 crawler Dockerfile，無法確認該清單檔是否會隨 crawler image 一併打包；此項待建立 crawler image 時驗證。
 
 ## 9. Log 與備份
 
