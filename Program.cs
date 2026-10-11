@@ -1,4 +1,5 @@
 using Book_Finder.Application.Bestsellers;
+using Book_Finder.Application.Catalog;
 using Book_Finder.Infrastructure.Caching;
 using Book_Finder.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -22,6 +23,12 @@ builder.Services.AddScoped<IBestsellerReader>(provider => new CachedBestsellerRe
     provider.GetRequiredService<EfBestsellerReader>(),
     provider.GetRequiredService<IMemoryCache>()));
 builder.Services.AddScoped<BestsellerService>();
+
+// Book detail read: EF Core reader wrapped by a per-Book cache, 10 minutes (book-catalog.md §5).
+builder.Services.AddScoped<EfBookDetailReader>();
+builder.Services.AddScoped<IBookDetailReader>(provider => new CachedBookDetailReader(
+    provider.GetRequiredService<EfBookDetailReader>(),
+    provider.GetRequiredService<IMemoryCache>()));
 
 var app = builder.Build();
 
