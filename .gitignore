@@ -64,3 +64,8 @@ nunit-*.xml
 
 # Crawler page diagnostics
 /crawler/artifacts/
+
+# Database dumps and scp mistakes
+*.dump
+*.backup
+*@ec2-*
