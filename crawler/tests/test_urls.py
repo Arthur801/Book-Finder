@@ -64,6 +64,7 @@ def test_accepts_category_seven_day_ranking_urls(raw):
         "https://example.com/web/sys_saletopb/books/01/?attribute=7",
         "https://www.books.com.tw/products/0011032989",  # a product, not a ranking page
         "",
+        "https://[",  # unparseable: rejected, not an exception
     ],
 )
 def test_rejects_urls_that_are_not_category_seven_day_ranking_pages(raw):

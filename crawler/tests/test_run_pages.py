@@ -750,3 +750,14 @@ def test_daily_and_first_book_ignore_the_page_list_env_var(monkeypatch, tmp_path
 
     assert cli.main({**DATABASE, PAGES_FILE_ENV: str(missing)}, mode=mode) == 0
     assert [name for name, _ in seen["runs"]] == [runner_name]
+
+
+def test_a_malformed_url_line_is_a_config_error_naming_the_line_not_a_crash(monkeypatch, tmp_path, caplog):
+    caplog.set_level(logging.INFO, logger="books_crawler")
+    path = write_page_list(tmp_path, f"{PAGE1}\nhttps://[\n")
+    seen = stub_runs(monkeypatch)
+
+    assert cli.main({**DATABASE, PAGES_FILE_ENV: str(path)}, mode=CrawlerMode.PAGES) == cli.EXIT_CONFIG_ERROR
+    assert seen == {"runs": [], "fetcher": None}
+    errors = [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR]
+    assert len(errors) == 1 and "line 2" in errors[0] and str(path) in errors[0]

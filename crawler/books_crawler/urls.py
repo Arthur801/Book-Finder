@@ -29,7 +29,10 @@ class InvalidProductUrl(ValueError):
 
 def is_category_ranking_url(raw: str) -> bool:
     """True for a books.com.tw category 7-day ranking page URL (pages mode, crawler.md §16)."""
-    parts = urlsplit(raw.strip())
+    try:
+        parts = urlsplit(raw.strip())
+    except ValueError:  # e.g. an unbalanced IPv6 bracket: not a URL at all
+        return False
     query = parse_qs(parts.query, keep_blank_values=True)
     return (
         parts.scheme == "https"
