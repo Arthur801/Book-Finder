@@ -47,7 +47,7 @@ public sealed class PageWindowTests
     }
 
     [Fact]
-    public void Eleven_pages_in_the_middle_leave_no_ellipsis_when_the_gap_is_closed()
+    public void Eleven_pages_in_the_middle_show_an_ellipsis_on_each_side()
     {
         Assert.Equal([1, null, 4, 5, 6, 7, 8, null, 11], PageWindow.For(6, 11));
     }

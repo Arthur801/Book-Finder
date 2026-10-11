@@ -25,6 +25,13 @@ internal static partial class HtmlPage
         return (response.StatusCode, WebUtility.HtmlDecode(await response.Content.ReadAsStringAsync()));
     }
 
+    // The body exactly as sent, without HTML decoding, so a test can check how values are escaped.
+    public static async Task<(HttpStatusCode Status, string Body)> GetUndecodedAsync(this HttpClient client, string url)
+    {
+        var response = await client.GetAsync(url);
+        return (response.StatusCode, await response.Content.ReadAsStringAsync());
+    }
+
     // The text of the <title> element, e.g. "三體 - 好想找書".
     public static string PageTitle(string html) => PageTitleTag().Match(html).Groups[1].Value;
 
@@ -49,10 +56,55 @@ internal static partial class HtmlPage
                 || link.Href.StartsWith("http://", StringComparison.Ordinal))
             .ToList();
 
+    // The book ids of the search result items, in page order (one data-book-id per result item).
+    public static IReadOnlyList<Guid> SearchResultBookIds(string html) =>
+        ResultItems(html).Select(item => item.BookId).ToList();
+
+    // Each search result item with its visible fields. A missing field is null; NoCover is true for the placeholder.
+    public static IReadOnlyList<RenderedSearchResult> ResultItems(string html) =>
+        ResultItem().Matches(html).Select(match =>
+        {
+            var body = match.Groups[2].Value;
+            return new RenderedSearchResult(
+                Guid.Parse(match.Groups[1].Value),
+                FieldText(BookTitleField(), body),
+                FieldText(AuthorsField(), body),
+                FieldText(PublisherField(), body),
+                FieldText(PublishedDateField(), body),
+                CoverImage().Match(body) is { Success: true } image ? image.Groups[1].Value : null,
+                CoverPlaceholder().IsMatch(body));
+        }).ToList();
+
+    // The value of the search box, e.g. the trimmed query the page was searched with.
+    public static string? SearchBoxValue(string html)
+    {
+        var input = SearchInput().Match(html);
+        return input.Success ? Attributes(input.Groups[1].Value).GetValueOrDefault("value") : null;
+    }
+
+    // The entries of the search pager in order (links, the current page, disabled Previous and Next, and ellipses).
+    public static IReadOnlyList<PagerEntry> PagerEntries(string html)
+    {
+        var pager = SearchPager().Match(html);
+        if (!pager.Success)
+            return [];
+
+        return PagerElement().Matches(pager.Groups[1].Value).Select(match =>
+        {
+            var attributes = Attributes(match.Groups[2].Value);
+            return new PagerEntry(
+                match.Groups[3].Value,
+                attributes.GetValueOrDefault("href"),
+                attributes.GetValueOrDefault("aria-current") == "page",
+                attributes.GetValueOrDefault("aria-disabled") == "true");
+        }).ToList();
+    }
+
+    public static int CountOccurrences(string text, string value) => text.Split(value).Length - 1;
+
     private static RenderedLink ParseAnchor(string attributes, string text)
     {
-        var values = Attribute().Matches(attributes)
-            .ToDictionary(match => match.Groups[1].Value, match => match.Groups[2].Value);
+        var values = Attributes(attributes);
         return new RenderedLink(
             values.GetValueOrDefault("href", ""),
             values.GetValueOrDefault("class", ""),
@@ -60,6 +112,12 @@ internal static partial class HtmlPage
             values.GetValueOrDefault("target"),
             values.GetValueOrDefault("rel"));
     }
+
+    private static Dictionary<string, string> Attributes(string attributes) =>
+        Attribute().Matches(attributes).ToDictionary(match => match.Groups[1].Value, match => match.Groups[2].Value);
+
+    private static string? FieldText(Regex field, string body) =>
+        field.Match(body) is { Success: true } match ? match.Groups[1].Value : null;
 
     [GeneratedRegex("data-rank=\"(\\d+)\"")]
     private static partial Regex DataRank();
@@ -78,7 +136,50 @@ internal static partial class HtmlPage
 
     [GeneratedRegex("(\\w[\\w-]*)=\"([^\"]*)\"")]
     private static partial Regex Attribute();
+
+    [GeneratedRegex("<li\\b[^>]*\\bdata-book-id=\"([0-9a-f-]{36})\"[^>]*>(.*?)</li>", RegexOptions.Singleline)]
+    private static partial Regex ResultItem();
+
+    [GeneratedRegex("class=\"[^\"]*\\bbook-title\\b[^\"]*\"[^>]*>([^<]*)</a>")]
+    private static partial Regex BookTitleField();
+
+    [GeneratedRegex("class=\"[^\"]*\\bauthors\\b[^\"]*\"[^>]*>([^<]*)</div>")]
+    private static partial Regex AuthorsField();
+
+    [GeneratedRegex("class=\"[^\"]*\\bpublisher\\b[^\"]*\"[^>]*>([^<]*)</div>")]
+    private static partial Regex PublisherField();
+
+    [GeneratedRegex("class=\"[^\"]*\\bpublished-date\\b[^\"]*\"[^>]*>([^<]*)</div>")]
+    private static partial Regex PublishedDateField();
+
+    [GeneratedRegex("<img\\b[^>]*\\bsrc=\"([^\"]*)\"")]
+    private static partial Regex CoverImage();
+
+    [GeneratedRegex("class=\"[^\"]*\\bcover-placeholder\\b")]
+    private static partial Regex CoverPlaceholder();
+
+    [GeneratedRegex("<input\\b[^>]*\\bname=\"q\"([^>]*)>")]
+    private static partial Regex SearchInput();
+
+    [GeneratedRegex("<nav\\b[^>]*\\bsearch-pager\\b[^>]*>(.*?)</nav>", RegexOptions.Singleline)]
+    private static partial Regex SearchPager();
+
+    [GeneratedRegex("<(a|span)\\b([^>]*)>([^<]*)</\\1>")]
+    private static partial Regex PagerElement();
 }
 
 // One link as rendered: its href, class attribute, visible text, and target and rel attributes.
 internal sealed record RenderedLink(string Href, string Class, string Text, string? Target, string? Rel);
+
+// One search result item as rendered. Null fields were not rendered.
+internal sealed record RenderedSearchResult(
+    Guid BookId,
+    string? Title,
+    string? Authors,
+    string? Publisher,
+    string? PublishedDate,
+    string? CoverUrl,
+    bool NoCover);
+
+// One pager entry: a page link, the current page (no link), a disabled Previous or Next, or an ellipsis (no href).
+internal sealed record PagerEntry(string Text, string? Href, bool IsCurrent, bool IsDisabled);

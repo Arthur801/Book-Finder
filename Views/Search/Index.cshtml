@@ -18,7 +18,7 @@
     <ol class="list-unstyled search-results mb-0">
         @foreach (var item in Model.Items)
         {
-            <li class="search-result d-flex align-items-center gap-3 py-2 border-bottom">
+            <li class="search-result d-flex align-items-center gap-3 py-2 border-bottom" data-book-id="@item.BookId">
                 @if (item.ThumbnailUrl is not null)
                 {
                     <img class="cover" src="@item.ThumbnailUrl" alt="" width="48" height="68" loading="lazy" style="object-fit: cover;" />
@@ -29,15 +29,15 @@
                 }
                 <div class="flex-grow-1">
                     <a class="book-title" href="/books/@item.BookId">@item.Title</a>
-                    @if (!string.IsNullOrWhiteSpace(item.Authors))
+                    @if (item.Authors is not null)
                     {
                         <div class="authors text-muted small">@item.Authors</div>
                     }
-                    @if (!string.IsNullOrWhiteSpace(item.Publisher))
+                    @if (item.Publisher is not null)
                     {
                         <div class="publisher text-muted small">@item.Publisher</div>
                     }
-                    @if (!string.IsNullOrEmpty(item.PublishedDate))
+                    @if (item.PublishedDate is not null)
                     {
                         <div class="published-date text-muted small">@item.PublishedDate</div>
                     }
@@ -53,15 +53,15 @@ else
 
 @if (Model.TotalCount > 0)
 {
-    <nav aria-label="搜尋結果分頁" class="mt-4">
+    <nav aria-label="搜尋結果分頁" class="search-pager mt-4">
         <ul class="pagination flex-wrap">
             @if (Model.PreviousUrl is { } previousUrl)
             {
-                <li class="page-item"><a class="page-link" href="@previousUrl">上一頁</a></li>
+                <li class="page-item"><a class="page-link" href="@previousUrl" rel="prev">上一頁</a></li>
             }
             else
             {
-                <li class="page-item disabled"><span class="page-link">上一頁</span></li>
+                <li class="page-item disabled"><span class="page-link" aria-disabled="true">上一頁</span></li>
             }
 
             @foreach (var link in Model.PageLinks)
@@ -72,7 +72,7 @@ else
                 }
                 else if (link.IsCurrent)
                 {
-                    <li class="page-item active" aria-current="page"><span class="page-link">@link.Page</span></li>
+                    <li class="page-item active"><span class="page-link" aria-current="page">@link.Page</span></li>
                 }
                 else
                 {
@@ -82,11 +82,11 @@ else
 
             @if (Model.NextUrl is { } nextUrl)
             {
-                <li class="page-item"><a class="page-link" href="@nextUrl">下一頁</a></li>
+                <li class="page-item"><a class="page-link" href="@nextUrl" rel="next">下一頁</a></li>
             }
             else
             {
-                <li class="page-item disabled"><span class="page-link">下一頁</span></li>
+                <li class="page-item disabled"><span class="page-link" aria-disabled="true">下一頁</span></li>
             }
         </ul>
     </nav>

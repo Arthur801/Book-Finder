@@ -1,14 +1,13 @@
-using System.Text.RegularExpressions;
+using System.Net;
 using Book_Finder.Domain.Entities;
+using Microsoft.AspNetCore.Mvc.Testing;
+using static WebIntegration.HtmlPage;
 
 namespace WebIntegration;
 
 [Collection(WebCollection.Name)]
 public sealed class SearchPageTests(WebFixture fixture)
 {
-    // Every search result card links to its Book detail page; nothing else on the page does.
-    private static readonly Regex BookLink = new("href=\"/books/([0-9a-f-]{36})\"");
-
     [Theory]
     [InlineData("978-986-1234-56-7", 0)]
     [InlineData("978 986 1234 567", 0)]
@@ -22,7 +21,7 @@ public sealed class SearchPageTests(WebFixture fixture)
 
         var html = await SearchPageAsync(app.CreateClient(), input);
 
-        Assert.Equal([books[expectedIndex].BookId], ResultBookIds(html));
+        Assert.Equal([books[expectedIndex].BookId], SearchResultBookIds(html));
     }
 
     [Fact]
@@ -34,7 +33,7 @@ public sealed class SearchPageTests(WebFixture fixture)
 
         var html = await SearchPageAsync(app.CreateClient(), "978986123456");
 
-        Assert.Empty(ResultBookIds(html));
+        Assert.Empty(SearchResultBookIds(html));
         Assert.Contains("找不到符合的書", html);
     }
 
@@ -49,7 +48,7 @@ public sealed class SearchPageTests(WebFixture fixture)
 
         var html = await SearchPageAsync(app.CreateClient(), input);
 
-        Assert.Equal([books[expectedIndex].BookId], ResultBookIds(html));
+        Assert.Equal([books[expectedIndex].BookId], SearchResultBookIds(html));
     }
 
     [Fact]
@@ -64,7 +63,7 @@ public sealed class SearchPageTests(WebFixture fixture)
 
         var html = await SearchPageAsync(app.CreateClient(), "1234567890123");
 
-        Assert.Empty(ResultBookIds(html));
+        Assert.Empty(SearchResultBookIds(html));
         Assert.Contains("找不到符合的書", html);
     }
 
@@ -86,11 +85,11 @@ public sealed class SearchPageTests(WebFixture fixture)
 
         var html = await SearchPageAsync(app.CreateClient(), input);
 
-        Assert.Equal([books[0].BookId], ResultBookIds(html));
+        Assert.Equal([books[0].BookId], SearchResultBookIds(html));
     }
 
     [Fact]
-    public async Task Description_and_publisher_are_not_searched_and_the_description_never_renders()
+    public async Task Description_and_publisher_are_not_searched()
     {
         await fixture.ResetDatabaseAsync();
         await CatalogSeed.AddBooksAsync(fixture,
@@ -105,16 +104,14 @@ public sealed class SearchPageTests(WebFixture fixture)
         await using var app = fixture.CreateFactory();
         var client = app.CreateClient();
 
-        var byTitle = await SearchPageAsync(client, "深度");
-        Assert.Single(ResultBookIds(byTitle));
-        Assert.DoesNotContain("簡介標記壹貳參", byTitle);
+        Assert.Single(SearchResultBookIds(await SearchPageAsync(client, "深度")));
 
         var byDescription = await SearchPageAsync(client, "簡介標記壹貳參");
-        Assert.Empty(ResultBookIds(byDescription));
+        Assert.Empty(SearchResultBookIds(byDescription));
         Assert.Contains("找不到符合的書", byDescription);
 
         var byPublisher = await SearchPageAsync(client, "出版社標記肆伍陸");
-        Assert.Empty(ResultBookIds(byPublisher));
+        Assert.Empty(SearchResultBookIds(byPublisher));
         Assert.Contains("找不到符合的書", byPublisher);
     }
 
@@ -137,7 +134,7 @@ public sealed class SearchPageTests(WebFixture fixture)
 
         var html = await SearchPageAsync(app.CreateClient(), input);
 
-        Assert.Equal([books[expectedIndex].BookId], ResultBookIds(html));
+        Assert.Equal([books[expectedIndex].BookId], SearchResultBookIds(html));
     }
 
     [Fact]
@@ -159,7 +156,7 @@ public sealed class SearchPageTests(WebFixture fixture)
         // Exact matches first (the dated one, then the undated one), then the rest by date with NULL last.
         Assert.Equal(
             [books[1].BookId, books[2].BookId, books[0].BookId, books[3].BookId, books[4].BookId],
-            ResultBookIds(html));
+            SearchResultBookIds(html));
     }
 
     [Fact]
@@ -173,33 +170,71 @@ public sealed class SearchPageTests(WebFixture fixture)
         var first = await SearchPageAsync(client, "分頁測試");
         var second = await SearchPageAsync(client, "分頁測試", "2");
 
-        Assert.Equal(20, ResultBookIds(first).Count);
+        Assert.Equal(20, SearchResultBookIds(first).Count);
         Assert.Contains("共 21 筆，第 1／2 頁", first);
         // Newest first, so the oldest Book (published 2001, the first one seeded) is the 21st.
-        Assert.Equal([books[0].BookId], ResultBookIds(second));
+        Assert.Equal([books[0].BookId], SearchResultBookIds(second));
         Assert.Contains("共 21 筆，第 2／2 頁", second);
     }
 
-    [Fact]
-    public async Task Page_past_the_end_shows_no_results_but_links_back_to_the_last_page()
+    [Theory]
+    [InlineData("3")]
+    [InlineData("99999999999999999999")]
+    [InlineData("2147483648")]
+    public async Task Page_past_the_last_page_redirects_to_the_last_page_with_the_same_query(string page)
     {
         await fixture.ResetDatabaseAsync();
         await SeedPagingBooksAsync();
         await using var app = fixture.CreateFactory();
 
-        var html = await SearchPageAsync(app.CreateClient(), "分頁測試", "3");
+        var response = await NoRedirectClient(app).GetAsync(SearchUrl("分頁測試", page));
 
-        Assert.Empty(ResultBookIds(html));
+        Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
+        Assert.Equal(SearchUrl("分頁測試", "2"), response.Headers.Location?.OriginalString);
+    }
+
+    [Fact]
+    public async Task Page_past_the_end_of_an_empty_result_shows_not_found_and_no_pager()
+    {
+        await fixture.ResetDatabaseAsync();
+        await CatalogSeed.AddBooksAsync(fixture, [new BookSeed("甲書")]);
+        await using var app = fixture.CreateFactory();
+
+        var response = await NoRedirectClient(app).GetAsync(SearchUrl("沒有這本書", "5"));
+        var html = WebUtility.HtmlDecode(await response.Content.ReadAsStringAsync());
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Empty(SearchResultBookIds(html));
         Assert.Contains("找不到符合的書", html);
-        Assert.Contains("共 21 筆", html);
-        Assert.Contains("&page=2\"", html);
+        Assert.Empty(PagerEntries(html));
+    }
+
+    [Fact]
+    public async Task Last_page_has_a_disabled_next_and_no_link_past_the_last_page()
+    {
+        await fixture.ResetDatabaseAsync();
+        await SeedPagingBooksAsync();
+        await using var app = fixture.CreateFactory();
+
+        var html = await SearchPageAsync(app.CreateClient(), "分頁測試", "2");
+        var pager = PagerEntries(html);
+
+        var previous = pager.First();
+        var next = pager.Last();
+        Assert.Equal("上一頁", previous.Text);
+        Assert.EndsWith("&page=1", previous.Href);
+        Assert.Equal("下一頁", next.Text);
+        Assert.True(next.IsDisabled);
+        Assert.Null(next.Href);
+        Assert.DoesNotContain(pager, entry => entry.Href is not null && entry.Href.EndsWith("&page=3"));
     }
 
     [Theory]
     [InlineData("abc")]
     [InlineData("0")]
     [InlineData("-1")]
-    public async Task Page_that_is_not_a_positive_integer_shows_the_first_page(string page)
+    [InlineData("1.5")]
+    public async Task Page_that_is_not_an_integer_or_below_one_shows_the_first_page(string page)
     {
         await fixture.ResetDatabaseAsync();
         await SeedPagingBooksAsync();
@@ -207,7 +242,7 @@ public sealed class SearchPageTests(WebFixture fixture)
 
         var html = await SearchPageAsync(app.CreateClient(), "分頁測試", page);
 
-        Assert.Equal(20, ResultBookIds(html).Count);
+        Assert.Equal(20, SearchResultBookIds(html).Count);
         Assert.Contains("共 21 筆，第 1／2 頁", html);
     }
 
@@ -222,7 +257,7 @@ public sealed class SearchPageTests(WebFixture fixture)
 
         var html = await app.CreateClient().GetPageAsync($"/search?q={encodedQuery}");
 
-        Assert.Empty(ResultBookIds(html));
+        Assert.Empty(SearchResultBookIds(html));
         Assert.Contains("找不到符合的書", html);
     }
 
@@ -235,12 +270,12 @@ public sealed class SearchPageTests(WebFixture fixture)
 
         var html = await app.CreateClient().GetPageAsync("/search");
 
-        Assert.Empty(ResultBookIds(html));
+        Assert.Empty(SearchResultBookIds(html));
         Assert.Contains("找不到符合的書", html);
     }
 
     [Fact]
-    public async Task Result_items_show_authors_only_publisher_year_precision_date_and_placeholder_cover()
+    public async Task Result_item_shows_authors_only_publisher_year_precision_date_and_placeholder_cover()
     {
         await fixture.ResetDatabaseAsync();
         var books = await CatalogSeed.AddBooksAsync(fixture,
@@ -261,29 +296,25 @@ public sealed class SearchPageTests(WebFixture fixture)
 
         var html = await SearchPageAsync(app.CreateClient(), "作者測試書");
 
-        Assert.Equal([books[0].BookId], ResultBookIds(html));
-        Assert.Contains($"href=\"/books/{books[0].BookId}\"", html);
-        Assert.Contains("class=\"authors text-muted small\">劉慈欣</div>", html);
+        Assert.Equal(
+            [new RenderedSearchResult(books[0].BookId, "作者測試書", "劉慈欣", "測試出版社", "2011", null, true)],
+            ResultItems(html));
         Assert.DoesNotContain("譯者甲", html);
-        Assert.Contains("class=\"publisher text-muted small\">測試出版社</div>", html);
-        Assert.Contains("class=\"published-date text-muted small\">2011</div>", html);
         Assert.DoesNotContain("2011-03", html);
-        Assert.Contains("無封面", html);
     }
 
     [Fact]
-    public async Task Missing_author_publisher_and_date_are_left_out_of_the_item()
+    public async Task Missing_author_publisher_and_date_are_not_rendered()
     {
         await fixture.ResetDatabaseAsync();
-        await CatalogSeed.AddBooksAsync(fixture, [new BookSeed("缺欄位書")]);
+        var books = await CatalogSeed.AddBooksAsync(fixture, [new BookSeed("缺欄位書")]);
         await using var app = fixture.CreateFactory();
 
         var html = await SearchPageAsync(app.CreateClient(), "缺欄位書");
 
-        Assert.Single(ResultBookIds(html));
-        Assert.DoesNotContain("class=\"authors", html);
-        Assert.DoesNotContain("class=\"publisher", html);
-        Assert.DoesNotContain("class=\"published-date", html);
+        Assert.Equal(
+            [new RenderedSearchResult(books[0].BookId, "缺欄位書", null, null, null, null, true)],
+            ResultItems(html));
     }
 
     [Fact]
@@ -297,25 +328,46 @@ public sealed class SearchPageTests(WebFixture fixture)
         ]);
         await using var app = fixture.CreateFactory();
 
-        var html = await SearchPageAsync(app.CreateClient(), "封面測試");
+        var items = ResultItems(await SearchPageAsync(app.CreateClient(), "封面測試"));
 
-        Assert.Equal(2, ResultBookIds(html).Count);
-        Assert.Contains("src=\"https://img.example.test/cover.jpg\"", html);
-        Assert.Equal(1, CountOccurrences(html, "無封面"));
+        Assert.Equal(2, items.Count);
+        Assert.Single(items, item => item.CoverUrl == "https://img.example.test/cover.jpg" && !item.NoCover);
+        Assert.Single(items, item => item.CoverUrl is null && item.NoCover);
     }
 
     [Fact]
-    public async Task Search_box_is_prefilled_with_the_query()
+    public async Task Search_box_is_prefilled_with_the_trimmed_query()
     {
         await fixture.ResetDatabaseAsync();
         await CatalogSeed.AddBooksAsync(fixture, [new BookSeed("甲書")]);
         await using var app = fixture.CreateFactory();
 
-        var html = await SearchPageAsync(app.CreateClient(), "甲書");
+        var html = await SearchPageAsync(app.CreateClient(), "  甲書  ");
 
-        Assert.Contains("name=\"q\"", html);
-        Assert.Contains("value=\"甲書\"", html);
+        Assert.Equal("甲書", SearchBoxValue(html));
         Assert.Contains("<title>搜尋結果 - 好想找書</title>", html);
+    }
+
+    [Fact]
+    public async Task Query_and_pager_urls_are_html_encoded_in_the_raw_page()
+    {
+        await fixture.ResetDatabaseAsync();
+        // Titles carry the same characters as the query, so the results and the pager are rendered with them.
+        await CatalogSeed.AddBooksAsync(fixture,
+            Enumerable.Range(1, 21).Select(i => new BookSeed($"<script>\"&# {i:00}")
+            {
+                PublishedDate = new DateOnly(2000 + i, 1, 1),
+                PublishedDatePrecision = PublishedDatePrecision.Year
+            }));
+        await using var app = fixture.CreateFactory();
+
+        var (status, raw) = await app.CreateClient().GetUndecodedAsync(SearchUrl("<script>\"&#"));
+
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.DoesNotContain("<script>", raw);
+        Assert.Contains("value=\"&lt;script&gt;&quot;&amp;#\"", raw);
+        // "#" must be percent-encoded, or the browser would treat the rest as a fragment.
+        Assert.Contains("href=\"/search?q=%3Cscript%3E%22%26%23&amp;page=2\"", raw);
     }
 
     [Theory]
@@ -340,19 +392,18 @@ public sealed class SearchPageTests(WebFixture fixture)
         await CatalogSeed.AddBooksAsync(fixture, Enumerable.Range(1, 201).Select(i => new BookSeed($"頁碼測試 {i:000}")));
         await using var app = fixture.CreateFactory();
 
-        var html = await SearchPageAsync(app.CreateClient(), "頁碼測試", "5");
+        var pager = PagerEntries(await SearchPageAsync(app.CreateClient(), "頁碼測試", "5"));
 
-        Assert.Equal(2, CountOccurrences(html, "…"));
-        Assert.Contains("第 5／11 頁", html);
-        Assert.DoesNotContain("&page=5\"", html);
-        foreach (var page in new[] { 1, 3, 4, 6, 7, 11 })
-            Assert.Contains($"&page={page}\"", html);
-        foreach (var page in new[] { 2, 8, 9, 10 })
-            Assert.DoesNotContain($"&page={page}\"", html);
+        Assert.Equal(
+            ["上一頁", "1", "…", "3", "4", "5", "6", "7", "…", "11", "下一頁"],
+            pager.Select(entry => entry.Text));
+        Assert.Equal("5", pager.Single(entry => entry.IsCurrent).Text);
+        Assert.EndsWith("&page=4", pager.First().Href);
+        Assert.EndsWith("&page=6", pager.Single(entry => entry.Text == "下一頁").Href);
     }
 
     [Fact]
-    public async Task Seeded_description_never_appears_in_the_results_html()
+    public async Task Seeded_description_and_table_of_contents_never_appear_in_the_results_html()
     {
         await fixture.ResetDatabaseAsync();
         await CatalogSeed.AddBooksAsync(fixture,
@@ -363,7 +414,7 @@ public sealed class SearchPageTests(WebFixture fixture)
 
         var html = await SearchPageAsync(app.CreateClient(), "深度學習");
 
-        Assert.Single(ResultBookIds(html));
+        Assert.Single(SearchResultBookIds(html));
         Assert.DoesNotContain("簡介標記壹貳參", html);
         Assert.DoesNotContain("目錄標記伍陸柒", html);
     }
@@ -377,7 +428,7 @@ public sealed class SearchPageTests(WebFixture fixture)
 
         var response = await app.CreateClient().GetAsync("/search?q=%ED%A0%80");
 
-        Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
     private async Task<IReadOnlyList<SeededBook>> SeedIsbnBooksAsync() =>
@@ -396,14 +447,16 @@ public sealed class SearchPageTests(WebFixture fixture)
                 PublishedDatePrecision = PublishedDatePrecision.Year
             }));
 
-    private static async Task<string> SearchPageAsync(HttpClient client, string query, string? page = null)
+    private static string SearchUrl(string query, string? page = null)
     {
         var url = $"/search?q={Uri.EscapeDataString(query)}";
-        return await client.GetPageAsync(page is null ? url : $"{url}&page={page}");
+        return page is null ? url : $"{url}&page={page}";
     }
 
-    private static IReadOnlyList<Guid> ResultBookIds(string html) =>
-        BookLink.Matches(html).Select(match => Guid.Parse(match.Groups[1].Value)).ToList();
+    private static async Task<string> SearchPageAsync(HttpClient client, string query, string? page = null) =>
+        await client.GetPageAsync(SearchUrl(query, page));
 
-    private static int CountOccurrences(string text, string value) => text.Split(value).Length - 1;
+    // Redirects are asserted, not followed.
+    private static HttpClient NoRedirectClient(WebApplicationFactory<Program> app) =>
+        app.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
 }

@@ -15,43 +15,46 @@ public sealed record SearchResultsViewModel(
 {
     public bool HasItems => Items.Count > 0;
 
-    // Null when nothing matched. A page past the end has a total but no items, so it gets the count without the page.
-    public string? SummaryText => TotalCount == 0
-        ? null
-        : HasItems
-            ? $"共 {TotalCount} 筆，第 {CurrentPage}／{TotalPages} 頁"
-            : $"共 {TotalCount} 筆";
+    // Null when nothing matched, because there is no page to count.
+    public string? SummaryText => TotalCount == 0 ? null : $"共 {TotalCount} 筆，第 {CurrentPage}／{TotalPages} 頁";
 
+    // Precondition: whenever there are results, CurrentPage is within 1..TotalPages (the controller redirects a page past the end).
     public static SearchResultsViewModel From(string? query, BookSearchPage page)
     {
-        var text = query ?? string.Empty;
+        var queryText = NormalizeQuery(query);
 
         var items = page.Hits.Select(hit => new SearchResultItemViewModel(
             hit.BookId,
             hit.Title,
-            hit.Authors.Count == 0 ? null : string.Join("、", hit.Authors),
-            hit.Publisher,
+            NullIfBlank(string.Join("、", hit.Authors)),
+            NullIfBlank(hit.Publisher),
             PublishedDateText.Format(hit.PublishedDate, hit.PublishedDatePrecision),
-            hit.ThumbnailUrl)).ToList();
+            NullIfBlank(hit.ThumbnailUrl))).ToList();
 
         var pageLinks = PageWindow.For(page.Page, page.TotalPages).Select(number => new PageLinkViewModel(
             number,
-            number is { } target && target != page.Page ? UrlFor(text, target) : null,
+            number is { } target && target != page.Page ? UrlFor(queryText, target) : null,
             number == page.Page)).ToList();
 
-        // Previous from a page past the end goes to the last real page, not to a page that does not exist.
+        // Links never go past the last page, even if a caller passes a page beyond it.
         var previousUrl = page.Page > 1 && page.TotalPages > 0
-            ? UrlFor(text, Math.Min(page.Page - 1, page.TotalPages))
+            ? UrlFor(queryText, Math.Min(page.Page - 1, page.TotalPages))
             : null;
-        var nextUrl = page.Page < page.TotalPages ? UrlFor(text, page.Page + 1) : null;
+        var nextUrl = page.Page < page.TotalPages ? UrlFor(queryText, page.Page + 1) : null;
 
-        return new SearchResultsViewModel(text, items, page.TotalCount, page.Page, page.TotalPages, pageLinks, previousUrl, nextUrl);
+        return new SearchResultsViewModel(queryText, items, page.TotalCount, page.Page, page.TotalPages, pageLinks, previousUrl, nextUrl);
     }
 
-    private static string UrlFor(string query, int page) => $"/search?q={Uri.EscapeDataString(query)}&page={page}";
+    // The link to one page of a search. The query is trimmed, as the search itself trims it, and percent-encoded.
+    public static string UrlFor(string? query, int page) => $"/search?q={Uri.EscapeDataString(NormalizeQuery(query))}&page={page}";
+
+    private static string NormalizeQuery(string? query) => (query ?? string.Empty).Trim();
+
+    private static string? NullIfBlank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value;
 }
 
-// One search hit as shown in the list. Authors are AUTHOR names only, joined with 「、」; null when there are none.
+// One search hit as shown in the list. Optional fields are null when there is no value (never blank).
+// Authors are AUTHOR names only, joined with 「、」.
 public sealed record SearchResultItemViewModel(
     Guid BookId,
     string Title,

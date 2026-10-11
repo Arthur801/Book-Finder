@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Numerics;
 using Book_Finder.Application.Catalog;
 using Book_Finder.Models;
 using Microsoft.AspNetCore.Mvc;
@@ -12,12 +13,22 @@ public class SearchController(BookSearchService search) : Controller
     public async Task<IActionResult> Index(string? q, string? page, CancellationToken cancellationToken)
     {
         var result = await search.SearchAsync(q, ParsePage(page), cancellationToken);
+
+        // A page past the last one is not shown empty: it moves to the last page (book-catalog.md §3.3).
+        // With no results there is no last page, so the not-found page is shown instead.
+        if (result.TotalCount > 0 && result.Page > result.TotalPages)
+            return Redirect(SearchResultsViewModel.UrlFor(q, result.TotalPages));
+
         return View(SearchResultsViewModel.From(q, result));
     }
 
-    // Not an integer means the first page; a number below 1 is clamped by the service. A huge number stays huge, so it lands past the end.
-    private static int ParsePage(string? page) =>
-        long.TryParse(page, NumberStyles.Integer, CultureInfo.InvariantCulture, out var number)
-            ? (int)Math.Clamp(number, 1, int.MaxValue)
-            : 1;
+    // Not an integer, or below 1, means the first page. An integer too large for int is past the last page,
+    // so it is capped at int.MaxValue and redirected like any other page past the end.
+    private static int ParsePage(string? page)
+    {
+        if (!BigInteger.TryParse(page, NumberStyles.Integer, CultureInfo.InvariantCulture, out var number) || number < 1)
+            return 1;
+
+        return number > int.MaxValue ? int.MaxValue : (int)number;
+    }
 }
