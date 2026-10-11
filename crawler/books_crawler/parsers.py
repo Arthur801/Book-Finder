@@ -4,7 +4,8 @@ Every selector is based on the real pages saved in ``crawler/tests/fixtures/`` (
 user on 2026-10-11, browser "HTML only"). If a field is not reliably present it is returned as
 None (with a log line); nothing is guessed. Parsers raise ``ParseError`` when the page is not the
 expected kind: wrong ranking tab, missing product container, missing title, unreadable rank.
-A parse error fails the run, so it never produces a partially wrong Book.
+A ranking-page parse error fails the run. A product-page parse error is retried and then the row is
+skipped (crawler.md §4, §6), so it never produces a partially wrong Book.
 
 Ranking page (``ranking_books_7d_top100.html``):
 - The 7-day chart is the selected item of ``ul.sub_list`` (the page also has other ``li.here``).
@@ -63,11 +64,18 @@ _BLOCK_TAGS = frozenset({"p", "div", "li", "ul", "ol", "h1", "h2", "h3", "h4", "
 
 
 class ParseError(ValueError):
-    """The page is not the expected kind of page; the run must fail."""
+    """The page is not the expected kind of page.
+
+    On the ranking page the run fails. On a product detail page the row is retried and then skipped
+    (crawler.md §4, §6).
+    """
 
 
-class RestrictedBookError(ParseError):
-    """The source explicitly requires an adult member login to view this product."""
+class RestrictedBookError(Exception):
+    """The source explicitly requires an adult member login to view this product.
+
+    Not a ``ParseError``: a restricted page is skipped without retry and is not an error (crawler.md §6).
+    """
 
 
 class _Row(NamedTuple):

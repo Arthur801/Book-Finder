@@ -66,16 +66,33 @@ MAX_ATTEMPTS = 3  # crawler.md §6: total attempts, first try included
 BACKOFF_BASE_SECONDS = 1.0  # sleep before attempt n (n = 2, 3) is 1s, then 2s
 
 
-class DuplicateBookInRankingError(RuntimeError):
-    """A later ranking row resolves to a Book that an earlier rank already uses (not retried)."""
+@dataclass(frozen=True)
+class _ParsedDraft:
+    """Detail step outcome: the page was fetched and parsed; the draft is ready to be written."""
+
+    draft: BookDraft
 
 
-class _AttemptFailed(Exception):
-    """A retryable failure of one attempt; carries the ``Failure`` describing it."""
+@dataclass(frozen=True)
+class _RestrictedPage:
+    """Detail step outcome: a restricted member page. Skipped without retry (crawler.md §6)."""
 
-    def __init__(self, failure: Failure) -> None:
-        super().__init__(failure.error_message)
-        self.failure = failure
+    message: str
+
+
+@dataclass(frozen=True)
+class _WrittenSource:
+    """Write step outcome: the new source was written, attached to ``match`` or to a new Book."""
+
+    ref: SourceRef
+    match: IsbnMatch | None
+
+
+@dataclass(frozen=True)
+class _DuplicateBook:
+    """Write step outcome: the Book is already used by an earlier rank. Skipped without retry."""
+
+    message: str
 
 
 def utc_now() -> datetime:
@@ -169,19 +186,31 @@ def _fetch_ranking_page(deps: RunDependencies) -> str:
     raise FetchError(f"ranking page failed after {MAX_ATTEMPTS} attempts: {last_error}") from last_error
 
 
-def _fetch_and_parse(row: RankingRow, deps: RunDependencies, attempt: int) -> BookDraft:
-    """Detail request and parse. Both failures are retryable; the caller fetches again on retry."""
+def _log_attempt_failed(row: RankingRow, attempt: int, failure: Failure) -> None:
+    log.warning(
+        "rank %d attempt %d/%d failed (%s): %s",
+        row.rank,
+        attempt,
+        MAX_ATTEMPTS,
+        failure.error_type,
+        failure.error_message,
+    )
+
+
+def _fetch_and_parse(row: RankingRow, deps: RunDependencies, attempt: int) -> _ParsedDraft | _RestrictedPage | Failure:
+    """Detail request and parse. Returns the outcome; a ``Failure`` is retried by the caller with a new request."""
     try:
         html = deps.fetcher.get(row.url)
     except FetchError as exc:
-        raise _AttemptFailed(_failure(SkipReason.FETCH_ERROR, str(exc), attempt)) from exc
+        return _failure(SkipReason.FETCH_ERROR, str(exc), attempt)
     try:
-        # ParseError (e.g. missing title or product container) and BookDraft validation are ValueErrors.
-        return deps.parse_detail(html, row.url)
-    except RestrictedBookError:
-        raise
+        return _ParsedDraft(deps.parse_detail(html, row.url))
+    except RestrictedBookError as exc:
+        return _RestrictedPage(str(exc))
     except ValueError as exc:
-        raise _AttemptFailed(_failure(SkipReason.PARSE_ERROR, str(exc), attempt)) from exc
+        # Classification: ParseError (e.g. missing title or product container) and BookDraft
+        # validation both raise ValueError; they are a retryable parse_error (crawler.md §6).
+        return _failure(SkipReason.PARSE_ERROR, str(exc), attempt)
 
 
 def _write_new_source(
@@ -190,15 +219,14 @@ def _write_new_source(
     deps: RunDependencies,
     ranked: Mapping[UUID, int],
     attempt: int,
-) -> tuple[SourceRef, IsbnMatch | None]:
+) -> _WrittenSource | _DuplicateBook | Failure:
     """ISBN lookup and the Book transaction for one parsed draft. Database errors are retryable."""
     try:
         match = db.find_book_by_isbn(conn, draft.identifiers)
     except psycopg.Error as exc:
-        raise _AttemptFailed(_failure(SkipReason.DATABASE_ERROR, str(exc), attempt)) from exc
+        return _failure(SkipReason.DATABASE_ERROR, str(exc), attempt)
     if match is not None and match.book_id in ranked:
-        # Deterministic: the caller skips the row without retrying.
-        raise DuplicateBookInRankingError(_duplicate_message(match.book_id, ranked))
+        return _DuplicateBook(_duplicate_message(match.book_id, ranked))
 
     try:
         ref = db.persist_new_source(
@@ -208,8 +236,8 @@ def _write_new_source(
             attach_to_book_id=match.book_id if match is not None else None,
         )
     except psycopg.Error as exc:
-        raise _AttemptFailed(_failure(SkipReason.DATABASE_ERROR, str(exc), attempt)) from exc
-    return ref, match
+        return _failure(SkipReason.DATABASE_ERROR, str(exc), attempt)
+    return _WrittenSource(ref, match)
 
 
 def _resolve_row(
@@ -234,29 +262,29 @@ def _resolve_row(
     draft: BookDraft | None = None
     last_failure: Failure | None = None
     for attempt in _attempts(deps):
-        try:
-            if draft is None:
-                draft = _fetch_and_parse(row, deps, attempt)
-            ref, match = _write_new_source(conn, draft, deps, ranked, attempt)
-        except RestrictedBookError as exc:
-            log.info("rank %d restricted product skipped without retry: %s", row.rank, row.url)
-            return _skipped(row, _failure(SkipReason.RESTRICTED_BOOK, str(exc), attempts=attempt))
-        except _AttemptFailed as exc:
-            last_failure = exc.failure
-            log.warning(
-                "rank %d attempt %d/%d failed (%s): %s",
-                row.rank,
-                attempt,
-                MAX_ATTEMPTS,
-                exc.failure.error_type,
-                exc.failure.error_message,
-            )
-            continue
-        except DuplicateBookInRankingError as exc:
-            return _skipped(row, _failure(SkipReason.DUPLICATE_BOOK_IN_RANKING, str(exc), attempts=attempt))
+        if draft is None:
+            fetched = _fetch_and_parse(row, deps, attempt)
+            if isinstance(fetched, _RestrictedPage):
+                log.info("rank %d restricted product skipped without retry: %s", row.rank, row.url)
+                return _skipped(row, _failure(SkipReason.RESTRICTED_BOOK, fetched.message, attempts=attempt))
+            if isinstance(fetched, Failure):
+                last_failure = fetched
+                _log_attempt_failed(row, attempt, fetched)
+                continue
+            draft = fetched.draft
 
-        if match is None:
-            return ResolvedRow(rank=row.rank, source_ref=ref, resolution=Resolution.NEW_BOOK)
+        written = _write_new_source(conn, draft, deps, ranked, attempt)
+        if isinstance(written, _DuplicateBook):
+            # Deterministic: skipped without retry.
+            return _skipped(row, _failure(SkipReason.DUPLICATE_BOOK_IN_RANKING, written.message, attempts=attempt))
+        if isinstance(written, Failure):
+            last_failure = written
+            _log_attempt_failed(row, attempt, written)
+            continue
+
+        if written.match is None:
+            return ResolvedRow(rank=row.rank, source_ref=written.ref, resolution=Resolution.NEW_BOOK)
+        match = written.match
         log.info(
             "attached BOOKS_COM_TW source to existing Book: rank=%d url=%s matched=%s:%s book_id=%s",
             row.rank,
@@ -265,7 +293,7 @@ def _resolve_row(
             match.identifier.identifier_value,
             match.book_id,
         )
-        return ResolvedRow(rank=row.rank, source_ref=ref, resolution=Resolution.ISBN_ATTACHED)
+        return ResolvedRow(rank=row.rank, source_ref=written.ref, resolution=Resolution.ISBN_ATTACHED)
 
     assert last_failure is not None  # the loop runs at least once and only continues on failure
     return _skipped(row, last_failure)

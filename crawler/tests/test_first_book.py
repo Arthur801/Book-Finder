@@ -9,7 +9,7 @@ import pytest
 
 from books_crawler import cli, db
 from books_crawler.fetcher import FetchError
-from books_crawler.models import RunStatus, SourceRef
+from books_crawler.models import BookDraft, RunStatus, SourceRef
 from books_crawler.parsers import RANKING_PAGE_URL, RestrictedBookError
 from books_crawler.run import RunDependencies, run_first_book
 from tests.fakes import FakeFetcher, FakeSleep, fake_detail_parser, fake_ranking_parser, make_draft, ranking_rows
@@ -100,6 +100,24 @@ def test_first_book_database_failure_is_not_reported_as_a_fetch_error(monkeypatc
     assert deps.fetcher.calls == [RANKING_PAGE_URL, first]
 
 
+def test_draft_validation_error_from_the_detail_parser_is_retried_as_parse_error(monkeypatch):
+    deps, first = dependencies(lambda: nullcontext(object()))
+    monkeypatch.setattr(db, "find_source", lambda *args: None)
+    monkeypatch.setattr(db, "persist_new_source", lambda *args, **kwargs: pytest.fail("must not write"))
+
+    def invalid_draft(html, url):
+        return BookDraft(source_url=url, title="   ")  # BookDraft.__post_init__ raises ValueError
+
+    deps.parse_detail = invalid_draft
+    report = run_first_book(deps)
+    assert report.status is RunStatus.FAILED
+    failure = report.skipped[0].failure
+    assert (failure.error_type, failure.attempts) == ("parse_error", 3)
+    assert "title is required" in failure.error_message
+    assert deps.fetcher.calls == [RANKING_PAGE_URL, first, first, first]  # the page is fetched again each time
+    assert deps.sleep.calls == [1.0, 2.0]
+
+
 def test_incomplete_ranking_does_not_open_database():
     deps, _ = dependencies(lambda: pytest.fail("must validate ranking first"), count=99)
     report = run_first_book(deps)
@@ -119,7 +137,8 @@ def test_first_book_cli_selects_runner_and_closes_fetcher(monkeypatch):
     assert closed == [True]
 
 
-def test_restricted_first_book_skips_once_without_error(monkeypatch):
+def test_restricted_first_book_skips_once_without_error(monkeypatch, caplog):
+    caplog.set_level(logging.INFO, logger="books_crawler")
     deps, first = dependencies(lambda: nullcontext(object()))
     monkeypatch.setattr(db, "find_source", lambda *args: None)
 
@@ -134,3 +153,4 @@ def test_restricted_first_book_skips_once_without_error(monkeypatch):
     assert report.error_count == 0
     assert deps.fetcher.calls == [RANKING_PAGE_URL, first]
     assert deps.sleep.calls == []
+    assert f"rank 1 restricted product skipped without retry: {first}" in [r.getMessage() for r in caplog.records]

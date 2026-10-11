@@ -252,6 +252,12 @@ def test_real_restricted_member_gate_is_recognized():
         parse_detail_html(html, product_url(11063006))
 
 
+def test_restricted_book_error_is_not_a_parse_error_or_value_error():
+    # run.py classifies the restricted page by its type, so it must not be a retryable parse error.
+    assert not issubclass(RestrictedBookError, ParseError)
+    assert not issubclass(RestrictedBookError, ValueError)
+
+
 def test_restricted_badge_on_a_real_product_page_is_not_a_member_gate():
     html = fixture_html(detail_fixture_name("0011063006"))
     assert "限制級商品" in html  # the badge is on the page, but there is product content and no login gate
