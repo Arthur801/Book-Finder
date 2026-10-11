@@ -2,12 +2,15 @@ using Book_Finder.Domain.Entities;
 
 namespace Book_Finder.Models;
 
-// One contributor as read from book_contributors (book-catalog.md §4.1).
+// Presentation input deliberately decoupled from the BookContributor entity;
+// the property names match the Book detail contract so the mapping stays trivial.
 public sealed record ContributorName(short Order, string Name, ContributorRole Role);
 
-// One display line such as "作者：劉慈欣、作者乙".
-public sealed record ContributorGroup(ContributorRole Role, string Label, IReadOnlyList<string> Names)
+// One display line such as "作者：劉慈欣、作者乙". The label is derived from the role, never stored separately.
+public sealed record ContributorGroup(ContributorRole Role, IReadOnlyList<string> Names)
 {
+    public string Label => ContributorDisplay.RoleLabel(Role);
+
     public string Text => $"{Label}：{string.Join("、", Names)}";
 }
 
@@ -31,7 +34,6 @@ public static class ContributorDisplay
             .GroupBy(contributor => contributor.Role)
             .Select(group => new ContributorGroup(
                 group.Key,
-                RoleLabel(group.Key),
                 group.Select(contributor => contributor.Name).ToList()))
             .ToList();
 }

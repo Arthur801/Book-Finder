@@ -81,9 +81,17 @@ public sealed class ContributorDisplayTests
     [Fact]
     public void Text_uses_full_width_colon_and_ideographic_comma_separator()
     {
-        var group = new ContributorGroup(ContributorRole.Author, "作者", ["劉慈欣", "作者乙"]);
+        var group = new ContributorGroup(ContributorRole.Author, ["劉慈欣", "作者乙"]);
 
         Assert.Equal("作者：劉慈欣、作者乙", group.Text);
+    }
+
+    [Fact]
+    public void Label_is_derived_from_the_role()
+    {
+        var group = new ContributorGroup(ContributorRole.Translator, ["譯者甲"]);
+
+        Assert.Equal("譯者", group.Label);
     }
 
     [Fact]

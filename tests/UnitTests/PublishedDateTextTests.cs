@@ -30,9 +30,10 @@ public sealed class PublishedDateTextTests
     }
 
     [Fact]
-    public void Month_precision_zero_pads_single_digit_month()
+    public void Undefined_precision_throws()
     {
-        Assert.Equal("2011-03", PublishedDateText.Format(new DateOnly(2011, 3, 1), PublishedDatePrecision.Month));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            PublishedDateText.Format(new DateOnly(2011, 3, 15), (PublishedDatePrecision)99));
     }
 
     [Fact]

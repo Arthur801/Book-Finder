@@ -9,17 +9,17 @@ public static class PublishedDateText
 {
     public static string? Format(DateOnly? date, PublishedDatePrecision? precision)
     {
-        if (date is not { } value || precision is not { } p)
+        if (date is not { } value || precision is not { } datePrecision)
         {
             return null;
         }
 
-        return p switch
+        return datePrecision switch
         {
             PublishedDatePrecision.Year => value.ToString("yyyy", CultureInfo.InvariantCulture),
             PublishedDatePrecision.Month => value.ToString("yyyy-MM", CultureInfo.InvariantCulture),
             PublishedDatePrecision.Day => value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
-            _ => throw new ArgumentOutOfRangeException(nameof(precision), p, null),
+            _ => throw new ArgumentOutOfRangeException(nameof(precision), datePrecision, null),
         };
     }
 }
