@@ -81,7 +81,7 @@ normalized 符合 ISBN-13（13 位數字）或 ISBN-10（9 位數字 + 數字或
 - 分類：依分類文字排序，以「、」連接。`book_subjects` 沒有順序欄位，來源的層級順序（例：人文社科 > 政治 > 政治人物）無法還原；保留層級順序列為進階目標（§8）。
 - 沒有值的欄位（副標、出版社、出版日期、ISBN、分類、頁數）整列不顯示。沒有封面時顯示「無封面」佔位。
 - 外部連結以新分頁開啟（`target="_blank" rel="noopener noreferrer"`）。
-- 外部連結只接受 `http`／`https` 的絕對網址；其他網址（例如 `javascript:`）不產生連結，主要按鈕改由下一個合格的來源擔任。來源資料來自 crawler 與 Google Books，這是顯示端的防護（2026-10-11）。
+- 外部連結只接受 `http`／`https` 的絕對網址；其他網址（例如 `javascript:`）不產生連結，主要按鈕改由下一個合格的來源擔任。封面網址同理，不是 `http`／`https` 絕對網址時視為沒有封面（顯示「無封面」）。來源資料來自 crawler 與 Google Books，這是顯示端的防護（2026-10-11）。
 - Library 區塊在 Library 功能（#11）實作前只放一個空的容器（`<section id="library">`），畫面上不顯示任何內容。
 
 **不顯示 description 與 table of contents**（BOOK-05）：兩者只保存於資料庫供 Recommendation 讀取。Book 詳細頁的 view model 與任何 JSON 回應都不得包含這兩個欄位，避免日後誤顯示；書籍的完整介紹由來源網站提供。封面直接引用來源的 `thumbnail_url`，不轉存。
