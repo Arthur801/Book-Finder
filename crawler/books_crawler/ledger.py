@@ -26,7 +26,13 @@ from datetime import datetime
 from types import MappingProxyType
 from uuid import UUID
 
-from books_crawler.models import Resolution, ResolvedRow, RunStatus, SkippedRow, SnapshotRow
+from books_crawler.models import (
+    Resolution,
+    ResolvedRow,
+    RunStatus,
+    SkippedRow,
+    SnapshotRow,
+)
 
 MAX_CONSECUTIVE_ERRORS = 20  # crawler.md §6, CRAWL-05
 

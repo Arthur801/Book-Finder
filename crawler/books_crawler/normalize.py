@@ -10,7 +10,12 @@ import logging
 import re
 from datetime import date
 
-from books_crawler.models import ContributorRole, Identifier, IdentifierType, PublishedDatePrecision
+from books_crawler.models import (
+    ContributorRole,
+    Identifier,
+    IdentifierType,
+    PublishedDatePrecision,
+)
 
 log = logging.getLogger("books_crawler.normalize")
 

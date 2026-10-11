@@ -43,22 +43,29 @@ from uuid import UUID
 import psycopg
 
 from books_crawler import db
-from books_crawler.fetcher import FetchError, Fetcher
+from books_crawler.fetcher import Fetcher, FetchError
 from books_crawler.ledger import RunLedger, RunReport
 from books_crawler.models import (
     BookDraft,
     Failure,
+    ImportReport,
     IsbnMatch,
     RankingRow,
     Resolution,
     ResolvedRow,
-    SkipReason,
     SkippedRow,
+    SkipReason,
     SourceRef,
 )
-from books_crawler.parsers import RANKING_PAGE_URL, DetailParser, RankingParser, RestrictedBookError
+from books_crawler.parsers import (
+    RANKING_PAGE_URL,
+    DetailParser,
+    RankingParser,
+    RestrictedBookError,
+)
 from books_crawler.ranking import validate_ranking
 from books_crawler.redact import redact
+from books_crawler.urls import PAGE_URLS
 
 log = logging.getLogger("books_crawler.run")
 
@@ -167,12 +174,12 @@ def _duplicate_message(book_id: UUID, ranked: Mapping[UUID, int]) -> str:
     return f"resolves to Book {book_id}, which rank {ranked[book_id]} already uses; bestsellers.book_id must be unique"
 
 
-def _fetch_ranking_page(deps: RunDependencies) -> str:
+def _fetch_ranking_page(deps: RunDependencies, url: str = RANKING_PAGE_URL) -> str:
     """Fetch the ranking page with the shared retry loop; failure after all attempts fails the run."""
     last_error: FetchError | None = None
     for attempt in _attempts(deps):
         try:
-            return deps.fetcher.get(RANKING_PAGE_URL)
+            return deps.fetcher.get(url)
         except FetchError as exc:
             last_error = exc
             log.warning("ranking page attempt %d/%d failed: %s", attempt, MAX_ATTEMPTS, redact(str(exc)))
@@ -363,4 +370,52 @@ def run_once(deps: RunDependencies, run_id: str | None = None) -> RunReport:
     if report.error:  # one ERROR line per failed run, abort included
         log.error("run failed: %s", report.error)
     log.info("%s", format_report(report))
+    return report
+
+def run_pages(deps: RunDependencies, run_id: str | None = None) -> ImportReport:
+    """Execute pages crawl. Never raises: failures are reported through ``RunReport``."""
+    started_at = deps.clock()
+    
+    
+    error: str | None = None
+    try:
+        with deps.connect() as conn:
+            for page_url in PAGE_URLS:
+                log.info("importing page: %s", page_url)
+                html = _fetch_ranking_page(deps, page_url)
+                rows = deps.parse_ranking(html)
+                for row in rows:
+                    outcome = _resolve_row(conn, row, deps, ranked={},)
+
+                    # 一般書籍失敗只記錄第一個錯誤，繼續匯入。
+                    if (
+                        isinstance(outcome, SkippedRow)
+                        and not outcome.is_restricted
+                        and error is None
+                    ):
+                        error = redact(
+                            f"page={page_url} product={row.url}: "
+                            f"{outcome.failure.error_type}: "
+                            f"{outcome.failure.error_message}"
+                        )
+                
+    except Exception as exc:  # any failure fails the run; the previous bestsellers are untouched
+        error = redact(f"{type(exc).__name__}: {exc}")
+
+    report = ImportReport(
+        run_id=run_id or str(uuid.uuid4()),
+        started_at=started_at,
+        finished_at=deps.clock(),
+        error=error,
+    )
+        
+    if report.error is not None:  # one ERROR line per failed run, abort included
+        log.error("run failed: %s", report.error)
+    log.info(
+        "mode=import run_id=%s started_at=%s finished_at=%s error=%r",
+        report.run_id,
+        report.started_at.isoformat(),
+        report.finished_at.isoformat(),
+        report.error,
+    )
     return report

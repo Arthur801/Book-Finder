@@ -38,11 +38,13 @@ MVP 沒有 staging；L4 變更以本機或拋棄式資料庫 dry run 取代。
 
 `web` image 必須包含 tzdata（`/usr/share/zoneinfo`），並保留 ICU（除非以 invariant globalization 執行），以便以 `Asia/Taipei` 顯示 `captured_at`（`bestseller.md` §4）。若執行環境找不到該時區，程式會退回固定 UTC+08:00（台灣無夏令時間，顯示結果相同），不會因此回 500。
 
-### 3.1 原生發布（dotnet publish + systemd）
+### 3.1 原生發布（暫時使用dotnet publish + systemd）
 
 使用者已核准先以原生發布取代 EC2 containers（2026-10-11）：本機發布 `linux-x64`、framework-dependent 的 .NET 10 應用；EC2 安裝 ASP.NET Core Runtime 10，以 systemd 執行 `dotnet Book-Finder.dll`，監聽 `127.0.0.1:5000`，host nginx 負責 HTTPS 與反向代理。RDS、SSM secrets 與獨立 migration 步驟維持原規則。
 
 `Program.cs` 在 HSTS 與 HTTPS redirection 前處理 `X-Forwarded-For`、`X-Forwarded-Proto`，保留框架預設的 loopback proxy 信任範圍，適用於 host nginx。未來若恢復 container 部署，必須另行設定 nginx 的受信任位址，不可清空 proxy 信任限制來接受任意來源。
+
+實際實作會以docker為主，這部分為暫時使用。
 
 ## 4. TLS（nginx + ZeroSSL）
 

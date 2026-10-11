@@ -27,7 +27,7 @@ from books_crawler.fetcher import (
     create_fetcher,
 )
 from books_crawler.parsers import parse_detail_html, parse_ranking_html
-from books_crawler.run import RunDependencies, run_first_book, run_once
+from books_crawler.run import RunDependencies, run_first_book, run_once, run_pages
 
 EXIT_CONFIG_ERROR = 2
 FETCHER_ENV = "CRAWLER_FETCHER"
@@ -57,7 +57,7 @@ def parse_navigation_timeout(raw: str) -> int:
     return milliseconds
 
 
-def main(environ: Mapping[str, str] | None = None, *, first_book: bool = False) -> int:
+def main(environ: Mapping[str, str] | None = None, *, first_book: bool = False, pages: bool = False) -> int:
     configure_logging()
     log = logging.getLogger("books_crawler.cli")
     env = os.environ if environ is None else environ
@@ -92,8 +92,15 @@ def main(environ: Mapping[str, str] | None = None, *, first_book: bool = False) 
     )
     # The fetcher must be closed however the run ends: normal result, FAILED, or an exception.
     try:
-        runner = run_first_book if first_book else run_once
-        return runner(deps).exit_code
+        if first_book:
+            return run_first_book(deps).exit_code
+
+        if pages:
+            return run_pages(deps).exit_code
+        
+        return run_once(deps).exit_code
+
+
     finally:
         fetcher.close()
 

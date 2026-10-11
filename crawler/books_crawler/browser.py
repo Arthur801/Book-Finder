@@ -11,7 +11,7 @@ import logging
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, Self
 
 from playwright.sync_api import Browser, BrowserContext, Playwright, sync_playwright
 from playwright.sync_api import Error as PlaywrightError
@@ -116,7 +116,7 @@ class PlaywrightFetcher:
     def navigation_timeout_ms(self) -> int:
         return self._navigation_timeout_ms
 
-    def __enter__(self) -> PlaywrightFetcher:
+    def __enter__(self) -> Self:
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:
@@ -215,5 +215,5 @@ def _close_quietly(action: Callable[[], None], what: str) -> None:
     """Close one browser resource. A failure here is logged and never replaces the original error."""
     try:
         action()
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         log.warning("closing the %s failed: %s: %s", what, type(exc).__name__, redact(str(exc)))

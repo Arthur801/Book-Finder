@@ -152,7 +152,7 @@ def save_failure_diagnostics(
     """
     try:
         base = _new_diagnostic_base(directory)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         log.warning("cannot create the diagnostics directory: %s", redact(str(exc)))
         return
 
@@ -179,7 +179,7 @@ def save_failure_diagnostics(
         try:
             write(path)
             log.warning("failure diagnostics saved: %s", redact(str(path)))
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             log.warning("cannot save failure diagnostics %s: %s", suffix, redact(str(exc)))
 
 

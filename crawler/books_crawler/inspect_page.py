@@ -6,7 +6,11 @@ from pathlib import Path
 
 from books_crawler.browser import PlaywrightFetcher
 from books_crawler.cli import configure_logging
-from books_crawler.fetcher import DEFAULT_DIAGNOSTIC_DIR, BrowserUnavailableError, FetchError
+from books_crawler.fetcher import (
+    DEFAULT_DIAGNOSTIC_DIR,
+    BrowserUnavailableError,
+    FetchError,
+)
 from books_crawler.redact import redact
 
 
