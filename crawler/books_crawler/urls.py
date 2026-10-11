@@ -8,6 +8,10 @@ identity and is dropped. The 100 ranking URLs of the saved chart are unique afte
 Accepted inputs: absolute ``http``/``https`` URLs on ``books.com.tw`` or ``www.books.com.tw``,
 protocol-relative and root-relative paths. Anything else is not a product URL and is rejected.
 
+``is_category_ranking_url`` is the separate check for pages mode (crawler.md §16): an ``https`` URL on
+``www.books.com.tw`` with a two-digit category path and ``attribute=7`` (the 7-day list). It never
+raises; a string that cannot be parsed at all is simply not a category ranking URL.
+
 Canonical form: ``https://www.books.com.tw/products/<id>`` (no trailing slash, no query).
 """
 

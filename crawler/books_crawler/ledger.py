@@ -13,6 +13,12 @@ ledger owns everything decided from those outcomes, so the rules live in one pla
 The daily run uses the default limit of 20. The single-book import uses 0, so its only row
 fails the run on a general error and is a partial success when restricted.
 
+Pages mode (crawler.md §16) has its own ``PagesLedger``: it accounts for category pages and their rows,
+with no rank order, no snapshot, no duplicate-Book rule and no consecutive-error limit. A skipped
+page is recorded; the run fails only when every configured page was skipped. Both ledgers share
+the status rule (``_status``) and the book counts (``_book_counts``), so status and exit code are
+decided in one place.
+
 No I/O apart from logging skipped rows: tests drive it directly, without a database or a
 fetcher. The caller logs the one ERROR line of a failed run, abort included.
 """

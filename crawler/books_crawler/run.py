@@ -26,6 +26,11 @@ so it is neither retried nor skipped per row: it fails the whole run.
 Every row outcome goes, in rank order, to a ``RunLedger`` (``ledger.py``), which owns the counters,
 the consecutive-error streak and abort, the snapshot rows and the final status. This module only
 does the I/O: fetching, parsing, writing and publishing.
+
+Pages mode (``run_pages``, crawler.md §16) is the exception to the ranking rules: its rows go to a
+``PagesLedger`` instead, which keeps the counters and status but has no rank order, no snapshot, no
+duplicate-Book rule and no consecutive-error limit. A category page that cannot be fetched or parsed
+is skipped, not retried into a failed run.
 """
 
 from __future__ import annotations
