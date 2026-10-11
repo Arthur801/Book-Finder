@@ -86,6 +86,22 @@ class RunReport:
         return EXIT_FAILED if self.status is RunStatus.FAILED else EXIT_SUCCESS
 
 
+def _new_counts() -> dict[Resolution, int]:
+    return {resolution: 0 for resolution in Resolution}
+
+
+def _log_skipped_row(outcome: SkippedRow, where: str) -> None:
+    """One line for a skipped row (WARNING, INFO when restricted). ``where`` names the row: its rank, or page and rank."""
+    log_skip = log.info if outcome.is_restricted else log.warning
+    log_skip(
+        "%s skipped after %d attempt(s) (%s): %s",
+        where,
+        outcome.failure.attempts,
+        outcome.failure.error_type,
+        outcome.failure.error_message,
+    )
+
+
 def _status(error: str | None, *, partial: bool) -> RunStatus:
     """The run status shared by every mode: FAILED on any error, else PARTIAL_SUCCESS when something was skipped."""
     if error is not None:
@@ -114,7 +130,7 @@ class PagesLedger:
         self._skipped_pages: list[SkippedPage] = []
         self._rows_seen = 0
         self._skipped: list[SkippedRow] = []
-        self._counts = {resolution: 0 for resolution in Resolution}
+        self._counts = _new_counts()
 
     def record_page_ok(self) -> None:
         """A category page was fetched and parsed; its rows are recorded next."""
@@ -137,15 +153,7 @@ class PagesLedger:
         self._rows_seen += 1
         if isinstance(outcome, SkippedRow):
             self._skipped.append(outcome)
-            log_skip = log.info if outcome.is_restricted else log.warning
-            log_skip(
-                "page rank %d (%s) skipped after %d attempt(s) (%s): %s",
-                outcome.rank,
-                outcome.url,
-                outcome.failure.attempts,
-                outcome.failure.error_type,
-                outcome.failure.error_message,
-            )
+            _log_skipped_row(outcome, f"page rank {outcome.rank} ({outcome.url})")
         else:
             self._counts[outcome.resolution] += 1
 
@@ -189,7 +197,7 @@ class RunLedger:
         self._ranked: dict[UUID, int] = {}
         self._snapshot: list[SnapshotRow] = []
         self._skipped: list[SkippedRow] = []
-        self._counts = {resolution: 0 for resolution in Resolution}
+        self._counts = _new_counts()
         self._streak = 0
         self._last_rank = 0
         self._aborted_at_rank: int | None = None
@@ -263,15 +271,8 @@ class RunLedger:
 
     def _record_skip(self, outcome: SkippedRow) -> None:
         self._skipped.append(outcome)
+        _log_skipped_row(outcome, f"rank {outcome.rank}")
         failure = outcome.failure
-        log_skip = log.info if outcome.is_restricted else log.warning
-        log_skip(
-            "rank %d skipped after %d attempt(s) (%s): %s",
-            outcome.rank,
-            failure.attempts,
-            failure.error_type,
-            failure.error_message,
-        )
         if outcome.is_restricted:
             self._streak = 0
             return

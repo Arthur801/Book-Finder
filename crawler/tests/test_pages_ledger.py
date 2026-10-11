@@ -1,5 +1,6 @@
 """Accounting for pages mode (``ledger.PagesLedger``, crawler.md §16, pages mode). Pure: no database, no fetcher."""
 
+import logging
 from datetime import datetime, timezone
 from uuid import uuid4
 
@@ -165,3 +166,15 @@ def test_the_same_rank_on_two_pages_and_the_same_book_twice_are_not_errors():
 
     assert report.status is RunStatus.SUCCESS
     assert report.rows_seen == 2
+
+
+def test_a_skipped_row_is_logged_with_its_page_url_and_attempts(caplog):
+    caplog.set_level(logging.INFO, logger="books_crawler")
+    outcome = skipped(2)
+    ledger = PagesLedger()
+
+    ledger.record(outcome)
+
+    assert caplog.messages == [
+        f"page rank 2 ({outcome.url}) skipped after 3 attempt(s) (fetch_error): simulated"
+    ]
