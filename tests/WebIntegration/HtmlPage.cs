@@ -100,8 +100,6 @@ internal static partial class HtmlPage
         }).ToList();
     }
 
-    public static int CountOccurrences(string text, string value) => text.Split(value).Length - 1;
-
     private static RenderedLink ParseAnchor(string attributes, string text)
     {
         var values = Attributes(attributes);
