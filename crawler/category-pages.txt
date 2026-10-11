@@ -1,0 +1,24 @@
+# 博客來分類榜七日暢銷 URL（pages mode）。分類榜只補書、不寫入 Bestseller。
+# 格式：每行一個 URL；# 開頭為註解；空行忽略；前後空白去除；重複 URL 只保留第一次。
+# 只接受 https://www.books.com.tw/web/sys_saletopb/books/<兩位數分類>/?attribute=7[&loc=...]
+https://www.books.com.tw/web/sys_saletopb/books/01/?attribute=7&loc=P_0002_002
+https://www.books.com.tw/web/sys_saletopb/books/02/?attribute=7&loc=P_0002_003
+https://www.books.com.tw/web/sys_saletopb/books/03/?attribute=7&loc=P_0002_004
+https://www.books.com.tw/web/sys_saletopb/books/04/?attribute=7&loc=P_0002_005
+https://www.books.com.tw/web/sys_saletopb/books/07/?attribute=7&loc=P_0002_006
+https://www.books.com.tw/web/sys_saletopb/books/12/?attribute=7&loc=P_0002_007
+https://www.books.com.tw/web/sys_saletopb/books/06/?attribute=7&loc=P_0002_008
+https://www.books.com.tw/web/sys_saletopb/books/08/?attribute=7&loc=P_0002_009
+https://www.books.com.tw/web/sys_saletopb/books/09/?attribute=7&loc=P_0002_010
+https://www.books.com.tw/web/sys_saletopb/books/10/?attribute=7&loc=P_0002_011
+https://www.books.com.tw/web/sys_saletopb/books/11/?attribute=7&loc=P_0002_012
+https://www.books.com.tw/web/sys_saletopb/books/14/?attribute=7&loc=P_0002_013
+https://www.books.com.tw/web/sys_saletopb/books/24/?attribute=7&loc=P_0002_014
+https://www.books.com.tw/web/sys_saletopb/books/13/?attribute=7&loc=P_0002_015
+https://www.books.com.tw/web/sys_saletopb/books/22/?attribute=7&loc=P_0002_016
+https://www.books.com.tw/web/sys_saletopb/books/15/?attribute=7&loc=P_0002_017
+https://www.books.com.tw/web/sys_saletopb/books/16/?attribute=7&loc=P_0002_018
+https://www.books.com.tw/web/sys_saletopb/books/17/?attribute=7&loc=P_0002_019
+https://www.books.com.tw/web/sys_saletopb/books/18/?attribute=7&loc=P_0002_020
+https://www.books.com.tw/web/sys_saletopb/books/19/?attribute=7&loc=P_0002_021
+https://www.books.com.tw/web/sys_saletopb/books/20/?attribute=7&loc=P_0002_022

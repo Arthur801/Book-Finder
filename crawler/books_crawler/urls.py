@@ -14,7 +14,7 @@ Canonical form: ``https://www.books.com.tw/products/<id>`` (no trailing slash, n
 from __future__ import annotations
 
 import re
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import parse_qs, urljoin, urlsplit
 
 SITE_ORIGIN = "https://www.books.com.tw"
 _ACCEPTED_HOSTS = frozenset({"www.books.com.tw", "books.com.tw"})
@@ -43,8 +43,24 @@ PAGE_URLS=[
     "https://www.books.com.tw/web/sys_saletopb/books/20/?attribute=7&loc=P_0002_022"
 ]
 
+_CATEGORY_RANKING_PATH = re.compile(r"^/web/sys_saletopb/books/[0-9]{2}/$")
+
+
 class InvalidProductUrl(ValueError):
     """The value cannot be identified as a books.com.tw product URL."""
+
+
+def is_category_ranking_url(raw: str) -> bool:
+    """True for a books.com.tw category 7-day ranking page URL (pages mode, crawler.md §16)."""
+    parts = urlsplit(raw.strip())
+    query = parse_qs(parts.query, keep_blank_values=True)
+    return (
+        parts.scheme == "https"
+        and parts.netloc == "www.books.com.tw"
+        and _CATEGORY_RANKING_PATH.match(parts.path) is not None
+        and query.get("attribute") == ["7"]  # 7-day list; loc is tracking only
+        and set(query) <= {"attribute", "loc"}
+    )
 
 
 def canonicalize_product_url(raw: str | None) -> str:
