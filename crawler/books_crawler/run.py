@@ -67,13 +67,6 @@ BACKOFF_BASE_SECONDS = 1.0  # sleep before attempt n (n = 2, 3) is 1s, then 2s
 
 
 @dataclass(frozen=True)
-class _ParsedDraft:
-    """Detail step outcome: the page was fetched and parsed; the draft is ready to be written."""
-
-    draft: BookDraft
-
-
-@dataclass(frozen=True)
 class _RestrictedPage:
     """Detail step outcome: a restricted member page. Skipped without retry (crawler.md §6)."""
 
@@ -90,7 +83,7 @@ class _WrittenSource:
 
 @dataclass(frozen=True)
 class _DuplicateBook:
-    """Write step outcome: the Book is already used by an earlier rank. Skipped without retry."""
+    """Write step outcome: the Book is already used by an earlier rank. Skipped without retry (crawler.md §5)."""
 
     message: str
 
@@ -197,14 +190,18 @@ def _log_attempt_failed(row: RankingRow, attempt: int, failure: Failure) -> None
     )
 
 
-def _fetch_and_parse(row: RankingRow, deps: RunDependencies, attempt: int) -> _ParsedDraft | _RestrictedPage | Failure:
+def _fetch_and_parse(
+    row: RankingRow,
+    deps: RunDependencies,
+    attempt: int,
+) -> BookDraft | _RestrictedPage | Failure:
     """Detail request and parse. Returns the outcome; a ``Failure`` is retried by the caller with a new request."""
     try:
         html = deps.fetcher.get(row.url)
     except FetchError as exc:
         return _failure(SkipReason.FETCH_ERROR, str(exc), attempt)
     try:
-        return _ParsedDraft(deps.parse_detail(html, row.url))
+        return deps.parse_detail(html, row.url)
     except RestrictedBookError as exc:
         return _RestrictedPage(str(exc))
     except ValueError as exc:
@@ -271,7 +268,7 @@ def _resolve_row(
                 last_failure = fetched
                 _log_attempt_failed(row, attempt, fetched)
                 continue
-            draft = fetched.draft
+            draft = fetched
 
         written = _write_new_source(conn, draft, deps, ranked, attempt)
         if isinstance(written, _DuplicateBook):
