@@ -17,29 +17,73 @@ public sealed class SearchQueryTests
     [Fact]
     public void Thirteen_digit_isbn_with_hyphens_and_spaces_is_an_isbn()
     {
-        Assert.Equal(new SearchQuery.Isbn("9789861234567"), SearchQuery.Parse("978-986-1234-56-7"));
-        Assert.Equal(new SearchQuery.Isbn("9789861234567"), SearchQuery.Parse("978 986 1234 567"));
-        Assert.Equal(new SearchQuery.Isbn("9789861234567"), SearchQuery.Parse("  978-986-1234-56-7  "));
+        Assert.Equal(new SearchQuery.Isbn("9789861234567", "978-986-1234-56-7"), SearchQuery.Parse("978-986-1234-56-7"));
+        Assert.Equal(new SearchQuery.Isbn("9789861234567", "978 986 1234 567"), SearchQuery.Parse("978 986 1234 567"));
+    }
+
+    [Fact]
+    public void Isbn_text_is_the_trimmed_input()
+    {
+        Assert.Equal(new SearchQuery.Isbn("9789861234567", "978-986-1234-56-7"), SearchQuery.Parse("  978-986-1234-56-7  "));
     }
 
     [Fact]
     public void Thirteen_digit_isbn_without_separators_is_an_isbn()
     {
-        Assert.Equal(new SearchQuery.Isbn("9789861234567"), SearchQuery.Parse("9789861234567"));
+        Assert.Equal(new SearchQuery.Isbn("9789861234567", "9789861234567"), SearchQuery.Parse("9789861234567"));
     }
 
     [Fact]
     public void Ten_character_isbn_ending_in_x_is_an_isbn_with_an_uppercase_x()
     {
-        Assert.Equal(new SearchQuery.Isbn("030640615X"), SearchQuery.Parse("030640615X"));
-        Assert.Equal(new SearchQuery.Isbn("030640615X"), SearchQuery.Parse("0-306-40615-x"));
-        Assert.Equal(new SearchQuery.Isbn("030640615X"), SearchQuery.Parse("0-306-40615-X"));
+        Assert.Equal(new SearchQuery.Isbn("030640615X", "030640615X"), SearchQuery.Parse("030640615X"));
+        Assert.Equal(new SearchQuery.Isbn("030640615X", "0-306-40615-x"), SearchQuery.Parse("0-306-40615-x"));
+        Assert.Equal(new SearchQuery.Isbn("030640615X", "0-306-40615-X"), SearchQuery.Parse("0-306-40615-X"));
     }
 
     [Fact]
     public void Ten_digit_isbn_ending_in_a_digit_is_an_isbn()
     {
-        Assert.Equal(new SearchQuery.Isbn("0306406152"), SearchQuery.Parse("0-306-40615-2"));
+        Assert.Equal(new SearchQuery.Isbn("0306406152", "0-306-40615-2"), SearchQuery.Parse("0-306-40615-2"));
+    }
+
+    [Fact]
+    public void Full_width_isbn_13_with_full_width_hyphens_is_an_isbn()
+    {
+        const string input = "９７８－９８６－１２３４－５６－７";
+
+        Assert.Equal(new SearchQuery.Isbn("9789861234567", input), SearchQuery.Parse(input));
+    }
+
+    [Fact]
+    public void Full_width_isbn_10_ending_in_full_width_x_is_an_isbn()
+    {
+        const string input = "０３０６４０６１５ｘ";
+
+        Assert.Equal(new SearchQuery.Isbn("030640615X", input), SearchQuery.Parse(input));
+    }
+
+    [Fact]
+    public void Mixed_full_width_and_half_width_isbn_is_an_isbn()
+    {
+        const string input = "978-９８６-1234-56-７";
+
+        Assert.Equal(new SearchQuery.Isbn("9789861234567", input), SearchQuery.Parse(input));
+    }
+
+    [Fact]
+    public void Full_width_digits_that_are_not_an_isbn_stay_a_keyword_with_the_original_text()
+    {
+        const string input = "９７８９８６１２３４５６";   // 12 full-width digits
+
+        Assert.Equal(new SearchQuery.Keyword(input), SearchQuery.Parse(input));
+    }
+
+    [Fact]
+    public void Full_width_keyword_keeps_its_original_text()
+    {
+        Assert.Equal(new SearchQuery.Keyword("ＡＢＣ"), SearchQuery.Parse("ＡＢＣ"));
+        Assert.Equal(new SearchQuery.Keyword("三體　ＡＢＣ"), SearchQuery.Parse("三體　ＡＢＣ"));
     }
 
     [Theory]
@@ -67,6 +111,15 @@ public sealed class SearchQueryTests
     {
         // q is not empty after trimming, so the empty short-circuit does not apply.
         Assert.Equal(new SearchQuery.Keyword("---"), SearchQuery.Parse("---"));
+    }
+
+    [Fact]
+    public void Input_with_a_lone_surrogate_is_a_keyword_and_does_not_throw()
+    {
+        // NFKC rejects lone surrogates; user input must not turn into an error page.
+        const string input = "三\uD800體";
+
+        Assert.Equal(new SearchQuery.Keyword(input), SearchQuery.Parse(input));
     }
 
     [Fact]

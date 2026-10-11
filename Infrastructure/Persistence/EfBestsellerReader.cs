@@ -1,5 +1,4 @@
 using Book_Finder.Application.Bestsellers;
-using Book_Finder.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 
 namespace Book_Finder.Infrastructure.Persistence;
@@ -27,15 +26,7 @@ internal sealed class EfBestsellerReader(AppDbContext db) : IBestsellerReader
             return new BestsellerSnapshot(null, []);
 
         var bookIds = rows.Select(row => row.BookId).Distinct().ToArray();
-        var authors = await db.BookContributors.AsNoTracking()
-            .Where(contributor => bookIds.Contains(contributor.BookId) && contributor.Role == ContributorRole.Author)
-            .OrderBy(contributor => contributor.ContributorOrder)
-            .Select(contributor => new { contributor.BookId, contributor.Name })
-            .ToListAsync(cancellationToken);
-
-        var authorsByBook = authors
-            .GroupBy(author => author.BookId)
-            .ToDictionary(group => group.Key, group => (IReadOnlyList<string>)group.Select(author => author.Name).ToList());
+        var authorsByBook = await BookAuthors.ByBookAsync(db, bookIds, cancellationToken);
 
         var entries = rows
             .Select(row => new BestsellerEntry(

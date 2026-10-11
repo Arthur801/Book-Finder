@@ -58,7 +58,7 @@ public sealed class BookSearchServiceTests
 
         await service.SearchAsync(" 978-986-1234-56-7 ", 1, CancellationToken.None);
 
-        Assert.Equal(new SearchQuery.Isbn("9789861234567"), port.LastQuery);
+        Assert.Equal(new SearchQuery.Isbn("9789861234567", "978-986-1234-56-7"), port.LastQuery);
     }
 
     [Fact]

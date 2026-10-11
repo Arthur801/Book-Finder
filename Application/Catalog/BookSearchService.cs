@@ -1,6 +1,6 @@
 namespace Book_Finder.Application.Catalog;
 
-// 一般搜尋 use case: parse the input, answer blank input without touching the database, and normalize the page.
+// General search use case (book-catalog.md §3): parse the input, answer blank input without touching the database, and normalize the page.
 public sealed class BookSearchService(IBookSearch search)
 {
     public const int PageSize = 20;

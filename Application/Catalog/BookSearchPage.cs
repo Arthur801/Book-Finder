@@ -2,7 +2,7 @@ using Book_Finder.Domain.Entities;
 
 namespace Book_Finder.Application.Catalog;
 
-// One page of 一般搜尋 results. Page is 1-based; a page past the end has no hits but keeps the true TotalCount.
+// One page of General search results. Page is 1-based; a page past the end has no hits but keeps the true TotalCount.
 public sealed record BookSearchPage(IReadOnlyList<BookSearchHit> Hits, int TotalCount, int Page, int PageSize)
 {
     // Zero when there are no results, so the pager can hide itself.

@@ -30,7 +30,7 @@ builder.Services.AddScoped<IBookDetailReader>(provider => new CachedBookDetailRe
     provider.GetRequiredService<EfBookDetailReader>(),
     provider.GetRequiredService<IMemoryCache>()));
 
-// 一般搜尋: local database only, never Google Books (book-catalog.md §3).
+// General search: local database only, never Google Books (book-catalog.md §3).
 builder.Services.AddScoped<IBookSearch, EfBookSearch>();
 builder.Services.AddScoped<BookSearchService>();
 
