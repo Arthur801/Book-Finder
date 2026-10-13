@@ -1,0 +1,8 @@
+**
+!Dockerfile
+!requirements-runtime.txt
+!category-pages.txt
+!books_crawler/
+!books_crawler/**
+books_crawler/**/__pycache__/
+books_crawler/**/*.pyc

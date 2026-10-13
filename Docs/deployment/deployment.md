@@ -32,7 +32,7 @@ MVP 沒有 staging；L4 變更以本機或拋棄式資料庫 dry run 取代。
 |---|---|---|
 | `nginx` | nginx | 對外 80 / 443；TLS 終止；80 只做 ACME 驗證與轉址 HTTPS；轉發至 `web` |
 | `web` | 自建 ASP.NET Core | 只在 compose 內部網路曝露，不直接對外 |
-| `crawler` | 自建 Python，含 curl_cffi（`crawler.md` §15）；browser 診斷另需 Playwright／Chromium | 不常駐；由 cron 以 `docker compose run --rm crawler` 啟動。預設 curl 模式不啟動 Chromium；選用 browser 時需包含 Chromium 與系統函式庫 |
+| `crawler` | `crawler/Dockerfile` 自建 Python 3.14，含 curl_cffi（`crawler.md` §15） | 不常駐；經 Docker Hub 發布，由 host cron 呼叫 `run-crawler.sh`，以 `docker run --rm` 執行。正式 image 只支援 curl；browser 診斷另需 Playwright／Chromium |
 
 `web` 必須設定 Forwarded Headers，只信任 `nginx` 的位址（`identity-auth.md` §7 rate limiting 依賴正確的 client IP）。
 
@@ -63,6 +63,7 @@ MVP 沒有 staging；L4 變更以本機或拋棄式資料庫 dry run 取代。
 | `/book-finder/prod/jwt-signing-key` | JWT HS256 key（至少 32 bytes 隨機值） |
 
 - 部署 / 啟動時由 host script 以 EC2 IAM role 讀取 SSM，寫入 `/run/book-finder/env`（tmpfs，`chmod 600`），compose 以 `env_file` 注入。
+- 獨立 crawler 的 host script 每次執行讀取專用 PostgreSQL URL 參數（例如 `/book-finder/prod/crawler-database-url`），寫入 `/run/book-finder/crawler-env.*`（600），透過 Docker `--env-file` 注入，結束後刪除；不共用包含 Web secrets 的 env file。
 - Crawler 只拿 DB 連線字串（secret，經 SSM 注入）與下列非機密的 crawler 設定，不拿 OpenAI / Google Books / JWT key。
 - 任何 secret 不得進 repository、image、log。非機密設定可直接寫在 compose 檔的 `environment`，不需經 SSM。
 
@@ -99,21 +100,24 @@ Crawler 非機密環境變數（`crawler/README.md`）：
 
 ## 8. 排程
 
-Crawler 每日 **04:00 (GMT+8)**。EC2 host 時區維持 UTC，crontab：
+Crawler 每日 **04:00 (GMT+8)** 執行完整榜單，分類補書每三天執行。EC2 host 時區維持 UTC，使用 `crawler/deploy/crawler.cron` 安裝到 `/etc/cron.d/book-finder-crawler`：
 
 ```cron
 # 04:00 Asia/Taipei = 20:00 UTC（前一日）
-0 20 * * * cd /opt/book-finder && docker compose run --rm crawler >> /var/log/book-finder/crawler.log 2>&1
+0 20 * * * root /opt/book-finder/run-crawler.sh daily >> /var/log/book-finder/crawler-daily.log 2>&1
+0 21 * * * root /opt/book-finder/run-crawler.sh pages --scheduled >> /var/log/book-finder/crawler-pages.log 2>&1
 ```
 
-- 非 0 exit code 代表 run FAILED（`crawler.md` §11）。
-- 同時間只會有一個 crawler（每日一次、run 時間遠小於 24 小時），MVP 不加鎖。
+- Exit 0 為 SUCCESS 或 PARTIAL_SUCCESS，1 為 FAILED，2 為設定錯誤；Docker／AWS 等啟動錯誤另依其 exit code 記錄。不能只靠 exit 0 判斷所有書都成功，需檢查 summary。
+- 分類補書每天台灣時間 05:00 檢查：距上次 exit 0 的 run 啟動時間至少 72 小時才執行，第一次沒有紀錄即執行；非 0 在下一個每日檢查時再試。手動成功執行 pages 也更新紀錄。紀錄保存於 `/var/lib/book-finder/crawler/pages-last-success`，跨月與重啟保留；關機期間不補跑，等待下一次 cron 檢查。
+- 兩種模式共用 host `flock`，等待前一次完成才開始。若等待鎖或 EC2 停機，實際開始時間可延後。cron day-of-month `*/3` 不作為三天間隔。
 - **啟用排程前須在 EC2 上實測**：手動執行一次 crawler，確認預設 curl fetcher 從 EC2 能取得排行榜頁與商品頁，沒有停在 Cloudflare challenge（`crawler.md` §15）。若被擋下，不啟用排程，評估授權資料管道等替代方案。
-- 上方 crontab 只包含每日完整榜單 run。分類榜補書模式（`python -m books_crawler.pages`，`crawler.md` §16）目前未列入排程。
 - **分類頁清單需隨 crawler runtime 存在**：分類榜補書模式需要 `crawler/category-pages.txt`（預設路徑），或以 `CRAWLER_PAGES_FILE` 指向的檔案存在於執行環境中。
-- **未解決**：repo 目前沒有 crawler Dockerfile，無法確認該清單檔是否會隨 crawler image 一併打包；此項待建立 crawler image 時驗證。
+- `crawler/Dockerfile` 打包清單到 `/app/crawler/category-pages.txt`；更新清單需重新發布 image。
+- 建置、Docker Hub 推送、EC2 設定、手動驗證與啟用排程的指令見 [crawler 部署說明](../../crawler/deploy/README.md)。啟用前先確認 Docker、AWS CLI、cron service 與 logrotate 可用，且 RDS schema 已由 EF migration 建立。
 
 ## 9. Log 與備份
 
 - 所有 container log 輸出至 stdout，使用 Docker `json-file` driver 並設定 `max-size` / `max-file` 輪替；MVP 不接 CloudWatch。
+- 一次性 crawler 以 `--rm` 刪除 container，因此歷史 log 由 cron 的 stdout/stderr redirect 保存在 host。`crawler/deploy/crawler.logrotate` 每天輪替、保留 14 份，採 copytruncate（輪替瞬間可能有極短遺失窗口）。Cloudflare 等診斷 HTML／JSON 經 bind mount 保存至 `/var/lib/book-finder/crawler/artifacts/challenges`，需另行管理其磁碟空間與保留期限。
 - RDS 自動備份保留 7 天；正式資料修復屬 L4。

@@ -4,6 +4,7 @@
 > Authority: 博客來 crawler 行為與資料寫入
 > Runtime: Python one-shot batch（ADR-002），每日 04:00 (GMT+8) 由 cron 啟動
 > Fetcher: curl_cffi Chrome fingerprint（見 §15）
+> Container / scheduling: `crawler/Dockerfile`、`crawler/deploy/README.md`；每日總榜與每三天分類補書分別由 EC2 host cron 啟動，詳見 `Docs/deployment/deployment.md` §8。
 > Data contract: `Docs/data/data-model.md`
 > Requirements: CRAWL-01～06
 

@@ -4,6 +4,8 @@
 
 ## 安裝
 
+Docker Hub → EC2 → cron 的完整步驟見 [部署說明](deploy/README.md)，使用 [Dockerfile](Dockerfile) 與 `deploy/` 內的執行腳本、cron、logrotate 範本。
+
 在 `crawler` 目錄執行：
 
 ```bash

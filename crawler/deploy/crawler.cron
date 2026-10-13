@@ -1,0 +1,7 @@
+# Install to /etc/cron.d/book-finder-crawler. EC2 host timezone must be UTC.
+SHELL=/bin/bash
+PATH=/usr/local/bin:/usr/bin:/bin
+# 04:00 Asia/Taipei daily: run_once.
+0 20 * * * root /opt/book-finder/run-crawler.sh daily >> /var/log/book-finder/crawler-daily.log 2>&1
+# 05:00 Asia/Taipei: check whether 72 hours have elapsed since pages last succeeded.
+0 21 * * * root /opt/book-finder/run-crawler.sh pages --scheduled >> /var/log/book-finder/crawler-pages.log 2>&1
