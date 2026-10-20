@@ -112,8 +112,24 @@ public sealed class AccountServiceTests
         await sut.LoginAsync("nobody@example.com", Password, CancellationToken.None);
         await sut.LoginAsync("someone@example.com", Password, CancellationToken.None);
 
+        // The dummy hash is process-wide, so it may already exist from another test; it must never be recomputed here.
         Assert.Equal(2, passwords.VerifyCallCount);
-        Assert.Equal(1, passwords.HashCallCount);
+        Assert.Equal(passwords.VerifiedHashes[0], passwords.VerifiedHashes[1]);
+        Assert.True(passwords.HashCallCount <= 1);
+    }
+
+    [Fact]
+    public async Task Absent_user_hash_is_shared_across_instances_so_a_new_instance_only_verifies()
+    {
+        // Each HTTP request gets its own scoped AccountService, so the dummy hash must not be per instance.
+        var (first, _, _) = Create();
+        await first.LoginAsync("nobody@example.com", Password, CancellationToken.None);
+
+        var (second, _, secondPasswords) = Create();
+        await second.LoginAsync("someone@example.com", Password, CancellationToken.None);
+
+        Assert.Equal(0, secondPasswords.HashCallCount);
+        Assert.Equal(1, secondPasswords.VerifyCallCount);
     }
 
     [Fact]

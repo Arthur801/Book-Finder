@@ -1,3 +1,4 @@
+using System.Threading;
 using Book_Finder.Domain.Entities;
 
 namespace Book_Finder.Application.Identity;
@@ -7,9 +8,12 @@ public sealed class AccountService(IUserStore users, IPasswordHashing passwords,
 {
     private const string EmailTakenMessage = "此 email 已被註冊";
 
-    // Hashed once, on the first login for an unknown email. Verifying against it keeps the response time of
-    // "email not found" close to "wrong password", so the timing cannot reveal whether an email is registered.
-    private readonly Lazy<string> _absentUserHash = new(() => passwords.Hash("absent-user-placeholder"));
+    // Dummy hash for unknown emails. Verifying against it keeps the response time of "email not found" close to
+    // "wrong password", so timing cannot reveal whether an email is registered.
+    // Static on purpose: AccountService is scoped (it depends on the scoped IUserStore), so an instance field would
+    // be recomputed for every request and make unknown-email logins cost an extra PBKDF2 Hash.
+    // LazyInitializer makes the first computation thread-safe; the value is computed at most once per process.
+    private static string? s_absentUserHash;
 
     public async Task<RegisterResult> RegisterAsync(string? email, string? password, string? displayName, CancellationToken cancellationToken)
     {
@@ -45,7 +49,8 @@ public sealed class AccountService(IUserStore users, IPasswordHashing passwords,
         var user = await users.FindByEmailAsync(rules.Email, cancellationToken);
         if (user is null)
         {
-            passwords.Verify(_absentUserHash.Value, password!);
+            var absentHash = LazyInitializer.EnsureInitialized(ref s_absentUserHash, () => passwords.Hash("absent-user-placeholder"));
+            passwords.Verify(absentHash!, password!);
             return new LoginResult.InvalidCredentials();
         }
 
