@@ -11,9 +11,9 @@ namespace WebIntegration;
 [Collection(WebCollection.Name)]
 public sealed class AccountPagesTests(WebFixture fixture)
 {
-    private const string LoginPath = "/account/login";
-    private const string RegisterPath = "/account/register";
-    private const string LogoutPath = "/account/logout";
+    private const string LoginPath = AccountFlow.LoginPath;
+    private const string RegisterPath = AccountFlow.RegisterPath;
+    private const string LogoutPath = AccountFlow.LogoutPath;
     private const string Password = "correct-horse-battery";
 
     private static readonly WebApplicationFactoryClientOptions ClientOptions = new()
@@ -29,7 +29,7 @@ public sealed class AccountPagesTests(WebFixture fixture)
         await using var app = fixture.CreateFactory();
         var client = app.CreateClient(ClientOptions);
 
-        var response = await SubmitRegisterAsync(client, "seven@x.com", "1234567", "Arthur");
+        var response = await AccountFlow.RegisterAsync(client, "seven@x.com", "1234567", "Arthur");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Contains("密碼長度須為 8～40 碼", await DecodedBodyAsync(response));
@@ -45,7 +45,7 @@ public sealed class AccountPagesTests(WebFixture fixture)
         await using var app = CreateAccountFactory();
         var client = app.CreateClient(ClientOptions);
 
-        var response = await SubmitRegisterAsync(client, "eight@x.com", "12345678", "Arthur");
+        var response = await AccountFlow.RegisterAsync(client, "eight@x.com", "12345678", "Arthur");
 
         Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
         Assert.Equal("/", response.Headers.Location?.ToString());
@@ -59,9 +59,9 @@ public sealed class AccountPagesTests(WebFixture fixture)
     {
         await fixture.ResetDatabaseAsync();
         await using var app = fixture.CreateFactory();
-        await SubmitRegisterAsync(app.CreateClient(ClientOptions), "A@x.com", Password, "Existing");
+        await AccountFlow.RegisterAsync(app.CreateClient(ClientOptions), "A@x.com", Password, "Existing");
 
-        var response = await SubmitRegisterAsync(app.CreateClient(ClientOptions), "a@x.com", Password, "Second");
+        var response = await AccountFlow.RegisterAsync(app.CreateClient(ClientOptions), "a@x.com", Password, "Second");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Contains("此 email 已被註冊", await DecodedBodyAsync(response));
@@ -73,10 +73,10 @@ public sealed class AccountPagesTests(WebFixture fixture)
     {
         await fixture.ResetDatabaseAsync();
         await using var app = fixture.CreateFactory();
-        await SubmitRegisterAsync(app.CreateClient(ClientOptions), "known@x.com", Password, "Known");
+        await AccountFlow.RegisterAsync(app.CreateClient(ClientOptions), "known@x.com", Password, "Known");
 
-        var wrongPassword = await SubmitLoginAsync(app.CreateClient(ClientOptions), "known@x.com", "wrong-password-1");
-        var unknownEmail = await SubmitLoginAsync(app.CreateClient(ClientOptions), "nobody@x.com", Password);
+        var wrongPassword = await AccountFlow.LoginAsync(app.CreateClient(ClientOptions), "known@x.com", "wrong-password-1");
+        var unknownEmail = await AccountFlow.LoginAsync(app.CreateClient(ClientOptions), "nobody@x.com", Password);
 
         Assert.Equal(HttpStatusCode.OK, wrongPassword.StatusCode);
         Assert.Equal(HttpStatusCode.OK, unknownEmail.StatusCode);
@@ -92,7 +92,7 @@ public sealed class AccountPagesTests(WebFixture fixture)
         await using var app = fixture.CreateFactory();
         await RegisterUserAsync(app, "login@x.com", Password, "Login");
 
-        var response = await SubmitLoginAsync(app.CreateClient(ClientOptions), "login@x.com", Password);
+        var response = await AccountFlow.LoginAsync(app.CreateClient(ClientOptions), "login@x.com", Password);
 
         Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
         var cookie = AuthSetCookie(response)?.ToLowerInvariant();
@@ -112,7 +112,7 @@ public sealed class AccountPagesTests(WebFixture fixture)
         await using var app = fixture.CreateFactory();
         await RegisterUserAsync(app, "redirect@x.com", Password, "Redirect");
 
-        var response = await SubmitLoginAsync(app.CreateClient(ClientOptions), "redirect@x.com", Password, returnUrl);
+        var response = await AccountFlow.LoginAsync(app.CreateClient(ClientOptions), "redirect@x.com", Password, returnUrl);
 
         Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
         Assert.Equal(expectedLocation, response.Headers.Location?.ToString());
@@ -124,7 +124,7 @@ public sealed class AccountPagesTests(WebFixture fixture)
         await fixture.ResetDatabaseAsync();
         await using var app = fixture.CreateFactory();
         var client = app.CreateClient(ClientOptions);
-        await SubmitRegisterAsync(client, "home@x.com", Password, "Home");
+        await AccountFlow.RegisterAsync(client, "home@x.com", Password, "Home");
 
         var login = await client.GetAsync(LoginPath);
         var register = await client.GetAsync(RegisterPath);
@@ -142,11 +142,11 @@ public sealed class AccountPagesTests(WebFixture fixture)
         await using var app = CreateAccountFactory();
         await RegisterUserAsync(app, "logout@x.com", Password, "Logout");
         var client = app.CreateClient(ClientOptions);
-        await SubmitLoginAsync(client, "logout@x.com", Password);
+        await AccountFlow.LoginAsync(client, "logout@x.com", Password);
         // The login page redirects a signed-in user, so the token comes from the test-only endpoint.
         var token = await (await client.GetAsync("/test-only/antiforgery-token")).Content.ReadAsStringAsync();
 
-        var response = await PostFormAsync(client, LogoutPath, token);
+        var response = await AccountFlow.PostFormAsync(client, LogoutPath, token);
 
         Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
         Assert.Equal("/", response.Headers.Location?.ToString());
@@ -180,7 +180,7 @@ public sealed class AccountPagesTests(WebFixture fixture)
         const string typedPassword = "typed-but-wrong-42";
 
         var form = await client.GetPageAsync(LoginPath + "?returnUrl=%2Fbooks%2F1&pendingAction=add-to-library");
-        var response = await PostFormAsync(client, LoginPath, AntiforgeryToken(form),
+        var response = await AccountFlow.PostFormAsync(client, LoginPath, AntiforgeryToken(form),
             ("Email", "keep@x.com"), ("Password", typedPassword),
             ("ReturnUrl", "/books/1"), ("PendingAction", "add-to-library"));
 
@@ -231,33 +231,9 @@ public sealed class AccountPagesTests(WebFixture fixture)
     // Registers through a browser session of its own, so the session the test uses afterwards starts anonymous.
     private static async Task RegisterUserAsync(WebApplicationFactory<Program> app, string email, string password, string displayName)
     {
-        var response = await SubmitRegisterAsync(app.CreateClient(ClientOptions), email, password, displayName);
+        var response = await AccountFlow.RegisterAsync(app.CreateClient(ClientOptions), email, password, displayName);
         if (response.StatusCode != HttpStatusCode.Redirect)
             throw new InvalidOperationException($"Registering {email} did not succeed: {response.StatusCode}");
-    }
-
-    private static async Task<HttpResponseMessage> SubmitRegisterAsync(HttpClient client, string email, string password, string displayName)
-    {
-        var form = await client.GetPageAsync(RegisterPath);
-        return await PostFormAsync(client, RegisterPath, AntiforgeryToken(form),
-            ("Email", email), ("Password", password), ("DisplayName", displayName));
-    }
-
-    private static async Task<HttpResponseMessage> SubmitLoginAsync(HttpClient client, string email, string password, string? returnUrl = null)
-    {
-        var form = await client.GetPageAsync(LoginPath);
-        var fields = new List<(string Name, string Value)> { ("Email", email), ("Password", password) };
-        if (returnUrl is not null)
-            fields.Add(("ReturnUrl", returnUrl));
-        return await PostFormAsync(client, LoginPath, AntiforgeryToken(form), fields.ToArray());
-    }
-
-    // Posts form fields with the antiforgery token the form was rendered with.
-    private static Task<HttpResponseMessage> PostFormAsync(HttpClient client, string path, string token, params (string Name, string Value)[] fields)
-    {
-        var values = new List<KeyValuePair<string, string>> { new("__RequestVerificationToken", token) };
-        values.AddRange(fields.Select(field => new KeyValuePair<string, string>(field.Name, field.Value)));
-        return client.PostAsync(path, new FormUrlEncodedContent(values));
     }
 
     private static async Task<string> DecodedBodyAsync(HttpResponseMessage response) =>

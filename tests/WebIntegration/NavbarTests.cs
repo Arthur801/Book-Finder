@@ -90,14 +90,7 @@ public sealed class NavbarTests(WebFixture fixture)
 
     private static async Task SignUpAsync(HttpClient client, string email, string displayName)
     {
-        var form = await client.GetPageAsync("/account/register");
-        var response = await client.PostAsync("/account/register", new FormUrlEncodedContent(
-        [
-            new KeyValuePair<string, string>("__RequestVerificationToken", AntiforgeryToken(form)),
-            new("Email", email),
-            new("Password", Password),
-            new("DisplayName", displayName),
-        ]));
+        var response = await AccountFlow.RegisterAsync(client, email, Password, displayName);
         if (response.StatusCode != HttpStatusCode.Redirect)
             throw new InvalidOperationException($"Registering {email} did not succeed: {response.StatusCode}");
     }

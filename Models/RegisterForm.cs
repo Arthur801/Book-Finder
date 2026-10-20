@@ -1,6 +1,6 @@
 namespace Book_Finder.Models;
 
-// The posted fields of the registration form. Same rules as LoginForm: validation belongs to AccountService only.
+// The posted fields of the registration form. Same rules as LoginForm: validation is left to AccountService, which applies AccountInputRules.
 public sealed class RegisterForm
 {
     public string? Email { get; set; }
