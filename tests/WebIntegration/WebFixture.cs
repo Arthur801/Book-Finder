@@ -53,8 +53,14 @@ public sealed class WebFixture : IAsyncLifetime
 
 public sealed class BookFinderFactory(string connectionString) : WebApplicationFactory<Program>
 {
-    protected override void ConfigureWebHost(IWebHostBuilder builder) =>
+    // Random per test run and at least 32 bytes, so Jwt:SigningKey validation passes. It is never a real secret.
+    public static readonly string SigningKey = Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N");
+
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
         builder.UseSetting("ConnectionStrings:DefaultConnection", connectionString);
+        builder.UseSetting("Jwt:SigningKey", SigningKey);
+    }
 }
 
 [CollectionDefinition(Name)]
