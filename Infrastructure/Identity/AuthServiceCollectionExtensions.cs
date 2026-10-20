@@ -79,7 +79,7 @@ public static class AuthServiceCollectionExtensions
     // /api/* gets a 401 ProblemDetails; pages go to the login page and come back to the same location.
     private static Task WriteChallengeAsync(HttpContext http)
     {
-        if (http.Request.Path.StartsWithSegments("/api"))
+        if (ApiRequest.IsApi(http.Request))
         {
             var problem = http.RequestServices.GetRequiredService<ProblemDetailsFactory>().CreateProblemDetails(
                 http,

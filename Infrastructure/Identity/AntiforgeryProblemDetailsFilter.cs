@@ -14,7 +14,7 @@ public sealed class AntiforgeryProblemDetailsFilter(ProblemDetailsFactory proble
     public void OnResultExecuting(ResultExecutingContext context)
     {
         if (context.Result is not IAntiforgeryValidationFailedResult
-            || !context.HttpContext.Request.Path.StartsWithSegments("/api"))
+            || !ApiRequest.IsApi(context.HttpContext.Request))
         {
             return;
         }

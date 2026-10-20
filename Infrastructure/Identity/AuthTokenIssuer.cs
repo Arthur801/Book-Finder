@@ -27,7 +27,7 @@ public sealed class AuthTokenIssuer(IOptions<JwtOptions> options, TimeProvider t
             Claims = new Dictionary<string, object>
             {
                 [JwtRegisteredClaimNames.Sub] = user.Id.ToString(),
-                ["name"] = user.DisplayName,
+                [JwtOptions.NameClaim] = user.DisplayName,
             },
         });
     }

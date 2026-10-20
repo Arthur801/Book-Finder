@@ -11,6 +11,7 @@ public sealed class JwtOptions
     public const int MinimumSigningKeyBytes = 32;
     public const string Issuer = "book-finder";
     public const string Audience = "book-finder";
+    public const string NameClaim = "name";
 
     public static readonly TimeSpan TokenLifetime = TimeSpan.FromDays(1);
 
@@ -42,6 +43,6 @@ public sealed class JwtOptions
         ValidateLifetime = true,
         ClockSkew = TimeSpan.Zero,
         ValidAlgorithms = [SecurityAlgorithms.HmacSha256],
-        NameClaimType = "name",
+        NameClaimType = NameClaim,
     };
 }

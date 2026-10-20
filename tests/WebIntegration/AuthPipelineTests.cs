@@ -39,9 +39,9 @@ public sealed class AuthPipelineTests(WebFixture fixture)
         // A POST-only route cannot be reached by a GET after login, so the challenge must not carry it as returnUrl.
         await using var app = CreateAuthFactory(new FakeTimeProvider(StartTime));
         var client = app.CreateClient(ClientOptions);
-        var requestToken = await GetAntiforgeryToken(client);
+        var requestToken = await GetAntiforgeryTokenAsync(client);
 
-        var response = await PostWithAntiforgery(client, "/test-only/protected", requestToken);
+        var response = await PostWithAntiforgeryAsync(client, "/test-only/protected", requestToken);
 
         Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
         Assert.Equal("/account/login", response.Headers.Location?.ToString());
@@ -57,7 +57,7 @@ public sealed class AuthPipelineTests(WebFixture fixture)
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
         Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
-        var problem = await ReadJson(response);
+        var problem = await ReadJsonAsync(response);
         Assert.Equal("/errors/unauthenticated", problem.GetProperty("type").GetString());
         Assert.Equal(401, problem.GetProperty("status").GetInt32());
         Assert.False(string.IsNullOrEmpty(problem.GetProperty("traceId").GetString()));
@@ -70,8 +70,8 @@ public sealed class AuthPipelineTests(WebFixture fixture)
         var client = app.CreateClient(ClientOptions);
         var token = IssueToken(app);
 
-        var page = await SendWithCookie(client, "/test-only/protected", token);
-        var api = await SendWithCookie(client, "/api/test-only/protected", token);
+        var page = await SendWithCookieAsync(client, "/test-only/protected", token);
+        var api = await SendWithCookieAsync(client, "/api/test-only/protected", token);
 
         Assert.Equal(HttpStatusCode.OK, page.StatusCode);
         Assert.Equal("ok", await page.Content.ReadAsStringAsync());
@@ -87,15 +87,15 @@ public sealed class AuthPipelineTests(WebFixture fixture)
         var token = IssueToken(app);
 
         time.Advance(TimeSpan.FromDays(1) - TimeSpan.FromSeconds(1));
-        var stillValidPage = await SendWithCookie(client, "/test-only/protected", token);
-        var stillValidApi = await SendWithCookie(client, "/api/test-only/protected", token);
+        var stillValidPage = await SendWithCookieAsync(client, "/test-only/protected", token);
+        var stillValidApi = await SendWithCookieAsync(client, "/api/test-only/protected", token);
 
         Assert.Equal(HttpStatusCode.OK, stillValidPage.StatusCode);
         Assert.Equal(HttpStatusCode.OK, stillValidApi.StatusCode);
 
         time.Advance(TimeSpan.FromSeconds(1));
-        var expiredPage = await SendWithCookie(client, "/test-only/protected", token);
-        var expiredApi = await SendWithCookie(client, "/api/test-only/protected", token);
+        var expiredPage = await SendWithCookieAsync(client, "/test-only/protected", token);
+        var expiredApi = await SendWithCookieAsync(client, "/api/test-only/protected", token);
 
         Assert.Equal(HttpStatusCode.Redirect, expiredPage.StatusCode);
         Assert.StartsWith("/account/login?returnUrl=", expiredPage.Headers.Location?.ToString());
@@ -109,7 +109,7 @@ public sealed class AuthPipelineTests(WebFixture fixture)
         var client = app.CreateClient(ClientOptions);
         var foreignToken = IssueForeignToken(app);
 
-        var response = await SendWithCookie(client, "/api/test-only/protected", foreignToken);
+        var response = await SendWithCookieAsync(client, "/api/test-only/protected", foreignToken);
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
@@ -120,7 +120,7 @@ public sealed class AuthPipelineTests(WebFixture fixture)
         await using var app = CreateAuthFactory(new FakeTimeProvider(StartTime));
         var client = app.CreateClient(ClientOptions);
 
-        var response = await SendWithCookie(client, "/test-only/protected", "not-a-jwt");
+        var response = await SendWithCookieAsync(client, "/test-only/protected", "not-a-jwt");
 
         Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
     }
@@ -187,7 +187,7 @@ public sealed class AuthPipelineTests(WebFixture fixture)
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
-        var problem = await ReadJson(response);
+        var problem = await ReadJsonAsync(response);
         Assert.Equal("/errors/antiforgery", problem.GetProperty("type").GetString());
         Assert.Equal("請重新整理頁面後再試", problem.GetProperty("title").GetString());
         Assert.Equal(400, problem.GetProperty("status").GetInt32());
@@ -199,10 +199,10 @@ public sealed class AuthPipelineTests(WebFixture fixture)
     {
         await using var app = CreateAuthFactory(new FakeTimeProvider(StartTime));
         var client = app.CreateClient(ClientOptions);
-        var requestToken = await GetAntiforgeryToken(client);
+        var requestToken = await GetAntiforgeryTokenAsync(client);
 
-        var page = await PostWithAntiforgery(client, "/test-only/echo", requestToken);
-        var api = await PostWithAntiforgery(client, "/api/test-only/echo", requestToken);
+        var page = await PostWithAntiforgeryAsync(client, "/test-only/echo", requestToken);
+        var api = await PostWithAntiforgeryAsync(client, "/api/test-only/echo", requestToken);
 
         Assert.Equal(HttpStatusCode.OK, page.StatusCode);
         Assert.Equal(HttpStatusCode.OK, api.StatusCode);
@@ -215,26 +215,26 @@ public sealed class AuthPipelineTests(WebFixture fixture)
         // Two clients are two browser sessions: each keeps its own antiforgery cookie.
         var session = app.CreateClient(ClientOptions);
         var otherSession = app.CreateClient(ClientOptions);
-        await GetAntiforgeryToken(session);
-        var otherToken = await GetAntiforgeryToken(otherSession);
+        await GetAntiforgeryTokenAsync(session);
+        var otherToken = await GetAntiforgeryTokenAsync(otherSession);
 
-        var response = await PostWithAntiforgery(session, "/api/test-only/echo", otherToken);
+        var response = await PostWithAntiforgeryAsync(session, "/api/test-only/echo", otherToken);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
-        var problem = await ReadJson(response);
+        var problem = await ReadJsonAsync(response);
         Assert.Equal("/errors/antiforgery", problem.GetProperty("type").GetString());
     }
 
     // The request token from the test-only GET endpoint. The antiforgery cookie is stored by the client's cookie container.
-    private static async Task<string> GetAntiforgeryToken(HttpClient client)
+    private static async Task<string> GetAntiforgeryTokenAsync(HttpClient client)
     {
         var response = await client.GetAsync("/test-only/antiforgery-token");
         response.EnsureSuccessStatusCode();
         return await response.Content.ReadAsStringAsync();
     }
 
-    private static Task<HttpResponseMessage> PostWithAntiforgery(HttpClient client, string path, string requestToken)
+    private static Task<HttpResponseMessage> PostWithAntiforgeryAsync(HttpClient client, string path, string requestToken)
     {
         var request = new HttpRequestMessage(HttpMethod.Post, path)
         {
@@ -271,14 +271,14 @@ public sealed class AuthPipelineTests(WebFixture fixture)
         DisplayName = "Arthur",
     };
 
-    private static Task<HttpResponseMessage> SendWithCookie(HttpClient client, string path, string token)
+    private static Task<HttpResponseMessage> SendWithCookieAsync(HttpClient client, string path, string token)
     {
         var request = new HttpRequestMessage(HttpMethod.Get, path);
         request.Headers.Add("Cookie", $"{AuthCookie.Name}={token}");
         return client.SendAsync(request);
     }
 
-    private static async Task<JsonElement> ReadJson(HttpResponseMessage response)
+    private static async Task<JsonElement> ReadJsonAsync(HttpResponseMessage response)
     {
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         return document.RootElement.Clone();
