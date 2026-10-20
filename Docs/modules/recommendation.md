@@ -205,7 +205,7 @@ Book embedding 輸入文字（`BookEmbeddingText.Build`，`Application/Recommend
 
 - 啟動後立即跑一輪，之後每 `Embedding:Interval`（預設 10 分鐘）跑一輪；同一時間最多一輪。
 - 一輪中的例外只記 log，不影響網站其他功能（`Docs/architecture/system-architecture.md` §6）。
-- 設定：`OPENAIAPI_KEY`（secret，只來自環境變數，不寫入設定檔；缺少則啟動失敗）、`Embedding:Model`（預設 `text-embedding-3-small`）、`Embedding:Interval`（預設 `00:10:00`）、`Embedding:BatchSize`（預設 100）、`Embedding:BackfillEnabled`（預設 `true`，本機開發可設 `false` 關閉）。
+- 設定：`OPENAIAPI_KEY`（secret，放在環境變數或 user-secrets，不得寫入 repository 內的設定檔；缺少則啟動失敗）、`Embedding:Model`（預設 `text-embedding-3-small`）、`Embedding:Interval`（預設 `00:10:00`）、`Embedding:BatchSize`（預設 100）、`Embedding:BackfillEnabled`（預設 `true`，本機開發可設 `false` 關閉）。
 - `Embedding:Interval` ≤ 0、`Embedding:BatchSize` ≤ 0、`Embedding:Model` 空白，都讓啟動失敗。
 
 ## 11. 每日上限
