@@ -9,7 +9,7 @@
 
 | 環境 | Database | Secrets |
 |---|---|---|
-| Local | `compose.yaml` 的 `pgvector/pgvector:pg17`（只綁 `127.0.0.1`） | `.env`（不進 repository）、`dotnet user-secrets` |
+| Local | `compose.yaml` 的 `pgvector/pgvector:pg17`（只綁 `127.0.0.1`） | `.env`（不進 repository）、`dotnet user-secrets`；JWT key 見 §5 |
 | Test | Testcontainers 拋棄式資料庫 | 不需要 |
 | Production | AWS RDS PostgreSQL + pgvector | AWS SSM Parameter Store |
 
@@ -65,6 +65,7 @@ MVP 沒有 staging；L4 變更以本機或拋棄式資料庫 dry run 取代。
 - 部署 / 啟動時由 host script 以 EC2 IAM role 讀取 SSM，寫入 `/run/book-finder/env`（tmpfs，`chmod 600`），compose 以 `env_file` 注入。
 - 獨立 crawler 的 host script 每次執行讀取專用 PostgreSQL URL 參數（例如 `/book-finder/prod/crawler-database-url`），寫入 `/run/book-finder/crawler-env.*`（600），透過 Docker `--env-file` 注入，結束後刪除；不共用包含 Web secrets 的 env file。
 - Crawler 只拿 DB 連線字串（secret，經 SSM 注入）與下列非機密的 crawler 設定，不拿 OpenAI / Google Books / JWT key。
+- Web 以設定鍵 `Jwt:SigningKey` 讀取 JWT key（環境變數 `Jwt__SigningKey`）；缺少或短於 32 bytes 時啟動失敗。本機放在 `.env`，啟動前以 `set -a; . ./.env; set +a` 載入 shell（程式本身不讀 `.env`）。
 - 任何 secret 不得進 repository、image、log。非機密設定可直接寫在 compose 檔的 `environment`，不需經 SSM。
 
 Crawler 非機密環境變數（`crawler/README.md`）：
