@@ -90,6 +90,14 @@ public static class AuthServiceCollectionExtensions
             return http.Response.WriteAsJsonAsync(problem, options: null, contentType: "application/problem+json");
         }
 
+        // Only GET/HEAD pages can be reopened after login. A POST-only route as returnUrl would make the browser GET it
+        // (405 or an error page), so non-GET challenges go to the login page without a returnUrl.
+        if (!HttpMethods.IsGet(http.Request.Method) && !HttpMethods.IsHead(http.Request.Method))
+        {
+            http.Response.Redirect("/account/login");
+            return Task.CompletedTask;
+        }
+
         var returnUrl = (http.Request.PathBase + http.Request.Path).Add(http.Request.QueryString);
         http.Response.Redirect($"/account/login?returnUrl={Uri.EscapeDataString(returnUrl)}");
         return Task.CompletedTask;

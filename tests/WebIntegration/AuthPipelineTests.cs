@@ -34,6 +34,20 @@ public sealed class AuthPipelineTests(WebFixture fixture)
     }
 
     [Fact]
+    public async Task Anonymous_page_post_redirects_to_login_without_return_url()
+    {
+        // A POST-only route cannot be reached by a GET after login, so the challenge must not carry it as returnUrl.
+        await using var app = CreateAuthFactory(new FakeTimeProvider(StartTime));
+        var client = app.CreateClient(ClientOptions);
+        var requestToken = await GetAntiforgeryToken(client);
+
+        var response = await PostWithAntiforgery(client, "/test-only/protected", requestToken);
+
+        Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
+        Assert.Equal("/account/login", response.Headers.Location?.ToString());
+    }
+
+    [Fact]
     public async Task Api_without_cookie_returns_problem_details_401()
     {
         await using var app = CreateAuthFactory(new FakeTimeProvider(StartTime));

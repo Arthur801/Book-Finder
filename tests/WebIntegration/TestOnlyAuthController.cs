@@ -16,6 +16,10 @@ public sealed class TestOnlyAuthController : Controller
     [HttpGet("/api/test-only/protected")]
     public IActionResult ApiProtected() => Ok(new { ok = true });
 
+    [Authorize]
+    [HttpPost("/test-only/protected")]
+    public IActionResult ProtectedPost() => Content("ok");
+
     [HttpPost("/test-only/echo")]
     public IActionResult Echo() => Content("ok");
 
