@@ -53,11 +53,12 @@ MVP 不做：Google 帳號登入、email 驗證、忘記密碼、修改個人資
 | 演算法 | HS256 |
 | Signing key | 來自 secret（SSM / user-secrets），不得進 repository |
 | 效期 | 1 天，不滑動延長，無 refresh token；驗證時 ClockSkew = 0 |
-| Claims | `sub` = `users.id`、`name` = display_name、`exp`、`iat` |
+| Claims | `sub` = `users.id`、`name` = display_name、`exp`、`iat`、`nbf`；`iss` / `aud` 固定為 `book-finder` 並於驗證時檢查 |
 | Cookie | `HttpOnly`、`Secure`、`SameSite=Lax`、`Path=/`、Max-Age = token 效期 |
 
 - JWT Bearer middleware 設定為從 cookie 讀取 token（`OnMessageReceived`）。
-- Token 過期 → 視為未登入：頁面導向 `/account/login?returnUrl=...`；JSON 端點回 401。
+- Token 只從 cookie 讀取，不接受 `Authorization` header。
+- Token 過期 → 視為未登入：頁面導向 `/account/login?returnUrl=...`；JSON 端點回 401。非 GET / HEAD 的頁面請求導向 `/account/login`、不帶 `returnUrl`（POST-only 路由無法在登入後以 GET 重開）。
 - 目前使用者由 `sub` claim 取得；需要最新 display_name 時查 DB。
 
 ## 6. returnUrl 與待辦動作
