@@ -161,18 +161,52 @@ for q in google_queries（1～3 組）:
 
 Embedding model：`text-embedding-3-small`（1536 維）。
 
-Book embedding 輸入文字：
+Book embedding 輸入文字（`BookEmbeddingText.Build`，`Application/Recommendation/BookEmbeddingText.cs`）：
 
 ```text
-title + subtitle + contributors + subjects + description（截斷）
+書名：{Title}
+副標題：{Subtitle}
+作者：{名字1}、{名字2}
+分類：{分類1}、{分類2}
+簡介：{Description 前 2000 個 Unicode code point}
 ```
 
-`source_content_hash` = 上述文字的 SHA-256。
+- 每個欄位一行，標籤後接全形冒號「：」，順序固定，行與行以換行連接。
+- 沒有值的欄位整行省略（副標題、作者、分類、簡介皆然）；沒有簡介的 Book 仍產生 embedding。
+- 每個值先去除頭尾空白；去除後為空即視為沒有值。
+- 作者依 `contributor_order` 排序，只取名字，所有角色（作者、譯者、插畫等）都列入，不去重。
+- 分類合併所有來源的 subject，去重後以 ordinal 排序，以「、」串接。
+- 簡介以 Unicode code point 截斷，不切斷 surrogate pair；簡介內部的換行保留。
+- `source_content_hash` = 上述文字的 UTF-8 bytes 的 SHA-256，64 字元小寫 hex。
 
 | 時機 | 對象 |
 |---|---|
 | Fallback 流程中（同步） | Google Books 新寫入、或缺 embedding 的 Book |
 | BackgroundService，每 10 分鐘 | 沒有 embedding 或 hash 不符的 Book（主要為 crawler 新書），每批上限 100 本 |
+
+找出待補齊的 Book（每輪）：
+
+- 每輪讀取全部 Book 的文字欄位與既有 `source_content_hash`，在 C# 計算新 hash 後比對。hash 只能在 C# 計算，MVP 規模下全量讀取可接受，增長後的做法見 `Docs/TODO.md`。
+- 待補齊 = 沒有 `book_embeddings` 列，或既有 hash 與新計算的 hash 不同。
+- 沒有 embedding 的排在前面，hash 不同的排在後面；各組內依 `created_at` 由新到舊，相同時以 Id 排序。
+- 每輪最多 `Embedding:BatchSize`（預設 100）本。
+- `model_name` 不同不觸發重建。更換 model 需新增 migration 並全部重建（`Docs/data/data-model.md` §5.7）。
+
+執行與失敗：
+
+- 每本 Book 呼叫一次 embedding，依序進行，不平行。
+- 單本失敗（呼叫或寫入）記 Error log 並繼續下一本；該本留待下一輪重試。
+- 連續 5 本失敗後本輪提前結束，之後的 Book 不呼叫 OpenAI。任一本成功即歸零計數。
+- 向量維度不是 1536 時記 Warning，仍嘗試寫入；`vector(1536)` 欄位拒絕寫入時視為一次失敗。
+- 保留 OpenAI SDK 預設的 retry（對暫時性錯誤退避重試）；只有重試後仍失敗的呼叫才計入連續失敗。
+- 停機造成的取消不算失敗，直接結束。
+
+排程與設定：
+
+- 啟動後立即跑一輪，之後每 `Embedding:Interval`（預設 10 分鐘）跑一輪；同一時間最多一輪。
+- 一輪中的例外只記 log，不影響網站其他功能（`Docs/architecture/system-architecture.md` §6）。
+- 設定：`OPENAIAPI_KEY`（secret，放在環境變數或 user-secrets，不得寫入 repository 內的設定檔；缺少則啟動失敗）、`Embedding:Model`（預設 `text-embedding-3-small`）、`Embedding:Interval`（預設 `00:10:00`）、`Embedding:BatchSize`（預設 100）、`Embedding:BackfillEnabled`（預設 `true`，本機開發可設 `false` 關閉）。
+- `Embedding:Interval` ≤ 0、`Embedding:BatchSize` ≤ 0、`Embedding:Model` 空白，都讓啟動失敗。
 
 ## 11. 每日上限
 
@@ -193,7 +227,7 @@ title + subtitle + contributors + subjects + description（截斷）
 ## 13. 逾時與設定
 
 - 整個推薦請求伺服器端逾時 60 秒；逾時視為失敗（不保存）。
-- 設定項（`appsettings` / 環境變數）：chat model 名稱、embedding model 名稱、`T`、Top-K（30）、Candidate 下限（5）、結果上限（10）、每日上限（20）、Google Books `maxResults`（20）與 `langRestrict`（zh）、backfill 間隔（10 分鐘）。
+- 設定項（`appsettings` / 環境變數）：chat model 名稱、embedding model 名稱、`T`、Top-K（30）、Candidate 下限（5）、結果上限（10）、每日上限（20）、Google Books `maxResults`（20）與 `langRestrict`（zh）。Embedding 補齊的設定見 §10。
 - Chat model 型號只放設定檔，不寫死在程式。
 
 ## 14. Logging

@@ -10,6 +10,14 @@ A .net core website about using LLM to find a book you want.
    echo "Jwt__SigningKey=$(openssl rand -hex 32)" >> .env
    ```
 
+   `.env` 也必須有 `OPENAIAPI_KEY`，缺少時網站無法啟動。下面只是格式示意，不要寫入真實的 key：
+
+   ```bash
+   OPENAIAPI_KEY=<your-openai-api-key>
+   ```
+
+   注意：啟動後背景補齊會立即呼叫 OpenAI 產生 embedding，會產生費用。本機開發若不需要，可在 `.env` 加上 `Embedding__BackfillEnabled=false` 關閉（`Docs/modules/recommendation.md` §10）。
+
 3. 程式本身不讀 `.env`；啟動前先載入到 shell：
 
    ```bash

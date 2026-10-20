@@ -145,7 +145,7 @@ cron → crawler → 排行榜 100 筆 → 新書抓詳細頁（重試，失敗�
 
 ### 5.3 背景補齊（web 內 BackgroundService）
 
-- 每 10 分鐘為缺少 embedding 的 Book 產生 embedding。
+- 啟動時與之後每 10 分鐘（`Embedding:Interval`），為缺少 embedding 或內容 hash 不符的 Book 產生 embedding（`recommendation.md` §10）。
 - 消化 Book AI Profile 產生佇列（in-process queue）。
 
 ---

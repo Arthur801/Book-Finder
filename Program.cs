@@ -1,7 +1,10 @@
 using Book_Finder.Application.Bestsellers;
 using Book_Finder.Application.Catalog;
+using Book_Finder.Application.Recommendation;
+using Book_Finder.Infrastructure.BackgroundJobs;
 using Book_Finder.Infrastructure.Caching;
 using Book_Finder.Infrastructure.Identity;
+using Book_Finder.Infrastructure.OpenAi;
 using Book_Finder.Infrastructure.Persistence;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
@@ -36,6 +39,12 @@ builder.Services.AddScoped<IBookDetailReader>(provider => new CachedBookDetailRe
 // General search: local database only, never Google Books (book-catalog.md §3).
 builder.Services.AddScoped<IBookSearch, EfBookSearch>();
 builder.Services.AddScoped<BookSearchService>();
+
+// Embedding backfill: OpenAI generator + EF store, one round at startup and then every Embedding:Interval (recommendation.md §10).
+builder.Services.AddBookFinderOpenAi(builder.Configuration);
+builder.Services.AddScoped<IEmbeddingStore, EfEmbeddingStore>();
+builder.Services.AddScoped<EmbeddingBackfillService>();
+builder.Services.AddHostedService<EmbeddingBackfillWorker>();
 
 var app = builder.Build();
 

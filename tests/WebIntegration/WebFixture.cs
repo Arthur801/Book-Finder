@@ -1,10 +1,14 @@
+using Book_Finder.Application.Recommendation;
 using Book_Finder.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.FileProviders;
 using Pgvector.EntityFrameworkCore;
 using Testcontainers.PostgreSql;
+using TestDoubles;
 
 namespace WebIntegration;
 
@@ -57,10 +61,21 @@ public sealed class BookFinderFactory(string connectionString) : WebApplicationF
     // Random per test run and at least 32 bytes, so Jwt:SigningKey validation passes. It is never a real secret.
     public static readonly string SigningKey = Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N");
 
+    // A placeholder, not a real key, so Startup's OPENAIAPI_KEY validation passes. It never reaches OpenAI because the
+    // generator is replaced by Embeddings below. A test that needs a missing key sets this to "" before the host starts.
+    public string OpenAiApiKey { get; set; } = "test-only-not-a-real-key";
+
+    // Stands in for OpenAI in every test host. Tests read Calls to see what would have been sent for embedding.
+    public FakeEmbeddingGenerator Embeddings { get; } = new();
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseSetting("ConnectionStrings:DefaultConnection", connectionString);
         builder.UseSetting("Jwt:SigningKey", SigningKey);
+        builder.UseSetting("OPENAIAPI_KEY", OpenAiApiKey);
+        // Background backfill is off by default in tests: tests start the round themselves, so the timer never races them.
+        builder.UseSetting("Embedding:BackfillEnabled", "false");
+        builder.ConfigureTestServices(services => services.AddSingleton<IEmbeddingGenerator>(Embeddings));
         // The layout's asp-append-version watches each asset file, and every watch opens an inotify instance that a
         // host keeps until a GC. Across the suite that reaches the Linux per-user limit (128), so tests serve no web
         // root files: the version lookup finds nothing to watch. No test depends on the ?v= query string.
