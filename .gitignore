@@ -69,3 +69,6 @@ nunit-*.xml
 *.dump
 *.backup
 *@ec2-*
+
+# Agent handoff notes (local only)
+HANDOFF.md
