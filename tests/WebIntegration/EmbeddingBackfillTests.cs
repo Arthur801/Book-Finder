@@ -22,10 +22,10 @@ public sealed class EmbeddingBackfillTests(WebFixture fixture)
     }
 
     [Fact]
-    public async Task A_manual_round_embeds_a_book_once_and_skips_it_when_the_hash_is_unchanged()
+    public async Task A_manual_round_embeds_every_pending_book_once_and_skips_them_when_unchanged()
     {
         await fixture.ResetDatabaseAsync();
-        var seeded = (await CatalogSeed.AddBooksAsync(fixture, [
+        var books = await CatalogSeed.AddBooksAsync(fixture, [
             new BookSeed("三體")
             {
                 Subtitle = "地球往事",
@@ -33,22 +33,55 @@ public sealed class EmbeddingBackfillTests(WebFixture fixture)
                 Contributors = [new ContributorSeed(1, "劉慈欣", ContributorRole.Author)],
                 Subjects = [new SubjectSeed("科幻")],
             },
-        ])).Single();
+            new BookSeed("沙丘"),
+            new BookSeed("基地"),
+        ]);
         await using var app = fixture.CreateFactory();
 
         await RunRoundAsync(app);
 
-        var expectedText = BookEmbeddingText.Build(
-            new BookEmbeddingSource("三體", "地球往事", ["劉慈欣"], ["科幻"], "第一部"));
+        Assert.Equal(3, app.Embeddings.Calls.Count);
         await using var db = fixture.CreateContext();
-        var row = await db.BookEmbeddings.AsNoTracking().SingleAsync(e => e.BookId == seeded.BookId);
-        Assert.Equal("fake-embedding", row.ModelName);
-        Assert.Equal(BookEmbeddingText.Hash(expectedText), row.SourceContentHash);
-        Assert.Single(app.Embeddings.Calls);
+        var embeddedIds = await db.BookEmbeddings.AsNoTracking().Select(e => e.BookId).ToListAsync();
+        Assert.Equal(books.Select(b => b.BookId).OrderBy(id => id), embeddedIds.OrderBy(id => id));
+
+        var firstText = BookEmbeddingText.Build(
+            new BookEmbeddingSource("三體", "地球往事", ["劉慈欣"], ["科幻"], "第一部"));
+        var first = await db.BookEmbeddings.AsNoTracking().SingleAsync(e => e.BookId == books[0].BookId);
+        Assert.Equal("fake-embedding", first.ModelName);
+        Assert.Equal(BookEmbeddingText.Hash(firstText), first.SourceContentHash);
 
         await RunRoundAsync(app);
 
-        Assert.Single(app.Embeddings.Calls);
+        Assert.Equal(3, app.Embeddings.Calls.Count);
+    }
+
+    [Fact]
+    public async Task A_changed_title_is_embedded_again_on_the_next_round_and_the_row_is_overwritten()
+    {
+        await fixture.ResetDatabaseAsync();
+        var seeded = (await CatalogSeed.AddBooksAsync(fixture, [
+            new BookSeed("三體") { Subtitle = "地球往事", Description = "第一部" },
+        ])).Single();
+        await using var app = fixture.CreateFactory();
+        await RunRoundAsync(app);
+
+        await using (var edit = fixture.CreateContext())
+        {
+            var book = await edit.Books.SingleAsync(b => b.Id == seeded.BookId);
+            book.Title = "三體（新版）";
+            await edit.SaveChangesAsync();
+        }
+        await RunRoundAsync(app);
+
+        var newText = BookEmbeddingText.Build(
+            new BookEmbeddingSource("三體（新版）", "地球往事", [], [], "第一部"));
+        Assert.Equal(2, app.Embeddings.Calls.Count);
+        Assert.Equal(newText, app.Embeddings.Calls[1]);
+        await using var db = fixture.CreateContext();
+        var rows = await db.BookEmbeddings.AsNoTracking().Where(e => e.BookId == seeded.BookId).ToListAsync();
+        var row = Assert.Single(rows);
+        Assert.Equal(BookEmbeddingText.Hash(newText), row.SourceContentHash);
     }
 
     [Fact]
