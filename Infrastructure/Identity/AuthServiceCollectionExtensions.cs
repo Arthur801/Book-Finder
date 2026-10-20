@@ -67,7 +67,11 @@ public static class AuthServiceCollectionExtensions
             options.HeaderName = "RequestVerificationToken";
             options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
         });
-        services.Configure<MvcOptions>(options => options.Filters.Add(new AutoValidateAntiforgeryTokenAttribute()));
+        services.Configure<MvcOptions>(options =>
+        {
+            options.Filters.Add(new AutoValidateAntiforgeryTokenAttribute());
+            options.Filters.Add<AntiforgeryProblemDetailsFilter>();
+        });
 
         return services;
     }

@@ -152,6 +152,84 @@ public sealed class AuthPipelineTests(WebFixture fixture)
         Assert.NotNull(FindInChain<OptionsValidationException>(exception));
     }
 
+    [Fact]
+    public async Task Page_post_without_antiforgery_token_returns_400()
+    {
+        await using var app = CreateAuthFactory(new FakeTimeProvider(StartTime));
+        var client = app.CreateClient(ClientOptions);
+
+        var response = await client.PostAsync("/test-only/echo", new StringContent(""));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Api_post_without_antiforgery_token_returns_problem_details_400()
+    {
+        await using var app = CreateAuthFactory(new FakeTimeProvider(StartTime));
+        var client = app.CreateClient(ClientOptions);
+
+        var response = await client.PostAsync("/api/test-only/echo", new StringContent(""));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+        var problem = await ReadJson(response);
+        Assert.Equal("/errors/antiforgery", problem.GetProperty("type").GetString());
+        Assert.Equal("請重新整理頁面後再試", problem.GetProperty("title").GetString());
+        Assert.Equal(400, problem.GetProperty("status").GetInt32());
+        Assert.False(string.IsNullOrEmpty(problem.GetProperty("traceId").GetString()));
+    }
+
+    [Fact]
+    public async Task Post_with_matching_antiforgery_token_and_cookie_succeeds_on_page_and_api()
+    {
+        await using var app = CreateAuthFactory(new FakeTimeProvider(StartTime));
+        var client = app.CreateClient(ClientOptions);
+        var requestToken = await GetAntiforgeryToken(client);
+
+        var page = await PostWithAntiforgery(client, "/test-only/echo", requestToken);
+        var api = await PostWithAntiforgery(client, "/api/test-only/echo", requestToken);
+
+        Assert.Equal(HttpStatusCode.OK, page.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, api.StatusCode);
+    }
+
+    [Fact]
+    public async Task Post_with_antiforgery_token_from_another_session_returns_problem_details_400()
+    {
+        await using var app = CreateAuthFactory(new FakeTimeProvider(StartTime));
+        // Two clients are two browser sessions: each keeps its own antiforgery cookie.
+        var session = app.CreateClient(ClientOptions);
+        var otherSession = app.CreateClient(ClientOptions);
+        await GetAntiforgeryToken(session);
+        var otherToken = await GetAntiforgeryToken(otherSession);
+
+        var response = await PostWithAntiforgery(session, "/api/test-only/echo", otherToken);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+        var problem = await ReadJson(response);
+        Assert.Equal("/errors/antiforgery", problem.GetProperty("type").GetString());
+    }
+
+    // The request token from the test-only GET endpoint. The antiforgery cookie is stored by the client's cookie container.
+    private static async Task<string> GetAntiforgeryToken(HttpClient client)
+    {
+        var response = await client.GetAsync("/test-only/antiforgery-token");
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadAsStringAsync();
+    }
+
+    private static Task<HttpResponseMessage> PostWithAntiforgery(HttpClient client, string path, string requestToken)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, path)
+        {
+            Content = new StringContent(""),
+        };
+        request.Headers.Add("RequestVerificationToken", requestToken);
+        return client.SendAsync(request);
+    }
+
     private WebApplicationFactory<Program> CreateAuthFactory(TimeProvider time) =>
         fixture.CreateFactory().WithWebHostBuilder(builder =>
         {
