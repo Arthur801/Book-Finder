@@ -34,6 +34,10 @@ public sealed class SafeReturnUrlTests
     [InlineData("\\\\evil.example")]
     [InlineData("books/1")]
     [InlineData("javascript:alert(1)")]
+    [InlineData("/\t/evil.example")]
+    [InlineData("/\n/evil.example")]
+    [InlineData("/\r\n/evil.example")]
+    [InlineData("/\t\\evil.example")]
     public void Anything_that_is_not_a_local_path_falls_back_to_root(string? returnUrl)
     {
         Assert.Equal("/", SafeReturnUrl.Resolve(returnUrl, UrlHelper()));
