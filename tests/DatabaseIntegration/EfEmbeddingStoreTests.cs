@@ -157,7 +157,7 @@ public class EfEmbeddingStoreTests(PostgresFixture fixture)
         await db.SaveChangesAsync();
         var vector = Vector1536(0.5f, 0.25f);
 
-        await NewStore(db, Now).SaveAsync(book.Id, vector, Model, OtherHash, CancellationToken.None);
+        await NewStore(db, Now).SaveAsync(Pending(book.Id, OtherHash), vector, Model, CancellationToken.None);
 
         await using var check = fixture.CreateContext();
         var row = await check.BookEmbeddings.AsNoTracking().SingleAsync(e => e.BookId == book.Id);
@@ -174,10 +174,10 @@ public class EfEmbeddingStoreTests(PostgresFixture fixture)
         await ResetAsync(db);
         var book = NewBook(db, "Twice", Day);
         await db.SaveChangesAsync();
-        await NewStore(db, Now).SaveAsync(book.Id, Vector1536(0.5f), Model, OtherHash, CancellationToken.None);
+        await NewStore(db, Now).SaveAsync(Pending(book.Id, OtherHash), Vector1536(0.5f), Model, CancellationToken.None);
 
         var later = Now.AddHours(1);
-        await NewStore(db, later).SaveAsync(book.Id, Vector1536(0.75f), "new-model", MatchingHash("Twice"), CancellationToken.None);
+        await NewStore(db, later).SaveAsync(Pending(book.Id, MatchingHash("Twice")), Vector1536(0.75f), "new-model", CancellationToken.None);
 
         await using var check = fixture.CreateContext();
         var rows = await check.BookEmbeddings.AsNoTracking().Where(e => e.BookId == book.Id).ToListAsync();
@@ -199,9 +199,9 @@ public class EfEmbeddingStoreTests(PostgresFixture fixture)
         var store = NewStore(db);
 
         await Assert.ThrowsAnyAsync<DbException>(
-            () => store.SaveAsync(bad.Id, new float[3], Model, OtherHash, CancellationToken.None));
+            () => store.SaveAsync(Pending(bad.Id, OtherHash), new float[3], Model, CancellationToken.None));
 
-        await store.SaveAsync(good.Id, Vector1536(1f), Model, OtherHash, CancellationToken.None);
+        await store.SaveAsync(Pending(good.Id, OtherHash), Vector1536(1f), Model, CancellationToken.None);
 
         Assert.DoesNotContain(db.ChangeTracker.Entries(), entry => entry.Entity is BookEmbedding);
         await using var check = fixture.CreateContext();
@@ -218,8 +218,8 @@ public class EfEmbeddingStoreTests(PostgresFixture fixture)
         var far = NewBook(db, "Far", Day);
         await db.SaveChangesAsync();
         var store = NewStore(db, Now);
-        await store.SaveAsync(near.Id, Vector1536(1f, 0f), Model, OtherHash, CancellationToken.None);
-        await store.SaveAsync(far.Id, Vector1536(0f, 1f), Model, OtherHash, CancellationToken.None);
+        await store.SaveAsync(Pending(near.Id, OtherHash), Vector1536(1f, 0f), Model, CancellationToken.None);
+        await store.SaveAsync(Pending(far.Id, OtherHash), Vector1536(0f, 1f), Model, CancellationToken.None);
 
         var query = new Vector(Vector1536(0.9f, 0.1f));
         var nearest = await db.Database
@@ -228,6 +228,8 @@ public class EfEmbeddingStoreTests(PostgresFixture fixture)
 
         Assert.Equal([near.Id], nearest);
     }
+
+    private static PendingEmbedding Pending(Guid bookId, string hash) => new(bookId, "text", hash);
 
     private static EfEmbeddingStore NewStore(AppDbContext db, DateTimeOffset? now = null)
     {

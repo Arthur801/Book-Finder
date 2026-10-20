@@ -132,7 +132,7 @@ public sealed class EmbeddingBackfillWorkerTests
             return Task.FromResult<IReadOnlyList<PendingEmbedding>>([]);
         }
 
-        public Task SaveAsync(Guid bookId, float[] vector, string modelName, string hash, CancellationToken cancellationToken)
+        public Task SaveAsync(PendingEmbedding pending, float[] vector, string modelName, CancellationToken cancellationToken)
         {
             return Task.CompletedTask;
         }

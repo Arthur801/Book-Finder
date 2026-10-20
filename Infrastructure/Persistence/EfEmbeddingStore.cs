@@ -5,7 +5,7 @@ using Pgvector;
 namespace Book_Finder.Infrastructure.Persistence;
 
 // The hash can only be computed in C#, so every FindPending round reads all Books and their text fields (recommendation.md §10).
-// That full-table read is acceptable for the MVP's small catalogue; the scale-out plan is tracked in Docs/TODO.md (added by a later module).
+// That full-table read is acceptable for the MVP's small catalogue; the scale-out plan is tracked in Docs/TODO.md.
 // Vectors are never read here: only the stored hash is needed to decide whether a Book is stale.
 internal sealed class EfEmbeddingStore(AppDbContext db, TimeProvider time) : IEmbeddingStore
 {
@@ -64,6 +64,16 @@ internal sealed class EfEmbeddingStore(AppDbContext db, TimeProvider time) : IEm
         return NewestFirst(missing).Concat(NewestFirst(mismatched)).Take(limit).ToList();
     }
 
+    public async Task SaveAsync(PendingEmbedding pending, float[] vector, string modelName, CancellationToken cancellationToken)
+    {
+        // One statement and no change tracking: a failed write (e.g. a wrong dimension) leaves no tracked entity behind.
+        var now = time.GetUtcNow().UtcDateTime;
+        await db.Database.ExecuteSqlInterpolatedAsync($@"INSERT INTO book_embeddings (book_id, embedding, model_name, source_content_hash, updated_at)
+VALUES ({pending.BookId}, {new Vector(vector)}, {modelName}, {pending.Hash}, {now})
+ON CONFLICT (book_id) DO UPDATE SET embedding = EXCLUDED.embedding, model_name = EXCLUDED.model_name,
+    source_content_hash = EXCLUDED.source_content_hash, updated_at = EXCLUDED.updated_at", cancellationToken);
+    }
+
     // Newest CreatedAt first; the Id tie-break keeps the order stable across rounds.
     private static IEnumerable<PendingEmbedding> NewestFirst(IEnumerable<(PendingEmbedding Pending, DateTime CreatedAt)> items)
     {
@@ -71,15 +81,5 @@ internal sealed class EfEmbeddingStore(AppDbContext db, TimeProvider time) : IEm
             .OrderByDescending(item => item.CreatedAt)
             .ThenBy(item => item.Pending.BookId.ToString(), StringComparer.Ordinal)
             .Select(item => item.Pending);
-    }
-
-    public async Task SaveAsync(Guid bookId, float[] vector, string modelName, string hash, CancellationToken cancellationToken)
-    {
-        // One statement and no change tracking: a failed write (e.g. a wrong dimension) leaves no tracked entity behind.
-        var now = time.GetUtcNow().UtcDateTime;
-        await db.Database.ExecuteSqlInterpolatedAsync($@"INSERT INTO book_embeddings (book_id, embedding, model_name, source_content_hash, updated_at)
-VALUES ({bookId}, {new Vector(vector)}, {modelName}, {hash}, {now})
-ON CONFLICT (book_id) DO UPDATE SET embedding = EXCLUDED.embedding, model_name = EXCLUDED.model_name,
-    source_content_hash = EXCLUDED.source_content_hash, updated_at = EXCLUDED.updated_at", cancellationToken);
     }
 }

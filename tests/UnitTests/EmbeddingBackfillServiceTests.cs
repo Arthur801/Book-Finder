@@ -184,12 +184,12 @@ public sealed class EmbeddingBackfillServiceTests
             return Task.FromResult(result);
         }
 
-        public Task SaveAsync(Guid bookId, float[] vector, string modelName, string hash, CancellationToken cancellationToken)
+        public Task SaveAsync(PendingEmbedding pending, float[] vector, string modelName, CancellationToken cancellationToken)
         {
-            if (FailSaveFor.Contains(bookId))
+            if (FailSaveFor.Contains(pending.BookId))
                 throw new InvalidOperationException("database write failed");
 
-            Saves.Add(new Saved(bookId, vector, modelName, hash));
+            Saves.Add(new Saved(pending.BookId, vector, modelName, pending.Hash));
             return Task.CompletedTask;
         }
 

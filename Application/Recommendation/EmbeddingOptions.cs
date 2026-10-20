@@ -7,12 +7,12 @@ public sealed class EmbeddingOptions
 
     public string Model { get; set; } = "text-embedding-3-small";
 
-    // Read by the background timer added in a later step; the backfill round itself uses only BatchSize.
+    // Read by EmbeddingBackfillWorker as the timer period: one round at startup, then one every Interval.
     public TimeSpan Interval { get; set; } = TimeSpan.FromMinutes(10);
 
     public int BatchSize { get; set; } = 100;
 
-    // Read by the background timer added in a later step.
+    // Read by EmbeddingBackfillWorker: when false the worker exits at startup and no round runs.
     public bool BackfillEnabled { get; set; } = true;
 
     // Checked at startup so an invalid value stops the host instead of failing the first round.

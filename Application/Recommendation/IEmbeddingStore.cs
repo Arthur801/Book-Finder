@@ -6,6 +6,6 @@ public interface IEmbeddingStore
     // Books with no embedding first, then books whose stored hash differs; each group newest CreatedAt first.
     Task<IReadOnlyList<PendingEmbedding>> FindPendingAsync(int limit, CancellationToken cancellationToken);
 
-    // Writes or overwrites exactly one book's embedding.
-    Task SaveAsync(Guid bookId, float[] vector, string modelName, string hash, CancellationToken cancellationToken);
+    // Writes or overwrites exactly one book's embedding. The book and the hash to store come from the pending item.
+    Task SaveAsync(PendingEmbedding pending, float[] vector, string modelName, CancellationToken cancellationToken);
 }

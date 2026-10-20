@@ -36,7 +36,7 @@ public sealed class EmbeddingBackfillService(IEmbeddingStore store, IEmbeddingGe
                         ExpectedDimensions);
                 }
 
-                await store.SaveAsync(item.BookId, vector, generator.ModelName, item.Hash, cancellationToken);
+                await store.SaveAsync(item, vector, generator.ModelName, cancellationToken);
                 succeeded++;
                 consecutiveFailures = 0;
             }

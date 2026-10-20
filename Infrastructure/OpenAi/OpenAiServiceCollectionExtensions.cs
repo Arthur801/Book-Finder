@@ -1,5 +1,6 @@
 using System.ClientModel;
 using Book_Finder.Application.Recommendation;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using OpenAI.Embeddings;
 
@@ -11,6 +12,9 @@ public static class OpenAiServiceCollectionExtensions
 {
     public static IServiceCollection AddBookFinderOpenAi(this IServiceCollection services, IConfiguration configuration)
     {
+        // The backfill's store (EfEmbeddingStore) and worker need TimeProvider; AddBookFinderAuth also registers it.
+        services.TryAddSingleton(TimeProvider.System);
+
         services.AddOptions<EmbeddingOptions>()
             .Bind(configuration.GetSection(EmbeddingOptions.SectionName))
             .Validate(EmbeddingOptions.HasValidInterval, "Embedding:Interval 必須大於 0")
@@ -20,7 +24,7 @@ public static class OpenAiServiceCollectionExtensions
 
         services.AddOptions<OpenAiOptions>()
             .Configure(options => options.ApiKey = configuration[OpenAiOptions.ApiKeyName] ?? "")
-            .Validate(OpenAiOptions.HasApiKey, "缺少 OPENAIAPI_KEY 設定")
+            .Validate(OpenAiOptions.HasApiKey, $"缺少 {OpenAiOptions.ApiKeyName} 設定")
             .ValidateOnStart();
 
         services.AddSingleton<IEmbeddingGenerator>(provider =>

@@ -5,7 +5,7 @@ namespace TestDoubles;
 // Scripted IEmbeddingGenerator for tests. Unconfigured text gets a fixed default vector, and every call is recorded.
 public sealed class FakeEmbeddingGenerator : IEmbeddingGenerator
 {
-    public const int Dimensions = 1536;
+    public const int Dimensions = EmbeddingBackfillService.ExpectedDimensions;
 
     private readonly object _gate = new();
     private readonly Dictionary<string, float[]> _responses = new(StringComparer.Ordinal);
