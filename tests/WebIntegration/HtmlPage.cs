@@ -100,6 +100,22 @@ internal static partial class HtmlPage
         }).ToList();
     }
 
+    // The antiforgery request token a form renders as a hidden input, i.e. the value a browser posts back.
+    public static string AntiforgeryToken(string html) =>
+        InputValue(html, "__RequestVerificationToken")
+        ?? throw new InvalidOperationException("The page has no __RequestVerificationToken input.");
+
+    // The value of the first input with this name, or null when no such input is rendered.
+    public static string? InputValue(string html, string name) =>
+        Input().Matches(html)
+            .Select(match => Attributes(match.Groups[1].Value))
+            .Where(attributes => attributes.GetValueOrDefault("name") == name)
+            .Select(attributes => (string?)attributes.GetValueOrDefault("value", ""))
+            .FirstOrDefault();
+
+    // The inner markup of the form-level validation summary (asp-validation-summary, class validation-summary-errors). Empty when nothing is shown.
+    public static string ValidationSummary(string html) => ValidationSummaryBlock().Match(html).Groups[1].Value;
+
     private static RenderedLink ParseAnchor(string attributes, string text)
     {
         var values = Attributes(attributes);
@@ -134,6 +150,12 @@ internal static partial class HtmlPage
 
     [GeneratedRegex("(\\w[\\w-]*)=\"([^\"]*)\"")]
     private static partial Regex Attribute();
+
+    [GeneratedRegex("<input\\b([^>]*)>")]
+    private static partial Regex Input();
+
+    [GeneratedRegex("<div\\b[^>]*\\bvalidation-summary-errors\\b[^>]*>(.*?)</div>", RegexOptions.Singleline)]
+    private static partial Regex ValidationSummaryBlock();
 
     [GeneratedRegex("<li\\b[^>]*\\bdata-book-id=\"([0-9a-f-]{36})\"[^>]*>(.*?)</li>", RegexOptions.Singleline)]
     private static partial Regex ResultItem();

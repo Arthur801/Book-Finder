@@ -2,6 +2,7 @@ using Book_Finder.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.FileProviders;
 using Pgvector.EntityFrameworkCore;
 using Testcontainers.PostgreSql;
 
@@ -60,6 +61,10 @@ public sealed class BookFinderFactory(string connectionString) : WebApplicationF
     {
         builder.UseSetting("ConnectionStrings:DefaultConnection", connectionString);
         builder.UseSetting("Jwt:SigningKey", SigningKey);
+        // The layout's asp-append-version watches each asset file, and every watch opens an inotify instance that a
+        // host keeps until a GC. Across the suite that reaches the Linux per-user limit (128), so tests serve no web
+        // root files: the version lookup finds nothing to watch. No test depends on the ?v= query string.
+        builder.ConfigureServices((context, _) => context.HostingEnvironment.WebRootFileProvider = new NullFileProvider());
     }
 }
 
