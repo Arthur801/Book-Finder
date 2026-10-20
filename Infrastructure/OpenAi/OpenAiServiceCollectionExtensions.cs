@@ -12,7 +12,11 @@ public static class OpenAiServiceCollectionExtensions
     public static IServiceCollection AddBookFinderOpenAi(this IServiceCollection services, IConfiguration configuration)
     {
         services.AddOptions<EmbeddingOptions>()
-            .Bind(configuration.GetSection(EmbeddingOptions.SectionName));
+            .Bind(configuration.GetSection(EmbeddingOptions.SectionName))
+            .Validate(EmbeddingOptions.HasValidInterval, "Embedding:Interval 必須大於 0")
+            .Validate(EmbeddingOptions.HasValidBatchSize, "Embedding:BatchSize 必須大於 0")
+            .Validate(EmbeddingOptions.HasValidModel, "Embedding:Model 不可為空白")
+            .ValidateOnStart();
 
         services.AddOptions<OpenAiOptions>()
             .Configure(options => options.ApiKey = configuration[OpenAiOptions.ApiKeyName] ?? "")
