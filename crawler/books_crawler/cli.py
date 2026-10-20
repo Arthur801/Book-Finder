@@ -38,7 +38,12 @@ from books_crawler.fetcher import (
     FetcherKind,
     create_fetcher,
 )
-from books_crawler.page_list import PAGES_FILE_ENV, PageListError, load_page_urls, resolve_pages_file
+from books_crawler.page_list import (
+    PAGES_FILE_ENV,
+    PageListError,
+    load_page_urls,
+    resolve_pages_file,
+)
 from books_crawler.parsers import parse_detail_html, parse_ranking_html
 from books_crawler.redact import redact
 from books_crawler.run import RunDependencies, run_first_book, run_once, run_pages
