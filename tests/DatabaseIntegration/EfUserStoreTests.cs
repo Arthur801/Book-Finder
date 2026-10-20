@@ -2,6 +2,7 @@ using Book_Finder.Application.Identity;
 using Book_Finder.Domain.Entities;
 using Book_Finder.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using System.Globalization;
 
 namespace DatabaseIntegration;
 
@@ -51,6 +52,45 @@ public class EfUserStoreTests(PostgresFixture fixture)
 
         Assert.NotNull(found);
         Assert.Equal(EntityState.Detached, db.Entry(found).State);
+    }
+
+    // Lookup must not depend on CurrentCulture: under tr-TR, ToLower() maps "I" to "ı".
+    [Fact]
+    public async Task Find_by_email_ignores_case_under_turkish_culture()
+    {
+        var local = Guid.NewGuid().ToString("N");
+        await using var db = fixture.CreateContext();
+        var store = new EfUserStore(db);
+        await store.AddAsync(NewUser($"ian+{local}@x.com"), CancellationToken.None);
+
+        var original = CultureInfo.CurrentCulture;
+        CultureInfo.CurrentCulture = new CultureInfo("tr-TR");
+        try
+        {
+            var found = await store.FindByEmailAsync($"IAN+{local}@X.COM", CancellationToken.None);
+
+            Assert.NotNull(found);
+            Assert.Equal($"ian+{local}@x.com", found.Email);
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = original;
+        }
+    }
+
+    // Non-ASCII case folding follows PostgreSQL lower(), the same rule the unique index uses.
+    [Fact]
+    public async Task Find_by_email_ignores_case_for_non_ascii_letters()
+    {
+        var local = Guid.NewGuid().ToString("N");
+        await using var db = fixture.CreateContext();
+        var store = new EfUserStore(db);
+        await store.AddAsync(NewUser($"Ärger+{local}@x.com"), CancellationToken.None);
+
+        var found = await store.FindByEmailAsync($"ärger+{local}@x.com", CancellationToken.None);
+
+        Assert.NotNull(found);
+        Assert.Equal($"Ärger+{local}@x.com", found.Email);
     }
 
     [Fact]
