@@ -9,7 +9,7 @@
 
 | 環境 | Database | Secrets |
 |---|---|---|
-| Local | `compose.yaml` 的 `pgvector/pgvector:pg17`（只綁 `127.0.0.1`） | `.env`（不進 repository）、`dotnet user-secrets`；JWT key 見 §5 |
+| Local | `compose.yaml` 的 `pgvector/pgvector:pg17`（只綁 `127.0.0.1`） | `.env`（不進 repository）、`dotnet user-secrets`；JWT key 與 `OPENAIAPI_KEY` 見 §5 |
 | Test | Testcontainers 拋棄式資料庫 | 不需要 |
 | Production | AWS RDS PostgreSQL + pgvector | AWS SSM Parameter Store |
 
@@ -58,7 +58,7 @@ MVP 沒有 staging；L4 變更以本機或拋棄式資料庫 dry run 取代。
 | 參數（SSM path 範例） | 用途 |
 |---|---|
 | `/book-finder/prod/db-connection` | RDS 連線字串 |
-| `/book-finder/prod/openai-api-key` | OpenAI |
+| `/book-finder/prod/openai-api-key` | OpenAI（注入環境變數 `OPENAIAPI_KEY`） |
 | `/book-finder/prod/google-books-api-key` | Google Books |
 | `/book-finder/prod/jwt-signing-key` | JWT HS256 key（至少 32 bytes 隨機值） |
 
@@ -66,6 +66,8 @@ MVP 沒有 staging；L4 變更以本機或拋棄式資料庫 dry run 取代。
 - 獨立 crawler 的 host script 每次執行讀取專用 PostgreSQL URL 參數（例如 `/book-finder/prod/crawler-database-url`），寫入 `/run/book-finder/crawler-env.*`（600），透過 Docker `--env-file` 注入，結束後刪除；不共用包含 Web secrets 的 env file。
 - Crawler 只拿 DB 連線字串（secret，經 SSM 注入）與下列非機密的 crawler 設定，不拿 OpenAI / Google Books / JWT key。
 - Web 以設定鍵 `Jwt:SigningKey` 讀取 JWT key（環境變數 `Jwt__SigningKey`）；缺少或短於 32 bytes 時啟動失敗。本機放在 `.env`，啟動前以 `set -a; . ./.env; set +a` 載入 shell（程式本身不讀 `.env`）。
+- Web 以環境變數 `OPENAIAPI_KEY` 讀取 OpenAI key，host script 寫入 env file 時使用此變數名稱；缺少時 web 啟動失敗（與 `Jwt:SigningKey` 相同，啟動時驗證）。本機放在 `.env`，同樣需要 `OPENAIAPI_KEY=<your-openai-api-key>`，只放格式示意，不放真實值。
+- Web 的 embedding 補齊非機密設定：`Embedding__Model`（預設 `text-embedding-3-small`）、`Embedding__Interval`（預設 `00:10:00`）、`Embedding__BatchSize`（預設 `100`）、`Embedding__BackfillEnabled`（預設 `true`）。可直接寫在 compose 檔的 `environment`，不需經 SSM。`Interval` ≤ 0、`BatchSize` ≤ 0 或 `Model` 空白時啟動失敗。
 - 任何 secret 不得進 repository、image、log。非機密設定可直接寫在 compose 檔的 `environment`，不需經 SSM。
 
 Crawler 非機密環境變數（`crawler/README.md`）：

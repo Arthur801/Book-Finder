@@ -30,6 +30,8 @@
 
 Embedding fake 回傳可控向量（例：固定維度 1536、由測試指定相似度），以驗證門檻邏輯。
 
+WebIntegration 以 `Embedding:BackfillEnabled=false` 關閉背景補齊，以 `FakeEmbeddingGenerator` 取代 generator，並由測試直接呼叫 `EmbeddingBackfillService.RunOnceAsync` 觸發一輪。
+
 ## 4. 依風險等級的最低要求
 
 對應 `AGENTS.md` §4.1。
