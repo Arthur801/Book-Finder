@@ -65,8 +65,13 @@ public sealed class BookFinderFactory(string connectionString) : WebApplicationF
     // generator is replaced by Embeddings below. A test that needs a missing key sets this to "" before the host starts.
     public string OpenAiApiKey { get; set; } = "test-only-not-a-real-key";
 
-    // Stands in for OpenAI in every test host. Tests read Calls to see what would have been sent for embedding.
+    // Stand-ins for OpenAI in every test host. Tests read Calls to see what would have been sent for embedding,
+    // parsing and ranking. Each fake is replaced in ConfigureTestServices, so no request reaches the real adapters.
     public FakeEmbeddingGenerator Embeddings { get; } = new();
+
+    public FakeRequirementParser RequirementParser { get; } = new();
+
+    public FakeRecommendationRanker Ranker { get; } = new();
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -75,7 +80,13 @@ public sealed class BookFinderFactory(string connectionString) : WebApplicationF
         builder.UseSetting("OPENAIAPI_KEY", OpenAiApiKey);
         // Background backfill is off by default in tests: tests start the round themselves, so the timer never races them.
         builder.UseSetting("Embedding:BackfillEnabled", "false");
-        builder.ConfigureTestServices(services => services.AddSingleton<IEmbeddingGenerator>(Embeddings));
+        builder.ConfigureTestServices(services =>
+        {
+            // AddSingleton appends, and resolving the interface returns the last registration, so these replace the OpenAI adapters.
+            services.AddSingleton<IEmbeddingGenerator>(Embeddings);
+            services.AddSingleton<IRequirementParser>(RequirementParser);
+            services.AddSingleton<IRecommendationRanker>(Ranker);
+        });
         // The layout's asp-append-version watches each asset file, and every watch opens an inotify instance that a
         // host keeps until a GC. Across the suite that reaches the Linux per-user limit (128), so tests serve no web
         // root files: the version lookup finds nothing to watch. No test depends on the ?v= query string.

@@ -1,9 +1,7 @@
 using System.ClientModel;
-using System.ClientModel.Primitives;
 using System.Net;
 using System.Text.Json;
 using Book_Finder.Infrastructure.OpenAi;
-using OpenAI;
 using OpenAI.Embeddings;
 
 namespace UnitTests;
@@ -80,32 +78,7 @@ public sealed class OpenAiEmbeddingGeneratorTests
         string modelName = "test-model")
     {
         var handler = new RecordingHandler(status, body);
-        var client = new EmbeddingClient("test-model", new ApiKeyCredential(ApiKey), new OpenAIClientOptions
-        {
-            Transport = new HttpClientPipelineTransport(new HttpClient(handler)),
-            RetryPolicy = new ClientRetryPolicy(0),
-        });
+        var client = new EmbeddingClient("test-model", new ApiKeyCredential(ApiKey), OpenAiTestTransport.Options(handler));
         return (new OpenAiEmbeddingGenerator(client, modelName), handler);
-    }
-
-    private sealed record CapturedRequest(string Path, string Body, string? Authorization);
-
-    private sealed class RecordingHandler(HttpStatusCode status, string body) : HttpMessageHandler
-    {
-        public List<CapturedRequest> Requests { get; } = [];
-
-        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
-        {
-            var content = request.Content is null ? "" : await request.Content.ReadAsStringAsync(cancellationToken);
-            Requests.Add(new CapturedRequest(
-                request.RequestUri!.AbsolutePath,
-                content,
-                request.Headers.Authorization?.ToString()));
-
-            return new HttpResponseMessage(status)
-            {
-                Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json"),
-            };
-        }
     }
 }

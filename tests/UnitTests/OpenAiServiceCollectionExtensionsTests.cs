@@ -101,6 +101,74 @@ public sealed class OpenAiServiceCollectionExtensionsTests
         Assert.Equal(100, options.BatchSize);
     }
 
+    [Fact]
+    public void Requirement_parser_and_ranker_resolve_to_the_openai_adapters()
+    {
+        using var provider = Build(new Dictionary<string, string?>
+        {
+            [OpenAiOptions.ApiKeyName] = "dummy",
+            ["Recommendation:ChatModel"] = "gpt-6-luna",
+        });
+
+        Assert.IsType<OpenAiRequirementParser>(provider.GetRequiredService<IRequirementParser>());
+        Assert.IsType<OpenAiRecommendationRanker>(provider.GetRequiredService<IRecommendationRanker>());
+    }
+
+    [Theory]
+    [InlineData("Recommendation:ChatModel", "   ", "Recommendation:ChatModel 不可為空白")]
+    [InlineData("Recommendation:SimilarityThreshold", "1.5", "Recommendation:SimilarityThreshold 必須介於 0 到 1")]
+    [InlineData("Recommendation:TopK", "0", "Recommendation:TopK 必須大於 0")]
+    [InlineData("Recommendation:ResultLimit", "0", "Recommendation:ResultLimit 必須介於 1 到 10")]
+    [InlineData("Recommendation:ResultLimit", "11", "Recommendation:ResultLimit 必須介於 1 到 10")]
+    [InlineData("Recommendation:RankingDescriptionLength", "0", "Recommendation:RankingDescriptionLength 必須大於 0")]
+    public void Invalid_recommendation_setting_fails_validation_at_startup(string key, string value, string expectedMessage)
+    {
+        using var provider = Build(new Dictionary<string, string?>
+        {
+            [OpenAiOptions.ApiKeyName] = "dummy",
+            [key] = value,
+        });
+
+        var ex = Assert.Throws<OptionsValidationException>(
+            () => provider.GetRequiredService<IOptions<RecommendationOptions>>().Value);
+        Assert.Contains(expectedMessage, ex.Failures);
+    }
+
+    [Fact]
+    public void Missing_chat_model_key_fails_validation_at_startup()
+    {
+        using var provider = Build(new Dictionary<string, string?>
+        {
+            [OpenAiOptions.ApiKeyName] = "dummy",
+        });
+
+        var ex = Assert.Throws<OptionsValidationException>(
+            () => provider.GetRequiredService<IOptions<RecommendationOptions>>().Value);
+        Assert.Contains("Recommendation:ChatModel 不可為空白", ex.Failures);
+    }
+
+    [Fact]
+    public void Recommendation_values_from_appsettings_resolve_unchanged()
+    {
+        using var provider = Build(new Dictionary<string, string?>
+        {
+            [OpenAiOptions.ApiKeyName] = "dummy",
+            ["Recommendation:ChatModel"] = "gpt-6-luna",
+            ["Recommendation:SimilarityThreshold"] = "0.59",
+            ["Recommendation:TopK"] = "30",
+            ["Recommendation:ResultLimit"] = "10",
+            ["Recommendation:RankingDescriptionLength"] = "500",
+        });
+
+        var options = provider.GetRequiredService<IOptions<RecommendationOptions>>().Value;
+
+        Assert.Equal("gpt-6-luna", options.ChatModel);
+        Assert.Equal(0.59, options.SimilarityThreshold);
+        Assert.Equal(30, options.TopK);
+        Assert.Equal(10, options.ResultLimit);
+        Assert.Equal(500, options.RankingDescriptionLength);
+    }
+
     private static ServiceProvider Build(Dictionary<string, string?> values)
     {
         var configuration = new ConfigurationBuilder().AddInMemoryCollection(values).Build();

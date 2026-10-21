@@ -40,6 +40,11 @@ builder.Services.AddScoped<IBookDetailReader>(provider => new CachedBookDetailRe
 builder.Services.AddScoped<IBookSearch, EfBookSearch>();
 builder.Services.AddScoped<BookSearchService>();
 
+// AI recommendation: one Recommendation Search per request, EF candidate search and store (recommendation.md §3).
+builder.Services.AddScoped<ICandidateSearch, EfCandidateSearch>();
+builder.Services.AddScoped<IRecommendationStore, EfRecommendationStore>();
+builder.Services.AddScoped<RecommendationService>();
+
 // Embedding backfill: OpenAI generator + EF store, one round at startup and then every Embedding:Interval (recommendation.md §10).
 builder.Services.AddBookFinderOpenAi(builder.Configuration);
 builder.Services.AddScoped<IEmbeddingStore, EfEmbeddingStore>();

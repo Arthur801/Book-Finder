@@ -16,7 +16,7 @@ public static class BookEmbeddingText
         AddLine(lines, "副標題", Normalize(source.Subtitle));
         AddLine(lines, "作者", JoinNonBlank(source.ContributorNames, keepDuplicates: true));
         AddLine(lines, "分類", JoinNonBlank(source.Subjects, keepDuplicates: false));
-        AddLine(lines, "簡介", TruncateToCodePoints(Normalize(source.Description), DescriptionMaxLength));
+        AddLine(lines, "簡介", CodePoints.Truncate(Normalize(source.Description), DescriptionMaxLength));
         return string.Join('\n', lines);
     }
 
@@ -52,25 +52,5 @@ public static class BookEmbeddingText
     {
         var joined = string.Join('、', values);
         return joined.Length == 0 ? null : joined;
-    }
-
-    // Counts Unicode code points, not UTF-16 units, so a surrogate pair is never split.
-    private static string? TruncateToCodePoints(string? text, int maxCodePoints)
-    {
-        if (text is null)
-            return null;
-
-        var count = 0;
-        var offset = 0;
-        foreach (var rune in text.EnumerateRunes())
-        {
-            if (count == maxCodePoints)
-                return text[..offset];
-
-            count++;
-            offset += rune.Utf16SequenceLength;
-        }
-
-        return text;
     }
 }

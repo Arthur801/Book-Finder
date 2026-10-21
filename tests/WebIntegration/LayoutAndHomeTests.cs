@@ -47,7 +47,7 @@ public sealed class LayoutAndHomeTests(WebFixture fixture)
         var html = await app.CreateClient().GetPageAsync("/");
 
         Assert.Matches("<form [^>]*action=\"/search\"[^>]*>", html);
-        Assert.Contains("name=\"q\"", html);
+        Assert.Matches("<input [^>]*name=\"q\"[^>]*>", html);
         Assert.Matches("<form [^>]*action=\"/ai\"[^>]*>", html);
         Assert.Matches("<a href=\"/bestsellers\">查看完整榜單</a>", html);
     }

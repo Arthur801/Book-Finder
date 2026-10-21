@@ -8,9 +8,9 @@
 
     <partial name="_SearchForm" model="string.Empty" />
 
-    <form method="get" action="/ai">
+    <form id="home-ai-form" method="get" action="/ai">
         <label for="ai-request" class="form-label">用一句話描述你想讀的書（AI 推薦）</label>
-        <textarea id="ai-request" name="q" class="form-control mb-2" rows="2" placeholder="例：想學資料庫入門，最好有實作練習"></textarea>
+        <textarea id="ai-request" class="form-control mb-2" rows="2" placeholder="例：想學資料庫入門，最好有實作練習"></textarea>
         <button class="btn btn-outline-primary" type="submit">AI 推薦</button>
     </form>
 </section>
@@ -22,3 +22,7 @@
     </div>
     <partial name="_BestsellerEntries" model="Model" />
 </section>
+
+@section Scripts {
+    <script src="~/js/ai.js" asp-append-version="true"></script>
+}

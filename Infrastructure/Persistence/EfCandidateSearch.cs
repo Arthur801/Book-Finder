@@ -95,7 +95,7 @@ internal sealed class EfCandidateSearch(AppDbContext db) : ICandidateSearch
             }
             else
             {
-                var regional = LikePattern.Exact(language) + "-%";
+                var regional = exact + "-%";
                 books = books.Where(book =>
                     EF.Functions.ILike(book.Language!, exact, LikePattern.EscapeCharacter)
                     || EF.Functions.ILike(book.Language!, regional, LikePattern.EscapeCharacter));

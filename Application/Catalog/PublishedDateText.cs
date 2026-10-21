@@ -1,9 +1,9 @@
 using System.Globalization;
 using Book_Finder.Domain.Entities;
 
-namespace Book_Finder.Models;
+namespace Book_Finder.Application.Catalog;
 
-// Shared by the search results and the Book detail page (book-catalog.md §4.1).
+// Shared by the search results, the Book detail page and the ranking input (book-catalog.md §4.1).
 // Precision is stored with the date, so a missing precision is never guessed.
 public static class PublishedDateText
 {

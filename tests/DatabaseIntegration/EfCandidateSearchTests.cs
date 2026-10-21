@@ -405,6 +405,45 @@ public class EfCandidateSearchTests(PostgresFixture fixture)
         Assert.True(counterMany.Count <= 4, $"Expected at most 4 statements, got {counterMany.Count}.");
     }
 
+    [Fact]
+    public async Task Without_filters_the_ranked_statement_has_no_filter_sql()
+    {
+        await using var seed = fixture.CreateContext();
+        await ResetAsync(seed);
+        AddBook(seed, "Any", similarity: 0.9);
+        await seed.SaveChangesAsync();
+        var counter = new StatementCounter();
+        await using var search = fixture.CreateContext(counter);
+
+        await SearchAsync(search, RequirementFilters.None);
+
+        var ranked = counter.CommandTexts[0];
+        Assert.DoesNotContain("ILIKE", ranked, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("page_count", ranked, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("language", ranked, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("book_contributors", ranked, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task With_every_filter_kind_the_ranked_statement_has_the_matching_sql()
+    {
+        await using var seed = fixture.CreateContext();
+        await ResetAsync(seed);
+        AddBook(seed, "Any", similarity: 0.9);
+        await seed.SaveChangesAsync();
+        var counter = new StatementCounter();
+        await using var search = fixture.CreateContext(counter);
+        var filters = new RequirementFilters("zh", 2000, 2020, 200, 400, "村上", "shin");
+
+        await SearchAsync(search, filters);
+
+        var ranked = counter.CommandTexts[0];
+        Assert.Contains("ILIKE", ranked, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("page_count", ranked, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("language", ranked, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("book_contributors", ranked, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static Task<IReadOnlyList<CandidateBook>> SearchAsync(
         AppDbContext db,
         RequirementFilters filters,
@@ -504,6 +543,9 @@ public class EfCandidateSearchTests(PostgresFixture fixture)
     {
         public int Count { get; private set; }
 
+        // Text of every reader statement in the order it ran, so tests can check which SQL conditions were sent.
+        public List<string> CommandTexts { get; } = [];
+
         public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(
             DbCommand command,
             CommandEventData eventData,
@@ -511,6 +553,7 @@ public class EfCandidateSearchTests(PostgresFixture fixture)
             CancellationToken cancellationToken = default)
         {
             Count++;
+            CommandTexts.Add(command.CommandText);
             return base.ReaderExecutingAsync(command, eventData, result, cancellationToken);
         }
     }

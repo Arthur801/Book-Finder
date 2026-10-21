@@ -1,5 +1,5 @@
+using Book_Finder.Application.Catalog;
 using Book_Finder.Domain.Entities;
-using Book_Finder.Models;
 
 namespace UnitTests;
 
