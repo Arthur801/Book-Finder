@@ -189,8 +189,8 @@ public sealed class RecommendationApiTests(WebFixture fixture)
         await fixture.ResetDatabaseAsync();
         await using var app = fixture.CreateFactory();
         var books = await SeedEmbeddedBooksAsync(fixture, [
-            (new BookSeed("及格書"), 0.80),
-            (new BookSeed("差一點書"), 0.58),
+            (new BookSeed("及格書"), 0.50),
+            (new BookSeed("差一點書"), 0.40),
         ]);
         var client = await SignInAsync(app, "rec-threshold@x.com");
 

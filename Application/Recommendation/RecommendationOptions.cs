@@ -12,7 +12,7 @@ public sealed class RecommendationOptions
     public string ChatModel { get; set; } = string.Empty;
 
     // Candidates below this similarity never reach the Candidate Set (recommendation.md §5).
-    public double SimilarityThreshold { get; set; } = 0.59;
+    public double SimilarityThreshold { get; set; } = 0.45;
 
     public int TopK { get; set; } = 30;
 

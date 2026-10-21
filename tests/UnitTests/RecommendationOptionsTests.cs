@@ -10,7 +10,7 @@ public sealed class RecommendationOptionsTests
         var options = new RecommendationOptions();
 
         Assert.Equal(string.Empty, options.ChatModel);
-        Assert.Equal(0.59, options.SimilarityThreshold);
+        Assert.Equal(0.45, options.SimilarityThreshold);
         Assert.Equal(30, options.TopK);
         Assert.Equal(10, options.ResultLimit);
         Assert.Equal(500, options.RankingDescriptionLength);

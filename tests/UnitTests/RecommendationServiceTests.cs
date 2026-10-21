@@ -34,7 +34,7 @@ public sealed class RecommendationServiceTests
         var search = Assert.Single(h.Candidates.Calls);
         Assert.Equal(filters, search.Filters);
         Assert.Equal(vector, search.QueryVector);
-        Assert.Equal(0.59, search.Threshold);
+        Assert.Equal(0.45, search.Threshold);
         Assert.Equal(30, search.TopK);
 
         var ranking = Assert.Single(h.Ranker.Calls);

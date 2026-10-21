@@ -98,7 +98,7 @@ LIMIT 30
 ```
 
 - `retrieval_text` 去除頭尾空白後為空時，改以使用者的原始需求文字 embed；不得以空字串呼叫 embedding。
-- `T` 預設 0.59，設定 `Recommendation:SimilarityThreshold`（0–1）；依 log 中的 similarity 分布調整。
+- `T` 預設 0.45，設定 `Recommendation:SimilarityThreshold`（0–1）；依 log 中的 similarity 分布調整（2026-10-21 本機實測：短需求文字對書的前 30 名 similarity 約 0.44～0.57）。
 - 沒有 embedding 的 Book 不會被檢索到。
 - MVP 使用 exact search，不建 HNSW index（`data-model.md` §5.7）。
 
@@ -232,7 +232,7 @@ Book embedding 輸入文字（`BookEmbeddingText.Build`，`Application/Recommend
 - 設定項（`appsettings` / 環境變數）：chat model 名稱、embedding model 名稱、`T`、Top-K（30）、Candidate 下限（5）、結果上限（10）、每日上限（20）、Google Books `maxResults`（20）與 `langRestrict`（zh）。Embedding 補齊的設定見 §10。
 - `Recommendation` 區段（`appsettings.json`，啟動時驗證；不合法則啟動失敗）：
   - `Recommendation:ChatModel`：`appsettings.json` 設為 `gpt-6-luna`；程式不提供預設值，未設定或空白則啟動失敗。
-  - `Recommendation:SimilarityThreshold`（T）：預設 `0.59`，範圍 0–1。
+  - `Recommendation:SimilarityThreshold`（T）：預設 `0.45`，範圍 0–1。
   - `Recommendation:TopK`：預設 `30`，必須 > 0。
   - `Recommendation:ResultLimit`：預設 `10`，範圍 1–10（`recommendation_results.rank` 上限）。
   - `Recommendation:RankingDescriptionLength`：預設 `500`，必須 > 0；排序 prompt 中 description 的 code point 數（§7）。
