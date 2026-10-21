@@ -38,7 +38,7 @@
 ### 3.2 首頁 `/`
 
 1. 一般搜尋框 → 送出至 `/search?q=`。
-2. AI 推薦框 → 已登入：導向 `/ai` 並預填需求文字；未登入：導向登入，`returnUrl=/ai`。
+2. AI 推薦框 → 需求文字不放進 URL，改存入瀏覽器 `sessionStorage`。已登入：直接導向 `/ai`；未登入：導向 `/account/login?returnUrl=/ai`，登入後回到 `/ai`。`/ai` 讀取 `sessionStorage` 的文字預填輸入框，並清除該儲存內容。
 3. 暢銷榜前 10 筆 + 「查看完整榜單」。榜單為空時顯示「榜單尚未建立」。
 
 ### 3.3 Book 詳細頁 `/books/{id}`

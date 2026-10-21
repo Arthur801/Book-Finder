@@ -87,7 +87,7 @@ flowchart TD
 ## 5. Step 2 — 檢索
 
 ```text
-query_vector = embed(retrieval_text)
+query_vector = embed(retrieval_text)   # retrieval_text 為空白時改 embed 原始需求文字
 
 SELECT book_id, 1 - (embedding <=> query_vector) AS similarity
 FROM book_embeddings JOIN books ...
@@ -97,7 +97,8 @@ ORDER BY embedding <=> query_vector
 LIMIT 30
 ```
 
-- `T` 預設 0.30，放設定檔；依 log 中的 similarity 分布調整。
+- `retrieval_text` 去除頭尾空白後為空時，改以使用者的原始需求文字 embed；不得以空字串呼叫 embedding。
+- `T` 預設 0.59，設定 `Recommendation:SimilarityThreshold`（0–1）；依 log 中的 similarity 分布調整。
 - 沒有 embedding 的 Book 不會被檢索到。
 - MVP 使用 exact search，不建 HNSW index（`data-model.md` §5.7）。
 
@@ -122,7 +123,7 @@ for q in google_queries（1～3 組）:
 
 一次 OpenAI chat 呼叫，structured output。
 
-輸入：需求文字 + 每本候選的 metadata（title、subtitle、contributors、publisher、published date、subjects、description 截斷）。候選以 1..n 的短編號提供給 LLM，系統再對應回 `book_id`。
+輸入：需求文字 + 每本候選的 metadata（title、subtitle、contributors、publisher、published date、subjects、description 截斷）。description 取前 500 個 Unicode code point（`Recommendation:RankingDescriptionLength`）。候選以 1..n 的短編號提供給 LLM，系統再對應回 `book_id`。
 
 輸出：
 
@@ -135,10 +136,11 @@ for q in google_queries（1～3 組）:
 驗證（不重試 LLM）：
 
 1. `candidate_no` 不在 1..n → 丟棄並記 log。
-2. 重複的 `candidate_no` → 保留第一次出現。
-3. `relevance` 超出 0–1 → clamp。
-4. 取前 10 筆，依 LLM 回傳順序重新編號為 rank 1..n。
-5. LLM 可以因不相關而回傳少於 10 本或 0 本。
+2. `reason` 去除頭尾空白後為空 → 丟棄並記 log（與非法 `candidate_no` 同樣處理，不保存空理由）。
+3. 重複的 `candidate_no` → 保留第一次**有效**出現（已丟棄的項目不算）。
+4. `relevance` 超出 0–1 → clamp。
+5. 取前 10 筆，依 LLM 回傳順序重新編號為 rank 1..n。
+6. LLM 可以因不相關而回傳少於 10 本或 0 本。
 
 ## 8. Step 5 — 保存
 
@@ -228,6 +230,12 @@ Book embedding 輸入文字（`BookEmbeddingText.Build`，`Application/Recommend
 
 - 整個推薦請求伺服器端逾時 60 秒；逾時視為失敗（不保存）。
 - 設定項（`appsettings` / 環境變數）：chat model 名稱、embedding model 名稱、`T`、Top-K（30）、Candidate 下限（5）、結果上限（10）、每日上限（20）、Google Books `maxResults`（20）與 `langRestrict`（zh）。Embedding 補齊的設定見 §10。
+- `Recommendation` 區段（`appsettings.json`，啟動時驗證；不合法則啟動失敗）：
+  - `Recommendation:ChatModel`：預設 `gpt-6-luna`，不得空白。
+  - `Recommendation:SimilarityThreshold`（T）：預設 `0.59`，範圍 0–1。
+  - `Recommendation:TopK`：預設 `30`，必須 > 0。
+  - `Recommendation:ResultLimit`：預設 `10`，範圍 1–10（`recommendation_results.rank` 上限）。
+  - `Recommendation:RankingDescriptionLength`：預設 `500`，必須 > 0；排序 prompt 中 description 的 code point 數（§7）。
 - Chat model 型號只放設定檔，不寫死在程式。
 
 ## 14. Logging
