@@ -138,7 +138,7 @@ for q in google_queries（1～3 組）:
 1. `candidate_no` 不在 1..n → 丟棄並記 log。
 2. `reason` 去除頭尾空白後為空 → 丟棄並記 log（與非法 `candidate_no` 同樣處理，不保存空理由）。
 3. 重複的 `candidate_no` → 保留第一次**有效**出現（已丟棄的項目不算）。
-4. `relevance` 超出 0–1 → clamp。
+4. `relevance` 超出 0–1 → clamp；非數值（NaN）視為 0。
 5. 取前 10 筆，依 LLM 回傳順序重新編號為 rank 1..n。
 6. LLM 可以因不相關而回傳少於 10 本或 0 本。
 
