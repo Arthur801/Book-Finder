@@ -168,4 +168,4 @@ abstract record RecommendationAttempt
 4. M4 `issue-15-m4-ai-unavailable` — UnitTests + WebIntegration。
 5. M5 `issue-15-m5-timeout` — UnitTests + WebIntegration。
 6. M6 `issue-15-m6-frontend-messages` — 瀏覽器手動驗證。
-7. M7 `issue-15-report` — log 檢查、review、文件、報告；關閉 #15。
+7. M7 `issue-15-report` — log 檢查、完整 `dotnet build` + `dotnet test`、瀏覽器手動驗證、review、文件、報告；關閉 #15。

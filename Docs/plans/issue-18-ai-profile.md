@@ -14,8 +14,9 @@
 ## 2. 模組總覽
 
 ```text
- RecommendationService（保存後）
-        │ M6：ScheduleAsync(結果的 bookIds)
+ RecommendationService（保存後，依序）
+        │ M6 ①：ReadDifficultiesAsync(結果的 bookIds) → 本次回應用的 difficulty 快照
+        │ M6 ②：ScheduleAsync(結果的 bookIds)          → 排入佇列
         ▼
  BookProfileScheduler ──查──▶ M4 IBookProfileStore.FindStaleAsync ──▶ M1 BookProfileText（算 hash）
         │ 只把需要的 bookId 放進
@@ -29,7 +30,9 @@
         │                                                  ◀── FakeBookProfileGenerator（測試）
         └─ M4 IBookProfileStore.UpsertAsync(...)
 
- 顯示：M6 推薦回應 / #16 詳情頁 ──▶ M4 IBookProfileStore.ReadDifficultiesAsync(bookIds)
+ 顯示：
+   推薦回應      ── 使用 ① 在排入佇列「之前」讀到的快照（RecommendationOutcome 帶出，controller 不再查 DB）
+   #16 詳情頁   ── 每次即時呼叫 M4 IBookProfileStore.ReadDifficultiesAsync(bookIds)
 ```
 
 寫入路徑（佇列 → 產生 → 保存）與讀取路徑（讀 difficulty）只共用資料表，不共用程式狀態。
@@ -134,38 +137,54 @@ interface IBookProfileStore
 
 ```csharp
 interface IBookProfileQueue
-    bool TryEnqueue(Guid bookId)          // 已在佇列中 → 不重複加入；佇列滿 → 丟棄並回 false
-// Worker 內部：ReadAllAsync → LoadSource → Build/Hash → Generate → Upsert
+    bool TryEnqueue(Guid bookId)          // 已在佇列中或正在處理 → 不重複加入；佇列滿 → 丟棄並回 false
+    void Complete(Guid bookId)            // worker 處理完一本（成功或失敗）後呼叫，解除去重
+// Worker 內部：ReadAllAsync → LoadSource → Build/Hash → Generate → Upsert → finally Complete
 ```
 
 **規則**：
 
-- `Channel` 有上限（預設 1000）；同一本書在佇列中只會有一筆（用 `ConcurrentDictionary` 去重，取出時移除）。
+- `Channel` 有上限（預設 1000）。
+- 去重：同一本書從排入到**處理完成**之間只會有一筆（用 `ConcurrentDictionary` 記錄）。
+  - key 在 `TryEnqueue` 時加入，worker 處理完後在 `finally` 呼叫 `Complete` 才移除；**不是**取出時就移除。否則書正在呼叫 OpenAI 時又可以被排入一次，浪費佇列空間。
+  - 佇列滿而寫入失敗時，立即移除剛加入的 key，下次出現時才能重新排入。
 - Worker 一次處理一本，不平行；每本開新的 DI scope（DbContext 不跨書共用）。
 - 單本失敗：記 Error log、跳過；不重試（下次出現在推薦結果時會重新排入，規格 §9）。
 - 處理前再確認一次 hash（排隊期間可能已有 profile）。
 - 停機取消不算失敗；重啟遺失佇列可接受。
 - 設定 `AiProfile:Enabled`（預設 `true`，本機可關閉），仿照 `Embedding:BackfillEnabled`。
 
-**測試**：UnitTests——去重、滿了丟棄、失敗後繼續下一本、取消時乾淨結束、hash 已相符時不呼叫產生器。
+**測試**：UnitTests——去重、**處理中（產生器尚未返回）再次 `TryEnqueue` 回 false、處理完成後可再排入**、產生器失敗時 key 也會解除、滿了丟棄且 key 被移除、失敗後繼續下一本、取消時乾淨結束、hash 已相符時不呼叫產生器。
 
 ### M6 接進推薦流程與顯示（Application + Web）
 
 **職責**：保存後排入佇列；回應與紀錄詳情顯示 difficulty。
 
-**檔案**：`Application/Recommendation/BookProfileScheduler.cs`、`RecommendationService`、`RecommendationsController` / `RecommendationResponse`、`AiController.History`（#16）
+**檔案**：`Application/Recommendation/BookProfileScheduler.cs`、`RecommendationService`、`RecommendationOutcome`、`RecommendationResponse`、`AiController.History`（#16）
+
+**為什麼要固定順序**：如果先排入佇列、之後才由 controller 讀 difficulty，worker 可能在這兩步之間就產生好 profile，第一次推薦的回應會有時是 `null`、有時有值。這違反 issue AC「第一次推薦時 `difficulty` 為 null」，也會讓整合測試時好時壞。
 
 **規則**：
 
-- `BookProfileScheduler.ScheduleAsync(bookIds)`：`FindStaleAsync` → `TryEnqueue`。任何例外只記 log，**不讓推薦失敗**（推薦已經保存成功）。
-- `RecommendationService` 在保存之後呼叫 scheduler；排序呼叫前後都不讀 profile。
-- 推薦回應：controller 用 `ReadDifficultiesAsync(結果 bookIds)` 填 `difficulty`，沒有就是 `null`。
-- `/ai/history/{id}`：同樣即時讀取，沒有顯示「—」。difficulty 不寫入 `recommendation_results`。
+- `RecommendationService` 保存成功之後，**依序**做兩件事：
+  1. `ReadDifficultiesAsync(結果 bookIds)`：讀出目前已存在的 difficulty，作為**本次回應的快照**，放進 `RecommendationOutcome`（例如 `IReadOnlyDictionary<Guid, short> Difficulties`）。
+  2. `BookProfileScheduler.ScheduleAsync(bookIds)`：`FindStaleAsync` → `TryEnqueue`。
+- 因為快照在排入佇列**之前**就讀完，worker 再快也不會影響本次回應。
+- 這兩步的任何例外都只記 log，**不讓推薦失敗**（推薦已經保存成功）：讀取失敗時快照為空（全部 `null`），排入失敗時不排入。
+- 排序呼叫前後都不讀 profile；difficulty 只在保存之後讀取，只用於顯示（規格 §2(10)）。
+- 推薦回應：`RecommendationResponse` 直接用 outcome 的快照填 `difficulty`，沒有就是 `null`；controller 不再查詢資料庫。
+- `/ai/history/{id}`：每次即時呼叫 `ReadDifficultiesAsync`，沒有顯示「—」。difficulty 不寫入 `recommendation_results`。
 
 **測試**：
 
-- UnitTests：scheduler 失敗不影響結果；ranker fake 收到的輸入不含 profile 欄位（規格 §2(10)）。
-- WebIntegration：第一次推薦 `difficulty` 為 null → 讓 worker 用 fake 處理完 → 再次推薦與紀錄詳情顯示難度；hash 相符的書不再排入。
+- UnitTests：
+  - 呼叫順序為 save → read difficulties → schedule（用 fake 記錄呼叫順序）。
+  - 讀取或排入失敗不影響結果。
+  - ranker fake 收到的輸入不含 profile 欄位。
+- WebIntegration（不依賴時間）：
+  - 讓 fake 產生器**同步、立即**完成，確認第一次推薦的 `difficulty` 仍為 null。這個情境在舊的順序下會失敗，是本項的 regression guard。
+  - 等 worker 處理完後，再次推薦與紀錄詳情都會顯示難度。
+  - hash 相符的書不再排入。
 
 ### M7 文件與報告
 
@@ -179,7 +198,7 @@ interface IBookProfileQueue
 - M1、M2 是純定義，不依賴任何其他模組。
 - M3 只實作 M2；M4 只用 M1 算 hash。
 - M5 只透過 M2、M4 的介面工作，可用 fake 完整測試。
-- M6 是唯一碰推薦流程的模組；它只多做「保存後通知」與「讀 difficulty」，推薦的 port 介面不需要改。
+- M6 是唯一碰推薦流程的模組；它只多做「保存後讀 difficulty 快照、再通知排入佇列」，推薦既有的 port 介面不需要改，只在 `RecommendationOutcome` 多帶一份快照。
 
 ## 5. 使用者決定（2026-10-22，Q1～Q5 皆採建議）
 
@@ -215,5 +234,5 @@ interface IBookProfileQueue
 3. M3 `issue-18-m3-openai-profile` — UnitTests（不呼叫真實 API）。
 4. M4 `issue-18-m4-profile-store` — DatabaseIntegration。
 5. M5 `issue-18-m5-queue-worker` — UnitTests。
-6. M6 `issue-18-m6-wire-and-display` — UnitTests + WebIntegration；mutation 抽查（讓 ranker 輸入帶 profile，測試必須失敗）。
-7. M7 `issue-18-report` — review、文件、報告；（經授權）真實試跑；關閉 #18。
+6. M6 `issue-18-m6-wire-and-display` — UnitTests + WebIntegration；mutation 抽查（讓 ranker 輸入帶 profile、把 schedule 移到 read difficulties 之前，對應測試都必須失敗）。
+7. M7 `issue-18-report` — 完整 `dotnet build` + `dotnet test`、瀏覽器手動驗證、review、文件、報告；（經授權）真實試跑；關閉 #18。

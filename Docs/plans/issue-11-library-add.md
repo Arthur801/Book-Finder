@@ -134,9 +134,21 @@ static class PendingLibraryAction
     Guid? TryGetBookToAdd(string? pendingAction, string? returnUrl)
 ```
 
-`AccountController.SignInAndRedirect` 在發 cookie 前呼叫它，有 bookId 就呼叫 `LibraryService.AddAsync`。書不存在時不報錯，照常導回（書籍頁自己會顯示 404）。
+**失敗語意（重要）**：登入／註冊成功是主要操作；待辦動作只是 best-effort 的後續步驟，**不得把已成功的登入／註冊變成失敗**。
 
-**測試**：UnitTests 涵蓋各種 action / returnUrl 組合（大小寫、外站 URL、多餘路徑、查詢字串）；WebIntegration「未登入 → 登入 → 書已在書單、導回原書籍頁」，註冊路徑同樣一條；不認得的 action 被忽略。
+- 否則會出現「部分成功」：例如註冊時帳號已建立，但加入書單時 DB 逾時 → 500 → 使用者以為註冊失敗，再註冊一次又得到「此 email 已被註冊」。
+- 所以 `AccountController.SignInAndRedirect` 的順序是：
+  1. 先發 cookie。
+  2. 有 bookId 時呼叫 `LibraryService.AddAsync`，用 try/catch 包住。書不存在（`BookNotFound`）或任何例外都只記 Warning log（含 userId、bookId，不含密碼或 email），不改變後續流程。只有 request 被取消時才往外傳。
+  3. 照常導向 `returnUrl`。書沒加進去時，書籍頁會顯示「加入書單」，使用者可以自己再按一次（最小實作，不另外顯示錯誤訊息）。
+
+**測試**：
+
+- UnitTests：各種 action / returnUrl 組合（大小寫、外站 URL、多餘路徑、查詢字串）。
+- WebIntegration：
+  - 「未登入 → 登入 → 書已在書單、導回原書籍頁」，註冊路徑同樣一條。
+  - 不認得的 action 被忽略。
+  - **加入書單拋例外時**（WebFixture 換成會拋例外的 `ILibraryStore` fake）：登入與註冊仍然 302 導回 `returnUrl`、有 auth cookie、不是 500；註冊的帳號確實存在。
 
 ### M6 `/library` 頁面（Web）
 
@@ -155,7 +167,7 @@ static class PendingLibraryAction
 
 ### M7 文件與報告
 
-- 規格同步：`user-library.md`、`ui-flow.md`、`identity-auth.md` 補上本票的預設決定（見 §5）。
+- 規格同步：`user-library.md`、`ui-flow.md`、`identity-auth.md` 補上本票的預設決定（見 §5）；`identity-auth.md` §6 補上「待辦動作失敗不影響登入／註冊結果」。
 - `LoginForm.cs` 註解中「login flow does not act on PendingAction yet」改掉。
 - 兩軸 review、`Docs/Implementation-Report/issue-11-library-add.md`、更新 memory `issue-10-auth-decisions`（pendingAction 已完成）。
 
@@ -174,12 +186,12 @@ static class PendingLibraryAction
 
 ## 6. 實作步驟
 
-依 [README §3](README.md#3-共通的實作步驟每個模組都一樣) 的流程，每個模組一個分支、一個 PR（base 為 `main`，由使用者合併）：
+依 [README §3](README.md#3-共通的實作步驟每個模組都一樣) 的流程，每個模組一個分支、一個 PR（base 為 `main`，由使用者合併；分支一層疊一層，不等合併）：
 
 1. M1 `issue-11-m1-library-core` — UnitTests。
 2. M2 `issue-11-m2-ef-library-store` — DatabaseIntegration。
 3. M3 `issue-11-m3-put-endpoint` — WebIntegration。
 4. M4 `issue-11-m4-book-library-section` — WebIntegration + 瀏覽器手動驗證。
-5. M5 `issue-11-m5-pending-action` — UnitTests + WebIntegration；L3，做 mutation 抽查（例如拿掉 returnUrl 檢查，測試必須失敗）。
+5. M5 `issue-11-m5-pending-action` — UnitTests + WebIntegration；L3，做 mutation 抽查（例如拿掉 returnUrl 檢查、拿掉 try/catch，對應測試必須失敗）。
 6. M6 `issue-11-m6-library-page` — WebIntegration。
-7. M7 `issue-11-report` — review、文件、報告；關閉 #11。
+7. M7 `issue-11-report` — 完整 `dotnet build` + `dotnet test`、瀏覽器手動驗證、review、文件、報告；關閉 #11。

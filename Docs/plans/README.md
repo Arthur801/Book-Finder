@@ -36,18 +36,22 @@
 ## 3. 共通的實作步驟（每個模組都一樣）
 
 1. 開模組分支 `issue-<N>-m<k>-<name>`（每張票一個 worktree：`~/Documents/vs_repos/Book-Finder-wt/<name>`，建好後 `ln -s ../../Book-Finder/.venv .venv`）。
-   - 每張票的 M1 從最新的 `main` 開分支。
-   - 後面的模組從前一個模組的分支開出（一層疊一層），不用等前一個 PR 合併。
+   - 每張票的 M1 從最新的 `main` 開分支；後面的模組從前一個模組的分支開出（一層疊一層）。
+   - **不等前一個 PR 合併**就繼續做下一個模組，不讓 review 卡住實作進度（使用者 2026-10-22 決定）。
+   - 下一張票的 M1 若前一張票的 PR 還沒全部合併，就從前一張票最後一個模組的分支開出，同樣疊上去。
 2. 主 agent 把該模組的介面、規則、測試清單交給 Haiku subagent，以 TDD 撰寫（先寫失敗測試，再實作）。subagent 只 commit。
 3. 主 agent 親自驗收：
    - `dotnet build`（0 warning）。
    - 跑受影響的測試層級（UnitTests / DatabaseIntegration / WebIntegration）。
    - 讀過關鍵程式碼；L3 風險的模組做 mutation 抽查。
 4. 主 agent push 分支、開 PR（用 `pr` skill 寫說明）。
-   - **每個 PR 的 base 一律設為 `main`**，不設成前一個模組的分支。
-   - 因為分支是疊起來的，後面的 PR 會包含前面模組的 commit，所以在 PR 說明註明「包含 #N」。
-5. **合併由使用者手動處理**，使用者會逐一檢視 PR。主 agent 不合併任何 PR。
-   - 如果使用者在 review 中要求修改，就在對應的模組分支開新 commit 修正（不 amend），再把修正帶到後面疊上去的分支。
-6. 每張票最後一個模組：`code-review` skill 兩軸 review（每項發現親自確認、修正開新 commit）、同步規格文件、寫 `Docs/Implementation-Report/issue-<N>-*.md`、移除 `Docs/TODO.md` 對應項目。
+   - **每個 PR 的 base 一律設為 `main`**，不設成前一個模組的分支（避免 #17、#13 發生過的「合併進舊 base」問題）。
+   - 因為分支是疊起來的，前面的 PR 還沒合併時，後面的 PR 會包含前面模組的 commit。PR 說明開頭註明「包含 #N（尚未合併）」，並列出本模組自己的 commit，方便只看本模組的變更。
+   - 前面的 PR 合併後，後面 PR 的 diff 會自動縮小到只剩自己的變更（合併使用 merge commit，不用 squash，否則疊上去的分支會出現重複 diff）。
+5. **合併由使用者手動處理**，使用者會依序檢視 PR。主 agent 不合併任何 PR。
+   - 如果使用者在 review 中要求修改，就在該模組的分支開新 commit 修正（不 amend），再依序 merge 進後面疊上去的分支並 push（不 rebase、不 force push）。
+6. 每張票最後一個模組（Report）：
+   - **完整驗證關卡**：`dotnet build`（0 warning）＋ **`dotnet test` 跑完整套測試**（三個測試專案全部通過，各 issue 的 AC 都要求），加上該票需要的瀏覽器手動驗證。開發模組時只跑受影響的測試，關閉 issue 前一定要跑完整套。
+   - `code-review` skill 兩軸 review（每項發現親自確認、修正開新 commit）、同步規格文件、寫 `Docs/Implementation-Report/issue-<N>-*.md`、移除 `Docs/TODO.md` 對應項目。
 
 禁止事項照 `HANDOFF.md`：不讀 `.env`、自動測試不呼叫真實 OpenAI、真實試跑需使用者當下授權。

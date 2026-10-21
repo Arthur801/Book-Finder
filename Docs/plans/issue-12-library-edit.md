@@ -13,37 +13,48 @@
 ## 2. 模組總覽
 
 ```text
- 瀏覽器                     Web 層                         Application                 Infrastructure
-┌──────────────┐  PATCH  ┌──────────────────────┐      ┌────────────────────────┐   ┌──────────────────┐
-│ M4 共用控制項 │───────▶│ M3 LibraryApiController│──1──▶│ M1 LibraryPatch.Parse  │   │                  │
-│ _LibraryControls│ DELETE│   (PATCH / DELETE)   │      │   （純函式：JSON→變更） │   │                  │
-│ + library.js  │       │                      │──2──▶│ M2 LibraryService       │──▶│ M2 EfLibraryStore │
-└──────────────┘       └──────────────────────┘      │   .UpdateAsync/RemoveAsync│   │  （UPDATE/DELETE）│
-                                                      └────────────────────────┘   └──────────────────┘
+ 瀏覽器                   Web 層                                   Application              Infrastructure
+┌────────────────┐ PATCH ┌─────────────────────────────────┐      ┌──────────────────────┐   ┌──────────────────┐
+│ M4 共用控制項   │──────▶│ M3 LibraryApiController          │      │ LibraryChange /       │   │                  │
+│ _LibraryControls│DELETE │   (PATCH / DELETE)               │      │ RatingChange（M1 定義）│   │                  │
+│ + library.js    │       │      │ 1                         │      │                      │   │                  │
+└────────────────┘       │      ▼                           │  2   │ M2 LibraryService     │──▶│ M2 EfLibraryStore │
+                         │ M1 LibraryPatchParser            │─────▶│ .UpdateAsync/RemoveAsync│  │ （UPDATE/DELETE） │
+                         │ （純函式：JSON → LibraryChange）  │      └──────────────────────┘   └──────────────────┘
+                         └─────────────────────────────────┘
 ```
 
-Controller 先用 M1 把 body 轉成「變更」物件（或欄位錯誤），再把變更交給 M2 的服務。解析與寫入完全分開。
+Controller 先用 M1 把 body 轉成 `LibraryChange`（或欄位錯誤），再把變更交給 M2 的服務。
+
+- JSON 的「省略 / `null` / 型別」語意屬於 HTTP wire format，所以解析器放在 **Web 層**。
+- Application 只認識 `LibraryChange` 和 `RatingChange`，不知道 JSON 的存在。
 
 ## 3. 各模組
 
-### M1 PATCH body 解析（Application，純函式）
+### M1 變更描述（Application）與 PATCH body 解析（Web，純函式）
 
 **職責**：把 JSON body 轉成明確的變更描述，並找出欄位錯誤。這是本票最容易出錯的地方（省略 vs `null`），所以獨立成模組。
 
-**檔案**：`Application/Library/LibraryPatch.cs`
+**檔案**：
+
+- `Application/Library/LibraryChange.cs`：變更描述，不含任何 JSON 型別。
+- `Models/LibraryPatchParser.cs`：JSON → `LibraryChange` 的解析器，屬於 Web 層（與 `Models/` 下其他 request/response 型別放在一起）。
 
 **接口**：
 
 ```csharp
-// rating 有三種狀態：不變、清除、設成某值
+// Application：rating 有三種狀態：不變、清除、設成某值
 abstract record RatingChange { Unchanged; Clear; Set(short value) }
 
 record LibraryChange(ReadingStatus? NewStatus, RatingChange Rating)
 
-static class LibraryPatch
+// Web：只有這裡認識 JsonElement
+static class LibraryPatchParser
     // body 為 null（空 body 或非 JSON 物件）也會回傳錯誤
-    LibraryPatchResult Parse(JsonElement? body)   // Valid(LibraryChange) | Invalid(IReadOnlyDictionary<string, string> errors)
+    LibraryPatchParseResult Parse(JsonElement? body)   // Valid(LibraryChange) | Invalid(IReadOnlyDictionary<string, string> errors)
 ```
+
+`readingStatus` 代碼的轉換沿用 #11 的 `ReadingStatusCode.TryParse`。
 
 **規則**（欄位名稱即 `errors` 的 key）：
 
@@ -130,8 +141,8 @@ ILibraryStore
 
 ## 4. 模組之間的關係
 
-- M1 只知道 JSON 與 `ReadingStatus`，不知道資料庫；M2 只知道 `LibraryChange`，不知道 JSON。兩者只透過 `LibraryChange` 這個小 record 連接。
-- M3 是唯一同時知道兩者的地方，但只做串接。
+- M1 的解析器在 Web 層，只知道 JSON 與 `ReadingStatus`，不知道資料庫；M2 在 Application / Infrastructure，只知道 `LibraryChange`，不知道 JSON。兩者只透過 `LibraryChange` 這個小 record 連接。依賴方向是 Web → Application，沒有反過來。
+- M3 是唯一同時呼叫兩者的地方，但只做串接。
 - M4 只依賴 HTTP contract（`api-spec.md` §4），換掉後端實作不影響前端。
 
 ## 5. 預設決定（局部、可逆；如不同意請指出）
@@ -149,4 +160,4 @@ ILibraryStore
 2. M2 `issue-12-m2-update-remove` — UnitTests + DatabaseIntegration。
 3. M3 `issue-12-m3-patch-delete-endpoints` — WebIntegration；mutation 抽查（拿掉 `user_id` 條件，A/B 測試必須失敗）。
 4. M4 `issue-12-m4-library-controls` — WebIntegration + 瀏覽器手動驗證。
-5. M5 `issue-12-report` — review、文件、報告；關閉 #12。
+5. M5 `issue-12-report` — 完整 `dotnet build` + `dotnet test`、瀏覽器手動驗證、review、文件、報告；關閉 #12。
