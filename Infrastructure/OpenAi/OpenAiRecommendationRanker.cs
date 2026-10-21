@@ -1,8 +1,8 @@
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Book_Finder.Application.Catalog;
 using Book_Finder.Application.Recommendation;
-using Book_Finder.Models;
 using OpenAI.Chat;
 
 namespace Book_Finder.Infrastructure.OpenAi;
