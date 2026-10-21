@@ -1,0 +1,21 @@
+@{
+    ViewData["Title"] = "AI 推薦";
+}
+
+<section class="mb-4">
+    <h1 class="h3 mb-3">AI 推薦</h1>
+
+    <form id="ai-form" class="mb-3">
+        @Html.AntiForgeryToken()
+        <label for="ai-requirement" class="form-label">用一句話描述你想讀的書</label>
+        <textarea id="ai-requirement" maxlength="500" class="form-control mb-2" rows="2" placeholder="例：想學資料庫入門，最好有實作練習"></textarea>
+        <button id="ai-submit" class="btn btn-primary" type="submit">AI 推薦</button>
+    </form>
+
+    <p id="ai-status" class="text-muted" role="status" aria-live="polite"></p>
+    <ol id="ai-results" class="list-unstyled mb-0"></ol>
+</section>
+
+@section Scripts {
+    <script src="~/js/ai.js" asp-append-version="true"></script>
+}
