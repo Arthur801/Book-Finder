@@ -23,5 +23,6 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="../Shared/FakeEmbeddingGenerator.cs" Link="Shared/FakeEmbeddingGenerator.cs" />
+    <Compile Include="../Shared/FakeRequirementParser.cs" Link="Shared/FakeRequirementParser.cs" />
   </ItemGroup>
 </Project>
