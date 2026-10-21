@@ -45,12 +45,12 @@ public sealed class RecommendationService(
         var rankingMs = 0d;
         if (found.Count > 0)
         {
-            var rankingStart = time.GetTimestamp();
             var numbered = RankingRules.Number(found, settings.RankingDescriptionLength);
             // The ranker gets the original requirement, not the retrieval text, because the user's wording is what it judges against (§7).
+            var rankingStart = time.GetTimestamp();
             var items = await ranker.RankAsync(requirementText, numbered, cancellationToken);
-            var validation = RankingRules.Validate(items, found, settings.ResultLimit);
             rankingMs = ElapsedMs(rankingStart);
+            var validation = RankingRules.Validate(items, found, settings.ResultLimit);
 
             results = validation.Results;
             discarded = validation.DiscardedCandidateNos;
