@@ -231,7 +231,7 @@ Book embedding 輸入文字（`BookEmbeddingText.Build`，`Application/Recommend
 - 整個推薦請求伺服器端逾時 60 秒；逾時視為失敗（不保存）。
 - 設定項（`appsettings` / 環境變數）：chat model 名稱、embedding model 名稱、`T`、Top-K（30）、Candidate 下限（5）、結果上限（10）、每日上限（20）、Google Books `maxResults`（20）與 `langRestrict`（zh）。Embedding 補齊的設定見 §10。
 - `Recommendation` 區段（`appsettings.json`，啟動時驗證；不合法則啟動失敗）：
-  - `Recommendation:ChatModel`：預設 `gpt-6-luna`，不得空白。
+  - `Recommendation:ChatModel`：`appsettings.json` 設為 `gpt-6-luna`；程式不提供預設值，未設定或空白則啟動失敗。
   - `Recommendation:SimilarityThreshold`（T）：預設 `0.59`，範圍 0–1。
   - `Recommendation:TopK`：預設 `30`，必須 > 0。
   - `Recommendation:ResultLimit`：預設 `10`，範圍 1–10（`recommendation_results.rank` 上限）。

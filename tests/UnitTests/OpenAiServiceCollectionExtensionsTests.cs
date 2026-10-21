@@ -107,6 +107,7 @@ public sealed class OpenAiServiceCollectionExtensionsTests
         using var provider = Build(new Dictionary<string, string?>
         {
             [OpenAiOptions.ApiKeyName] = "dummy",
+            ["Recommendation:ChatModel"] = "gpt-6-luna",
         });
 
         Assert.IsType<OpenAiRequirementParser>(provider.GetRequiredService<IRequirementParser>());
@@ -131,6 +132,19 @@ public sealed class OpenAiServiceCollectionExtensionsTests
         var ex = Assert.Throws<OptionsValidationException>(
             () => provider.GetRequiredService<IOptions<RecommendationOptions>>().Value);
         Assert.Contains(expectedMessage, ex.Failures);
+    }
+
+    [Fact]
+    public void Missing_chat_model_key_fails_validation_at_startup()
+    {
+        using var provider = Build(new Dictionary<string, string?>
+        {
+            [OpenAiOptions.ApiKeyName] = "dummy",
+        });
+
+        var ex = Assert.Throws<OptionsValidationException>(
+            () => provider.GetRequiredService<IOptions<RecommendationOptions>>().Value);
+        Assert.Contains("Recommendation:ChatModel 不可為空白", ex.Failures);
     }
 
     [Fact]

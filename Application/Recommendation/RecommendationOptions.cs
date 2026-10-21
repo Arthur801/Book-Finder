@@ -8,7 +8,8 @@ public sealed class RecommendationOptions
     // recommendation_results.rank is constrained to 1..10 in the database, so no setting may go above this.
     public const int MaxResultLimit = 10;
 
-    public string ChatModel { get; set; } = "gpt-6-luna";
+    // No code default: the chat model comes only from configuration (recommendation.md §13); a blank value fails startup validation.
+    public string ChatModel { get; set; } = string.Empty;
 
     // Candidates below this similarity never reach the Candidate Set (recommendation.md §5).
     public double SimilarityThreshold { get; set; } = 0.59;

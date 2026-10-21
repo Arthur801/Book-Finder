@@ -9,11 +9,17 @@ public sealed class RecommendationOptionsTests
     {
         var options = new RecommendationOptions();
 
-        Assert.Equal("gpt-6-luna", options.ChatModel);
+        Assert.Equal(string.Empty, options.ChatModel);
         Assert.Equal(0.59, options.SimilarityThreshold);
         Assert.Equal(30, options.TopK);
         Assert.Equal(10, options.ResultLimit);
         Assert.Equal(500, options.RankingDescriptionLength);
+    }
+
+    [Fact]
+    public void Chat_model_has_no_code_default_so_it_must_come_from_configuration()
+    {
+        Assert.False(RecommendationOptions.HasValidChatModel(new RecommendationOptions()));
     }
 
     [Fact]
