@@ -45,7 +45,7 @@ public sealed class OpenAiRequirementParser(ChatClient client) : IRequirementPar
         1. filters 只能填使用者明確提到的條件。使用者沒有提到的條件一律填 null。
         2. 語意模糊、無法轉成明確數字的條件填 null。例如「不要太厚」沒有數字時，page_count_min 與 page_count_max 都填 null；只有能明確推得頁數範圍時才填入。
         3. language 使用 BCP 47 語言代碼：中文填 zh，英文填 en，日文填 ja，韓文填 ko。除非使用者明確指定地區或文字（例如繁體、簡體），不要加上地區。使用者說繁體中文填 zh-TW，說簡體中文填 zh-CN。
-        4. published_year_from 與 published_year_to 為整數西元年。
+        4. published_year_from 與 published_year_to 為整數西元年。「X 年以後」、「X 年之後」、「X 年起」、「X 年以來」包含 X 年本身，即 published_year_from = X；「X 年以前」、「X 年之前」包含 X 年本身，即 published_year_to = X；「X 年」單一年份則 published_year_from 與 published_year_to 都填 X。
         5. contributor 為作者或譯者的姓名片段；publisher 為出版社名稱片段。
         6. 主題、類型、分類不是硬條件，不要填入 filters，請寫進 retrieval_text。
         7. retrieval_text 用一段簡潔的文字描述使用者想找的書的內容，供語意搜尋使用。

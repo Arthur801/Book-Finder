@@ -173,6 +173,18 @@ public sealed class OpenAiRequirementParserTests
         Assert.Contains("SQL", system);
     }
 
+    [Fact]
+    public async Task System_prompt_makes_year_boundaries_include_the_named_year()
+    {
+        var (parser, handler) = Create(ChatBodies.Completion(NoFilters));
+
+        await parser.ParseAsync(Requirement, CancellationToken.None);
+
+        var system = SystemMessage(Assert.Single(handler.Requests).Body);
+        Assert.Contains("「X 年以後」、「X 年之後」、「X 年起」、「X 年以來」包含 X 年本身，即 published_year_from = X", system);
+        Assert.Contains("「X 年以前」、「X 年之前」包含 X 年本身，即 published_year_to = X", system);
+    }
+
     private static string[] ToStrings(JsonElement typeArray) =>
         typeArray.ValueKind == JsonValueKind.String
             ? [typeArray.GetString()!]
