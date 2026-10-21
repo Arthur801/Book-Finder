@@ -196,6 +196,24 @@ public sealed class RankingRulesTests
     }
 
     [Fact]
+    public void Blank_first_occurrence_does_not_claim_its_number_so_a_later_valid_one_is_kept()
+    {
+        // Only a valid occurrence claims a candidate number, so a blank first try must not turn the later good reason into a duplicate.
+        var books = Books(2);
+
+        var validation = RankingRules.Validate(
+            [Item(2, relevance: 0.8, reason: "  "), Item(2, relevance: 0.7, reason: "好理由")],
+            books,
+            10);
+
+        var result = Assert.Single(validation.Results);
+        Assert.Same(books[1], result.Book);
+        Assert.Equal(0.7, result.Relevance);
+        Assert.Equal("好理由", result.Reason);
+        Assert.Equal([2], validation.DiscardedCandidateNos);
+    }
+
+    [Fact]
     public void Reason_is_trimmed()
     {
         var validation = RankingRules.Validate([Item(1, reason: "  理由  ")], Books(1), 10);

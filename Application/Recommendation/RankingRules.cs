@@ -40,16 +40,16 @@ public static class RankingRules
                 continue;
             }
 
-            // The first occurrence decides. A later repeat is a duplicate even when the first one is dropped below.
-            if (!seen.Add(item.CandidateNo))
+            // A blank reason is treated as invalid output, not kept as an empty string. The DB column is NOT NULL and
+            // the user must see a reason, so an empty one would be a silent failure.
+            if (string.IsNullOrWhiteSpace(item.Reason))
             {
                 discarded.Add(item.CandidateNo);
                 continue;
             }
 
-            // A blank reason is treated as invalid output, not kept as an empty string. The DB column is NOT NULL and
-            // the user must see a reason, so an empty one would be a silent failure.
-            if (string.IsNullOrWhiteSpace(item.Reason))
+            // Only a valid occurrence claims its number. The first valid occurrence is kept and any later repeat is a duplicate.
+            if (!seen.Add(item.CandidateNo))
             {
                 discarded.Add(item.CandidateNo);
                 continue;
