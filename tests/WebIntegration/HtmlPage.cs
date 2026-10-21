@@ -32,6 +32,9 @@ internal static partial class HtmlPage
         return (response.StatusCode, await response.Content.ReadAsStringAsync());
     }
 
+    // The inner markup of the Library section on the Book detail page (section id="library").
+    public static string LibrarySection(string html) => LibrarySectionTag().Match(html).Groups[1].Value;
+
     // The text of the <title> element, e.g. "三體 - 好想找書".
     public static string PageTitle(string html) => PageTitleTag().Match(html).Groups[1].Value;
 
@@ -150,6 +153,9 @@ internal static partial class HtmlPage
 
     [GeneratedRegex("(\\w[\\w-]*)=\"([^\"]*)\"")]
     private static partial Regex Attribute();
+
+    [GeneratedRegex("<section\\b[^>]*\\bid=\"library\"[^>]*>(.*?)</section>", RegexOptions.Singleline)]
+    private static partial Regex LibrarySectionTag();
 
     [GeneratedRegex("<input\\b([^>]*)>")]
     private static partial Regex Input();

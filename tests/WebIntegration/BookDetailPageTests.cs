@@ -441,7 +441,7 @@ public sealed class BookDetailPageTests(WebFixture fixture)
     }
 
     [Fact]
-    public async Task Page_has_an_empty_library_placeholder_section()
+    public async Task Page_has_a_library_section()
     {
         await fixture.ResetDatabaseAsync();
         var book = await AddBookAsync(new BookSeed("三體"));
@@ -449,7 +449,7 @@ public sealed class BookDetailPageTests(WebFixture fixture)
 
         var html = await app.CreateClient().GetPageAsync(DetailPath(book));
 
-        Assert.Contains("<section id=\"library\"></section>", html);
+        Assert.Matches("<section id=\"library\"[^>]*>", html);
     }
 
     // The HTTP test proves a second request is served from the cache in the same app instance;

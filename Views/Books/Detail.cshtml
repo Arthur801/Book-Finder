@@ -48,4 +48,10 @@
     </div>
 </article>
 
-<section id="library"></section>
+<section id="library" class="mt-4">
+    @await Html.PartialAsync("_LibrarySection", (Book_Finder.Models.LibrarySectionViewModel)ViewData[Book_Finder.Controllers.BooksController.LibrarySectionKey]!)
+</section>
+
+@section Scripts {
+    <script src="~/js/library.js" asp-append-version="true"></script>
+}
