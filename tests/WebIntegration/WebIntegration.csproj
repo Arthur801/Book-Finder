@@ -22,6 +22,7 @@
     </PackageReference>
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="../Shared/SimilarityVectors.cs" Link="Shared/SimilarityVectors.cs" />
     <Compile Include="../Shared/FakeEmbeddingGenerator.cs" Link="Shared/FakeEmbeddingGenerator.cs" />
     <Compile Include="../Shared/FakeRequirementParser.cs" Link="Shared/FakeRequirementParser.cs" />
   </ItemGroup>

@@ -1,5 +1,6 @@
 using Book_Finder.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Pgvector.EntityFrameworkCore;
 using Testcontainers.PostgreSql;
 
@@ -10,8 +11,11 @@ public sealed class PostgresFixture : IAsyncLifetime
 {
     private readonly PostgreSqlContainer container = new PostgreSqlBuilder("pgvector/pgvector:pg17").Build();
 
-    public AppDbContext CreateContext() => new(new DbContextOptionsBuilder<AppDbContext>()
-        .UseNpgsql(container.GetConnectionString(), pg => pg.UseVector()).Options);
+    // Interceptors are optional: only tests that count the SQL a query sends pass one.
+    public AppDbContext CreateContext(params IInterceptor[] interceptors) => new(new DbContextOptionsBuilder<AppDbContext>()
+        .UseNpgsql(container.GetConnectionString(), pg => pg.UseVector())
+        .AddInterceptors(interceptors)
+        .Options);
 
     public async Task InitializeAsync()
     {
