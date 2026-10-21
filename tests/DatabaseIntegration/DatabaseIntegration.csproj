@@ -20,4 +20,7 @@
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
   </ItemGroup>
+  <ItemGroup>
+    <Compile Include="../Shared/SimilarityVectors.cs" Link="Shared/SimilarityVectors.cs" />
+  </ItemGroup>
 </Project>
