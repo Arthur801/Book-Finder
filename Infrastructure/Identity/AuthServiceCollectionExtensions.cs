@@ -71,6 +71,7 @@ public static class AuthServiceCollectionExtensions
         {
             options.Filters.Add(new AutoValidateAntiforgeryTokenAttribute());
             options.Filters.Add<AntiforgeryProblemDetailsFilter>();
+            options.Filters.Add<ApiExceptionProblemDetailsFilter>();
         });
 
         return services;
