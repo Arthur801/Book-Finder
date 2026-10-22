@@ -23,7 +23,7 @@ public sealed record LibraryPageViewModel(
             new LibraryControlsViewModel(item.BookId, item.Status, item.Rating, editLoginUrl))).ToList();
 
         var tabs = new List<LibraryFilterTab> { new("全部", "/library", filter is null) };
-        foreach (var status in new[] { ReadingStatus.WantToRead, ReadingStatus.Reading, ReadingStatus.Finished })
+        foreach (var status in ReadingStatusCode.All)
         {
             tabs.Add(new LibraryFilterTab(
                 ReadingStatusCode.Label(status),

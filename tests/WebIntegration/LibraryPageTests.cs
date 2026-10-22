@@ -138,6 +138,28 @@ public sealed partial class LibraryPageTests(WebFixture fixture)
     }
 
     [Fact]
+    public async Task Unrated_entry_shows_the_unrated_label_and_rated_entry_has_it_hidden()
+    {
+        await fixture.ResetDatabaseAsync();
+        var unrated = await AddBookAsync("未評分書");
+        var rated = await AddBookAsync("已評分書");
+        await using var app = fixture.CreateFactory();
+        var client = await SignInAsync(app, "library-unrated@x.com");
+        await SeedEntryAsync("library-unrated@x.com", unrated, ReadingStatus.WantToRead, null, BaseTime.AddDays(2));
+        await SeedEntryAsync("library-unrated@x.com", rated, ReadingStatus.Reading, 3, BaseTime.AddDays(1));
+
+        var controls = LibraryControls(await client.GetPageAsync("/library"));
+
+        var unratedLabel = controls.Single(item => item.BookId == unrated).Unrated;
+        Assert.NotNull(unratedLabel);
+        Assert.False(unratedLabel.Hidden);
+        Assert.Equal("未評分", unratedLabel.Text);
+        var ratedLabel = controls.Single(item => item.BookId == rated).Unrated;
+        Assert.NotNull(ratedLabel);
+        Assert.True(ratedLabel.Hidden);
+    }
+
+    [Fact]
     public async Task Controls_show_the_server_labels_for_each_status()
     {
         await fixture.ResetDatabaseAsync();

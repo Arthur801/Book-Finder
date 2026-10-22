@@ -1,7 +1,7 @@
 @model Book_Finder.Models.LibraryControlsViewModel
 @using Book_Finder.Application.Library
 @*
-    The Library controls for one Book, used by the Book page and by each row of /library (user-library.md §5, ui-flow.md §3.5).
+    The Library controls for one Book, used by the Book page and by each row of /library (user-library.md §4 and §5, ui-flow.md §3.5).
     The server renders the labels and the star states; library.js only sends the requests and switches the state
     (selected option, aria-pressed, disabled, hidden). The antiforgery token is not rendered here: the page renders it once.
 *@
@@ -10,7 +10,7 @@
         <label class="small text-muted d-flex align-items-center gap-2 mb-0">
             閱讀狀態
             <select class="form-select form-select-sm w-auto" data-library-status>
-                @foreach (var status in LibraryControlsViewModel.StatusChoices)
+                @foreach (var status in ReadingStatusCode.All)
                 {
                     <option value="@ReadingStatusCode.ToCode(status)" selected="@(status == Model.Status)">@ReadingStatusCode.Label(status)</option>
                 }
@@ -20,8 +20,9 @@
             @for (var star = 1; star <= 5; star++)
             {
                 var pressed = Model.Rating is { } rating && star <= rating;
-                <button type="button" class="btn btn-link p-0 px-1 library-star" data-library-rating="@star" aria-pressed="@(pressed ? "true" : "false")" aria-label="評 @star 星">★</button>
+                <button type="button" class="btn btn-link p-0 px-1 text-decoration-none library-star" data-library-rating="@star" aria-pressed="@(pressed ? "true" : "false")" aria-label="評 @star 星">★</button>
             }
+            <span class="small text-muted ms-1" data-library-unrated hidden="@(Model.Rating is not null)">未評分</span>
         </div>
         <button type="button" class="btn btn-link btn-sm p-0" data-library-clear-rating disabled="@(Model.Rating is null)">清除評分</button>
         <button type="button" class="btn btn-outline-danger btn-sm" data-library-remove>移除</button>
