@@ -175,36 +175,58 @@ public sealed class OpenAiRecommendationRankerTests
     }
 
     [Fact]
-    public async Task Http_500_throws_the_sdk_exception()
+    public async Task Http_500_throws_ai_unavailable_with_the_sdk_exception_as_inner()
     {
         var (ranker, _) = Create(ChatBodies.Completion(TwoItems), HttpStatusCode.InternalServerError);
 
-        await Assert.ThrowsAsync<ClientResultException>(() => ranker.RankAsync(Requirement, [Candidate(1)], CancellationToken.None));
+        var ex = await Assert.ThrowsAsync<AiUnavailableException>(() => ranker.RankAsync(Requirement, [Candidate(1)], CancellationToken.None));
+        Assert.IsType<ClientResultException>(ex.InnerException);
     }
 
     [Fact]
-    public async Task Malformed_json_content_throws_invalid_operation_without_echoing_the_content()
+    public async Task Timeout_that_is_not_the_callers_cancellation_throws_ai_unavailable()
+    {
+        var client = new ChatClient("test-model", new ApiKeyCredential(ApiKey), OpenAiTestTransport.Options(new TimeoutHandler()));
+        var ranker = new OpenAiRecommendationRanker(client);
+
+        var ex = await Assert.ThrowsAsync<AiUnavailableException>(() => ranker.RankAsync(Requirement, [Candidate(1)], CancellationToken.None));
+        Assert.NotNull(ex.InnerException);
+    }
+
+    [Fact]
+    public async Task Cancelled_caller_token_propagates_as_operation_canceled_not_ai_unavailable()
+    {
+        var (ranker, _) = Create(ChatBodies.Completion(TwoItems));
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        var ex = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => ranker.RankAsync(Requirement, [Candidate(1)], cts.Token));
+        Assert.IsNotType<AiUnavailableException>(ex);
+    }
+
+    [Fact]
+    public async Task Malformed_json_content_throws_ai_unavailable_without_echoing_the_content()
     {
         var (ranker, _) = Create(ChatBodies.Completion("not json {"));
 
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => ranker.RankAsync(Requirement, [Candidate(1)], CancellationToken.None));
+        var ex = await Assert.ThrowsAsync<AiUnavailableException>(() => ranker.RankAsync(Requirement, [Candidate(1)], CancellationToken.None));
         Assert.DoesNotContain("not json", ex.Message);
     }
 
     [Fact]
-    public async Task Refusal_throws_invalid_operation()
+    public async Task Refusal_throws_ai_unavailable()
     {
         var (ranker, _) = Create(ChatBodies.Completion(content: null, refusal: "I can't help with that."));
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => ranker.RankAsync(Requirement, [Candidate(1)], CancellationToken.None));
+        await Assert.ThrowsAsync<AiUnavailableException>(() => ranker.RankAsync(Requirement, [Candidate(1)], CancellationToken.None));
     }
 
     [Fact]
-    public async Task Finish_reason_length_throws_invalid_operation()
+    public async Task Finish_reason_length_throws_ai_unavailable()
     {
         var (ranker, _) = Create(ChatBodies.Completion(TwoItems, finishReason: "length"));
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => ranker.RankAsync(Requirement, [Candidate(1)], CancellationToken.None));
+        await Assert.ThrowsAsync<AiUnavailableException>(() => ranker.RankAsync(Requirement, [Candidate(1)], CancellationToken.None));
     }
 
     [Fact]

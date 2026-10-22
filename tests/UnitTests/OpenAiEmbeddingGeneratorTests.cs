@@ -1,6 +1,7 @@
 using System.ClientModel;
 using System.Net;
 using System.Text.Json;
+using Book_Finder.Application.Recommendation;
 using Book_Finder.Infrastructure.OpenAi;
 using OpenAI.Embeddings;
 
@@ -53,11 +54,23 @@ public sealed class OpenAiEmbeddingGeneratorTests
     }
 
     [Fact]
-    public async Task Http_500_throws_and_does_not_return_a_vector()
+    public async Task Http_500_throws_ai_unavailable_and_does_not_return_a_vector()
     {
         var (generator, _) = Create(status: HttpStatusCode.InternalServerError, body: """{"error":{"message":"boom"}}""");
 
-        await Assert.ThrowsAnyAsync<Exception>(() => generator.GenerateAsync(Text, CancellationToken.None));
+        var ex = await Assert.ThrowsAsync<AiUnavailableException>(() => generator.GenerateAsync(Text, CancellationToken.None));
+        Assert.IsType<ClientResultException>(ex.InnerException);
+    }
+
+    [Fact]
+    public async Task Cancelled_caller_token_propagates_as_operation_canceled_not_ai_unavailable()
+    {
+        var (generator, _) = Create();
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        var ex = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => generator.GenerateAsync(Text, cts.Token));
+        Assert.IsNotType<AiUnavailableException>(ex);
     }
 
     [Fact]

@@ -51,7 +51,14 @@ public sealed class OpenAiRecommendationRanker(ChatClient client) : IRecommendat
         7. 只依需求與書籍內容判斷，不考慮銷售排名或熱門程度。
         """;
 
-    public async Task<IReadOnlyList<RankedItem>> RankAsync(
+    // Any failure, including a refusal or a malformed answer, becomes AiUnavailableException (see OpenAiCall).
+    public Task<IReadOnlyList<RankedItem>> RankAsync(
+        string requirementText,
+        IReadOnlyList<RankingCandidate> candidates,
+        CancellationToken cancellationToken) =>
+        OpenAiCall.RunAsync(() => RankCoreAsync(requirementText, candidates, cancellationToken), "推薦排序", cancellationToken);
+
+    private async Task<IReadOnlyList<RankedItem>> RankCoreAsync(
         string requirementText,
         IReadOnlyList<RankingCandidate> candidates,
         CancellationToken cancellationToken)

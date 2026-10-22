@@ -36,6 +36,18 @@ public static class ApiProblemResults
         return From(problem);
     }
 
+    // An OpenAI call failed after the SDK's retries (api-spec.md §2, recommendation.md §8).
+    // The title is fixed, so no provider detail reaches the client.
+    public static ObjectResult AiUnavailable(ProblemDetailsFactory problemDetails, HttpContext http)
+    {
+        var problem = problemDetails.CreateProblemDetails(
+            http,
+            statusCode: StatusCodes.Status502BadGateway,
+            title: "AI 推薦暫時無法使用",
+            type: "/errors/ai-unavailable");
+        return From(problem);
+    }
+
     // Built from a fresh ModelState so only the given fields are reported, whatever the binder said about the body.
     public static ObjectResult Validation(
         ProblemDetailsFactory problemDetails,
