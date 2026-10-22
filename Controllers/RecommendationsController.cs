@@ -5,7 +5,6 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Infrastructure;
-using Microsoft.AspNetCore.Mvc.ModelBinding;
 
 namespace Book_Finder.Controllers;
 
@@ -27,21 +26,6 @@ public class RecommendationsController(RecommendationService recommendations, Pr
         return Ok(RecommendationResponse.From(outcome));
     }
 
-    // Built from a fresh ModelState so only requirementText is reported, whatever the binder said about the body.
-    private IActionResult ValidationFailed(string message)
-    {
-        var modelState = new ModelStateDictionary();
-        modelState.AddModelError("requirementText", message);
-        var problem = problemDetails.CreateValidationProblemDetails(
-            HttpContext,
-            modelState,
-            statusCode: StatusCodes.Status400BadRequest,
-            title: "輸入資料有誤",
-            type: "/errors/validation");
-        return new ObjectResult(problem)
-        {
-            StatusCode = StatusCodes.Status400BadRequest,
-            ContentTypes = { "application/problem+json" },
-        };
-    }
+    private IActionResult ValidationFailed(string message) =>
+        ApiProblemResults.Validation(problemDetails, HttpContext, new Dictionary<string, string> { ["requirementText"] = message });
 }

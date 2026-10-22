@@ -30,11 +30,7 @@ public sealed class ApiExceptionProblemDetailsFilter(
             statusCode: StatusCodes.Status500InternalServerError,
             title: "伺服器發生錯誤",
             type: "/errors/internal");
-        context.Result = new ObjectResult(problem)
-        {
-            StatusCode = StatusCodes.Status500InternalServerError,
-            ContentTypes = { "application/problem+json" },
-        };
+        context.Result = ApiProblemResults.From(problem);
         context.ExceptionHandled = true;
     }
 }

@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Book_Finder.Application.Library;
 using Book_Finder.Infrastructure.Identity;
 using Book_Finder.Models;
@@ -35,17 +36,43 @@ public class LibraryApiController(LibraryService library, ProblemDetailsFactory 
         }
     }
 
-    private IActionResult NotFoundProblem()
+    // The body is read here instead of by model binding: binding cannot tell an omitted rating from a null one.
+    // A missing, malformed or non-object body reaches the parser as null and comes back as the whole-body error.
+    [Authorize]
+    [HttpPatch("/api/library/{bookId}")]
+    public async Task<IActionResult> Update(string bookId, [FromBody] JsonElement? body)
     {
-        var problem = problemDetails.CreateProblemDetails(
-            HttpContext,
-            statusCode: StatusCodes.Status404NotFound,
-            title: "找不到資源",
-            type: "/errors/not-found");
-        return new ObjectResult(problem)
+        if (!Guid.TryParse(bookId, out var parsedBookId))
+            return NotFoundProblem();
+
+        switch (LibraryPatchParser.Parse(body))
         {
-            StatusCode = StatusCodes.Status404NotFound,
-            ContentTypes = { "application/problem+json" },
-        };
+            case LibraryPatchParseResult.Invalid invalid:
+                return ApiProblemResults.Validation(problemDetails, HttpContext, invalid.Errors);
+
+            case LibraryPatchParseResult.Valid valid:
+                var entry = await library.UpdateAsync(User.CurrentUserId(), parsedBookId, valid.Change, HttpContext.RequestAborted);
+                if (entry is null)
+                    return NotFoundProblem();
+                return Ok(LibraryEntryResponse.From(entry));
+
+            default:
+                throw new InvalidOperationException("Unhandled library patch parse outcome.");
+        }
     }
+
+    // Removing an entry that is not there is a success (api-spec.md §4). A bookId that is not a GUID names no entry,
+    // so it gets the same 204 without touching the store.
+    [Authorize]
+    [HttpDelete("/api/library/{bookId}")]
+    public async Task<IActionResult> Remove(string bookId)
+    {
+        if (!Guid.TryParse(bookId, out var parsedBookId))
+            return NoContent();
+
+        await library.RemoveAsync(User.CurrentUserId(), parsedBookId, HttpContext.RequestAborted);
+        return NoContent();
+    }
+
+    private IActionResult NotFoundProblem() => ApiProblemResults.NotFound(problemDetails, HttpContext);
 }
