@@ -9,7 +9,7 @@
   - Haiku subagent：以 TDD 實作 M1～M6，以及 review 後的修正。
   - 每個模組完成後，主 agent 親自執行 build 與測試、閱讀程式碼並做 mutation 抽查。
 - PR：每個模組一個 PR，base 都是 `main`，分支接在 #16 的最後一個分支之後依序疊上去：#71 M1 → #72 M2 → #73 M3 → #74 M4 → #75 M5 → #76 M6 → 本報告的 PR（M7）。
-- 自動測試都沒有呼叫真實的 OpenAI。**用真實 API 試跑需要使用者當下授權，目前還沒執行**（見〈未解決事項〉）。
+- 自動測試都沒有呼叫真實的 OpenAI。真實 API 試跑在使用者授權後執行了一次（見〈本機真實環境試跑〉）。
 
 模組依賴：
 
@@ -184,7 +184,29 @@ Standards 與 Spec 兩個 reviewer 平行審查 `issue-16-report...issue-18-repo
   - ranker 拿不到 profile：`RecommendationServiceTests`，用 reflection 檢查欄位，並確認 ranker 在 profile 讀取之前就已完成。
 - 沒有做瀏覽器驗證：顯示難度的畫面程式碼（`ai.js` 的推薦結果、詳情頁）在 #13、#16 都已經存在。本票只改了資料來源，並由 WebIntegration 驗證 HTML 與 JSON。
 
+## 本機真實環境試跑（2026-10-22，使用者授權）
+
+- 環境：`issue-18-report`（`5cbb444`）、本機 DB、`https://localhost:5201`。`AiProfile` 開啟，`Embedding:BackfillEnabled=false`（所有書的 embedding 都已存在且 hash 沒有變，關閉是為了避免與試跑無關的呼叫）。chat model `gpt-6-luna`。
+- 流程：用 Playwright 註冊試跑帳號，在 `/ai` 送出「想讀一本入門的心理學書，最好有生活中的例子，不要太學術」。
+- 推薦：12.0 秒回 200，共 4 本（Candidate Set 30 本，similarity 0.49～0.58）。
+  - 各步驟耗時：parse 3.6 s、embedding 3.1 s、search 0.16 s、ranking 5.0 s、save 0.05 s。
+  - **第一次回應的 difficulty 全部是 null**，符合 AC。
+  - 推薦成功後，下方的紀錄列表立刻更新（#16 M4 的真實驗證）。
+- 背景產生：約 82 秒內 4 本都產生了 profile。`/ai/history/{id}` 即時顯示難度 2、3、2、3。
+
+| 書 | 有目錄 | difficulty | is_official_toc | sections | key topics | summary 字數 |
+|---|:---:|---:|:---:|---:|---:|---:|
+| 成為更好的自己：未來少年的18堂心理必修課 | ✓ | 2 | true | 10 | 10 | 97 |
+| 認知心理學：連結心智、研究及日常經驗 | ✓ | 3 | true | 9 | 10 | 106 |
+| 蛤蟆先生去看心理師 | ✓ | 2 | true | 7 | 7 | 79 |
+| 心理學導論（二版） | ✓ | 3 | true | 9 | 11 | 111 |
+
+- 所有 profile 的 `model_name` 都是 `gpt-6-luna`、`prompt_version` 都是 `profile-v1`。log 中沒有 Warning 或 Error（唯一一行 warn 是開發憑證未受信任，與本票無關）。頁面沒有 JS 錯誤。
+- 難度的分布看起來合理：青少年讀物和故事型入門書是 2，教科書是 3。
+- **沒有驗證到的部分**：這 4 本都有目錄，所以「沒有目錄 → `is_official_toc` = false」這條路徑沒有在真實 API 上跑過。這條規則由 adapter 與正規化兩處的單元測試保證。
+- 試跑結束後，依使用者指示刪除本機 DB 中的全部 15 個測試帳號（`m10`～`m18-test-*`，包含 #13 留下的帳號）。他們的書單、搜尋紀錄、推薦結果也隨 FK cascade 一起刪除。4 筆 `book_ai_profiles` 是書目資料，予以保留。
+
 ## 未解決事項（整張票）
 
-- **還沒用真實 OpenAI 試跑**：計劃 M7 的試跑需要使用者當下授權，目前尚未執行。要確認的是：真實的 profile 能產生、難度的分布是否合理、沒有目錄的書 `is_official_toc` 為 false。
+- 「沒有目錄」這條路徑沒有用真實 API 驗證（見上一節）。
 - 正式環境的費用：每次推薦之後，結果中還沒有 profile 的書，每本會多呼叫一次 OpenAI。可以用 `AiProfile:Enabled=false` 關閉。
