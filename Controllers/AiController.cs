@@ -12,7 +12,7 @@ namespace Book_Finder.Controllers;
 //   /ai/history/{id}     one saved Recommendation Search with its snapshot results.
 // The requirement is never read from the URL: the home page hands it over through sessionStorage, so the text never
 // appears in a link, a log line or a returnUrl.
-public class AiController(IRecommendationHistory history) : Controller
+public class AiController(IRecommendationHistory history, IBookProfileStore profiles) : Controller
 {
     [Authorize]
     [HttpGet("/ai")]
@@ -64,7 +64,9 @@ public class AiController(IRecommendationHistory history) : Controller
         if (detail is null)
             return NotFoundPage();
 
-        return View(AiHistoryDetailViewModel.From(detail));
+        // Difficulty is read now, not saved with the search, so a Book profiled after the search shows its difficulty here (#18).
+        var difficulties = await profiles.ReadDifficultiesAsync(detail.Results.Select(result => result.BookId).ToList(), cancellationToken);
+        return View(AiHistoryDetailViewModel.From(detail, difficulties));
     }
 
     // The same 404 page for every case where the search cannot be shown (ui-flow.md §3.5).

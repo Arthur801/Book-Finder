@@ -17,7 +17,7 @@ public sealed record RecommendationResponse(
         TaipeiTimeZone.FromUtc(outcome.CreatedAt),
         // Google Books fallback is added in #14; until then no search uses it.
         FallbackUsed: false,
-        outcome.Results.Select(RecommendationResultResponse.From).ToList());
+        outcome.Results.Select(result => RecommendationResultResponse.From(result, outcome.Difficulties)).ToList());
 }
 
 public sealed record RecommendationResultResponse(
@@ -27,13 +27,13 @@ public sealed record RecommendationResultResponse(
     double Relevance,
     short? Difficulty)
 {
-    // Difficulty comes from the Book AI Profile (#18). Until that exists it is always null, not a guess.
-    public static RecommendationResultResponse From(RankedCandidate result) => new(
+    // Difficulty is the snapshot read right after the save (#18). It is null when the Book has no profile yet, never a guess.
+    public static RecommendationResultResponse From(RankedCandidate result, IReadOnlyDictionary<Guid, short> difficulties) => new(
         result.Rank,
         RecommendedBookResponse.From(result.Book),
         result.Reason,
         result.Relevance,
-        Difficulty: null);
+        difficulties.TryGetValue(result.Book.BookId, out var difficulty) ? difficulty : null);
 }
 
 public sealed record RecommendedBookResponse(Guid Id, string Title, IReadOnlyList<string> Authors, string? ThumbnailUrl)

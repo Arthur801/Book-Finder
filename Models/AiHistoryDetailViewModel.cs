@@ -1,3 +1,4 @@
+using System.Globalization;
 using Book_Finder.Application.Common;
 using Book_Finder.Application.Recommendation;
 
@@ -12,10 +13,11 @@ public sealed record AiHistoryDetailViewModel(
 {
     public bool HasItems => Items.Count > 0;
 
-    public static AiHistoryDetailViewModel From(RecommendationSearchDetail detail) => new(
+    // Difficulties are read when the page is shown, so they are not part of the saved search. A Book with no profile has no entry.
+    public static AiHistoryDetailViewModel From(RecommendationSearchDetail detail, IReadOnlyDictionary<Guid, short> difficulties) => new(
         detail.RequirementText,
         TaipeiTimeZone.FormatMinute(detail.CreatedAt),
-        detail.Results.Select(AiHistoryDetailItemViewModel.From).ToList());
+        detail.Results.Select(result => AiHistoryDetailItemViewModel.From(result, difficulties)).ToList());
 }
 
 // One result row as shown. AuthorsText is null when the Book lists no authors, CoverUrl is null when there is no http(s) thumbnail,
@@ -30,11 +32,11 @@ public sealed record AiHistoryDetailItemViewModel(
     string? RelevanceText,
     string Difficulty)
 {
-    // Difficulty is not saved yet: #18 supplies the real value. Until then every row shows this placeholder.
-    private const string DifficultyPlaceholder = "—";
+    // Shown when the Book has no profile yet, the same dash as the recommendation results in ai.js.
+    private const string MissingDifficulty = "—";
 
     // The same text and rounding as the recommendation results in ai.js (Math.round(relevance * 100)).
-    public static AiHistoryDetailItemViewModel From(SavedRecommendationResult result) => new(
+    public static AiHistoryDetailItemViewModel From(SavedRecommendationResult result, IReadOnlyDictionary<Guid, short> difficulties) => new(
         result.Rank,
         result.BookId,
         result.Title,
@@ -44,7 +46,9 @@ public sealed record AiHistoryDetailItemViewModel(
         result.Relevance is { } relevance
             ? $"相關度 {Math.Round(relevance * 100, MidpointRounding.AwayFromZero)}%"
             : null,
-        DifficultyPlaceholder);
+        difficulties.TryGetValue(result.BookId, out var difficulty)
+            ? difficulty.ToString(CultureInfo.InvariantCulture)
+            : MissingDifficulty);
 
     // Only http(s) thumbnails are shown; anything else gets the same placeholder as a missing cover (as ai.js does).
     private static string? HttpCoverUrl(string? thumbnailUrl) =>

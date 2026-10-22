@@ -49,6 +49,8 @@ builder.Services.AddScoped<IRecommendationUsage, EfRecommendationUsage>();
 builder.Services.AddScoped<IRecommendationHistory, EfRecommendationHistory>();
 // AI profile (#18): difficulty reads and stale checks over book_ai_profiles (recommendation.md §9).
 builder.Services.AddScoped<IBookProfileStore, EfBookProfileStore>();
+// Book AI profile (#18): after a save, the difficulty snapshot is read and missing profiles are queued (recommendation.md §9).
+builder.Services.AddScoped<BookProfileScheduler>();
 builder.Services.AddScoped<RecommendationService>();
 
 // Library (#11): one Library service over the EF store (user-library.md §2).
