@@ -36,6 +36,22 @@ public class AiController(IRecommendationHistory history) : Controller
         return PartialView("_AiHistoryList", list);
     }
 
+    // One saved search with its snapshot results. A value that is not a GUID, an unknown search and another user's search
+    // all get the same 404, so the response never shows whether a search exists.
+    [Authorize]
+    [HttpGet("/ai/history/{id}")]
+    public async Task<IActionResult> History(string id, CancellationToken cancellationToken)
+    {
+        if (!Guid.TryParse(id, out var searchId))
+            return NotFoundPage();
+
+        var detail = await history.GetAsync(User.CurrentUserId(), searchId, cancellationToken);
+        if (detail is null)
+            return NotFoundPage();
+
+        return View(AiHistoryDetailViewModel.From(detail));
+    }
+
     // One page of the signed-in user's searches. A page past the end is loaded as the last page, and CurrentPage says which one.
     private async Task<AiHistoryListViewModel> LoadHistoryAsync(int requestedPage, CancellationToken cancellationToken)
     {
@@ -48,5 +64,12 @@ public class AiController(IRecommendationHistory history) : Controller
 
         var lastPage = await history.ListAsync(userId, totalPages, AiHistoryListViewModel.PageSize, cancellationToken);
         return AiHistoryListViewModel.From(lastPage, totalPages);
+    }
+
+    // The same 404 page for every case where the search cannot be shown (ui-flow.md §3.5).
+    private IActionResult NotFoundPage()
+    {
+        Response.StatusCode = StatusCodes.Status404NotFound;
+        return View("NotFound");
     }
 }
