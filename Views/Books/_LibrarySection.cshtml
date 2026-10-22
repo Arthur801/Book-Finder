@@ -1,6 +1,6 @@
 @model Book_Finder.Models.LibrarySectionViewModel
 
-@if (!Model.IsSignedIn)
+@if (Model.Controls is not { } controls)
 {
     <a class="btn btn-primary" href="@Model.LoginUrl">加入書單</a>
 }
@@ -9,6 +9,6 @@ else
     @* Both are rendered and library.js switches which one is visible after an add or a remove. *@
     <button type="button" class="btn btn-primary" data-library-add data-book-id="@Model.BookId" data-login-url="@Model.LoginUrl" hidden="@Model.InLibrary">加入書單</button>
     <p class="library-error text-danger small mt-2 mb-0" role="alert" data-library-add-error hidden data-failed-text="加入失敗，請稍後再試"></p>
-    @await Html.PartialAsync("_LibraryControls", Model.Controls!)
+    @await Html.PartialAsync("_LibraryControls", controls)
     @Html.AntiForgeryToken()
 }
