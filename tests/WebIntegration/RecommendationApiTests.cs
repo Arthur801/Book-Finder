@@ -271,13 +271,64 @@ public sealed class RecommendationApiTests(WebFixture fixture)
     }
 
     [Fact]
-    public async Task Ranker_failure_returns_500_without_stack_trace_and_saves_nothing()
+    public async Task Ranker_ai_unavailable_returns_502_ai_unavailable_and_saves_nothing()
+    {
+        await fixture.ResetDatabaseAsync();
+        await using var app = fixture.CreateFactory();
+        await SeedEmbeddedBooksAsync(fixture, [(new BookSeed("甲書"), 0.90)]);
+        app.Ranker.ThrowForAll(new AiUnavailableException("ranker-secret-boom", new InvalidOperationException("ranker-secret-boom")));
+        var client = await SignInAsync(app, "rec-ranker-fail@x.com");
+
+        var response = await PostRecommendationAsync(client, await TokenAsync(client), Body("想看小說"));
+
+        var problem = await AssertProblemAsync(response, HttpStatusCode.BadGateway, "/errors/ai-unavailable");
+        Assert.Equal("AI 推薦暫時無法使用", problem.GetProperty("title").GetString());
+        Assert.False(string.IsNullOrEmpty(problem.GetProperty("traceId").GetString()));
+        AssertNoExceptionDetails(await response.Content.ReadAsStringAsync());
+        await AssertNoSearchSavedAsync();
+    }
+
+    [Fact]
+    public async Task Parser_ai_unavailable_returns_502_and_calls_no_later_step()
+    {
+        await fixture.ResetDatabaseAsync();
+        await using var app = fixture.CreateFactory();
+        app.RequirementParser.ThrowForAll(new AiUnavailableException("parser-secret-boom", new InvalidOperationException("parser-secret-boom")));
+        var client = await SignInAsync(app, "rec-parser-fail@x.com");
+
+        var response = await PostRecommendationAsync(client, await TokenAsync(client), Body("想看小說"));
+
+        await AssertProblemAsync(response, HttpStatusCode.BadGateway, "/errors/ai-unavailable");
+        AssertNoExceptionDetails(await response.Content.ReadAsStringAsync());
+        Assert.Empty(app.Embeddings.Calls);
+        Assert.Empty(app.Ranker.Calls);
+        await AssertNoSearchSavedAsync();
+    }
+
+    [Fact]
+    public async Task Embedding_ai_unavailable_returns_502_and_calls_no_later_step()
+    {
+        await fixture.ResetDatabaseAsync();
+        await using var app = fixture.CreateFactory();
+        app.Embeddings.Throw("想看小說", new AiUnavailableException("embedding-secret-boom", new InvalidOperationException("embedding-secret-boom")));
+        var client = await SignInAsync(app, "rec-embedding-fail@x.com");
+
+        var response = await PostRecommendationAsync(client, await TokenAsync(client), Body("想看小說"));
+
+        await AssertProblemAsync(response, HttpStatusCode.BadGateway, "/errors/ai-unavailable");
+        AssertNoExceptionDetails(await response.Content.ReadAsStringAsync());
+        Assert.Empty(app.Ranker.Calls);
+        await AssertNoSearchSavedAsync();
+    }
+
+    [Fact]
+    public async Task Failure_outside_the_ai_adapters_still_returns_500_without_stack_trace_and_saves_nothing()
     {
         await fixture.ResetDatabaseAsync();
         await using var app = fixture.CreateFactory();
         await SeedEmbeddedBooksAsync(fixture, [(new BookSeed("甲書"), 0.90)]);
         app.Ranker.ThrowForAll(new InvalidOperationException("ranker-secret-boom"));
-        var client = await SignInAsync(app, "rec-ranker-fail@x.com");
+        var client = await SignInAsync(app, "rec-non-ai-fail@x.com");
 
         var response = await PostRecommendationAsync(client, await TokenAsync(client), Body("想看小說"));
 
@@ -285,23 +336,6 @@ public sealed class RecommendationApiTests(WebFixture fixture)
         Assert.Equal("伺服器發生錯誤", problem.GetProperty("title").GetString());
         Assert.False(string.IsNullOrEmpty(problem.GetProperty("traceId").GetString()));
         AssertNoExceptionDetails(await response.Content.ReadAsStringAsync());
-        await AssertNoSearchSavedAsync();
-    }
-
-    [Fact]
-    public async Task Parser_failure_returns_500_without_stack_trace_and_saves_nothing()
-    {
-        await fixture.ResetDatabaseAsync();
-        await using var app = fixture.CreateFactory();
-        app.RequirementParser.ThrowForAll(new InvalidOperationException("parser-secret-boom"));
-        var client = await SignInAsync(app, "rec-parser-fail@x.com");
-
-        var response = await PostRecommendationAsync(client, await TokenAsync(client), Body("想看小說"));
-
-        await AssertProblemAsync(response, HttpStatusCode.InternalServerError, "/errors/internal");
-        AssertNoExceptionDetails(await response.Content.ReadAsStringAsync());
-        Assert.Empty(app.Embeddings.Calls);
-        Assert.Empty(app.Ranker.Calls);
         await AssertNoSearchSavedAsync();
     }
 
@@ -382,12 +416,11 @@ public sealed class RecommendationApiTests(WebFixture fixture)
         await SeedEmbeddedBooksAsync(fixture, [(new BookSeed("甲書"), 0.90)]);
         var client = await SignInAsync(app, "rec-failed@x.com");
         await SeedSearchesAsync(await OnlyUserIdAsync(), TaipeiTimeZone.StartOfDayUtc(clock.GetUtcNow()).AddMinutes(1), 19);
-        app.Ranker.ThrowForAll(new InvalidOperationException("ranker-fail-once"));
+        app.Ranker.ThrowForAll(new AiUnavailableException("ranker-fail-once", new InvalidOperationException("ranker-fail-once")));
 
         var failed = await PostRecommendationAsync(client, await TokenAsync(client), Body("想看小說"));
 
-        // M4 changes this to 502; until then it is any failure, and nothing is saved for it.
-        Assert.NotEqual(HttpStatusCode.OK, failed.StatusCode);
+        await AssertProblemAsync(failed, HttpStatusCode.BadGateway, "/errors/ai-unavailable");
         await AssertSearchCountAsync(19);
 
         app.Ranker.RespondToAll([new RankedItem(1, 0.9, "理由甲")]);

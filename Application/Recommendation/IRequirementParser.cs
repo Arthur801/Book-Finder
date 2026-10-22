@@ -4,5 +4,6 @@ namespace Book_Finder.Application.Recommendation;
 // The LLM only returns structured filters; it never writes SQL (recommendation.md invariant 9).
 public interface IRequirementParser
 {
+    // A failed call throws AiUnavailableException; cancellation throws OperationCanceledException.
     Task<ParsedRequirement> ParseAsync(string requirementText, CancellationToken cancellationToken);
 }

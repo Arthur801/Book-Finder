@@ -1,3 +1,4 @@
+using Book_Finder.Application.Recommendation;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
@@ -5,9 +6,9 @@ using Microsoft.AspNetCore.Mvc.Infrastructure;
 
 namespace Book_Finder.Infrastructure.Identity;
 
-// Turns an unhandled exception in an /api/* action into the 500 ProblemDetails of api-spec.md §2. Pages keep the
-// framework's error path. The exception message and stack trace are logged, never returned.
-// 502 and 504 (AI unavailable and timeout) are mapped in #15, not here.
+// Turns an unhandled exception in an /api/* action into the ProblemDetails of api-spec.md §2: AiUnavailableException becomes
+// 502 /errors/ai-unavailable, anything else 500. Pages keep the framework's error path. The exception message and stack trace
+// are logged, never returned. 504 (AI timeout) is mapped in #15 M5, not here.
 public sealed class ApiExceptionProblemDetailsFilter(
     ProblemDetailsFactory problemDetails,
     ILogger<ApiExceptionProblemDetailsFilter> logger) : IExceptionFilter
@@ -23,6 +24,15 @@ public sealed class ApiExceptionProblemDetailsFilter(
             return;
 
         // Only the method and path are logged: the request body holds the user's requirement text.
+        // The AiUnavailableException's inner exception (the SDK error) is logged with it.
+        if (context.Exception is AiUnavailableException)
+        {
+            logger.LogError(context.Exception, "AI call failed in {Method} {Path}", http.Request.Method, http.Request.Path);
+            context.Result = ApiProblemResults.AiUnavailable(problemDetails, http);
+            context.ExceptionHandled = true;
+            return;
+        }
+
         logger.LogError(context.Exception, "Unhandled exception in {Method} {Path}", http.Request.Method, http.Request.Path);
 
         var problem = problemDetails.CreateProblemDetails(

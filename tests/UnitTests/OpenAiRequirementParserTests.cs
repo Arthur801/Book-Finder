@@ -120,44 +120,56 @@ public sealed class OpenAiRequirementParserTests
     }
 
     [Fact]
-    public async Task Http_500_throws_the_sdk_exception()
+    public async Task Http_500_throws_ai_unavailable_with_the_sdk_exception_as_inner()
     {
         var (parser, _) = Create(ChatBodies.Completion(NoFilters), HttpStatusCode.InternalServerError);
 
-        await Assert.ThrowsAsync<ClientResultException>(() => parser.ParseAsync(Requirement, CancellationToken.None));
+        var ex = await Assert.ThrowsAsync<AiUnavailableException>(() => parser.ParseAsync(Requirement, CancellationToken.None));
+        Assert.IsType<ClientResultException>(ex.InnerException);
     }
 
     [Fact]
-    public async Task Malformed_json_content_throws_invalid_operation_without_echoing_the_content()
+    public async Task Cancelled_caller_token_propagates_as_operation_canceled_not_ai_unavailable()
+    {
+        var (parser, _) = Create(ChatBodies.Completion(NoFilters));
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        var ex = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => parser.ParseAsync(Requirement, cts.Token));
+        Assert.IsNotType<AiUnavailableException>(ex);
+    }
+
+    [Fact]
+    public async Task Malformed_json_content_throws_ai_unavailable_without_echoing_the_content()
     {
         var (parser, _) = Create(ChatBodies.Completion("not json {"));
 
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => parser.ParseAsync(Requirement, CancellationToken.None));
+        var ex = await Assert.ThrowsAsync<AiUnavailableException>(() => parser.ParseAsync(Requirement, CancellationToken.None));
         Assert.DoesNotContain("not json", ex.Message);
     }
 
     [Fact]
-    public async Task Missing_retrieval_text_throws_invalid_operation()
+    public async Task Missing_retrieval_text_throws_ai_unavailable()
     {
         var (parser, _) = Create(ChatBodies.Completion("""{"filters":{"language":null,"published_year_from":null,"published_year_to":null,"page_count_min":null,"page_count_max":null,"contributor":null,"publisher":null},"google_queries":[]}"""));
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => parser.ParseAsync(Requirement, CancellationToken.None));
+        await Assert.ThrowsAsync<AiUnavailableException>(() => parser.ParseAsync(Requirement, CancellationToken.None));
     }
 
     [Fact]
-    public async Task Refusal_throws_invalid_operation()
+    public async Task Refusal_throws_ai_unavailable()
     {
         var (parser, _) = Create(ChatBodies.Completion(content: null, refusal: "I can't help with that."));
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => parser.ParseAsync(Requirement, CancellationToken.None));
+        await Assert.ThrowsAsync<AiUnavailableException>(() => parser.ParseAsync(Requirement, CancellationToken.None));
     }
 
     [Fact]
-    public async Task Finish_reason_length_throws_invalid_operation()
+    public async Task Finish_reason_length_throws_ai_unavailable()
     {
         var (parser, _) = Create(ChatBodies.Completion(FullFilters, finishReason: "length"));
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => parser.ParseAsync(Requirement, CancellationToken.None));
+        await Assert.ThrowsAsync<AiUnavailableException>(() => parser.ParseAsync(Requirement, CancellationToken.None));
     }
 
     [Fact]

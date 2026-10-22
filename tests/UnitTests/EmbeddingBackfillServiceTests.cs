@@ -63,6 +63,22 @@ public sealed class EmbeddingBackfillServiceTests
     }
 
     [Fact]
+    public async Task Ai_unavailable_from_the_generator_is_counted_logged_and_the_rest_still_run()
+    {
+        var (service, store, generator, logger) = Build(batchSize: 100);
+        var pending = Pending(3);
+        store.Pending = pending;
+        generator.Throw(pending[1].Text, new AiUnavailableException("embedding failed", new InvalidOperationException("provider down")));
+
+        var result = await service.RunOnceAsync(CancellationToken.None);
+
+        Assert.Equal(new EmbeddingBackfillResult(2, 1, false), result);
+        Assert.Equal([pending[0].BookId, pending[2].BookId], store.Saves.Select(s => s.BookId));
+        var error = Assert.Single(logger.Entries, e => e.Level == LogLevel.Error);
+        Assert.IsType<AiUnavailableException>(error.Exception);
+    }
+
+    [Fact]
     public async Task Save_failure_counts_as_a_failure_and_the_run_continues()
     {
         var (service, store, _, logger) = Build(batchSize: 100);

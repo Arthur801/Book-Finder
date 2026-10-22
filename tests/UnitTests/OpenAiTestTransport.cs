@@ -37,6 +37,13 @@ internal sealed class RecordingHandler(HttpStatusCode status, string body) : Htt
     }
 }
 
+// Fails the way an HttpClient timeout does: a TaskCanceledException while the caller's token is still live.
+internal sealed class TimeoutHandler : HttpMessageHandler
+{
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+        Task.FromException<HttpResponseMessage>(new TaskCanceledException("The request timed out."));
+}
+
 // Builds the chat.completion bodies the fake transport returns.
 internal static class ChatBodies
 {
