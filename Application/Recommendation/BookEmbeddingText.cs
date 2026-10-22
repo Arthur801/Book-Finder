@@ -1,6 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
-
 namespace Book_Finder.Application.Recommendation;
 
 // Builds the embedding input text for a Book and its SHA-256 hash (recommendation.md §10).
@@ -12,45 +9,16 @@ public static class BookEmbeddingText
     public static string Build(BookEmbeddingSource source)
     {
         var lines = new List<string>(5);
-        AddLine(lines, "書名", Normalize(source.Title));
-        AddLine(lines, "副標題", Normalize(source.Subtitle));
-        AddLine(lines, "作者", JoinNonBlank(source.ContributorNames, keepDuplicates: true));
-        AddLine(lines, "分類", JoinNonBlank(source.Subjects, keepDuplicates: false));
-        AddLine(lines, "簡介", CodePoints.Truncate(Normalize(source.Description), DescriptionMaxLength));
+        MetadataLines.AddLine(lines, "書名", MetadataLines.Normalize(source.Title));
+        MetadataLines.AddLine(lines, "副標題", MetadataLines.Normalize(source.Subtitle));
+        MetadataLines.AddLine(lines, "作者", MetadataLines.JoinNonBlank(source.ContributorNames, keepDuplicates: true));
+        MetadataLines.AddLine(lines, "分類", MetadataLines.JoinNonBlank(source.Subjects, keepDuplicates: false));
+        MetadataLines.AddLine(lines, "簡介", CodePoints.Truncate(MetadataLines.Normalize(source.Description), DescriptionMaxLength));
         return string.Join('\n', lines);
     }
 
     public static string Hash(string text)
     {
-        return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(text)));
-    }
-
-    private static void AddLine(List<string> lines, string label, string? value)
-    {
-        if (value is not null)
-            lines.Add(label + "：" + value);
-    }
-
-    private static string? Normalize(string? value)
-    {
-        var trimmed = value?.Trim();
-        return string.IsNullOrEmpty(trimmed) ? null : trimmed;
-    }
-
-    // Authors keep their order and may repeat; subjects are de-duplicated and sorted ordinally so the
-    // same set of subjects always produces the same text.
-    private static string? JoinNonBlank(IEnumerable<string> values, bool keepDuplicates)
-    {
-        var names = values.Select(Normalize).OfType<string>();
-        if (keepDuplicates)
-            return JoinOrNull(names);
-
-        return JoinOrNull(names.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal));
-    }
-
-    private static string? JoinOrNull(IEnumerable<string> values)
-    {
-        var joined = string.Join('、', values);
-        return joined.Length == 0 ? null : joined;
+        return ContentHash.Sha256Hex(text);
     }
 }
