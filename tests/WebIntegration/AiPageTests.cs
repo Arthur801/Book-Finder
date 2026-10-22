@@ -79,15 +79,16 @@ public sealed partial class AiPageTests(WebFixture fixture)
     }
 
     [Fact]
-    public async Task Ai_page_has_no_search_history_list()
+    public async Task Ai_page_renders_the_history_section_below_the_results_container()
     {
         await fixture.ResetDatabaseAsync();
         await using var app = fixture.CreateFactory();
-        var client = await SignInAsync(app, "ai-nohistory@x.com");
+        var client = await SignInAsync(app, "ai-history-position@x.com");
 
         var html = await client.GetPageAsync("/ai");
 
-        Assert.DoesNotMatch("(?i)ai-history|search-history|搜尋紀錄", html);
+        Assert.Contains("id=\"ai-history\"", html);
+        Assert.True(html.IndexOf("id=\"ai-results\"", StringComparison.Ordinal) < html.IndexOf("id=\"ai-history\"", StringComparison.Ordinal));
     }
 
     [Fact]
