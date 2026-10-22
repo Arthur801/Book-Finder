@@ -1,10 +1,12 @@
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using Book_Finder.Application.Common;
 using Book_Finder.Application.Recommendation;
 using Book_Finder.Domain.Entities;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Time.Testing;
 using Pgvector;
 using TestDoubles;
 using static WebIntegration.HtmlPage;
@@ -301,6 +303,135 @@ public sealed class RecommendationApiTests(WebFixture fixture)
         Assert.Empty(app.Embeddings.Calls);
         Assert.Empty(app.Ranker.Calls);
         await AssertNoSearchSavedAsync();
+    }
+
+    // ----- Daily limit (recommendation.md §11) -----
+
+    [Fact]
+    public async Task The_twenty_first_search_of_the_day_returns_429_and_calls_no_external_service()
+    {
+        await fixture.ResetDatabaseAsync();
+        await using var app = fixture.CreateFactory();
+        var clock = new FakeTimeProvider(NearTaipeiMidnight());
+        app.Time = clock;
+        var client = await SignInAsync(app, "rec-limit@x.com");
+        await SeedSearchesAsync(await OnlyUserIdAsync(), TaipeiTimeZone.StartOfDayUtc(clock.GetUtcNow()).AddMinutes(1), 20);
+
+        var response = await PostRecommendationAsync(client, await TokenAsync(client), Body("想看輕鬆的推理小說"));
+
+        var problem = await AssertProblemAsync(response, HttpStatusCode.TooManyRequests, "/errors/daily-limit-exceeded");
+        Assert.Equal("今天的 AI 推薦次數已用完", problem.GetProperty("title").GetString());
+        Assert.Empty(app.RequirementParser.Calls);
+        Assert.Empty(app.Embeddings.Calls);
+        Assert.Empty(app.Ranker.Calls);
+        await AssertSearchCountAsync(20);
+    }
+
+    [Fact]
+    public async Task Searches_from_yesterday_in_taipei_do_not_count_toward_today()
+    {
+        await fixture.ResetDatabaseAsync();
+        await using var app = fixture.CreateFactory();
+        var clock = new FakeTimeProvider(NearTaipeiMidnight());
+        app.Time = clock;
+        var client = await SignInAsync(app, "rec-yesterday@x.com");
+        // One minute before today's Taipei midnight is still yesterday.
+        await SeedSearchesAsync(await OnlyUserIdAsync(), TaipeiTimeZone.StartOfDayUtc(clock.GetUtcNow()).AddMinutes(-1), 20);
+
+        var response = await PostRecommendationAsync(client, await TokenAsync(client), Body("想看輕鬆的推理小說"));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Single(app.RequirementParser.Calls);
+        await AssertSearchCountAsync(21);
+    }
+
+    [Fact]
+    public async Task The_limit_resets_exactly_at_taipei_midnight()
+    {
+        await fixture.ResetDatabaseAsync();
+        await using var app = fixture.CreateFactory();
+        var clock = new FakeTimeProvider(NearTaipeiMidnight());
+        app.Time = clock;
+        var client = await SignInAsync(app, "rec-rollover@x.com");
+        await SeedSearchesAsync(await OnlyUserIdAsync(), TaipeiTimeZone.StartOfDayUtc(clock.GetUtcNow()).AddMinutes(1), 20);
+        var token = await TokenAsync(client);
+
+        // The clock starts at 23:30 Taipei, so the limit still holds at 23:59 and only lifts at 00:00.
+        var before = await PostRecommendationAsync(client, token, Body("想看輕鬆的推理小說"));
+        clock.Advance(TimeSpan.FromMinutes(29));
+        var justBeforeMidnight = await PostRecommendationAsync(client, token, Body("想看輕鬆的推理小說"));
+        Assert.Equal(HttpStatusCode.TooManyRequests, before.StatusCode);
+        Assert.Equal(HttpStatusCode.TooManyRequests, justBeforeMidnight.StatusCode);
+        Assert.Empty(app.RequirementParser.Calls);
+
+        clock.Advance(TimeSpan.FromMinutes(1));
+        var afterMidnight = await PostRecommendationAsync(client, token, Body("想看輕鬆的推理小說"));
+
+        Assert.Equal(HttpStatusCode.OK, afterMidnight.StatusCode);
+        Assert.Single(app.RequirementParser.Calls);
+        await AssertSearchCountAsync(21);
+    }
+
+    [Fact]
+    public async Task Failed_searches_are_not_counted_and_the_next_attempt_still_fits_under_the_limit()
+    {
+        await fixture.ResetDatabaseAsync();
+        await using var app = fixture.CreateFactory();
+        var clock = new FakeTimeProvider(NearTaipeiMidnight());
+        app.Time = clock;
+        await SeedEmbeddedBooksAsync(fixture, [(new BookSeed("甲書"), 0.90)]);
+        var client = await SignInAsync(app, "rec-failed@x.com");
+        await SeedSearchesAsync(await OnlyUserIdAsync(), TaipeiTimeZone.StartOfDayUtc(clock.GetUtcNow()).AddMinutes(1), 19);
+        app.Ranker.ThrowForAll(new InvalidOperationException("ranker-fail-once"));
+
+        var failed = await PostRecommendationAsync(client, await TokenAsync(client), Body("想看小說"));
+
+        // M4 changes this to 502; until then it is any failure, and nothing is saved for it.
+        Assert.NotEqual(HttpStatusCode.OK, failed.StatusCode);
+        await AssertSearchCountAsync(19);
+
+        app.Ranker.RespondToAll([new RankedItem(1, 0.9, "理由甲")]);
+        var retried = await PostRecommendationAsync(client, await TokenAsync(client), Body("想看小說"));
+
+        Assert.Equal(HttpStatusCode.OK, retried.StatusCode);
+        Assert.Equal(2, app.Ranker.Calls.Count);
+        await AssertSearchCountAsync(20);
+    }
+
+    // The clock starts 30 minutes before the next Taipei midnight, so the day can roll over during a test.
+    private static DateTimeOffset NearTaipeiMidnight()
+    {
+        var nextMidnight = TaipeiTimeZone.StartOfDayUtc(DateTimeOffset.UtcNow).AddDays(1);
+        return new DateTimeOffset(nextMidnight.AddMinutes(-30), TimeSpan.Zero);
+    }
+
+    private async Task<Guid> OnlyUserIdAsync()
+    {
+        await using var db = fixture.CreateContext();
+        return (await db.Users.SingleAsync()).Id;
+    }
+
+    private async Task SeedSearchesAsync(Guid userId, DateTime createdAtUtc, int count)
+    {
+        await using var db = fixture.CreateContext();
+        for (var i = 0; i < count; i++)
+        {
+            db.RecommendationSearches.Add(new RecommendationSearch
+            {
+                Id = Guid.CreateVersion7(),
+                UserId = userId,
+                RequirementText = "過去的需求",
+                FallbackUsed = false,
+                CreatedAt = createdAtUtc,
+            });
+        }
+        await db.SaveChangesAsync();
+    }
+
+    private async Task AssertSearchCountAsync(int expected)
+    {
+        await using var db = fixture.CreateContext();
+        Assert.Equal(expected, await db.RecommendationSearches.CountAsync());
     }
 
     // Registers a fresh user on this client, so the client holds the auth cookie from then on.
