@@ -107,6 +107,7 @@ ILibraryStore
 - `PATCH /api/library/{bookId}`：讀原始 body → M1 解析 → 錯誤時回 `ValidationProblemDetails`（`/errors/validation`、`errors.<欄位>`）→ M2 → 200 Entry（與 PUT 同格式）或 404。
 - `DELETE /api/library/{bookId}`：M2 → 204。`bookId` 不是 GUID 時 PATCH 回 404、DELETE 回 204（沒有東西可刪）。
 - 兩者都要登入與 antiforgery。
+- **順手處理（#11 review 延後項目）**：`LibraryApiController.NotFoundProblem` 與 `RecommendationsController.ValidationFailed` 都自己組 problem+json `ObjectResult`，本模組又要新增 400 validation。把「組 ProblemDetails `ObjectResult`」抽成一個共用 helper（放在 Web 層），三處共用；#15 的 429 也用它。
 
 **測試**：WebIntegration——#12 所有 Acceptance criteria（0/6 → 400 + `errors.rating`、`null` 清除、省略不變、`WANT_TO_READ` 可評分、移除後重複 204、A 改 B 回 404、缺 antiforgery 400、未登入 401）。
 
@@ -131,6 +132,7 @@ ILibraryStore
 - 400 → 在控制項旁顯示伺服器回傳的訊息。
 - 401 → 導向 `/account/login?returnUrl=<目前路徑＋查詢字串>`。
 - 其他錯誤 → 顯示「操作失敗，請稍後再試」，畫面回復原值。
+- **順手處理（#11 review 延後項目）**：#11 的 `library.js` 自己存了一份狀態代碼→中文名稱對照與星星格式（與 `ReadingStatusCode.Label`、`RatingText` 重複）。改成由伺服器渲染控制項（下拉選單的選項文字、星星按鈕），JS 只切換選取狀態，移除這份對照。
 
 **測試**：WebIntegration 檢查兩個頁面都輸出相同的控制項（`data-*` 屬性、antiforgery token、目前值被選取）；JS 用瀏覽器手動驗證。
 
