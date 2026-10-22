@@ -3,6 +3,9 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Book_Finder.Infrastructure.Persistence;
 
+// Read-only access to the user's own Recommendation Searches (recommendation.md §12, data-model.md §5.11, §5.12). Only the
+// signed-in user's searches are ever read. Rank, reason and relevance are the saved snapshot in recommendation_results;
+// the title, authors and cover are read from the current Book, so they can change after the search.
 internal sealed class EfRecommendationHistory(AppDbContext db) : IRecommendationHistory
 {
     public async Task<RecommendationSearchPage> ListAsync(Guid userId, int page, int pageSize, CancellationToken cancellationToken)
