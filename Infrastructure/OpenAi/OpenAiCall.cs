@@ -2,7 +2,8 @@ using Book_Finder.Application.Recommendation;
 
 namespace Book_Finder.Infrastructure.OpenAi;
 
-// Shared by the three OpenAI adapters: runs one call and turns any failure into AiUnavailableException (recommendation.md §8, §10).
+// Shared by the three OpenAI adapters: runs one call and turns any failure into AiUnavailableException (api-spec.md §2 502,
+// recommendation.md §8, §13). The embedding backfill (§10) also sees this exception and simply counts it as a failure.
 // The original error stays in InnerException for the log. The message names only the operation, never the key or the user's text.
 internal static class OpenAiCall
 {

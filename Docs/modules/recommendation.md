@@ -213,10 +213,11 @@ Book embedding 輸入文字（`BookEmbeddingText.Build`，`Application/Recommend
 
 ## 11. 每日上限
 
-- 每位使用者每日（Asia/Taipei 00:00 起算）最多 20 次，數值放設定檔。
+- 每位使用者每日（Asia/Taipei 00:00 起算）最多 20 次，數值放設定檔（`Recommendation:DailyLimit`，§13）。
 - 計數 = 該使用者當日 `recommendation_searches` 筆數；失敗的推薦不計入。
 - 在 Step 1 之前檢查；已達上限 → 429，不呼叫任何外部服務。
 - 同時送出多個請求時可能超出 1～2 次，可接受，不加鎖。
+- 錯誤回應：429 `/errors/daily-limit-exceeded`，title「今天的 AI 推薦次數已用完」（`api-spec.md` §2）。
 
 ## 12. AI 搜尋紀錄
 
@@ -229,7 +230,10 @@ Book embedding 輸入文字（`BookEmbeddingText.Build`，`Application/Recommend
 
 ## 13. 逾時與設定
 
-- 整個推薦請求伺服器端逾時 60 秒；逾時視為失敗（不保存）。
+- 整個推薦請求伺服器端逾時 60 秒；逾時視為失敗（不保存）。60 秒是固定值，不開放設定（#15 決定）。
+  - 計時從每日上限檢查之後開始，涵蓋需求解析、embedding、檢索、排序與保存；逾時 → 504 `/errors/ai-timeout`，title「AI 推薦逾時」。
+  - 使用者自己中斷連線不算逾時，不回應。
+- 任一 OpenAI 呼叫（需求解析、需求文字的 embedding、排序）在 SDK 內建重試後仍失敗 → 502 `/errors/ai-unavailable`，title「AI 推薦暫時無法使用」；不保存（§8）。其他伺服器錯誤仍為 500。
 - 設定項（`appsettings` / 環境變數）：chat model 名稱、embedding model 名稱、`T`、Top-K（30）、Candidate 下限（5）、結果上限（10）、每日上限（20）、Google Books `maxResults`（20）與 `langRestrict`（zh）。Embedding 補齊的設定見 §10。
 - `Recommendation` 區段（`appsettings.json`，啟動時驗證；不合法則啟動失敗）：
   - `Recommendation:ChatModel`：`appsettings.json` 設為 `gpt-6-luna`；程式不提供預設值，未設定或空白則啟動失敗。
@@ -237,11 +241,18 @@ Book embedding 輸入文字（`BookEmbeddingText.Build`，`Application/Recommend
   - `Recommendation:TopK`：預設 `30`，必須 > 0。
   - `Recommendation:ResultLimit`：預設 `10`，範圍 1–10（`recommendation_results.rank` 上限）。
   - `Recommendation:RankingDescriptionLength`：預設 `500`，必須 > 0；排序 prompt 中 description 的 code point 數（§7）。
+  - `Recommendation:DailyLimit`：預設 `20`，必須 > 0；每位使用者每日成功推薦次數上限（§11）。
 - Chat model 型號只放設定檔，不寫死在程式。
 
 ## 14. Logging
 
 每次推薦記錄：`search_id`（若有）、套用的硬條件、Candidate Set 大小、similarity 最高 / 最低值、是否 fallback、Google Books 寫入數、被丟棄的 `candidate_no`、結果數、各外部呼叫耗時。不記錄 API key。
+
+未成功的推薦各記一行（不記錄需求文字與 API key）：
+
+- 達每日上限：Information，含 user id、當日已用次數、上限。
+- OpenAI 失敗（502）：Error，含已花費時間、失敗的步驟名稱，以及 SDK 的原始錯誤。
+- 逾時（504）：Warning，含已花費時間與當時執行的步驟名稱。
 
 ## 15. Validation
 

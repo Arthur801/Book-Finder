@@ -489,6 +489,43 @@ public sealed class RecommendationServiceTests
         Assert.DoesNotContain(h.Logger.Entries, e => e.Level == LogLevel.Warning);
     }
 
+    // ----- AI failure logging (§14) -----
+
+    [Fact]
+    public async Task Ranker_ai_failure_logs_one_error_with_the_step_and_elapsed_time_and_rethrows_the_same_exception()
+    {
+        var h = Build();
+        h.Candidates.Result = [Book("A")];
+        var error = new AiUnavailableException("OpenAI 推薦排序失敗", new InvalidOperationException("sdk down"));
+        h.Ranker.ThrowForAll(error);
+
+        var actual = await Assert.ThrowsAsync<AiUnavailableException>(() => Recommend(h, UserId, Requirement, CancellationToken.None));
+
+        Assert.Same(error, actual);
+        AssertNothingSaved(h);
+        var entry = Assert.Single(h.Logger.Entries, e => e.Level == LogLevel.Error);
+        Assert.Same(error, entry.Exception);
+        Assert.Equal("ranking", entry.Properties["Step"]);
+        Assert.IsType<double>(entry.Properties["ElapsedMs"]);
+        Assert.DoesNotContain(Requirement, entry.Message);
+    }
+
+    [Fact]
+    public async Task Parser_ai_failure_logs_one_error_naming_the_parsing_step()
+    {
+        var h = Build();
+        var error = new AiUnavailableException("OpenAI 需求解析失敗", new InvalidOperationException("sdk down"));
+        h.Parser.ThrowForAll(error);
+
+        var actual = await Assert.ThrowsAsync<AiUnavailableException>(() => Recommend(h, UserId, Requirement, CancellationToken.None));
+
+        Assert.Same(error, actual);
+        AssertNothingSaved(h);
+        var entry = Assert.Single(h.Logger.Entries, e => e.Level == LogLevel.Error);
+        Assert.Equal("parsing", entry.Properties["Step"]);
+        Assert.Single(h.Logger.Entries);
+    }
+
     // ----- Helpers -----
 
     private static async Task<RecommendationOutcome> Recommend(Harness h, Guid userId, string requirementText, CancellationToken cancellationToken) =>

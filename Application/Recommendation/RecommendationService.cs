@@ -123,6 +123,12 @@ public sealed class RecommendationService(
             logger.LogWarning("AI recommendation timed out after {ElapsedMs} ms during the {Step} step", ElapsedMs(startedAt), step);
             throw new AiTimeoutException();
         }
+        // The service logs the AI failure once here, so the exception filter does not log it again. The exception is rethrown unchanged.
+        catch (AiUnavailableException ex)
+        {
+            logger.LogError(ex, "AI recommendation failed after {ElapsedMs} ms during the {Step} step", ElapsedMs(startedAt), step);
+            throw;
+        }
     }
 
     private double ElapsedMs(long start) => time.GetElapsedTime(start).TotalMilliseconds;

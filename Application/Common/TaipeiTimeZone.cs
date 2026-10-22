@@ -1,6 +1,7 @@
 namespace Book_Finder.Application.Common;
 
-// Asia/Taipei for showing captured_at. The host may lack tzdata or ICU, so resolution falls back to a fixed
+// Asia/Taipei for showing captured_at and for the day boundary of the daily Recommendation limit (recommendation.md §11).
+// The host may lack tzdata or ICU, so resolution falls back to a fixed
 // UTC+08:00 zone (Taiwan observes no DST, so the displayed time is identical). The result is computed once at
 // startup and an exception is never cached.
 public static class TaipeiTimeZone
