@@ -14,6 +14,7 @@ public sealed class RecommendationOptionsTests
         Assert.Equal(30, options.TopK);
         Assert.Equal(10, options.ResultLimit);
         Assert.Equal(500, options.RankingDescriptionLength);
+        Assert.Equal(20, options.DailyLimit);
     }
 
     [Fact]
@@ -95,6 +96,22 @@ public sealed class RecommendationOptionsTests
     public void Result_limit_rejects_values_outside_one_through_ten(int limit)
     {
         Assert.False(RecommendationOptions.HasValidResultLimit(new RecommendationOptions { ResultLimit = limit }));
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(20)]
+    public void Daily_limit_accepts_positive_values(int limit)
+    {
+        Assert.True(RecommendationOptions.HasValidDailyLimit(new RecommendationOptions { DailyLimit = limit }));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void Daily_limit_rejects_zero_and_negative(int limit)
+    {
+        Assert.False(RecommendationOptions.HasValidDailyLimit(new RecommendationOptions { DailyLimit = limit }));
     }
 
     [Theory]

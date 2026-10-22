@@ -13,6 +13,15 @@ public static class TaipeiTimeZone
     public static DateTimeOffset FromUtc(DateTime utc) =>
         TimeZoneInfo.ConvertTime(new DateTimeOffset(DateTime.SpecifyKind(utc, DateTimeKind.Utc)), Taipei);
 
+    // The UTC instant of 00:00 Taipei on the Taipei calendar day that contains now (recommendation.md §11).
+    public static DateTime StartOfDayUtc(DateTimeOffset now)
+    {
+        var taipeiNow = TimeZoneInfo.ConvertTime(now, Taipei);
+        var taipeiMidnight = new DateTime(taipeiNow.Year, taipeiNow.Month, taipeiNow.Day, 0, 0, 0, DateTimeKind.Unspecified);
+
+        return TimeZoneInfo.ConvertTimeToUtc(taipeiMidnight, Taipei);
+    }
+
     public static TimeZoneInfo Resolve(Func<string, TimeZoneInfo> findById)
     {
         try

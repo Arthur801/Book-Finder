@@ -35,6 +35,7 @@ public static class OpenAiServiceCollectionExtensions
             .Validate(RecommendationOptions.HasValidTopK, "Recommendation:TopK 必須大於 0")
             .Validate(RecommendationOptions.HasValidResultLimit, "Recommendation:ResultLimit 必須介於 1 到 10")
             .Validate(RecommendationOptions.HasValidRankingDescriptionLength, "Recommendation:RankingDescriptionLength 必須大於 0")
+            .Validate(RecommendationOptions.HasValidDailyLimit, "Recommendation:DailyLimit 必須大於 0")
             .ValidateOnStart();
 
         services.AddSingleton<IEmbeddingGenerator>(provider =>

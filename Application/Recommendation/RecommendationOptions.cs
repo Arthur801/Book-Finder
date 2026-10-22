@@ -18,6 +18,9 @@ public sealed class RecommendationOptions
 
     public int ResultLimit { get; set; } = 10;
 
+    // Successful Recommendation Searches per user per Taipei day (recommendation.md §11).
+    public int DailyLimit { get; set; } = 20;
+
     // Description length sent to the ranking prompt, counted in code points (recommendation.md §7).
     public int RankingDescriptionLength { get; set; } = 500;
 
@@ -34,4 +37,6 @@ public sealed class RecommendationOptions
         options.ResultLimit >= 1 && options.ResultLimit <= MaxResultLimit;
 
     public static bool HasValidRankingDescriptionLength(RecommendationOptions options) => options.RankingDescriptionLength > 0;
+
+    public static bool HasValidDailyLimit(RecommendationOptions options) => options.DailyLimit > 0;
 }
