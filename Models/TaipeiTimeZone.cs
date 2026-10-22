@@ -9,6 +9,10 @@ public static class TaipeiTimeZone
 
     public static readonly TimeZoneInfo Taipei = Resolve(TimeZoneInfo.FindSystemTimeZoneById);
 
+    // Shows a stored UTC time in Taipei. The value is treated as UTC whatever its Kind, as the stored times are.
+    public static DateTimeOffset FromUtc(DateTime utc) =>
+        TimeZoneInfo.ConvertTime(new DateTimeOffset(DateTime.SpecifyKind(utc, DateTimeKind.Utc)), Taipei);
+
     public static TimeZoneInfo Resolve(Func<string, TimeZoneInfo> findById)
     {
         try
