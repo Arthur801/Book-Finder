@@ -8,7 +8,13 @@ namespace Book_Finder.Infrastructure.Persistence;
 internal static class BookMetadata
 {
     // All Books when ids is null, otherwise only the given ids. Books that do not exist are simply absent.
-    public static async Task<IReadOnlyList<BookMetadataRow>> LoadAsync(AppDbContext db, Guid[]? ids, CancellationToken cancellationToken)
+    // includeProfileFields adds publisher and table_of_contents. The embedding path passes false, so its SQL never reads them,
+    // because the backfill scans every Book each round. Those two fields are null in the rows when it is false.
+    public static async Task<IReadOnlyList<BookMetadataRow>> LoadAsync(
+        AppDbContext db,
+        Guid[]? ids,
+        bool includeProfileFields,
+        CancellationToken cancellationToken)
     {
         var books = db.Books.AsNoTracking();
         var contributors = db.BookContributors.AsNoTracking();
@@ -20,9 +26,16 @@ internal static class BookMetadata
             subjects = subjects.Where(subject => ids.Contains(subject.BookId));
         }
 
-        var bookRows = await books
-            .Select(book => new { book.Id, book.Title, book.Subtitle, book.Publisher, book.Description, book.TableOfContents, book.CreatedAt })
-            .ToListAsync(cancellationToken);
+        // Two projections, not one with a conditional: a conditional on a captured bool would still select the columns in SQL.
+        IEnumerable<BookRow> bookRows = includeProfileFields
+            ? (await books
+                .Select(book => new { book.Id, book.Title, book.Subtitle, book.Publisher, book.Description, book.TableOfContents, book.CreatedAt })
+                .ToListAsync(cancellationToken))
+                .Select(book => new BookRow(book.Id, book.CreatedAt, book.Title, book.Subtitle, book.Publisher, book.Description, book.TableOfContents))
+            : (await books
+                .Select(book => new { book.Id, book.Title, book.Subtitle, book.Description, book.CreatedAt })
+                .ToListAsync(cancellationToken))
+                .Select(book => new BookRow(book.Id, book.CreatedAt, book.Title, book.Subtitle, null, book.Description, null));
 
         var contributorRows = await contributors
             .Select(contributor => new { contributor.BookId, contributor.ContributorOrder, contributor.Name })
@@ -53,6 +66,15 @@ internal static class BookMetadata
             contributorNamesByBook.GetValueOrDefault(book.Id) ?? [],
             subjectsByBook.GetValueOrDefault(book.Id) ?? [])).ToList();
     }
+
+    private sealed record BookRow(
+        Guid Id,
+        DateTime CreatedAt,
+        string Title,
+        string? Subtitle,
+        string? Publisher,
+        string? Description,
+        string? TableOfContents);
 }
 
 internal sealed record BookMetadataRow(

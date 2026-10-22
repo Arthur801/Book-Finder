@@ -11,7 +11,7 @@ internal sealed class EfEmbeddingStore(AppDbContext db, TimeProvider time) : IEm
 {
     public async Task<IReadOnlyList<PendingEmbedding>> FindPendingAsync(int limit, CancellationToken cancellationToken)
     {
-        var books = await BookMetadata.LoadAsync(db, null, cancellationToken);
+        var books = await BookMetadata.LoadAsync(db, null, includeProfileFields: false, cancellationToken);
 
         var storedHashes = await db.BookEmbeddings.AsNoTracking()
             .Select(embedding => new { embedding.BookId, embedding.SourceContentHash })

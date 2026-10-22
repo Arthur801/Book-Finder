@@ -94,7 +94,7 @@ internal sealed class EfBookProfileStore(AppDbContext db, TimeProvider time) : I
     // The profile source of each given Book that exists. Only the given ids are read.
     private async Task<Dictionary<Guid, BookProfileSource>> LoadSourcesAsync(Guid[] ids, CancellationToken cancellationToken)
     {
-        var books = await BookMetadata.LoadAsync(db, ids, cancellationToken);
+        var books = await BookMetadata.LoadAsync(db, ids, includeProfileFields: true, cancellationToken);
 
         return books.ToDictionary(
             book => book.Id,
