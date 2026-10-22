@@ -47,7 +47,7 @@ public sealed record AiHistoryListViewModel(
     public static string UrlFor(int page) => page == 1 ? "/ai" : $"/ai?page={page}";
 
     // The stored time is UTC; the list shows it in Taipei time, to the minute.
-    private static string FormatCreatedAt(DateTime createdAtUtc) =>
+    internal static string FormatCreatedAt(DateTime createdAtUtc) =>
         TaipeiTimeZone.FromUtc(createdAtUtc).ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
 }
 

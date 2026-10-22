@@ -1,0 +1,45 @@
+@model Book_Finder.Models.AiHistoryDetailViewModel
+@{
+    ViewData["Title"] = "AI 搜尋紀錄";
+}
+
+<section class="mb-4">
+    <p class="mb-2"><a href="/ai">← 回到 AI 推薦</a></p>
+    <h1 class="h3 mb-3">AI 搜尋紀錄</h1>
+
+    <p class="ai-history-detail-requirement mb-1">@Model.RequirementText</p>
+    <p class="ai-history-detail-time text-muted small mb-3">@Model.CreatedAtText</p>
+
+    @if (Model.HasItems)
+    {
+        <ol class="list-unstyled mb-0">
+            @foreach (var item in Model.Items)
+            {
+                <li class="d-flex align-items-start gap-3 py-3 border-bottom ai-history-detail-item">
+                    <span class="fw-bold text-end ai-history-rank" style="min-width: 2.5rem;">@item.Rank</span>
+                    @if (item.CoverUrl is not null)
+                    {
+                        <img class="cover" src="@item.CoverUrl" alt="" width="48" height="68" loading="lazy" style="object-fit: cover;" />
+                    }
+                    else
+                    {
+                        <span class="cover cover-placeholder text-muted small" style="width: 48px;">無封面</span>
+                    }
+                    <div class="flex-grow-1">
+                        <a class="book-title" href="/books/@item.BookId">@item.Title</a>
+                        @if (item.AuthorsText is not null)
+                        {
+                            <div class="authors text-muted small">@item.AuthorsText</div>
+                        }
+                        <p class="reason mb-1">@item.Reason</p>
+                        <div class="ai-history-meta text-muted small">@(item.RelevanceText is null ? "" : item.RelevanceText + "　")難度 @item.Difficulty</div>
+                    </div>
+                </li>
+            }
+        </ol>
+    }
+    else
+    {
+        <p class="text-muted">這次沒有找到符合的書</p>
+    }
+</section>
