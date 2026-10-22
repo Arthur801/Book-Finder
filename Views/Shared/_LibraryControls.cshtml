@@ -10,7 +10,7 @@
         <label class="small text-muted d-flex align-items-center gap-2 mb-0">
             閱讀狀態
             <select class="form-select form-select-sm w-auto" data-library-status>
-                @foreach (var status in LibraryControlsViewModel.StatusChoices)
+                @foreach (var status in ReadingStatusCode.All)
                 {
                     <option value="@ReadingStatusCode.ToCode(status)" selected="@(status == Model.Status)">@ReadingStatusCode.Label(status)</option>
                 }

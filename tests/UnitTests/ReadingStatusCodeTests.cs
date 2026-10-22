@@ -45,6 +45,12 @@ public sealed class ReadingStatusCodeTests
         Assert.False(parsed);
     }
 
+    [Fact]
+    public void All_lists_every_status_in_the_order_the_ui_shows_them()
+    {
+        Assert.Equal([ReadingStatus.WantToRead, ReadingStatus.Reading, ReadingStatus.Finished], ReadingStatusCode.All);
+    }
+
     [Theory]
     [InlineData(ReadingStatus.WantToRead, "想讀")]
     [InlineData(ReadingStatus.Reading, "閱讀中")]

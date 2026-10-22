@@ -6,6 +6,10 @@ namespace Book_Finder.Application.Library;
 // contract, so they are spelled out here instead of derived from the enum or from Infrastructure's storage mapping.
 public static class ReadingStatusCode
 {
+    // Every status, in the order the UI lists them (the status select and the filter tabs).
+    public static readonly IReadOnlyList<ReadingStatus> All =
+        [ReadingStatus.WantToRead, ReadingStatus.Reading, ReadingStatus.Finished];
+
     public static string ToCode(ReadingStatus status) => status switch
     {
         ReadingStatus.WantToRead => "WANT_TO_READ",
