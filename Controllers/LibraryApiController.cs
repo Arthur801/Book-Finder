@@ -36,16 +36,18 @@ public class LibraryApiController(LibraryService library, ProblemDetailsFactory 
         }
     }
 
-    // The body is read here instead of by model binding: binding cannot tell an omitted rating from a null one.
-    // A missing, malformed or non-object body reaches the parser as null and comes back as the whole-body error.
+    // The body is read here instead of by model binding: binding cannot tell an omitted rating from a null one, and it
+    // refuses a body without a JSON Content-Type (415). The body is parsed as JSON whatever its Content-Type. A missing,
+    // malformed or non-object body reaches the parser as null and comes back as the whole-body error.
     [Authorize]
     [HttpPatch("/api/library/{bookId}")]
-    public async Task<IActionResult> Update(string bookId, [FromBody] JsonElement? body)
+    public async Task<IActionResult> Update(string bookId)
     {
         if (!Guid.TryParse(bookId, out var parsedBookId))
             return NotFoundProblem();
 
-        switch (LibraryPatchParser.Parse(body))
+        using var document = await ReadJsonBodyAsync();
+        switch (LibraryPatchParser.Parse(document?.RootElement))
         {
             case LibraryPatchParseResult.Invalid invalid:
                 return ApiProblemResults.Validation(problemDetails, HttpContext, invalid.Errors);
@@ -72,6 +74,19 @@ public class LibraryApiController(LibraryService library, ProblemDetailsFactory 
 
         await library.RemoveAsync(User.CurrentUserId(), parsedBookId, HttpContext.RequestAborted);
         return NoContent();
+    }
+
+    // An empty or malformed body is not an error here: it reads as null, which the parser reports as the whole-body error.
+    private async Task<JsonDocument?> ReadJsonBodyAsync()
+    {
+        try
+        {
+            return await JsonDocument.ParseAsync(Request.Body, cancellationToken: HttpContext.RequestAborted);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 
     private IActionResult NotFoundProblem() => ApiProblemResults.NotFound(problemDetails, HttpContext);

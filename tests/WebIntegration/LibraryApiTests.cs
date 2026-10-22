@@ -312,7 +312,7 @@ public sealed class LibraryApiTests(WebFixture fixture)
     }
 
     [Fact]
-    public async Task Request_without_content_type_is_refused_by_the_framework_and_changes_nothing()
+    public async Task Json_body_without_content_type_is_still_parsed_and_applied()
     {
         await fixture.ResetDatabaseAsync();
         await using var app = fixture.CreateFactory();
@@ -325,8 +325,31 @@ public sealed class LibraryApiTests(WebFixture fixture)
 
         var response = await client.SendAsync(request);
 
-        Assert.Equal(HttpStatusCode.UnsupportedMediaType, response.StatusCode);
-        Assert.Null((await LoadEntryAsync("lib-notype@x.com", book.BookId)).Rating);
+        var entry = await ReadEntryJsonAsync(response);
+        Assert.Equal(3, entry.GetProperty("rating").GetInt16());
+        Assert.Equal((short?)3, (await LoadEntryAsync("lib-notype@x.com", book.BookId)).Rating);
+    }
+
+    [Fact]
+    public async Task Not_json_body_without_content_type_returns_400_for_the_whole_body_and_changes_nothing()
+    {
+        await fixture.ResetDatabaseAsync();
+        await using var app = fixture.CreateFactory();
+        var book = (await CatalogSeed.AddBooksAsync(fixture, [new BookSeed("甲書")])).Single();
+        var client = await SignInAsync(app, "lib-notype-bad@x.com");
+        await PutLibraryAsync(client, await TokenAsync(client), book.BookId);
+        var before = await LoadEntryAsync("lib-notype-bad@x.com", book.BookId);
+        var request = EditRequest(HttpMethod.Patch, book.BookId.ToString(), await TokenAsync(client));
+        request.Content = new StringContent("not json");
+        request.Content.Headers.ContentType = null;
+
+        var response = await client.SendAsync(request);
+
+        var problem = await AssertProblemAsync(response, HttpStatusCode.BadRequest, "/errors/validation");
+        Assert.Equal([""], problem.GetProperty("errors").EnumerateObject().Select(property => property.Name));
+        var after = await LoadEntryAsync("lib-notype-bad@x.com", book.BookId);
+        Assert.Equal(before.Rating, after.Rating);
+        Assert.Equal(before.UpdatedAt, after.UpdatedAt);
     }
 
     [Fact]
