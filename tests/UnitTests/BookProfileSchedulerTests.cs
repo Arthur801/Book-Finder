@@ -1,5 +1,6 @@
 using Book_Finder.Application.Recommendation;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using TestDoubles;
 
 namespace UnitTests;
@@ -14,7 +15,7 @@ public sealed class BookProfileSchedulerTests
     {
         var store = new FakeScheduleStore { Stale = [Second] };
         var queue = new FakeScheduleQueue();
-        var scheduler = new BookProfileScheduler(store, queue, new RecordingLogger<BookProfileScheduler>());
+        var scheduler = new BookProfileScheduler(store, queue, new RecordingLogger<BookProfileScheduler>(), Options.Create(new AiProfileOptions()));
 
         await scheduler.ScheduleAsync([First, Second], CancellationToken.None);
 
@@ -23,12 +24,26 @@ public sealed class BookProfileSchedulerTests
     }
 
     [Fact]
+    public async Task Nothing_is_read_or_queued_when_the_profile_generation_is_disabled()
+    {
+        var store = new FakeScheduleStore { Stale = [First, Second] };
+        var queue = new FakeScheduleQueue();
+        var scheduler = new BookProfileScheduler(store, queue, new RecordingLogger<BookProfileScheduler>(), Options.Create(new AiProfileOptions { Enabled = false }));
+
+        await scheduler.ScheduleAsync([First, Second], CancellationToken.None);
+
+        // The worker exits when generation is disabled, so anything queued here would stay in the queue and fill it.
+        Assert.Empty(store.Checked);
+        Assert.Empty(queue.Enqueued);
+    }
+
+    [Fact]
     public async Task A_failing_store_is_logged_as_a_warning_and_never_fails_the_caller()
     {
         var error = new InvalidOperationException("database down");
         var store = new FakeScheduleStore { Error = error };
         var logger = new RecordingLogger<BookProfileScheduler>();
-        var scheduler = new BookProfileScheduler(store, new FakeScheduleQueue(), logger);
+        var scheduler = new BookProfileScheduler(store, new FakeScheduleQueue(), logger, Options.Create(new AiProfileOptions()));
 
         await scheduler.ScheduleAsync([First], CancellationToken.None);
 
@@ -41,7 +56,7 @@ public sealed class BookProfileSchedulerTests
     {
         var store = new FakeScheduleStore();
         var logger = new RecordingLogger<BookProfileScheduler>();
-        var scheduler = new BookProfileScheduler(store, new FakeScheduleQueue(), logger);
+        var scheduler = new BookProfileScheduler(store, new FakeScheduleQueue(), logger, Options.Create(new AiProfileOptions()));
         using var cts = new CancellationTokenSource();
         await cts.CancelAsync();
 

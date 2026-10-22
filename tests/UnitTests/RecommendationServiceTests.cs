@@ -683,7 +683,7 @@ public sealed class RecommendationServiceTests
         var profiles = new FakeProfileStore(events, ranker);
         var queue = new FakeProfileQueue(events);
         var schedulerLogger = new RecordingLogger<BookProfileScheduler>();
-        var scheduler = new BookProfileScheduler(profiles, queue, schedulerLogger);
+        var scheduler = new BookProfileScheduler(profiles, queue, schedulerLogger, Options.Create(new AiProfileOptions()));
         var logger = new RecordingLogger<RecommendationService>();
         var usage = new FakeRecommendationUsage(parser);
         var time = new FakeTimeProvider(new DateTimeOffset(SavedAt));
