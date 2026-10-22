@@ -36,6 +36,36 @@ internal sealed class EfLibraryStore(AppDbContext db) : ILibraryStore
             .AsNoTracking()
             .FirstOrDefaultAsync(entry => entry.UserId == userId && entry.BookId == bookId, ct);
 
+    // Loads the row tracked so the change is saved as an UPDATE of this one entry. A row of another user never matches the key.
+    public async Task<LibraryEntry?> UpdateAsync(Guid userId, Guid bookId, LibraryChange change, DateTime now, CancellationToken ct)
+    {
+        var stored = await db.LibraryEntries.FirstOrDefaultAsync(entry => entry.UserId == userId && entry.BookId == bookId, ct);
+        if (stored is null)
+            return null;
+
+        if (change.NewStatus is { } status)
+            stored.ReadingStatus = status;
+
+        // AddedAt is deliberately not touched. Rating values are guaranteed by the parser and the ck_user_books_rating constraint.
+        stored.Rating = change.Rating switch
+        {
+            RatingChange.Clear => null,
+            RatingChange.Set set => set.Value,
+            _ => stored.Rating,
+        };
+        stored.UpdatedAt = now;
+        await db.SaveChangesAsync(ct);
+
+        // Reads back the stored row, the same way AddIfMissingAsync does, so the caller gets an untracked entity.
+        return await FindAsync(userId, bookId, ct);
+    }
+
+    // One DELETE statement filtered by user, so another user's row is never matched.
+    public Task RemoveAsync(Guid userId, Guid bookId, CancellationToken ct) =>
+        db.LibraryEntries
+            .Where(entry => entry.UserId == userId && entry.BookId == bookId)
+            .ExecuteDeleteAsync(ct);
+
     public async Task<IReadOnlyList<LibraryItem>> ListAsync(Guid userId, ReadingStatus? filter, CancellationToken ct)
     {
         var entries = db.LibraryEntries.AsNoTracking().Where(entry => entry.UserId == userId);

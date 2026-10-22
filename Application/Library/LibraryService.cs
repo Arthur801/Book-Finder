@@ -55,6 +55,19 @@ public sealed class LibraryService(ILibraryStore store, TimeProvider time, ILogg
 
     public Task<IReadOnlyList<LibraryItem>> ListAsync(Guid userId, ReadingStatus? filter, CancellationToken ct) =>
         store.ListAsync(userId, filter, ct);
+
+    // An empty change is a no-op: the current entry comes back and updated_at stays as it is (user-library.md §5).
+    // Setting a value equal to the current one is still a change and does move updated_at.
+    public async Task<LibraryEntry?> UpdateAsync(Guid userId, Guid bookId, LibraryChange change, CancellationToken ct)
+    {
+        if (change.IsEmpty)
+            return await store.FindAsync(userId, bookId, ct);
+
+        return await store.UpdateAsync(userId, bookId, change, time.GetUtcNow().UtcDateTime, ct);
+    }
+
+    public Task RemoveAsync(Guid userId, Guid bookId, CancellationToken ct) =>
+        store.RemoveAsync(userId, bookId, ct);
 }
 
 // Each case is a separate type so callers pattern-match on the outcome (same style as RegisterResult).

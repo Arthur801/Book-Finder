@@ -219,6 +219,207 @@ public class EfLibraryStoreTests(PostgresFixture fixture)
         Assert.Null(item.ThumbnailUrl);
     }
 
+    [Fact]
+    public async Task Update_changes_only_the_status_and_keeps_the_rating()
+    {
+        var userId = await SeedUserAsync();
+        var bookId = await SeedBookAsync("Book");
+        await SeedEntryAsync(userId, bookId, ReadingStatus.WantToRead, 4, Now, Now);
+        await using var db = fixture.CreateContext();
+        var store = new EfLibraryStore(db);
+
+        var updated = await store.UpdateAsync(userId, bookId, new LibraryChange(ReadingStatus.Reading, new RatingChange.Unchanged()), Now.AddHours(1), CancellationToken.None);
+
+        Assert.NotNull(updated);
+        Assert.Equal(ReadingStatus.Reading, updated.ReadingStatus);
+        Assert.Equal((short)4, updated.Rating);
+        await using var fresh = fixture.CreateContext();
+        var row = await fresh.LibraryEntries.AsNoTracking().SingleAsync(entry => entry.UserId == userId && entry.BookId == bookId);
+        Assert.Equal(ReadingStatus.Reading, row.ReadingStatus);
+        Assert.Equal((short)4, row.Rating);
+    }
+
+    [Fact]
+    public async Task Rating_can_be_set_while_want_to_read()
+    {
+        var userId = await SeedUserAsync();
+        var bookId = await SeedBookAsync("Book");
+        await SeedEntryAsync(userId, bookId, ReadingStatus.WantToRead, null, Now, Now);
+        await using var db = fixture.CreateContext();
+        var store = new EfLibraryStore(db);
+
+        var updated = await store.UpdateAsync(userId, bookId, new LibraryChange(null, new RatingChange.Set(3)), Now.AddHours(1), CancellationToken.None);
+
+        Assert.NotNull(updated);
+        Assert.Equal(ReadingStatus.WantToRead, updated.ReadingStatus);
+        Assert.Equal((short)3, updated.Rating);
+        await using var fresh = fixture.CreateContext();
+        var row = await fresh.LibraryEntries.AsNoTracking().SingleAsync(entry => entry.UserId == userId && entry.BookId == bookId);
+        Assert.Equal(ReadingStatus.WantToRead, row.ReadingStatus);
+        Assert.Equal((short)3, row.Rating);
+    }
+
+    [Fact]
+    public async Task Rating_clear_sets_the_rating_to_null()
+    {
+        var userId = await SeedUserAsync();
+        var bookId = await SeedBookAsync("Book");
+        await SeedEntryAsync(userId, bookId, ReadingStatus.Finished, 5, Now, Now);
+        await using var db = fixture.CreateContext();
+        var store = new EfLibraryStore(db);
+
+        var updated = await store.UpdateAsync(userId, bookId, new LibraryChange(null, new RatingChange.Clear()), Now.AddHours(1), CancellationToken.None);
+
+        Assert.NotNull(updated);
+        Assert.Null(updated.Rating);
+        await using var fresh = fixture.CreateContext();
+        var row = await fresh.LibraryEntries.AsNoTracking().SingleAsync(entry => entry.UserId == userId && entry.BookId == bookId);
+        Assert.Null(row.Rating);
+        Assert.Equal(ReadingStatus.Finished, row.ReadingStatus);
+    }
+
+    [Fact]
+    public async Task Rating_unchanged_keeps_the_stored_rating()
+    {
+        var userId = await SeedUserAsync();
+        var bookId = await SeedBookAsync("Book");
+        await SeedEntryAsync(userId, bookId, ReadingStatus.Reading, 4, Now, Now);
+        await using var db = fixture.CreateContext();
+        var store = new EfLibraryStore(db);
+
+        var updated = await store.UpdateAsync(userId, bookId, new LibraryChange(null, new RatingChange.Unchanged()), Now.AddHours(1), CancellationToken.None);
+
+        Assert.NotNull(updated);
+        Assert.Equal((short)4, updated.Rating);
+        await using var fresh = fixture.CreateContext();
+        var row = await fresh.LibraryEntries.AsNoTracking().SingleAsync(entry => entry.UserId == userId && entry.BookId == bookId);
+        Assert.Equal((short)4, row.Rating);
+    }
+
+    [Fact]
+    public async Task Status_and_rating_can_change_together()
+    {
+        var userId = await SeedUserAsync();
+        var bookId = await SeedBookAsync("Book");
+        await SeedEntryAsync(userId, bookId, ReadingStatus.Reading, null, Now, Now);
+        await using var db = fixture.CreateContext();
+        var store = new EfLibraryStore(db);
+
+        await store.UpdateAsync(userId, bookId, new LibraryChange(ReadingStatus.Finished, new RatingChange.Set(5)), Now.AddHours(1), CancellationToken.None);
+
+        await using var fresh = fixture.CreateContext();
+        var row = await fresh.LibraryEntries.AsNoTracking().SingleAsync(entry => entry.UserId == userId && entry.BookId == bookId);
+        Assert.Equal(ReadingStatus.Finished, row.ReadingStatus);
+        Assert.Equal((short)5, row.Rating);
+    }
+
+    [Fact]
+    public async Task Update_sets_updated_at_to_now_and_never_changes_added_at()
+    {
+        var userId = await SeedUserAsync();
+        var bookId = await SeedBookAsync("Book");
+        var addedAt = Now.AddDays(-7);
+        await SeedEntryAsync(userId, bookId, ReadingStatus.WantToRead, null, addedAt, Now.AddDays(-7));
+        await using var db = fixture.CreateContext();
+        var store = new EfLibraryStore(db);
+        var later = Now.AddHours(2);
+
+        var updated = await store.UpdateAsync(userId, bookId, new LibraryChange(ReadingStatus.Reading, new RatingChange.Set(2)), later, CancellationToken.None);
+
+        Assert.NotNull(updated);
+        Assert.Equal(later, updated.UpdatedAt);
+        Assert.Equal(addedAt, updated.AddedAt);
+        await using var fresh = fixture.CreateContext();
+        var row = await fresh.LibraryEntries.AsNoTracking().SingleAsync(entry => entry.UserId == userId && entry.BookId == bookId);
+        Assert.Equal(later, row.UpdatedAt);
+        Assert.Equal(addedAt, row.AddedAt);
+    }
+
+    [Fact]
+    public async Task Update_by_another_user_returns_null_and_leaves_the_owners_row_unchanged()
+    {
+        var userA = await SeedUserAsync();
+        var userB = await SeedUserAsync();
+        var bookId = await SeedBookAsync("Book");
+        await SeedEntryAsync(userA, bookId, ReadingStatus.Reading, 4, Now, Now);
+        await using var db = fixture.CreateContext();
+        var store = new EfLibraryStore(db);
+
+        var result = await store.UpdateAsync(userB, bookId, new LibraryChange(ReadingStatus.Finished, new RatingChange.Clear()), Now.AddHours(1), CancellationToken.None);
+
+        Assert.Null(result);
+        await using var fresh = fixture.CreateContext();
+        var row = await fresh.LibraryEntries.AsNoTracking().SingleAsync(entry => entry.UserId == userA && entry.BookId == bookId);
+        Assert.Equal(ReadingStatus.Reading, row.ReadingStatus);
+        Assert.Equal((short)4, row.Rating);
+        Assert.Equal(Now, row.UpdatedAt);
+        Assert.False(await fresh.LibraryEntries.AsNoTracking().AnyAsync(entry => entry.UserId == userB && entry.BookId == bookId));
+    }
+
+    [Fact]
+    public async Task Update_on_a_missing_entry_returns_null_and_creates_nothing()
+    {
+        var userId = await SeedUserAsync();
+        var bookId = await SeedBookAsync("Book");
+        await using var db = fixture.CreateContext();
+        var store = new EfLibraryStore(db);
+
+        var result = await store.UpdateAsync(userId, bookId, new LibraryChange(ReadingStatus.Reading, new RatingChange.Set(4)), Now, CancellationToken.None);
+
+        Assert.Null(result);
+        await using var fresh = fixture.CreateContext();
+        Assert.False(await fresh.LibraryEntries.AsNoTracking().AnyAsync(entry => entry.UserId == userId));
+    }
+
+    [Fact]
+    public async Task Remove_deletes_the_row_and_its_rating()
+    {
+        var userId = await SeedUserAsync();
+        var bookId = await SeedBookAsync("Book");
+        await SeedEntryAsync(userId, bookId, ReadingStatus.Finished, 5, Now, Now);
+        await using var db = fixture.CreateContext();
+        var store = new EfLibraryStore(db);
+
+        await store.RemoveAsync(userId, bookId, CancellationToken.None);
+
+        await using var fresh = fixture.CreateContext();
+        Assert.False(await fresh.LibraryEntries.AsNoTracking().AnyAsync(entry => entry.UserId == userId && entry.BookId == bookId));
+        Assert.Null(await store.FindAsync(userId, bookId, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Remove_twice_is_not_an_error()
+    {
+        var userId = await SeedUserAsync();
+        var bookId = await SeedBookAsync("Book");
+        await SeedEntryAsync(userId, bookId, ReadingStatus.Reading, null, Now, Now);
+        await using var db = fixture.CreateContext();
+        var store = new EfLibraryStore(db);
+
+        await store.RemoveAsync(userId, bookId, CancellationToken.None);
+        await store.RemoveAsync(userId, bookId, CancellationToken.None);
+
+        await using var fresh = fixture.CreateContext();
+        Assert.False(await fresh.LibraryEntries.AsNoTracking().AnyAsync(entry => entry.UserId == userId && entry.BookId == bookId));
+    }
+
+    [Fact]
+    public async Task Remove_by_another_user_keeps_the_owners_row()
+    {
+        var userA = await SeedUserAsync();
+        var userB = await SeedUserAsync();
+        var bookId = await SeedBookAsync("Book");
+        await SeedEntryAsync(userA, bookId, ReadingStatus.Reading, 3, Now, Now);
+        await using var db = fixture.CreateContext();
+        var store = new EfLibraryStore(db);
+
+        await store.RemoveAsync(userB, bookId, CancellationToken.None);
+
+        await using var fresh = fixture.CreateContext();
+        var row = await fresh.LibraryEntries.AsNoTracking().SingleAsync(entry => entry.UserId == userA && entry.BookId == bookId);
+        Assert.Equal((short)3, row.Rating);
+    }
+
     private static LibraryEntry Entry(Guid userId, Guid bookId, ReadingStatus status, short? rating, DateTime at) => new()
     {
         UserId = userId,

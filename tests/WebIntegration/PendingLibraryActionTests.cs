@@ -242,5 +242,11 @@ public sealed class PendingLibraryActionTests(WebFixture fixture)
 
         public Task<IReadOnlyList<LibraryItem>> ListAsync(Guid userId, ReadingStatus? filter, CancellationToken ct) =>
             Task.FromResult<IReadOnlyList<LibraryItem>>([]);
+
+        public Task<LibraryEntry?> UpdateAsync(Guid userId, Guid bookId, LibraryChange change, DateTime now, CancellationToken ct) =>
+            Task.FromResult<LibraryEntry?>(null);
+
+        public Task RemoveAsync(Guid userId, Guid bookId, CancellationToken ct) =>
+            Task.CompletedTask;
     }
 }
