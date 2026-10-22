@@ -6,7 +6,7 @@ namespace Book_Finder.Application.Library;
 // Carries no JSON types: the Web layer turns the PATCH body into this (Models/LibraryPatchParser.cs).
 public sealed record LibraryChange(ReadingStatus? NewStatus, RatingChange Rating)
 {
-    // Nothing to change. The service returns the Entry as is and does not touch updated_at (user-library.md §5).
+    // Nothing to change. The service returns the Entry as is and does not touch updated_at (user-library.md §3).
     public bool IsEmpty => NewStatus is null && Rating is RatingChange.Unchanged;
 }
 

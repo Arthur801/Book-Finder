@@ -89,6 +89,7 @@
     }
 
     // The first message the server gave, in the order the controls are laid out. Null when the problem has none.
+    // The field order mirrors the error keys of Models/LibraryPatchParser.cs; keep the two in step.
     function firstValidationMessage(problem) {
         var errors = problem && problem.errors ? problem.errors : {};
         var fields = ['readingStatus', 'rating', ''];

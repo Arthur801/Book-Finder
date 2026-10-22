@@ -17,7 +17,7 @@ public sealed record LibraryControlsViewModel(
     public static readonly IReadOnlyList<ReadingStatus> StatusChoices =
         [ReadingStatus.WantToRead, ReadingStatus.Reading, ReadingStatus.Finished];
 
-    // An edit that comes back 401 returns to the page the visitor was on, so no pendingAction is needed (identity-auth.md §6).
+    // An edit that comes back 401 returns to the page the visitor was on, so no pendingAction is needed (ui-flow.md §3.5).
     public static string EditLoginUrlFor(HttpRequest request) =>
         $"/account/login?returnUrl={Uri.EscapeDataString(request.Path.Value + request.QueryString.Value)}";
 }

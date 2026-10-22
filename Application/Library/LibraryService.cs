@@ -56,7 +56,7 @@ public sealed class LibraryService(ILibraryStore store, TimeProvider time, ILogg
     public Task<IReadOnlyList<LibraryItem>> ListAsync(Guid userId, ReadingStatus? filter, CancellationToken ct) =>
         store.ListAsync(userId, filter, ct);
 
-    // An empty change is a no-op: the current entry comes back and updated_at stays as it is (user-library.md §5).
+    // An empty change is a no-op: the current entry comes back and updated_at stays as it is (user-library.md §3).
     // Setting a value equal to the current one is still a change and does move updated_at.
     public async Task<LibraryEntry?> UpdateAsync(Guid userId, Guid bookId, LibraryChange change, CancellationToken ct)
     {
