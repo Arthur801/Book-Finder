@@ -124,11 +124,17 @@ Request（欄位皆可省略；省略表示不變）：
 
 `rating` 欄位「省略」與「明確為 `null`」意義不同：前者不變，後者清除。
 
-Response `200`：同加入的 Entry 格式。錯誤：400、401、404（Entry 不存在）。
+- `readingStatus: null`、不是三個代碼之一（大小寫須相符）、或不是字串 → 400，`errors.readingStatus`。
+- `rating` 為 0、6、小數（含 `3.0`）、字串或其他型別 → 400，`errors.rating`。
+- body 不是 JSON 物件（空 body、格式錯誤、陣列、字串等）→ 400，錯誤放在 `errors[""]`（整個 body）。不論 `Content-Type`，body 一律以 JSON 解析。
+- 未知欄位忽略。`{}` → 200，原樣回傳，不更新 `updatedAt`。
+- `{bookId}` 不是 GUID → 404。
+
+Response `200`：同加入的 Entry 格式。錯誤：400、401、404（Entry 不存在或不屬於目前使用者）。
 
 ### `DELETE /api/library/{bookId}` — 移除
 
-Idempotent。Response `204`。錯誤：401。
+Idempotent。Entry 不存在、不屬於目前使用者，或 `{bookId}` 不是 GUID 時也回 `204`（不影響任何資料）。Response `204`。錯誤：401。
 
 ## 5. 變更規則
 
