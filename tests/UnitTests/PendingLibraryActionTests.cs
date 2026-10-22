@@ -26,6 +26,32 @@ public sealed class PendingLibraryActionTests
         Assert.Null(PendingLibraryAction.TryGetBookToAdd(pendingAction, "/books/" + BookId));
     }
 
+    [Fact]
+    public void Canonical_hyphenated_book_id_in_upper_case_is_accepted()
+    {
+        var bookId = PendingLibraryAction.TryGetBookToAdd(AddToLibrary, "/books/" + BookId.ToUpperInvariant());
+
+        Assert.Equal(Guid.Parse(BookId), bookId);
+    }
+
+    [Theory]
+    [InlineData("N")]
+    [InlineData("B")]
+    [InlineData("P")]
+    public void Book_id_in_another_guid_format_returns_null(string format)
+    {
+        var segment = Guid.Parse(BookId).ToString(format);
+
+        Assert.Null(PendingLibraryAction.TryGetBookToAdd(AddToLibrary, "/books/" + segment));
+    }
+
+    [Fact]
+    public void Book_id_with_surrounding_whitespace_returns_null()
+    {
+        Assert.Null(PendingLibraryAction.TryGetBookToAdd(AddToLibrary, "/books/ " + BookId));
+        Assert.Null(PendingLibraryAction.TryGetBookToAdd(AddToLibrary, "/books/" + BookId + " "));
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("/books/not-a-guid")]
