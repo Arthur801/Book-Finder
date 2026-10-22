@@ -13,7 +13,7 @@ public sealed class RecommendationService(
     IRecommendationRanker ranker,
     IRecommendationStore store,
     IRecommendationUsage usage,
-    IBookProfileStore profiles,
+    BookDifficultyReader difficultyReader,
     BookProfileScheduler scheduler,
     IOptions<RecommendationOptions> options,
     TimeProvider time,
@@ -124,7 +124,7 @@ public sealed class RecommendationService(
             IReadOnlyDictionary<Guid, short> difficulties = new Dictionary<Guid, short>();
             if (resultBookIds.Count > 0)
             {
-                difficulties = await ReadDifficultiesAsync(resultBookIds, cancellationToken);
+                difficulties = await difficultyReader.ReadAsync(resultBookIds, cancellationToken);
                 await scheduler.ScheduleAsync(resultBookIds, cancellationToken);
             }
 
@@ -141,20 +141,6 @@ public sealed class RecommendationService(
         {
             logger.LogError(ex, "AI recommendation failed after {ElapsedMs} ms during the {Step} step", ElapsedMs(startedAt), step);
             throw;
-        }
-    }
-
-    // The difficulty snapshot of this response. A failure leaves the response without difficulties, because the search is already saved.
-    private async Task<IReadOnlyDictionary<Guid, short>> ReadDifficultiesAsync(IReadOnlyCollection<Guid> bookIds, CancellationToken cancellationToken)
-    {
-        try
-        {
-            return await profiles.ReadDifficultiesAsync(bookIds, cancellationToken);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
-        {
-            logger.LogWarning(ex, "Could not read the AI profile difficulties of {BookCount} Books; the response shows none", bookIds.Count);
-            return new Dictionary<Guid, short>();
         }
     }
 

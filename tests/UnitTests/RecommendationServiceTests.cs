@@ -579,7 +579,7 @@ public sealed class RecommendationServiceTests
     }
 
     [Fact]
-    public async Task A_failed_difficulty_read_still_succeeds_with_an_empty_snapshot_and_logs_a_warning()
+    public async Task A_failed_difficulty_read_still_succeeds_with_an_empty_snapshot()
     {
         var h = Build();
         h.Candidates.Result = [Book("A")];
@@ -591,9 +591,6 @@ public sealed class RecommendationServiceTests
         Assert.Empty(outcome.Difficulties);
         Assert.Single(h.Store.Calls);
         Assert.Contains("find", h.Events);
-        var warning = Assert.Single(h.Logger.Entries, e => e.Level == LogLevel.Warning);
-        Assert.Same(error, warning.Exception);
-        Assert.DoesNotContain(Requirement, warning.Message);
     }
 
     [Fact]
@@ -697,7 +694,7 @@ public sealed class RecommendationServiceTests
             ranker,
             store,
             usage,
-            profiles,
+            new BookDifficultyReader(profiles, new RecordingLogger<BookDifficultyReader>()),
             scheduler,
             Options.Create(options ?? new RecommendationOptions()),
             time,
