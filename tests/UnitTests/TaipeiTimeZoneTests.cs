@@ -1,3 +1,4 @@
+using Book_Finder.Application.Common;
 using Book_Finder.Models;
 
 namespace UnitTests;

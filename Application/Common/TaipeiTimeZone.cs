@@ -1,4 +1,4 @@
-namespace Book_Finder.Models;
+namespace Book_Finder.Application.Common;
 
 // Asia/Taipei for showing captured_at. The host may lack tzdata or ICU, so resolution falls back to a fixed
 // UTC+08:00 zone (Taiwan observes no DST, so the displayed time is identical). The result is computed once at
