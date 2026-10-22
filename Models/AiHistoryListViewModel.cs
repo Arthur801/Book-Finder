@@ -8,11 +8,7 @@ namespace Book_Finder.Models;
 public sealed record AiHistoryListViewModel(
     IReadOnlyList<AiHistoryItemViewModel> Items,
     int TotalCount,
-    int CurrentPage,
-    int TotalPages,
-    IReadOnlyList<PageLinkViewModel> PageLinks,
-    string? PreviousUrl,
-    string? NextUrl)
+    PagerViewModel Pager)
 {
     public const int PageSize = 20;
 
@@ -21,26 +17,18 @@ public sealed record AiHistoryListViewModel(
     // The number of pages for a total. Zero searches means zero pages, so the pager is not shown.
     public static int TotalPagesOf(int totalCount) => (int)((totalCount + (long)PageSize - 1) / PageSize);
 
-    // Precondition: CurrentPage is within 1..TotalPages whenever there are searches (the controller loads the last page for a page past the end).
+    // Precondition: the page is within 1..TotalPages whenever there are searches (the controller loads the last page for a page past the end).
     public static AiHistoryListViewModel From(RecommendationSearchPage page, int currentPage)
     {
-        var totalPages = TotalPagesOf(page.TotalCount);
-
         var items = page.Items.Select(item => new AiHistoryItemViewModel(
             item.SearchId,
             item.RequirementText,
             FormatCreatedAt(item.CreatedAt),
             item.ResultCount)).ToList();
 
-        var pageLinks = PageWindow.For(currentPage, totalPages).Select(number => new PageLinkViewModel(
-            number,
-            number is { } target && target != currentPage ? UrlFor(target) : null,
-            number == currentPage)).ToList();
+        var pager = PagerViewModel.For(currentPage, TotalPagesOf(page.TotalCount), UrlFor);
 
-        var previousUrl = currentPage > 1 && totalPages > 0 ? UrlFor(Math.Min(currentPage - 1, totalPages)) : null;
-        var nextUrl = currentPage < totalPages ? UrlFor(currentPage + 1) : null;
-
-        return new AiHistoryListViewModel(items, page.TotalCount, currentPage, totalPages, pageLinks, previousUrl, nextUrl);
+        return new AiHistoryListViewModel(items, page.TotalCount, pager);
     }
 
     // The link to one page of the /ai page. Page 1 is plain /ai, as the first page is the default.

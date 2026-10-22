@@ -7,18 +7,14 @@ public sealed record SearchResultsViewModel(
     string Query,
     IReadOnlyList<SearchResultItemViewModel> Items,
     int TotalCount,
-    int CurrentPage,
-    int TotalPages,
-    IReadOnlyList<PageLinkViewModel> PageLinks,
-    string? PreviousUrl,
-    string? NextUrl)
+    PagerViewModel Pager)
 {
     public bool HasItems => Items.Count > 0;
 
     // Null when nothing matched, because there is no page to count.
-    public string? SummaryText => TotalCount == 0 ? null : $"共 {TotalCount} 筆，第 {CurrentPage}／{TotalPages} 頁";
+    public string? SummaryText => TotalCount == 0 ? null : $"共 {TotalCount} 筆，第 {Pager.CurrentPage}／{Pager.TotalPages} 頁";
 
-    // Precondition: whenever there are results, CurrentPage is within 1..TotalPages (the controller redirects a page past the end).
+    // Precondition: whenever there are results, the page is within 1..TotalPages (the controller redirects a page past the end).
     public static SearchResultsViewModel From(string? query, BookSearchPage page)
     {
         var queryText = NormalizeQuery(query);
@@ -31,18 +27,9 @@ public sealed record SearchResultsViewModel(
             PublishedDateText.Format(hit.PublishedDate, hit.PublishedDatePrecision),
             NullIfBlank(hit.ThumbnailUrl))).ToList();
 
-        var pageLinks = PageWindow.For(page.Page, page.TotalPages).Select(number => new PageLinkViewModel(
-            number,
-            number is { } target && target != page.Page ? UrlFor(queryText, target) : null,
-            number == page.Page)).ToList();
+        var pager = PagerViewModel.For(page.Page, page.TotalPages, target => UrlFor(queryText, target));
 
-        // Links never go past the last page, even if a caller passes a page beyond it.
-        var previousUrl = page.Page > 1 && page.TotalPages > 0
-            ? UrlFor(queryText, Math.Min(page.Page - 1, page.TotalPages))
-            : null;
-        var nextUrl = page.Page < page.TotalPages ? UrlFor(queryText, page.Page + 1) : null;
-
-        return new SearchResultsViewModel(queryText, items, page.TotalCount, page.Page, page.TotalPages, pageLinks, previousUrl, nextUrl);
+        return new SearchResultsViewModel(queryText, items, page.TotalCount, pager);
     }
 
     // The link to one page of a search. The query is trimmed, as the search itself trims it, and percent-encoded.
@@ -62,6 +49,3 @@ public sealed record SearchResultItemViewModel(
     string? Publisher,
     string? PublishedDate,
     string? ThumbnailUrl);
-
-// A pager entry: Page null is an ellipsis; the current page is shown but not linked.
-public sealed record PageLinkViewModel(int? Page, string? Url, bool IsCurrent);

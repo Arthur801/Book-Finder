@@ -19,8 +19,8 @@ public class AiController(IRecommendationHistory history) : Controller
 
         // Same rule as /search (book-catalog.md §3.3): a page past the last one moves to the last page.
         // With no searches there is no last page, so the empty state is shown.
-        if (list.TotalCount > 0 && requestedPage > list.TotalPages)
-            return Redirect(AiHistoryListViewModel.UrlFor(list.TotalPages));
+        if (list.TotalCount > 0 && requestedPage > list.Pager.TotalPages)
+            return Redirect(AiHistoryListViewModel.UrlFor(list.Pager.TotalPages));
 
         return View(list);
     }

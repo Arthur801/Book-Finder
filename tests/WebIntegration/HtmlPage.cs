@@ -130,7 +130,7 @@ internal static partial class HtmlPage
     // The entries of the search pager in order (links, the current page, disabled Previous and Next, and ellipses).
     public static IReadOnlyList<PagerEntry> PagerEntries(string html)
     {
-        var pager = SearchPager().Match(html);
+        var pager = PagerNav().Match(html);
         if (!pager.Success)
             return [];
 
@@ -254,8 +254,8 @@ internal static partial class HtmlPage
     [GeneratedRegex("<input\\b[^>]*\\bname=\"q\"([^>]*)>")]
     private static partial Regex SearchInput();
 
-    [GeneratedRegex("<nav\\b[^>]*\\bsearch-pager\\b[^>]*>(.*?)</nav>", RegexOptions.Singleline)]
-    private static partial Regex SearchPager();
+    [GeneratedRegex("<nav\\b[^>]*\\bclass=\"pager\\b[^>]*>(.*?)</nav>", RegexOptions.Singleline)]
+    private static partial Regex PagerNav();
 
     [GeneratedRegex("<(a|span)\\b([^>]*)>([^<]*)</\\1>")]
     private static partial Regex PagerElement();
