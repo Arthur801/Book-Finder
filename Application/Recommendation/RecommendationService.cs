@@ -117,7 +117,7 @@ public sealed class RecommendationService(
                 rankingMs,
                 saveMs);
 
-            // The Book AI profile steps run after the save, in this order (recommendation.md §9, invariant 10). They use the caller's token,
+            // The Book AI profile steps run after the save, in this order (recommendation.md §2(10), §9.1). They use the caller's token,
             // not the timeout's, so a timer that fires now cannot turn a saved search into a timeout. The difficulty snapshot is read
             // before the Books are queued, so a worker that finishes early cannot change this response.
             var resultBookIds = results.Select(result => result.Book.BookId).ToList();

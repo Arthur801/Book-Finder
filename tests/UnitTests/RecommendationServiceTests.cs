@@ -526,7 +526,7 @@ public sealed class RecommendationServiceTests
         Assert.Single(h.Logger.Entries);
     }
 
-    // ----- Book AI profile after the save (#18, recommendation.md §9, invariant 10) -----
+    // ----- Book AI profile after the save (#18, recommendation.md §2(10), §9.1) -----
 
     [Fact]
     public async Task Difficulties_are_read_after_the_save_and_before_the_books_are_queued()

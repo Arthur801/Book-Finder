@@ -12,7 +12,7 @@ public static class BookProfileRules
     {
         var dropped = new List<string>();
 
-        // Out of range is stored as null rather than clamped, so no difficulty is invented (plan §6 decision 3).
+        // Out of range is stored as null rather than clamped, so no difficulty is invented (recommendation.md §9.3).
         var difficulty = raw.Difficulty;
         if (difficulty is not null && (difficulty < MinDifficulty || difficulty > MaxDifficulty))
         {

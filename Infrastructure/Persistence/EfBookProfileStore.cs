@@ -108,7 +108,8 @@ internal sealed class EfBookProfileStore(AppDbContext db, TimeProvider time) : I
                 book.TableOfContents));
     }
 
-    // The Q5 shape (issue #18): snake_case names are fixed by the stored format, not by the C# property names.
+    // The framework document shape (recommendation.md §9.3, data-model.md §5.6): snake_case names are fixed by the stored format,
+    // not by the C# property names.
     private static JsonDocument? ToFrameworkDocument(BookProfileFramework? framework)
     {
         if (framework is null)
