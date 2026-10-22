@@ -75,6 +75,8 @@ public sealed class BookFinderFactory(string connectionString) : WebApplicationF
 
     public FakeRecommendationRanker Ranker { get; } = new();
 
+    public FakeBookProfileGenerator BookProfileGenerator { get; } = new();
+
     // Null keeps the EF Library store. A test that needs the Library add to fail sets a fake here before the first request.
     public ILibraryStore? LibraryStore { get; set; }
 
@@ -94,6 +96,7 @@ public sealed class BookFinderFactory(string connectionString) : WebApplicationF
             services.AddSingleton<IEmbeddingGenerator>(Embeddings);
             services.AddSingleton<IRequirementParser>(RequirementParser);
             services.AddSingleton<IRecommendationRanker>(Ranker);
+            services.AddSingleton<IBookProfileGenerator>(BookProfileGenerator);
             if (LibraryStore is { } libraryStore)
                 services.AddSingleton(libraryStore);
             // The app registers TimeProvider only if nothing else did, so this later registration is the one that resolves.

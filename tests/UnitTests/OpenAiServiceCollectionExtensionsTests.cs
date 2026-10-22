@@ -112,6 +112,9 @@ public sealed class OpenAiServiceCollectionExtensionsTests
 
         Assert.IsType<OpenAiRequirementParser>(provider.GetRequiredService<IRequirementParser>());
         Assert.IsType<OpenAiRecommendationRanker>(provider.GetRequiredService<IRecommendationRanker>());
+        var profileGenerator = provider.GetRequiredService<IBookProfileGenerator>();
+        Assert.IsType<OpenAiBookProfileGenerator>(profileGenerator);
+        Assert.Equal("gpt-6-luna", profileGenerator.ModelName);
     }
 
     [Theory]

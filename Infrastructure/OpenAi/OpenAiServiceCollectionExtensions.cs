@@ -56,6 +56,13 @@ public static class OpenAiServiceCollectionExtensions
         services.AddSingleton<IRequirementParser, OpenAiRequirementParser>();
         services.AddSingleton<IRecommendationRanker, OpenAiRecommendationRanker>();
 
+        // The profile generator uses the same chat model (issue #18 Q2); the model name is passed in so the adapter can report it.
+        services.AddSingleton<IBookProfileGenerator>(provider =>
+        {
+            var recommendation = provider.GetRequiredService<IOptions<RecommendationOptions>>().Value;
+            return new OpenAiBookProfileGenerator(provider.GetRequiredService<ChatClient>(), recommendation.ChatModel);
+        });
+
         return services;
     }
 }
