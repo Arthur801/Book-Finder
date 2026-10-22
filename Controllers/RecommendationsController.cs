@@ -1,5 +1,5 @@
-using System.IdentityModel.Tokens.Jwt;
 using Book_Finder.Application.Recommendation;
+using Book_Finder.Infrastructure.Identity;
 using Book_Finder.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
@@ -22,18 +22,9 @@ public class RecommendationsController(RecommendationService recommendations, Pr
         if (!input.IsValid)
             return ValidationFailed(input.Error!);
 
-        var userId = CurrentUserId();
+        var userId = User.CurrentUserId();
         var outcome = await recommendations.RecommendAsync(userId, input.Text!, HttpContext.RequestAborted);
         return Ok(RecommendationResponse.From(outcome));
-    }
-
-    // The token's sub is the user id written by AuthTokenIssuer. MapInboundClaims is off, so the claim is literally "sub".
-    private Guid CurrentUserId()
-    {
-        var sub = User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value;
-        return Guid.TryParse(sub, out var userId)
-            ? userId
-            : throw new InvalidOperationException("The authenticated token has no valid sub claim.");
     }
 
     // Built from a fresh ModelState so only requirementText is reported, whatever the binder said about the body.
