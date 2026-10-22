@@ -45,6 +45,8 @@ builder.Services.AddScoped<BookSearchService>();
 builder.Services.AddScoped<ICandidateSearch, EfCandidateSearch>();
 builder.Services.AddScoped<IRecommendationStore, EfRecommendationStore>();
 builder.Services.AddScoped<IRecommendationUsage, EfRecommendationUsage>();
+// AI search history (#16): read-only port for the user's own saved searches (recommendation.md §12).
+builder.Services.AddScoped<IRecommendationHistory, EfRecommendationHistory>();
 builder.Services.AddScoped<RecommendationService>();
 
 // Library (#11): one Library service over the EF store (user-library.md §2).
