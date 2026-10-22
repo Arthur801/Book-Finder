@@ -9,8 +9,9 @@ using static WebIntegration.HtmlPage;
 
 namespace WebIntegration;
 
-// PUT /api/library/{bookId} end to end (api-spec.md §4; user-library.md §3). The add rules live in LibraryService;
-// these tests check the HTTP contract, the stored rows and that one user's add never touches another user's entry.
+// PUT, PATCH and DELETE /api/library/{bookId} end to end (api-spec.md §4; user-library.md §3, §6). The rules live in
+// LibraryService and LibraryPatchParser; these tests check the HTTP contract, the stored rows and that one user's
+// change never touches another user's entry.
 [Collection(WebCollection.Name)]
 public sealed class LibraryApiTests(WebFixture fixture)
 {
@@ -166,6 +167,369 @@ public sealed class LibraryApiTests(WebFixture fixture)
         Assert.Equal(before.UpdatedAt, after.UpdatedAt);
     }
 
+    [Theory]
+    [InlineData("{\"rating\":0}")]
+    [InlineData("{\"rating\":6}")]
+    public async Task Rating_outside_one_to_five_returns_400_and_keeps_the_entry(string body)
+    {
+        await fixture.ResetDatabaseAsync();
+        await using var app = fixture.CreateFactory();
+        var book = (await CatalogSeed.AddBooksAsync(fixture, [new BookSeed("甲書")])).Single();
+        var client = await SignInAsync(app, "lib-badrating@x.com");
+        await PutLibraryAsync(client, await TokenAsync(client), book.BookId);
+        await ChangeEntryAsync("lib-badrating@x.com", book.BookId, ReadingStatus.Reading, rating: 4);
+        var before = await LoadEntryAsync("lib-badrating@x.com", book.BookId);
+
+        var response = await PatchLibraryAsync(client, await TokenAsync(client), book.BookId.ToString(), body);
+
+        var problem = await AssertProblemAsync(response, HttpStatusCode.BadRequest, "/errors/validation");
+        Assert.Equal("輸入資料有誤", problem.GetProperty("title").GetString());
+        Assert.Equal("評分必須介於 1 到 5", problem.GetProperty("errors").GetProperty("rating")[0].GetString());
+        var after = await LoadEntryAsync("lib-badrating@x.com", book.BookId);
+        Assert.Equal(before.Rating, after.Rating);
+        Assert.Equal(before.UpdatedAt, after.UpdatedAt);
+    }
+
+    [Fact]
+    public async Task Omitted_rating_keeps_the_rating_while_the_status_changes()
+    {
+        await fixture.ResetDatabaseAsync();
+        await using var app = fixture.CreateFactory();
+        var book = (await CatalogSeed.AddBooksAsync(fixture, [new BookSeed("甲書")])).Single();
+        var client = await SignInAsync(app, "lib-keeprating@x.com");
+        await PutLibraryAsync(client, await TokenAsync(client), book.BookId);
+        await ChangeEntryAsync("lib-keeprating@x.com", book.BookId, ReadingStatus.WantToRead, rating: 4);
+
+        var response = await ReadEntryJsonAsync(
+            await PatchLibraryAsync(client, await TokenAsync(client), book.BookId.ToString(), "{ \"readingStatus\": \"FINISHED\" }"));
+
+        Assert.Equal("FINISHED", response.GetProperty("readingStatus").GetString());
+        Assert.Equal(4, response.GetProperty("rating").GetInt16());
+        var stored = await LoadEntryAsync("lib-keeprating@x.com", book.BookId);
+        Assert.Equal(ReadingStatus.Finished, stored.ReadingStatus);
+        Assert.Equal((short?)4, stored.Rating);
+    }
+
+    [Fact]
+    public async Task Null_rating_clears_the_rating_and_keeps_the_status()
+    {
+        await fixture.ResetDatabaseAsync();
+        await using var app = fixture.CreateFactory();
+        var book = (await CatalogSeed.AddBooksAsync(fixture, [new BookSeed("甲書")])).Single();
+        var client = await SignInAsync(app, "lib-clear@x.com");
+        await PutLibraryAsync(client, await TokenAsync(client), book.BookId);
+        await ChangeEntryAsync("lib-clear@x.com", book.BookId, ReadingStatus.Reading, rating: 4);
+
+        var response = await ReadEntryJsonAsync(
+            await PatchLibraryAsync(client, await TokenAsync(client), book.BookId.ToString(), "{\"rating\":null}"));
+
+        Assert.Equal(JsonValueKind.Null, response.GetProperty("rating").ValueKind);
+        Assert.Equal("READING", response.GetProperty("readingStatus").GetString());
+        var stored = await LoadEntryAsync("lib-clear@x.com", book.BookId);
+        Assert.Null(stored.Rating);
+        Assert.Equal(ReadingStatus.Reading, stored.ReadingStatus);
+    }
+
+    [Fact]
+    public async Task Want_to_read_entry_can_be_rated()
+    {
+        await fixture.ResetDatabaseAsync();
+        await using var app = fixture.CreateFactory();
+        var book = (await CatalogSeed.AddBooksAsync(fixture, [new BookSeed("甲書")])).Single();
+        var client = await SignInAsync(app, "lib-rate-wtr@x.com");
+        await PutLibraryAsync(client, await TokenAsync(client), book.BookId);
+
+        var response = await ReadEntryJsonAsync(
+            await PatchLibraryAsync(client, await TokenAsync(client), book.BookId.ToString(), "{\"rating\":3}"));
+
+        Assert.Equal("WANT_TO_READ", response.GetProperty("readingStatus").GetString());
+        Assert.Equal(3, response.GetProperty("rating").GetInt16());
+        Assert.Equal((short?)3, (await LoadEntryAsync("lib-rate-wtr@x.com", book.BookId)).Rating);
+    }
+
+    [Theory]
+    [InlineData("{\"readingStatus\":\"DONE\"}")]
+    [InlineData("{\"readingStatus\":\"finished\"}")]
+    [InlineData("{\"readingStatus\":null}")]
+    [InlineData("{\"readingStatus\":3}")]
+    public async Task Invalid_reading_status_returns_400_and_keeps_the_entry(string body)
+    {
+        await fixture.ResetDatabaseAsync();
+        await using var app = fixture.CreateFactory();
+        var book = (await CatalogSeed.AddBooksAsync(fixture, [new BookSeed("甲書")])).Single();
+        var client = await SignInAsync(app, "lib-badstatus@x.com");
+        await PutLibraryAsync(client, await TokenAsync(client), book.BookId);
+        var before = await LoadEntryAsync("lib-badstatus@x.com", book.BookId);
+
+        var response = await PatchLibraryAsync(client, await TokenAsync(client), book.BookId.ToString(), body);
+
+        var problem = await AssertProblemAsync(response, HttpStatusCode.BadRequest, "/errors/validation");
+        Assert.Equal(["readingStatus"], problem.GetProperty("errors").EnumerateObject().Select(property => property.Name));
+        Assert.Equal(
+            "閱讀狀態必須是 WANT_TO_READ、READING 或 FINISHED",
+            problem.GetProperty("errors").GetProperty("readingStatus")[0].GetString());
+        var after = await LoadEntryAsync("lib-badstatus@x.com", book.BookId);
+        Assert.Equal(before.ReadingStatus, after.ReadingStatus);
+        Assert.Equal(before.UpdatedAt, after.UpdatedAt);
+    }
+
+    [Fact]
+    public async Task Invalid_status_and_invalid_rating_report_both_fields()
+    {
+        await fixture.ResetDatabaseAsync();
+        await using var app = fixture.CreateFactory();
+        var book = (await CatalogSeed.AddBooksAsync(fixture, [new BookSeed("甲書")])).Single();
+        var client = await SignInAsync(app, "lib-bothbad@x.com");
+        await PutLibraryAsync(client, await TokenAsync(client), book.BookId);
+
+        var response = await PatchLibraryAsync(
+            client, await TokenAsync(client), book.BookId.ToString(), "{\"readingStatus\":\"DONE\",\"rating\":0}");
+
+        var problem = await AssertProblemAsync(response, HttpStatusCode.BadRequest, "/errors/validation");
+        Assert.Equal(["rating", "readingStatus"], problem.GetProperty("errors").EnumerateObject().Select(property => property.Name).Order());
+    }
+
+    [Theory]
+    [InlineData("{\"readingStatus\":")]
+    [InlineData("")]
+    [InlineData("[]")]
+    [InlineData("\"READING\"")]
+    public async Task Malformed_empty_or_non_object_body_returns_400_for_the_whole_body(string body)
+    {
+        await fixture.ResetDatabaseAsync();
+        await using var app = fixture.CreateFactory();
+        var book = (await CatalogSeed.AddBooksAsync(fixture, [new BookSeed("甲書")])).Single();
+        var client = await SignInAsync(app, "lib-badbody@x.com");
+        await PutLibraryAsync(client, await TokenAsync(client), book.BookId);
+        var before = await LoadEntryAsync("lib-badbody@x.com", book.BookId);
+
+        var response = await PatchLibraryAsync(client, await TokenAsync(client), book.BookId.ToString(), body);
+
+        var problem = await AssertProblemAsync(response, HttpStatusCode.BadRequest, "/errors/validation");
+        Assert.Contains("", problem.GetProperty("errors").EnumerateObject().Select(property => property.Name));
+        var after = await LoadEntryAsync("lib-badbody@x.com", book.BookId);
+        Assert.Equal(before.UpdatedAt, after.UpdatedAt);
+    }
+
+    [Fact]
+    public async Task Request_without_content_type_is_refused_by_the_framework_and_changes_nothing()
+    {
+        await fixture.ResetDatabaseAsync();
+        await using var app = fixture.CreateFactory();
+        var book = (await CatalogSeed.AddBooksAsync(fixture, [new BookSeed("甲書")])).Single();
+        var client = await SignInAsync(app, "lib-notype@x.com");
+        await PutLibraryAsync(client, await TokenAsync(client), book.BookId);
+        var request = EditRequest(HttpMethod.Patch, book.BookId.ToString(), await TokenAsync(client));
+        request.Content = new StringContent("{\"rating\":3}");
+        request.Content.Headers.ContentType = null;
+
+        var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.UnsupportedMediaType, response.StatusCode);
+        Assert.Null((await LoadEntryAsync("lib-notype@x.com", book.BookId)).Rating);
+    }
+
+    [Fact]
+    public async Task Empty_object_returns_the_entry_unchanged_and_keeps_updated_at()
+    {
+        await fixture.ResetDatabaseAsync();
+        await using var app = fixture.CreateFactory();
+        var book = (await CatalogSeed.AddBooksAsync(fixture, [new BookSeed("甲書")])).Single();
+        var client = await SignInAsync(app, "lib-empty@x.com");
+        var token = await TokenAsync(client);
+        var added = await ReadEntryJsonAsync(await PutLibraryAsync(client, token, book.BookId));
+        var before = await LoadEntryAsync("lib-empty@x.com", book.BookId);
+
+        var response = await ReadEntryJsonAsync(await PatchLibraryAsync(client, token, book.BookId.ToString(), "{}"));
+
+        Assert.Equal(added.GetProperty("updatedAt").GetString(), response.GetProperty("updatedAt").GetString());
+        Assert.Equal("WANT_TO_READ", response.GetProperty("readingStatus").GetString());
+        var after = await LoadEntryAsync("lib-empty@x.com", book.BookId);
+        Assert.Equal(before.UpdatedAt, after.UpdatedAt);
+    }
+
+    [Fact]
+    public async Task Patch_returns_the_same_entry_shape_as_put()
+    {
+        await fixture.ResetDatabaseAsync();
+        await using var app = fixture.CreateFactory();
+        var book = (await CatalogSeed.AddBooksAsync(fixture, [new BookSeed("甲書")])).Single();
+        var client = await SignInAsync(app, "lib-shape@x.com");
+        var token = await TokenAsync(client);
+        await PutLibraryAsync(client, token, book.BookId);
+
+        var response = await PatchLibraryAsync(client, token, book.BookId.ToString(), "{\"readingStatus\":\"READING\",\"rating\":5}");
+
+        var root = await ReadEntryJsonAsync(response);
+        Assert.Equal("application/json", response.Content.Headers.ContentType?.MediaType);
+        Assert.Equal(["bookId", "readingStatus", "rating", "addedAt", "updatedAt"], root.EnumerateObject().Select(property => property.Name));
+        Assert.Equal(book.BookId.ToString(), root.GetProperty("bookId").GetString());
+        Assert.Equal("READING", root.GetProperty("readingStatus").GetString());
+        Assert.Equal(5, root.GetProperty("rating").GetInt16());
+        Assert.EndsWith(TaipeiOffsetSuffix, root.GetProperty("addedAt").GetString());
+        Assert.EndsWith(TaipeiOffsetSuffix, root.GetProperty("updatedAt").GetString());
+    }
+
+    [Fact]
+    public async Task Patch_on_a_book_that_is_not_in_the_library_returns_404_and_saves_nothing()
+    {
+        await fixture.ResetDatabaseAsync();
+        await using var app = fixture.CreateFactory();
+        var book = (await CatalogSeed.AddBooksAsync(fixture, [new BookSeed("甲書")])).Single();
+        var client = await SignInAsync(app, "lib-patch-missing@x.com");
+
+        var response = await PatchLibraryAsync(client, await TokenAsync(client), book.BookId.ToString(), "{\"rating\":3}");
+
+        await AssertProblemAsync(response, HttpStatusCode.NotFound, "/errors/not-found");
+        Assert.Equal(0, await CountEntriesAsync());
+    }
+
+    [Theory]
+    [InlineData("not-a-guid")]
+    [InlineData("12345")]
+    public async Task Patch_with_a_book_id_that_is_not_a_guid_returns_404(string bookId)
+    {
+        await fixture.ResetDatabaseAsync();
+        await using var app = fixture.CreateFactory();
+        var client = await SignInAsync(app, "lib-patch-badid@x.com");
+
+        var response = await PatchLibraryAsync(client, await TokenAsync(client), bookId, "{\"rating\":3}");
+
+        await AssertProblemAsync(response, HttpStatusCode.NotFound, "/errors/not-found");
+    }
+
+    [Fact]
+    public async Task Patch_cannot_change_another_users_entry()
+    {
+        await fixture.ResetDatabaseAsync();
+        await using var app = fixture.CreateFactory();
+        var book = (await CatalogSeed.AddBooksAsync(fixture, [new BookSeed("甲書")])).Single();
+        var alice = await SignInAsync(app, "lib-patch-alice@x.com");
+        await PutLibraryAsync(alice, await TokenAsync(alice), book.BookId);
+        await ChangeEntryAsync("lib-patch-alice@x.com", book.BookId, ReadingStatus.Reading, rating: 2);
+        var before = await LoadEntryAsync("lib-patch-alice@x.com", book.BookId);
+
+        var bob = await SignInAsync(app, "lib-patch-bob@x.com");
+        var response = await PatchLibraryAsync(bob, await TokenAsync(bob), book.BookId.ToString(), "{\"readingStatus\":\"FINISHED\",\"rating\":5}");
+
+        await AssertProblemAsync(response, HttpStatusCode.NotFound, "/errors/not-found");
+        Assert.Equal(1, await CountEntriesAsync());
+        var after = await LoadEntryAsync("lib-patch-alice@x.com", book.BookId);
+        Assert.Equal(before.ReadingStatus, after.ReadingStatus);
+        Assert.Equal(before.Rating, after.Rating);
+        Assert.Equal(before.UpdatedAt, after.UpdatedAt);
+    }
+
+    [Fact]
+    public async Task Delete_removes_the_entry_and_its_rating()
+    {
+        await fixture.ResetDatabaseAsync();
+        await using var app = fixture.CreateFactory();
+        var book = (await CatalogSeed.AddBooksAsync(fixture, [new BookSeed("甲書")])).Single();
+        var client = await SignInAsync(app, "lib-delete@x.com");
+        await PutLibraryAsync(client, await TokenAsync(client), book.BookId);
+        await ChangeEntryAsync("lib-delete@x.com", book.BookId, ReadingStatus.Finished, rating: 4);
+
+        var response = await DeleteLibraryAsync(client, await TokenAsync(client), book.BookId.ToString());
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Equal(0, await CountEntriesAsync());
+    }
+
+    [Fact]
+    public async Task Repeated_delete_returns_204_again()
+    {
+        await fixture.ResetDatabaseAsync();
+        await using var app = fixture.CreateFactory();
+        var book = (await CatalogSeed.AddBooksAsync(fixture, [new BookSeed("甲書")])).Single();
+        var client = await SignInAsync(app, "lib-delete-twice@x.com");
+        var token = await TokenAsync(client);
+        await PutLibraryAsync(client, token, book.BookId);
+        await DeleteLibraryAsync(client, token, book.BookId.ToString());
+
+        var response = await DeleteLibraryAsync(client, token, book.BookId.ToString());
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Equal(0, await CountEntriesAsync());
+    }
+
+    [Fact]
+    public async Task Delete_with_a_book_id_that_is_not_a_guid_returns_204_and_saves_nothing()
+    {
+        await fixture.ResetDatabaseAsync();
+        await using var app = fixture.CreateFactory();
+        var book = (await CatalogSeed.AddBooksAsync(fixture, [new BookSeed("甲書")])).Single();
+        var client = await SignInAsync(app, "lib-delete-badid@x.com");
+        await PutLibraryAsync(client, await TokenAsync(client), book.BookId);
+
+        var response = await DeleteLibraryAsync(client, await TokenAsync(client), "not-a-guid");
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Equal(1, await CountEntriesAsync());
+    }
+
+    [Fact]
+    public async Task Delete_by_another_user_leaves_the_entry_alone()
+    {
+        await fixture.ResetDatabaseAsync();
+        await using var app = fixture.CreateFactory();
+        var book = (await CatalogSeed.AddBooksAsync(fixture, [new BookSeed("甲書")])).Single();
+        var alice = await SignInAsync(app, "lib-del-alice@x.com");
+        await PutLibraryAsync(alice, await TokenAsync(alice), book.BookId);
+        await ChangeEntryAsync("lib-del-alice@x.com", book.BookId, ReadingStatus.Reading, rating: 3);
+        var bob = await SignInAsync(app, "lib-del-bob@x.com");
+        await PutLibraryAsync(bob, await TokenAsync(bob), book.BookId);
+
+        var response = await DeleteLibraryAsync(bob, await TokenAsync(bob), book.BookId.ToString());
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Equal(1, await CountEntriesAsync());
+        var alicesEntry = await LoadEntryAsync("lib-del-alice@x.com", book.BookId);
+        Assert.Equal(ReadingStatus.Reading, alicesEntry.ReadingStatus);
+        Assert.Equal((short?)3, alicesEntry.Rating);
+    }
+
+    [Theory]
+    [InlineData("PATCH")]
+    [InlineData("DELETE")]
+    public async Task Patch_and_delete_without_sign_in_return_401_and_change_nothing(string method)
+    {
+        await fixture.ResetDatabaseAsync();
+        await using var app = fixture.CreateFactory();
+        var book = (await CatalogSeed.AddBooksAsync(fixture, [new BookSeed("甲書")])).Single();
+        var owner = await SignInAsync(app, "lib-anon-owner@x.com");
+        await PutLibraryAsync(owner, await TokenAsync(owner), book.BookId);
+        var client = app.CreateClient(ClientOptions);
+        // A valid token from an anonymous session, so the request reaches the authorization check.
+        var token = AntiforgeryToken(await client.GetPageAsync("/account/login"));
+        var request = EditRequest(new HttpMethod(method), book.BookId.ToString(), token);
+        request.Content = new StringContent("{\"rating\":1}", Encoding.UTF8, "application/json");
+
+        var response = await client.SendAsync(request);
+
+        await AssertProblemAsync(response, HttpStatusCode.Unauthorized, "/errors/unauthenticated");
+        Assert.Null((await LoadEntryAsync("lib-anon-owner@x.com", book.BookId)).Rating);
+    }
+
+    [Theory]
+    [InlineData("PATCH")]
+    [InlineData("DELETE")]
+    public async Task Patch_and_delete_without_antiforgery_header_return_400_and_change_nothing(string method)
+    {
+        await fixture.ResetDatabaseAsync();
+        await using var app = fixture.CreateFactory();
+        var book = (await CatalogSeed.AddBooksAsync(fixture, [new BookSeed("甲書")])).Single();
+        var client = await SignInAsync(app, "lib-edit-csrf@x.com");
+        await PutLibraryAsync(client, await TokenAsync(client), book.BookId);
+        var request = EditRequest(new HttpMethod(method), book.BookId.ToString(), null);
+        request.Content = new StringContent("{\"rating\":1}", Encoding.UTF8, "application/json");
+
+        var response = await client.SendAsync(request);
+
+        await AssertProblemAsync(response, HttpStatusCode.BadRequest, "/errors/antiforgery");
+        Assert.Null((await LoadEntryAsync("lib-edit-csrf@x.com", book.BookId)).Rating);
+    }
+
     // Registers a fresh user on this client, so the client holds the auth cookie from then on.
     private static async Task<HttpClient> SignInAsync(BookFinderFactory app, string email)
     {
@@ -185,6 +549,24 @@ public sealed class LibraryApiTests(WebFixture fixture)
         if (token is not null)
             request.Headers.Add("RequestVerificationToken", token);
         return client.SendAsync(request);
+    }
+
+    private static Task<HttpResponseMessage> PatchLibraryAsync(HttpClient client, string? token, string bookId, string body)
+    {
+        var request = EditRequest(HttpMethod.Patch, bookId, token);
+        request.Content = new StringContent(body, Encoding.UTF8, "application/json");
+        return client.SendAsync(request);
+    }
+
+    private static Task<HttpResponseMessage> DeleteLibraryAsync(HttpClient client, string? token, string bookId) =>
+        client.SendAsync(EditRequest(HttpMethod.Delete, bookId, token));
+
+    private static HttpRequestMessage EditRequest(HttpMethod method, string bookId, string? token)
+    {
+        var request = new HttpRequestMessage(method, $"/api/library/{bookId}");
+        if (token is not null)
+            request.Headers.Add("RequestVerificationToken", token);
+        return request;
     }
 
     private static async Task<JsonElement> ReadEntryJsonAsync(HttpResponseMessage response)
