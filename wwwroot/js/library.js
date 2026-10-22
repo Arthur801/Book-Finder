@@ -48,14 +48,15 @@
         };
     }
 
-    // Shows a status and rating (null = unrated): selects the option, sets each star's aria-pressed, and enables Clear
-    // only when there is a rating.
+    // Shows a status and rating (null = unrated): selects the option, sets each star's aria-pressed, shows the server's
+    // 未評分 label only when there is no rating, and enables Clear only when there is a rating.
     function applyValues(controls, values) {
         controls.querySelector('[data-library-status]').value = values.readingStatus;
         controls.querySelectorAll('[data-library-rating]').forEach(function (star) {
             var value = Number(star.getAttribute('data-library-rating'));
             star.setAttribute('aria-pressed', String(values.rating !== null && value <= values.rating));
         });
+        controls.querySelector('[data-library-unrated]').hidden = values.rating !== null;
         controls.querySelector('[data-library-clear-rating]').disabled = values.rating === null;
     }
 

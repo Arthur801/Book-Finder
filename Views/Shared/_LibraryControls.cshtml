@@ -22,6 +22,7 @@
                 var pressed = Model.Rating is { } rating && star <= rating;
                 <button type="button" class="btn btn-link p-0 px-1 library-star" data-library-rating="@star" aria-pressed="@(pressed ? "true" : "false")" aria-label="評 @star 星">★</button>
             }
+            <span class="small text-muted ms-1" data-library-unrated hidden="@(Model.Rating is not null)">未評分</span>
         </div>
         <button type="button" class="btn btn-link btn-sm p-0" data-library-clear-rating disabled="@(Model.Rating is null)">清除評分</button>
         <button type="button" class="btn btn-outline-danger btn-sm" data-library-remove>移除</button>

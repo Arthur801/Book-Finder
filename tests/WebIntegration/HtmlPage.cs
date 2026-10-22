@@ -52,6 +52,7 @@ internal static partial class HtmlPage
                 .Select(star => star.Pressed)
                 .ToList();
             var clear = ClearButton().Match(body);
+            var unrated = UnratedLabel().Match(body);
 
             return new RenderedLibraryControls(
                 Guid.Parse(Attributes(container)["data-book-id"]),
@@ -60,7 +61,8 @@ internal static partial class HtmlPage
                 options,
                 stars,
                 clear.Success && HasBareAttribute(clear.Groups[1].Value, "disabled"),
-                RemoveButton().IsMatch(body));
+                RemoveButton().IsMatch(body),
+                unrated.Success ? new RenderedUnrated(HasBareAttribute(unrated.Groups[1].Value, "hidden"), unrated.Groups[2].Value) : null);
         }).ToList();
 
     // The Book page's add button, or null when the page renders none (anonymous visitor, or a Book already in the Library).
@@ -210,6 +212,9 @@ internal static partial class HtmlPage
     [GeneratedRegex("<button\\b([^>]*\\bdata-library-rating=\"([1-5])\"[^>]*)>")]
     private static partial Regex StarButton();
 
+    [GeneratedRegex("<span\\b([^>]*\\bdata-library-unrated\\b[^>]*)>([^<]*)</span>")]
+    private static partial Regex UnratedLabel();
+
     [GeneratedRegex("<button\\b([^>]*\\bdata-library-clear-rating\\b[^>]*)>")]
     private static partial Regex ClearButton();
 
@@ -280,10 +285,14 @@ internal sealed record RenderedLibraryControls(
     IReadOnlyList<RenderedStatusOption> StatusOptions,
     IReadOnlyList<bool> StarPressed,
     bool ClearDisabled,
-    bool HasRemoveButton)
+    bool HasRemoveButton,
+    RenderedUnrated? Unrated)
 {
     public string? SelectedStatus => StatusOptions.Where(option => option.Selected).Select(option => (string?)option.Value).FirstOrDefault();
 }
+
+// The 未評分 label next to the stars. Null when the block renders none; Hidden is true while the Book has a rating.
+internal sealed record RenderedUnrated(bool Hidden, string Text);
 
 // One status option: its code (value), its label text, and whether it is the selected one.
 internal sealed record RenderedStatusOption(string Value, string Label, bool Selected);
