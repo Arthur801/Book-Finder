@@ -281,6 +281,8 @@ AI Profile input 只允許既有 Book metadata，例如 title、contributors、p
 
 若沒有真實目錄，`framework` 可以是 inferred overview，但不得聲稱為正式章節目錄。
 
+`framework` 的 JSON 格式：`{ "is_official_toc": bool, "sections": [{ "title": "…", "summary": "…" }] }`，最多 10 個 section；沒有真實目錄時 `is_official_toc` 為 `false`。`source_content_hash` 的輸入見 `Docs/modules/recommendation.md` §9.2。
+
 MVP 用途：僅供 Recommendation 內部使用，提供推薦結果顯示的 `difficulty`。Profile 只在 Book 第一次出現於 Recommendation Result 後非同步產生；推薦排序不讀取 profile。產生時機與 prompt 見 `Docs/modules/recommendation.md`。
 
 ---

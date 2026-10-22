@@ -16,7 +16,7 @@ A .net core website about using LLM to find a book you want.
    OPENAIAPI_KEY=<your-openai-api-key>
    ```
 
-   注意：啟動後背景補齊會立即呼叫 OpenAI 產生 embedding，會產生費用。本機開發若不需要，可在 `.env` 加上 `Embedding__BackfillEnabled=false` 關閉（`Docs/modules/recommendation.md` §10）。
+   注意：啟動後背景補齊會立即呼叫 OpenAI 產生 embedding，會產生費用。本機開發若不需要，可在 `.env` 加上 `Embedding__BackfillEnabled=false` 關閉（`Docs/modules/recommendation.md` §10）。每次 AI 推薦後，背景也會為結果中還沒有 AI Profile 的書呼叫 OpenAI，可用 `AiProfile__Enabled=false` 關閉（§9.4）。
 
    AI 推薦的設定在 `appsettings.json` 的 `Recommendation` 區段（chat model `gpt-6-luna`、相似度門檻 T `0.45`、每日上限 `DailyLimit` `20` 等，見 `Docs/modules/recommendation.md` §13）。每次 AI 推薦都會呼叫 OpenAI 數次，會產生費用。這些設定不是機密，但 API key 不得寫入 `appsettings.json`，仍只放在 `.env`。
 
