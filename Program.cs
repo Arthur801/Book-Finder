@@ -61,6 +61,9 @@ builder.Services.AddScoped<IEmbeddingStore, EfEmbeddingStore>();
 builder.Services.AddScoped<EmbeddingBackfillService>();
 builder.Services.AddHostedService<EmbeddingBackfillWorker>();
 
+// Book AI profile: in-process queue drained one Book at a time by BookProfileWorker (recommendation.md §9).
+builder.Services.AddBookProfileBackgroundJobs(builder.Configuration);
+
 var app = builder.Build();
 
 // nginx runs on the same host; retain the framework's trusted loopback proxies.
