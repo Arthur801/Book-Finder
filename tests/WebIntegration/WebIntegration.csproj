@@ -25,6 +25,7 @@
     <Compile Include="../Shared/SimilarityVectors.cs" Link="Shared/SimilarityVectors.cs" />
     <Compile Include="../Shared/FakeEmbeddingGenerator.cs" Link="Shared/FakeEmbeddingGenerator.cs" />
     <Compile Include="../Shared/FakeRequirementParser.cs" Link="Shared/FakeRequirementParser.cs" />
+    <Compile Include="../Shared/CallGate.cs" Link="Shared/CallGate.cs" />
     <Compile Include="../Shared/FakeRecommendationRanker.cs" Link="Shared/FakeRecommendationRanker.cs" />
   </ItemGroup>
 </Project>

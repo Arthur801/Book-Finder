@@ -13,6 +13,9 @@ public sealed class FakeRequirementParser : IRequirementParser
     private ParsedRequirement? _responseForAll;
     private Exception? _errorForAll;
 
+    // Open by default. Close it to make calls wait before they answer, as the ranker fake does.
+    public CallGate Gate { get; } = new();
+
     // Calls are a snapshot in the order they were received, including calls that threw.
     public IReadOnlyList<string> Calls
     {
@@ -60,12 +63,13 @@ public sealed class FakeRequirementParser : IRequirementParser
         }
     }
 
-    public Task<ParsedRequirement> ParseAsync(string requirementText, CancellationToken cancellationToken)
+    public async Task<ParsedRequirement> ParseAsync(string requirementText, CancellationToken cancellationToken)
     {
         lock (_gate)
             _calls.Add(requirementText);
 
         cancellationToken.ThrowIfCancellationRequested();
+        await Gate.PassAsync(cancellationToken);
 
         Exception? error = null;
         ParsedRequirement? response = null;
@@ -83,11 +87,11 @@ public sealed class FakeRequirementParser : IRequirementParser
         }
 
         if (error is not null)
-            return Task.FromException<ParsedRequirement>(error);
+            throw error;
 
         if (response is not null)
-            return Task.FromResult(response);
+            return response;
 
-        return Task.FromResult(new ParsedRequirement(RequirementFilters.None, requirementText, []));
+        return new ParsedRequirement(RequirementFilters.None, requirementText, []);
     }
 }

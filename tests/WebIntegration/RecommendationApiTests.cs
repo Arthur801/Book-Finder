@@ -431,6 +431,38 @@ public sealed class RecommendationApiTests(WebFixture fixture)
         await AssertSearchCountAsync(20);
     }
 
+    // ----- Timeout (recommendation.md §13, api-spec.md §3) -----
+
+    [Fact]
+    public async Task Search_still_running_at_60_seconds_returns_504_ai_timeout_saves_nothing_and_does_not_count_toward_the_limit()
+    {
+        await fixture.ResetDatabaseAsync();
+        await using var app = fixture.CreateFactory();
+        var clock = new FakeTimeProvider(NearTaipeiMidnight());
+        app.Time = clock;
+        await SeedEmbeddedBooksAsync(fixture, [(new BookSeed("甲書"), 0.90)]);
+        var client = await SignInAsync(app, "rec-timeout@x.com");
+        await SeedSearchesAsync(await OnlyUserIdAsync(), TaipeiTimeZone.StartOfDayUtc(clock.GetUtcNow()).AddMinutes(1), 19);
+        app.Ranker.Gate.Close();
+
+        var pending = PostRecommendationAsync(client, await TokenAsync(client), Body("想看小說"));
+        await app.Ranker.Gate.Entered;
+        clock.Advance(TimeSpan.FromSeconds(60));
+        var timedOut = await pending;
+
+        var problem = await AssertProblemAsync(timedOut, HttpStatusCode.GatewayTimeout, "/errors/ai-timeout");
+        Assert.Equal("AI 推薦逾時", problem.GetProperty("title").GetString());
+        AssertNoExceptionDetails(await timedOut.Content.ReadAsStringAsync());
+        await AssertSearchCountAsync(19);
+
+        // The 20th search is allowed again, which only holds if the timed-out attempt was not counted.
+        app.Ranker.Gate.Release();
+        var retried = await PostRecommendationAsync(client, await TokenAsync(client), Body("想看小說"));
+
+        Assert.Equal(HttpStatusCode.OK, retried.StatusCode);
+        await AssertSearchCountAsync(20);
+    }
+
     // The clock starts 30 minutes before the next Taipei midnight, so the day can roll over during a test.
     private static DateTimeOffset NearTaipeiMidnight()
     {

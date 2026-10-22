@@ -7,8 +7,8 @@ using Microsoft.AspNetCore.Mvc.Infrastructure;
 namespace Book_Finder.Infrastructure.Identity;
 
 // Turns an unhandled exception in an /api/* action into the ProblemDetails of api-spec.md §2: AiUnavailableException becomes
-// 502 /errors/ai-unavailable, anything else 500. Pages keep the framework's error path. The exception message and stack trace
-// are logged, never returned. 504 (AI timeout) is mapped in #15 M5, not here.
+// 502 /errors/ai-unavailable, AiTimeoutException becomes 504 /errors/ai-timeout, anything else 500. Pages keep the framework's
+// error path. The exception message and stack trace are logged, never returned.
 public sealed class ApiExceptionProblemDetailsFilter(
     ProblemDetailsFactory problemDetails,
     ILogger<ApiExceptionProblemDetailsFilter> logger) : IExceptionFilter
@@ -29,6 +29,14 @@ public sealed class ApiExceptionProblemDetailsFilter(
         {
             logger.LogError(context.Exception, "AI call failed in {Method} {Path}", http.Request.Method, http.Request.Path);
             context.Result = ApiProblemResults.AiUnavailable(problemDetails, http);
+            context.ExceptionHandled = true;
+            return;
+        }
+
+        if (context.Exception is AiTimeoutException)
+        {
+            logger.LogError(context.Exception, "AI call timed out in {Method} {Path}", http.Request.Method, http.Request.Path);
+            context.Result = ApiProblemResults.AiTimeout(problemDetails, http);
             context.ExceptionHandled = true;
             return;
         }

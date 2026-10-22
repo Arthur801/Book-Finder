@@ -4,12 +4,16 @@ namespace TestDoubles;
 
 // Scripted IRecommendationRanker for tests. Unconfigured calls rank every candidate in input order with relevance 0.9.
 // Every call is recorded, including calls that threw, and cancellation is honoured before the response is returned.
+// Gate holds calls open until the test releases them or cancels them, so a timeout test can advance fake time while the ranker is waiting.
 public sealed class FakeRecommendationRanker : IRecommendationRanker
 {
     private readonly object _gate = new();
     private readonly List<(string RequirementText, IReadOnlyList<RankingCandidate> Candidates)> _calls = [];
     private IReadOnlyList<RankedItem>? _responseForAll;
     private Exception? _errorForAll;
+
+    // Open by default. Close it to make calls wait before they answer.
+    public CallGate Gate { get; } = new();
 
     // Calls are a snapshot in the order they were received.
     public IReadOnlyList<(string RequirementText, IReadOnlyList<RankingCandidate> Candidates)> Calls
@@ -40,7 +44,7 @@ public sealed class FakeRecommendationRanker : IRecommendationRanker
         }
     }
 
-    public Task<IReadOnlyList<RankedItem>> RankAsync(
+    public async Task<IReadOnlyList<RankedItem>> RankAsync(
         string requirementText,
         IReadOnlyList<RankingCandidate> candidates,
         CancellationToken cancellationToken)
@@ -49,6 +53,7 @@ public sealed class FakeRecommendationRanker : IRecommendationRanker
             _calls.Add((requirementText, candidates));
 
         cancellationToken.ThrowIfCancellationRequested();
+        await Gate.PassAsync(cancellationToken);
 
         Exception? error;
         IReadOnlyList<RankedItem>? response;
@@ -59,14 +64,14 @@ public sealed class FakeRecommendationRanker : IRecommendationRanker
         }
 
         if (error is not null)
-            return Task.FromException<IReadOnlyList<RankedItem>>(error);
+            throw error;
 
         if (response is not null)
-            return Task.FromResult(response);
+            return response;
 
         IReadOnlyList<RankedItem> defaults = candidates
             .Select(candidate => new RankedItem(candidate.CandidateNo, 0.9, $"理由 {candidate.CandidateNo}"))
             .ToList();
-        return Task.FromResult(defaults);
+        return defaults;
     }
 }
