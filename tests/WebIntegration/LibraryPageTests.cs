@@ -6,7 +6,8 @@ using static WebIntegration.HtmlPage;
 
 namespace WebIntegration;
 
-// The /library page (user-library.md §4; ui-flow.md §2, §3.5). Read-only in #11: rows, filter tabs and the empty state.
+// The /library page (user-library.md §4; ui-flow.md §2, §3.5). Rows, filter tabs, the empty state, and the shared
+// library controls on each row (#12).
 [Collection(WebCollection.Name)]
 public sealed partial class LibraryPageTests(WebFixture fixture)
 {
@@ -43,9 +44,26 @@ public sealed partial class LibraryPageTests(WebFixture fixture)
         var html = await client.GetPageAsync("/library");
 
         Assert.Empty(Rows(html));
+        Assert.False(EmptyStateHidden(html));
         var emptyState = EmptyState(html);
         Assert.Contains("還沒有加入任何書", emptyState);
         Assert.Contains("href=\"/bestsellers\"", emptyState);
+    }
+
+    [Fact]
+    public async Task Empty_state_is_rendered_hidden_when_there_are_rows()
+    {
+        await fixture.ResetDatabaseAsync();
+        var book = await AddBookAsync("甲書");
+        await using var app = fixture.CreateFactory();
+        var client = await SignInAsync(app, "library-hidden-empty@x.com");
+        await SeedEntryAsync("library-hidden-empty@x.com", book, ReadingStatus.WantToRead, null, BaseTime);
+
+        var html = await client.GetPageAsync("/library");
+
+        Assert.Single(Rows(html));
+        Assert.True(EmptyStateHidden(html));
+        Assert.Contains("還沒有加入任何書", EmptyState(html));
     }
 
     [Fact]
@@ -67,7 +85,7 @@ public sealed partial class LibraryPageTests(WebFixture fixture)
     }
 
     [Fact]
-    public async Task Each_row_shows_title_link_authors_status_and_rating()
+    public async Task Each_row_shows_title_link_and_authors()
     {
         await fixture.ResetDatabaseAsync();
         var reading = await AddBookAsync("閱讀中書", "作者甲", "作者乙");
@@ -84,13 +102,89 @@ public sealed partial class LibraryPageTests(WebFixture fixture)
         Assert.Equal("閱讀中書", readingRow.Title);
         Assert.Equal($"/books/{reading}", readingRow.TitleHref);
         Assert.Equal("作者甲、作者乙", readingRow.Authors);
-        Assert.Equal("閱讀中", readingRow.Status);
-        Assert.Equal("★★★★☆", readingRow.Rating);
 
         var wantRow = rows.Single(row => row.BookId == wantToRead);
-        Assert.Equal("想讀", wantRow.Status);
-        Assert.Equal("未評分", wantRow.Rating);
         Assert.Null(wantRow.Authors);
+    }
+
+    [Fact]
+    public async Task Each_row_has_its_own_library_controls_with_its_status_and_rating()
+    {
+        await fixture.ResetDatabaseAsync();
+        var reading = await AddBookAsync("閱讀中書");
+        var wantToRead = await AddBookAsync("想讀書");
+        await using var app = fixture.CreateFactory();
+        var client = await SignInAsync(app, "library-controls@x.com");
+        await SeedEntryAsync("library-controls@x.com", reading, ReadingStatus.Reading, 4, BaseTime.AddDays(2));
+        await SeedEntryAsync("library-controls@x.com", wantToRead, ReadingStatus.WantToRead, null, BaseTime.AddDays(1));
+
+        var html = await client.GetPageAsync("/library");
+
+        var controls = LibraryControls(html);
+        Assert.Equal(2, controls.Count);
+
+        var readingControls = controls.Single(item => item.BookId == reading);
+        Assert.Equal("READING", readingControls.SelectedStatus);
+        Assert.Equal([true, true, true, true, false], readingControls.StarPressed);
+        Assert.False(readingControls.ClearDisabled);
+        Assert.True(readingControls.HasRemoveButton);
+        Assert.False(readingControls.Hidden);
+
+        var wantControls = controls.Single(item => item.BookId == wantToRead);
+        Assert.Equal("WANT_TO_READ", wantControls.SelectedStatus);
+        Assert.Equal([false, false, false, false, false], wantControls.StarPressed);
+        Assert.True(wantControls.ClearDisabled);
+        Assert.True(wantControls.HasRemoveButton);
+    }
+
+    [Fact]
+    public async Task Controls_show_the_server_labels_for_each_status()
+    {
+        await fixture.ResetDatabaseAsync();
+        var book = await AddBookAsync("甲書");
+        await using var app = fixture.CreateFactory();
+        var client = await SignInAsync(app, "library-labels@x.com");
+        await SeedEntryAsync("library-labels@x.com", book, ReadingStatus.Finished, 2, BaseTime);
+
+        var controls = Assert.Single(LibraryControls(await client.GetPageAsync("/library")));
+
+        Assert.Equal(
+            [("WANT_TO_READ", "想讀"), ("READING", "閱讀中"), ("FINISHED", "已讀")],
+            controls.StatusOptions.Select(option => (option.Value, option.Label)));
+        Assert.Equal("FINISHED", controls.SelectedStatus);
+    }
+
+    [Fact]
+    public async Task Page_renders_one_antiforgery_token_for_all_rows()
+    {
+        await fixture.ResetDatabaseAsync();
+        var first = await AddBookAsync("甲書");
+        var second = await AddBookAsync("乙書");
+        await using var app = fixture.CreateFactory();
+        var client = await SignInAsync(app, "library-token@x.com");
+        await SeedEntryAsync("library-token@x.com", first, ReadingStatus.Reading, 3, BaseTime.AddDays(1));
+        await SeedEntryAsync("library-token@x.com", second, ReadingStatus.Finished, null, BaseTime.AddDays(2));
+
+        var html = await client.GetPageAsync("/library");
+
+        // The layout's logout form carries its own token, so the count is taken over the Library view only: from the
+        // filter tabs to the end of the list.
+        var view = html[html.IndexOf("library-filters", StringComparison.Ordinal)..html.IndexOf("</ol>", StringComparison.Ordinal)];
+        Assert.Equal(2, LibraryControls(html).Count);
+        Assert.Single(Regex.Matches(view, "name=\"__RequestVerificationToken\""));
+        Assert.NotNull(InputValue(view, "__RequestVerificationToken"));
+    }
+
+    [Fact]
+    public async Task Library_page_loads_the_library_script()
+    {
+        await fixture.ResetDatabaseAsync();
+        await using var app = fixture.CreateFactory();
+        var client = await SignInAsync(app, "library-script@x.com");
+
+        var html = await client.GetPageAsync("/library");
+
+        Assert.Contains("/js/library.js", html);
     }
 
     [Fact]
@@ -109,6 +203,20 @@ public sealed partial class LibraryPageTests(WebFixture fixture)
         Assert.Equal([reading], Rows(html).Select(row => row.BookId));
         Assert.Equal("閱讀中", ActiveTab(html));
         Assert.Equal("/library?status=READING", TabHref(html, "閱讀中"));
+    }
+
+    [Fact]
+    public async Task Controls_on_a_filtered_page_return_to_that_page_after_login()
+    {
+        await fixture.ResetDatabaseAsync();
+        var reading = await AddBookAsync("閱讀中書");
+        await using var app = fixture.CreateFactory();
+        var client = await SignInAsync(app, "library-return@x.com");
+        await SeedEntryAsync("library-return@x.com", reading, ReadingStatus.Reading, null, BaseTime);
+
+        var controls = Assert.Single(LibraryControls(await client.GetPageAsync("/library?status=READING")));
+
+        Assert.Equal("/account/login?returnUrl=%2Flibrary%3Fstatus%3DREADING", controls.LoginUrl);
     }
 
     [Fact]
@@ -140,6 +248,7 @@ public sealed partial class LibraryPageTests(WebFixture fixture)
         var html = await client.GetPageAsync("/library?status=FINISHED");
 
         Assert.Empty(Rows(html));
+        Assert.False(EmptyStateHidden(html));
         Assert.Contains("還沒有加入任何書", EmptyState(html));
         Assert.Equal("已讀", ActiveTab(html));
     }
@@ -172,12 +281,12 @@ public sealed partial class LibraryPageTests(WebFixture fixture)
                 Guid.Parse(match.Groups[1].Value),
                 title.Success ? title.Groups[2].Value : null,
                 title.Success ? title.Groups[1].Value : null,
-                Field(AuthorsField(), body),
-                Field(StatusField(), body),
-                Field(RatingField(), body));
+                Field(AuthorsField(), body));
         }).ToList();
 
-    private static string EmptyState(string html) => EmptyBlock().Match(html).Groups[1].Value;
+    private static string EmptyState(string html) => EmptyBlock().Match(html).Groups[2].Value;
+
+    private static bool EmptyStateHidden(string html) => HasBareAttribute(EmptyBlock().Match(html).Groups[1].Value, "hidden");
 
     // The text of the tab marked as the current page.
     private static string? ActiveTab(string html) =>
@@ -233,13 +342,7 @@ public sealed partial class LibraryPageTests(WebFixture fixture)
     [GeneratedRegex("class=\"authors\\b[^\"]*\"[^>]*>([^<]*)</div>")]
     private static partial Regex AuthorsField();
 
-    [GeneratedRegex("class=\"library-status\\b[^\"]*\"[^>]*>([^<]*)</div>")]
-    private static partial Regex StatusField();
-
-    [GeneratedRegex("class=\"library-rating\\b[^\"]*\"[^>]*>([^<]*)</div>")]
-    private static partial Regex RatingField();
-
-    [GeneratedRegex("<div\\b[^>]*\\blibrary-empty\\b[^>]*>(.*?)</div>", RegexOptions.Singleline)]
+    [GeneratedRegex("<div\\b([^>]*\\blibrary-empty\\b[^>]*)>(.*?)</div>", RegexOptions.Singleline)]
     private static partial Regex EmptyBlock();
 
     [GeneratedRegex("<ul\\b[^>]*\\blibrary-filters\\b[^>]*>(.*?)</ul>", RegexOptions.Singleline)]
@@ -252,5 +355,5 @@ public sealed partial class LibraryPageTests(WebFixture fixture)
     private static partial Regex TabLink();
 }
 
-// One row of the Library page as rendered. Authors is null when the Book has none.
-internal sealed record LibraryRow(Guid BookId, string? Title, string? TitleHref, string? Authors, string? Status, string? Rating);
+// One row of the Library page as rendered. Authors is null when the Book has none. The row's controls are read separately.
+internal sealed record LibraryRow(Guid BookId, string? Title, string? TitleHref, string? Authors);

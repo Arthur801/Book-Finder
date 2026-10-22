@@ -3,20 +3,22 @@ using Book_Finder.Domain.Entities;
 
 namespace Book_Finder.Models;
 
-// What the Library section of the Book detail page needs (user-library.md §5). Entry is null when the Book is not in
-// the signed-in user's Library, and always null for an anonymous visitor.
-public sealed record LibrarySectionViewModel(Guid BookId, bool IsSignedIn, LibraryEntryView? Entry)
+// What the Library section of the Book detail page needs (user-library.md §5). For a signed-in user the section always
+// carries the controls, initialised to the entry's values, or to the not-in-Library defaults when InLibrary is false.
+// Controls is null for an anonymous visitor, who only gets the login link.
+public sealed record LibrarySectionViewModel(Guid BookId, bool IsSignedIn, bool InLibrary, LibraryControlsViewModel? Controls)
 {
     // The anonymous add link. It sends the visitor to log in and then back here to add the Book (identity-auth.md §6).
     public string LoginUrl =>
         $"/account/login?returnUrl={Uri.EscapeDataString($"{PendingLibraryAction.BookPathPrefix}{BookId}")}&pendingAction={PendingLibraryAction.AddToLibrary}";
 
-    public static LibrarySectionViewModel From(Guid bookId, bool isSignedIn, LibraryEntry? entry) =>
-        new(bookId, isSignedIn, entry is null ? null : new LibraryEntryView(
-            ReadingStatusCode.Label(entry.ReadingStatus),
-            ReadingStatusCode.ToCode(entry.ReadingStatus),
-            entry.Rating));
+    public static LibrarySectionViewModel From(Guid bookId, bool isSignedIn, LibraryEntry? entry, string editLoginUrl) =>
+        isSignedIn
+            ? new LibrarySectionViewModel(bookId, true, entry is not null, new LibraryControlsViewModel(
+                bookId,
+                entry?.ReadingStatus ?? ReadingStatus.WantToRead,
+                entry?.Rating,
+                editLoginUrl,
+                Hidden: entry is null))
+            : new LibrarySectionViewModel(bookId, false, false, null);
 }
-
-// One Library entry as the section shows it: the Chinese status label, the status code, and the rating (null = unrated).
-public sealed record LibraryEntryView(string StatusLabel, string StatusCode, short? Rating);

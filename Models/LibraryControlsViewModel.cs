@@ -1,0 +1,23 @@
+using Book_Finder.Domain.Entities;
+using Microsoft.AspNetCore.Http;
+
+namespace Book_Finder.Models;
+
+// The editable Library controls for one Book (ui-flow.md §1, §3.5), shared by the Book page and the Library page. The
+// server renders every label and star (_LibraryControls.cshtml); library.js only sends requests and switches state.
+// Hidden is view state: the Book page renders the controls hidden while the Book is not in the user's Library.
+public sealed record LibraryControlsViewModel(
+    Guid BookId,
+    ReadingStatus Status,
+    short? Rating,
+    string EditLoginUrl,
+    bool Hidden = false)
+{
+    // The three choices, in the order the status select lists them.
+    public static readonly IReadOnlyList<ReadingStatus> StatusChoices =
+        [ReadingStatus.WantToRead, ReadingStatus.Reading, ReadingStatus.Finished];
+
+    // An edit that comes back 401 returns to the page the visitor was on, so no pendingAction is needed (identity-auth.md §6).
+    public static string EditLoginUrlFor(HttpRequest request) =>
+        $"/account/login?returnUrl={Uri.EscapeDataString(request.Path.Value + request.QueryString.Value)}";
+}

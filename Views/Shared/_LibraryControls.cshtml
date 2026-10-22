@@ -1,0 +1,30 @@
+@model Book_Finder.Models.LibraryControlsViewModel
+@using Book_Finder.Application.Library
+@*
+    The Library controls for one Book, used by the Book page and by each row of /library (user-library.md §5, ui-flow.md §3.5).
+    The server renders the labels and the star states; library.js only sends the requests and switches the state
+    (selected option, aria-pressed, disabled, hidden). The antiforgery token is not rendered here: the page renders it once.
+*@
+<div class="library-controls" data-library-controls data-book-id="@Model.BookId" data-login-url="@Model.EditLoginUrl" hidden="@Model.Hidden">
+    <div class="d-flex flex-wrap align-items-center gap-3">
+        <label class="small text-muted d-flex align-items-center gap-2 mb-0">
+            閱讀狀態
+            <select class="form-select form-select-sm w-auto" data-library-status>
+                @foreach (var status in LibraryControlsViewModel.StatusChoices)
+                {
+                    <option value="@ReadingStatusCode.ToCode(status)" selected="@(status == Model.Status)">@ReadingStatusCode.Label(status)</option>
+                }
+            </select>
+        </label>
+        <div class="d-flex align-items-center" role="group" aria-label="評分">
+            @for (var star = 1; star <= 5; star++)
+            {
+                var pressed = Model.Rating is { } rating && star <= rating;
+                <button type="button" class="btn btn-link p-0 px-1 library-star" data-library-rating="@star" aria-pressed="@(pressed ? "true" : "false")" aria-label="評 @star 星">★</button>
+            }
+        </div>
+        <button type="button" class="btn btn-link btn-sm p-0" data-library-clear-rating disabled="@(Model.Rating is null)">清除評分</button>
+        <button type="button" class="btn btn-outline-danger btn-sm" data-library-remove>移除</button>
+    </div>
+    <p class="library-error text-danger small mt-2 mb-0" role="alert" data-library-error hidden data-failed-text="操作失敗，請稍後再試"></p>
+</div>

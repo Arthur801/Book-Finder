@@ -30,11 +30,13 @@ public class BooksController(IBookDetailReader books, LibraryService library) : 
     // Never cached: the Library entry belongs to one user. An anonymous visitor does not touch the Library store.
     private async Task<LibrarySectionViewModel> LibrarySectionAsync(Guid bookId, CancellationToken cancellationToken)
     {
+        // The controls send a 401 back to this page after login, so they carry the current path and query.
+        var editLoginUrl = LibraryControlsViewModel.EditLoginUrlFor(Request);
         if (User.Identity?.IsAuthenticated != true)
-            return LibrarySectionViewModel.From(bookId, isSignedIn: false, entry: null);
+            return LibrarySectionViewModel.From(bookId, isSignedIn: false, entry: null, editLoginUrl);
 
         var entry = await library.FindAsync(User.CurrentUserId(), bookId, cancellationToken);
-        return LibrarySectionViewModel.From(bookId, isSignedIn: true, entry);
+        return LibrarySectionViewModel.From(bookId, isSignedIn: true, entry, editLoginUrl);
     }
 
     private IActionResult NotFoundPage()
