@@ -44,6 +44,7 @@ builder.Services.AddScoped<BookSearchService>();
 // AI recommendation: one Recommendation Search per request, EF candidate search and store (recommendation.md §3).
 builder.Services.AddScoped<ICandidateSearch, EfCandidateSearch>();
 builder.Services.AddScoped<IRecommendationStore, EfRecommendationStore>();
+builder.Services.AddScoped<IRecommendationUsage, EfRecommendationUsage>();
 builder.Services.AddScoped<RecommendationService>();
 
 // Library (#11): one Library service over the EF store (user-library.md §2).
