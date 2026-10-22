@@ -526,6 +526,124 @@ public sealed class RecommendationServiceTests
         Assert.Single(h.Logger.Entries);
     }
 
+    // ----- Book AI profile after the save (#18, recommendation.md §9, invariant 10) -----
+
+    [Fact]
+    public async Task Difficulties_are_read_after_the_save_and_before_the_books_are_queued()
+    {
+        var h = Build();
+        var first = Book("A");
+        var second = Book("B");
+        h.Candidates.Result = [first, second];
+
+        await Recommend(h, UserId, Requirement, CancellationToken.None);
+
+        Assert.Equal(
+            ["save", "read", "find", $"enqueue {first.BookId}", $"enqueue {second.BookId}"],
+            h.Events);
+    }
+
+    // The ranker port carries only candidate metadata, and no profile read happens before ranking. Reflection on the port's
+    // input type is the check: a profile field added to RankingCandidate fails it, and so does reading profiles before ranking.
+    [Fact]
+    public async Task Ranking_finishes_before_any_profile_is_read_and_the_ranker_input_has_no_profile_fields()
+    {
+        var h = Build();
+        h.Candidates.Result = [Book("A")];
+
+        await Recommend(h, UserId, Requirement, CancellationToken.None);
+
+        Assert.Equal(1, h.Profiles.RankerCallsAtFirstRead);
+        Assert.Equal(
+            new[]
+            {
+                "CandidateNo", "Title", "Subtitle", "ContributorNames", "Publisher", "PublishedDate",
+                "PublishedDatePrecision", "Subjects", "Description",
+            }.Order(),
+            typeof(RankingCandidate).GetProperties().Select(property => property.Name).Order());
+    }
+
+    [Fact]
+    public async Task The_difficulty_read_after_the_save_is_carried_in_the_outcome()
+    {
+        var h = Build();
+        var first = Book("A");
+        var second = Book("B");
+        h.Candidates.Result = [first, second];
+        h.Profiles.Difficulties[first.BookId] = 4;
+
+        var outcome = await Recommend(h, UserId, Requirement, CancellationToken.None);
+
+        Assert.Equal(4, outcome.Difficulties[first.BookId]);
+        Assert.False(outcome.Difficulties.ContainsKey(second.BookId));
+    }
+
+    [Fact]
+    public async Task A_failed_difficulty_read_still_succeeds_with_an_empty_snapshot_and_logs_a_warning()
+    {
+        var h = Build();
+        h.Candidates.Result = [Book("A")];
+        var error = new InvalidOperationException("profile table down");
+        h.Profiles.ReadError = error;
+
+        var outcome = await Recommend(h, UserId, Requirement, CancellationToken.None);
+
+        Assert.Empty(outcome.Difficulties);
+        Assert.Single(h.Store.Calls);
+        Assert.Contains("find", h.Events);
+        var warning = Assert.Single(h.Logger.Entries, e => e.Level == LogLevel.Warning);
+        Assert.Same(error, warning.Exception);
+        Assert.DoesNotContain(Requirement, warning.Message);
+    }
+
+    [Fact]
+    public async Task A_failed_schedule_still_succeeds_and_logs_a_warning_from_the_scheduler()
+    {
+        var h = Build();
+        h.Candidates.Result = [Book("A")];
+        var error = new InvalidOperationException("profile lookup down");
+        h.Profiles.FindError = error;
+
+        await Recommend(h, UserId, Requirement, CancellationToken.None);
+
+        Assert.Single(h.Store.Calls);
+        Assert.Empty(h.Queue.Enqueued);
+        var warning = Assert.Single(h.SchedulerLogger.Entries, e => e.Level == LogLevel.Warning);
+        Assert.Same(error, warning.Exception);
+    }
+
+    [Fact]
+    public async Task Zero_results_skip_the_difficulty_read_and_the_scheduling()
+    {
+        var h = Build();
+        h.Candidates.Result = [];
+
+        var outcome = await Recommend(h, UserId, Requirement, CancellationToken.None);
+
+        Assert.Equal(["save"], h.Events);
+        Assert.Empty(outcome.Difficulties);
+    }
+
+    // The 60 s budget ends at the save. A timer firing while the profile steps wait must not turn the saved search into a timeout.
+    [Fact]
+    public async Task A_timeout_firing_after_the_save_does_not_turn_the_saved_search_into_a_timeout()
+    {
+        var h = Build();
+        h.Candidates.Result = [Book("A")];
+        h.Profiles.ReadGate.Close();
+
+        var pending = h.Service.RecommendAsync(UserId, Requirement, CancellationToken.None);
+        // Bounded, so a service that never reads the difficulties fails here instead of waiting forever.
+        await h.Profiles.ReadGate.Entered.WaitAsync(TimeSpan.FromSeconds(5));
+        h.Time.Advance(TimeSpan.FromSeconds(60));
+        h.Profiles.ReadGate.Release();
+
+        var attempt = await pending;
+
+        Assert.IsType<RecommendationAttempt.Succeeded>(attempt);
+        Assert.Single(h.Store.Calls);
+    }
+
     // ----- Helpers -----
 
     private static async Task<RecommendationOutcome> Recommend(Harness h, Guid userId, string requirementText, CancellationToken cancellationToken) =>
@@ -562,7 +680,13 @@ public sealed class RecommendationServiceTests
         var embeddings = new FakeEmbeddingGenerator();
         var candidates = new FakeCandidateSearch();
         var ranker = new FakeRecommendationRanker();
-        var store = new FakeRecommendationStore { Saved = new SavedRecommendationSearch(Guid.NewGuid(), SavedAt) };
+        // One log shared by the fakes whose call order the tests check: the save, the profile reads and the enqueues.
+        var events = new List<string>();
+        var store = new FakeRecommendationStore { Saved = new SavedRecommendationSearch(Guid.NewGuid(), SavedAt), Events = events };
+        var profiles = new FakeProfileStore(events, ranker);
+        var queue = new FakeProfileQueue(events);
+        var schedulerLogger = new RecordingLogger<BookProfileScheduler>();
+        var scheduler = new BookProfileScheduler(profiles, queue, schedulerLogger);
         var logger = new RecordingLogger<RecommendationService>();
         var usage = new FakeRecommendationUsage(parser);
         var time = new FakeTimeProvider(new DateTimeOffset(SavedAt));
@@ -573,10 +697,12 @@ public sealed class RecommendationServiceTests
             ranker,
             store,
             usage,
+            profiles,
+            scheduler,
             Options.Create(options ?? new RecommendationOptions()),
             time,
             logger);
-        return new Harness(service, parser, embeddings, candidates, ranker, store, usage, logger, time);
+        return new Harness(service, parser, embeddings, candidates, ranker, store, usage, profiles, queue, schedulerLogger, logger, time, events);
     }
 
     private sealed record Harness(
@@ -587,8 +713,74 @@ public sealed class RecommendationServiceTests
         FakeRecommendationRanker Ranker,
         FakeRecommendationStore Store,
         FakeRecommendationUsage Usage,
+        FakeProfileStore Profiles,
+        FakeProfileQueue Queue,
+        RecordingLogger<BookProfileScheduler> SchedulerLogger,
         RecordingLogger<RecommendationService> Logger,
-        FakeTimeProvider Time);
+        FakeTimeProvider Time,
+        List<string> Events);
+
+    // Scripted IBookProfileStore for the profile steps. Reads and finds are recorded in Events. ReadGate holds the difficulty read
+    // open, so a test can move fake time while the read is still waiting.
+    private sealed class FakeProfileStore(List<string> events, FakeRecommendationRanker ranker) : IBookProfileStore
+    {
+        public Dictionary<Guid, short> Difficulties { get; } = [];
+        public Exception? ReadError { get; set; }
+        public Exception? FindError { get; set; }
+        public CallGate ReadGate { get; } = new();
+
+        // How many ranker calls had happened when the first profile read started. 0 would mean a read happened before ranking.
+        public int RankerCallsAtFirstRead { get; private set; } = -1;
+
+        public Task<IReadOnlyList<Guid>> FindStaleAsync(IReadOnlyCollection<Guid> bookIds, CancellationToken cancellationToken)
+        {
+            events.Add("find");
+            if (FindError is not null)
+                return Task.FromException<IReadOnlyList<Guid>>(FindError);
+
+            return Task.FromResult<IReadOnlyList<Guid>>(bookIds.ToList());
+        }
+
+        public async Task<IReadOnlyDictionary<Guid, short>> ReadDifficultiesAsync(IReadOnlyCollection<Guid> bookIds, CancellationToken cancellationToken)
+        {
+            if (RankerCallsAtFirstRead < 0)
+                RankerCallsAtFirstRead = ranker.Calls.Count;
+            events.Add("read");
+
+            await ReadGate.PassAsync(cancellationToken);
+            if (ReadError is not null)
+                throw ReadError;
+
+            return bookIds.Where(Difficulties.ContainsKey).ToDictionary(id => id, id => Difficulties[id]);
+        }
+
+        public Task<BookProfileSource?> LoadSourceAsync(Guid bookId, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task UpsertAsync(
+            Guid bookId,
+            GeneratedBookProfile profile,
+            string sourceContentHash,
+            string modelName,
+            string promptVersion,
+            CancellationToken cancellationToken) => throw new NotSupportedException();
+    }
+
+    // Records every enqueue in Events, so the order against the save and the reads can be checked.
+    private sealed class FakeProfileQueue(List<string> events) : IBookProfileQueue
+    {
+        public List<Guid> Enqueued { get; } = [];
+
+        public bool TryEnqueue(Guid bookId)
+        {
+            events.Add($"enqueue {bookId}");
+            Enqueued.Add(bookId);
+            return true;
+        }
+
+        public IAsyncEnumerable<Guid> ReadAllAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public void Complete(Guid bookId) => throw new NotSupportedException();
+    }
 
     // Scripted IRecommendationUsage. Count is the number of searches already saved today; every request is recorded.
     private sealed class FakeRecommendationUsage(FakeRequirementParser parser) : IRecommendationUsage
@@ -639,6 +831,7 @@ public sealed class RecommendationServiceTests
     {
         public List<Call> Calls { get; } = [];
         public SavedRecommendationSearch Saved { get; init; } = new(Guid.Empty, DateTime.MinValue);
+        public List<string>? Events { get; init; }
         public Exception? Error { get; set; }
 
         public Task<SavedRecommendationSearch> SaveAsync(
@@ -648,6 +841,7 @@ public sealed class RecommendationServiceTests
             CancellationToken cancellationToken)
         {
             Calls.Add(new Call(userId, requirementText, results));
+            Events?.Add("save");
 
             if (Error is not null)
                 return Task.FromException<SavedRecommendationSearch>(Error);

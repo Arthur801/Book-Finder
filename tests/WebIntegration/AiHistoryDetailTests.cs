@@ -200,6 +200,42 @@ public sealed partial class AiHistoryDetailTests(WebFixture fixture)
         Assert.Contains("列表裡的需求", detail);
     }
 
+    // The difficulty is read when the page is shown, so a profile stored after the search shows up on its detail page. The saved
+    // rows never change: difficulty is not written to recommendation_results.
+    [Fact]
+    public async Task Difficulty_is_read_live_from_the_profile_and_the_saved_results_stay_as_they_were()
+    {
+        await fixture.ResetDatabaseAsync();
+        var book = (await CatalogSeed.AddBooksAsync(fixture, [new BookSeed("甲書")])).Single();
+        await using var app = fixture.CreateFactory();
+        var client = await SignInAsync(app, "detail-live-difficulty@x.com");
+        var searchId = await SeedSearchAsync(await UserIdAsync("detail-live-difficulty@x.com"), CreatedAtUtc, "需求",
+            new SavedResult(book.BookId, "當時的理由", 0.82m));
+        Assert.Equal("相關度 82%　難度 —", DetailRows(await client.GetPageAsync(DetailPath(searchId))).Single().Meta);
+
+        await using (var db = fixture.CreateContext())
+        {
+            db.BookAiProfiles.Add(new BookAiProfile
+            {
+                BookId = book.BookId,
+                Difficulty = 3,
+                SourceContentHash = new string('a', 64),
+                ModelName = "fake-model",
+                PromptVersion = "fake-v1",
+                UpdatedAt = DateTime.UtcNow,
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var row = Assert.Single(DetailRows(await client.GetPageAsync(DetailPath(searchId))));
+        Assert.Equal(new DetailRow("1", book.BookId, "甲書", null, "當時的理由", "相關度 82%　難度 3"), row);
+
+        await using var check = fixture.CreateContext();
+        var saved = await check.RecommendationResults.AsNoTracking().SingleAsync(result => result.SearchId == searchId);
+        Assert.Equal("當時的理由", saved.Reason);
+        Assert.Equal(0.82m, saved.RelevanceScore);
+    }
+
     private static string DetailPath(Guid searchId) => $"/ai/history/{searchId}";
 
     // Writes a search with its snapshot results straight to the database, so created_at and the saved values are exactly what the test says.

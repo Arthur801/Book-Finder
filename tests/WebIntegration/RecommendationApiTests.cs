@@ -463,6 +463,106 @@ public sealed class RecommendationApiTests(WebFixture fixture)
         await AssertSearchCountAsync(20);
     }
 
+    // ----- Difficulty from the Book AI Profile (#18, recommendation.md §9) -----
+    // The fake profile generator answers at once, so the first test is the regression guard for the step order: the snapshot is read
+    // before the Books are queued, and a worker that finishes early cannot change the first response.
+
+    [Fact]
+    public async Task First_recommendation_shows_null_difficulty_even_though_the_profile_generator_answers_at_once()
+    {
+        await fixture.ResetDatabaseAsync();
+        await using var app = fixture.CreateFactory();
+        await SeedEmbeddedBooksAsync(fixture, [(new BookSeed("甲書"), 0.9), (new BookSeed("乙書"), 0.8)]);
+        var client = await SignInAsync(app, "rec-diff-first@x.com");
+
+        var response = await PostRecommendationAsync(client, await TokenAsync(client), Body("想看小說"));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(new short?[] { null, null }, await ResultDifficultiesAsync(response));
+    }
+
+    [Fact]
+    public async Task Next_recommendation_shows_the_difficulty_once_the_worker_has_stored_the_profiles()
+    {
+        await fixture.ResetDatabaseAsync();
+        await using var app = fixture.CreateFactory();
+        var books = await SeedEmbeddedBooksAsync(fixture, [(new BookSeed("甲書"), 0.9), (new BookSeed("乙書"), 0.8)]);
+        var client = await SignInAsync(app, "rec-diff-next@x.com");
+        await PostRecommendationAsync(client, await TokenAsync(client), Body("想看小說"));
+        await WaitForProfilesAsync(books.Select(book => book.BookId).ToList());
+
+        var response = await PostRecommendationAsync(client, await TokenAsync(client), Body("想看小說"));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        // The fake generator answers with difficulty 3 for every Book.
+        Assert.Equal(new short?[] { 3, 3 }, await ResultDifficultiesAsync(response));
+    }
+
+    [Fact]
+    public async Task Books_whose_stored_profile_matches_their_metadata_are_not_generated_again()
+    {
+        await fixture.ResetDatabaseAsync();
+        await using var app = fixture.CreateFactory();
+        var books = await SeedEmbeddedBooksAsync(fixture, [(new BookSeed("甲書"), 0.9), (new BookSeed("乙書"), 0.8)]);
+        var client = await SignInAsync(app, "rec-diff-hash@x.com");
+        await PostRecommendationAsync(client, await TokenAsync(client), Body("想看小說"));
+        await WaitForProfilesAsync(books.Select(book => book.BookId).ToList());
+        var generatedBefore = app.BookProfileGenerator.Calls.Count;
+
+        var response = await PostRecommendationAsync(client, await TokenAsync(client), Body("想看小說"));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(2, generatedBefore);
+        Assert.Equal(generatedBefore, app.BookProfileGenerator.Calls.Count);
+    }
+
+    [Fact]
+    public async Task Generating_profiles_leaves_the_book_description_and_table_of_contents_unchanged()
+    {
+        await fixture.ResetDatabaseAsync();
+        await using var app = fixture.CreateFactory();
+        var books = await SeedEmbeddedBooksAsync(fixture, [
+            (new BookSeed("甲書") { Description = "甲的簡介", TableOfContents = "甲的目錄" }, 0.9),
+        ]);
+        var client = await SignInAsync(app, "rec-diff-source@x.com");
+        await PostRecommendationAsync(client, await TokenAsync(client), Body("想看小說"));
+        await WaitForProfilesAsync(books.Select(book => book.BookId).ToList());
+
+        await using var db = fixture.CreateContext();
+        var stored = await db.Books.AsNoTracking().SingleAsync(book => book.Id == books[0].BookId);
+        Assert.Equal("甲的簡介", stored.Description);
+        Assert.Equal("甲的目錄", stored.TableOfContents);
+    }
+
+    // The worker runs in the host after the response, so the test polls the profile table up to a deadline instead of sleeping.
+    private async Task WaitForProfilesAsync(IReadOnlyList<Guid> bookIds)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (true)
+        {
+            await using (var db = fixture.CreateContext())
+            {
+                if (await db.BookAiProfiles.CountAsync(profile => bookIds.Contains(profile.BookId)) == bookIds.Count)
+                    return;
+            }
+
+            if (DateTime.UtcNow > deadline)
+                Assert.Fail("The profile worker did not store the profiles in time.");
+            await Task.Delay(20);
+        }
+    }
+
+    // The difficulty of each result in order, null when the response has none.
+    private static async Task<short?[]> ResultDifficultiesAsync(HttpResponseMessage response)
+    {
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        return document.RootElement.GetProperty("results").EnumerateArray()
+            .Select(result => result.GetProperty("difficulty").ValueKind == JsonValueKind.Null
+                ? (short?)null
+                : result.GetProperty("difficulty").GetInt16())
+            .ToArray();
+    }
+
     // The clock starts 30 minutes before the next Taipei midnight, so the day can roll over during a test.
     private static DateTimeOffset NearTaipeiMidnight()
     {
