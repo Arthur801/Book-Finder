@@ -91,42 +91,19 @@ internal sealed class EfBookProfileStore(AppDbContext db, TimeProvider time) : I
         return rows.ToDictionary(row => row.BookId, row => row.Difficulty);
     }
 
-    // Loads all Books in one query per table. Contributors are in contributor_order, all roles; subjects from every source.
+    // The profile source of each given Book that exists. Only the given ids are read.
     private async Task<Dictionary<Guid, BookProfileSource>> LoadSourcesAsync(Guid[] ids, CancellationToken cancellationToken)
     {
-        var books = await db.Books.AsNoTracking()
-            .Where(book => ids.Contains(book.Id))
-            .Select(book => new { book.Id, book.Title, book.Subtitle, book.Publisher, book.Description, book.TableOfContents })
-            .ToListAsync(cancellationToken);
-
-        var contributors = await db.BookContributors.AsNoTracking()
-            .Where(contributor => ids.Contains(contributor.BookId))
-            .Select(contributor => new { contributor.BookId, contributor.ContributorOrder, contributor.Name })
-            .ToListAsync(cancellationToken);
-
-        var subjects = await db.BookSubjects.AsNoTracking()
-            .Where(subject => ids.Contains(subject.BookId))
-            .Select(subject => new { subject.BookId, subject.Subject })
-            .ToListAsync(cancellationToken);
-
-        var contributorNamesByBook = contributors
-            .GroupBy(contributor => contributor.BookId)
-            .ToDictionary(
-                group => group.Key,
-                group => group.OrderBy(contributor => contributor.ContributorOrder).Select(contributor => contributor.Name).ToList());
-
-        var subjectsByBook = subjects
-            .GroupBy(subject => subject.BookId)
-            .ToDictionary(group => group.Key, group => group.Select(subject => subject.Subject).ToList());
+        var books = await BookMetadata.LoadAsync(db, ids, cancellationToken);
 
         return books.ToDictionary(
             book => book.Id,
             book => new BookProfileSource(
                 book.Title,
                 book.Subtitle,
-                contributorNamesByBook.GetValueOrDefault(book.Id) ?? [],
+                book.ContributorNames,
                 book.Publisher,
-                subjectsByBook.GetValueOrDefault(book.Id) ?? [],
+                book.Subjects,
                 book.Description,
                 book.TableOfContents));
     }

@@ -11,31 +11,11 @@ internal sealed class EfEmbeddingStore(AppDbContext db, TimeProvider time) : IEm
 {
     public async Task<IReadOnlyList<PendingEmbedding>> FindPendingAsync(int limit, CancellationToken cancellationToken)
     {
-        var books = await db.Books.AsNoTracking()
-            .Select(book => new { book.Id, book.Title, book.Subtitle, book.Description, book.CreatedAt })
-            .ToListAsync(cancellationToken);
-
-        var contributors = await db.BookContributors.AsNoTracking()
-            .Select(contributor => new { contributor.BookId, contributor.ContributorOrder, contributor.Name })
-            .ToListAsync(cancellationToken);
-
-        var subjects = await db.BookSubjects.AsNoTracking()
-            .Select(subject => new { subject.BookId, subject.Subject })
-            .ToListAsync(cancellationToken);
+        var books = await BookMetadata.LoadAsync(db, null, cancellationToken);
 
         var storedHashes = await db.BookEmbeddings.AsNoTracking()
             .Select(embedding => new { embedding.BookId, embedding.SourceContentHash })
             .ToListAsync(cancellationToken);
-
-        var contributorNamesByBook = contributors
-            .GroupBy(contributor => contributor.BookId)
-            .ToDictionary(
-                group => group.Key,
-                group => group.OrderBy(contributor => contributor.ContributorOrder).Select(contributor => contributor.Name).ToList());
-
-        var subjectsByBook = subjects
-            .GroupBy(subject => subject.BookId)
-            .ToDictionary(group => group.Key, group => group.Select(subject => subject.Subject).ToList());
 
         var hashByBook = storedHashes.ToDictionary(embedding => embedding.BookId, embedding => embedding.SourceContentHash);
 
@@ -47,8 +27,8 @@ internal sealed class EfEmbeddingStore(AppDbContext db, TimeProvider time) : IEm
             var source = new BookEmbeddingSource(
                 book.Title,
                 book.Subtitle,
-                contributorNamesByBook.GetValueOrDefault(book.Id) ?? [],
-                subjectsByBook.GetValueOrDefault(book.Id) ?? [],
+                book.ContributorNames,
+                book.Subjects,
                 book.Description);
 
             var text = BookEmbeddingText.Build(source);
