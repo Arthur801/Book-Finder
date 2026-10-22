@@ -22,7 +22,7 @@ public sealed record AiHistoryListViewModel(
     public static int TotalPagesOf(int totalCount) => (int)((totalCount + (long)PageSize - 1) / PageSize);
 
     // Precondition: CurrentPage is within 1..TotalPages whenever there are searches (the controller loads the last page for a page past the end).
-    public static AiHistoryListViewModel From(HistoryPage page, int currentPage)
+    public static AiHistoryListViewModel From(RecommendationSearchPage page, int currentPage)
     {
         var totalPages = TotalPagesOf(page.TotalCount);
 
