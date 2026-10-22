@@ -13,7 +13,7 @@ public sealed record RecommendationResponse(
     public static RecommendationResponse From(RecommendationOutcome outcome) => new(
         outcome.SearchId,
         // Shown in Asia/Taipei, as the contract's +08:00 offset. The outcome time is UTC.
-        TimeZoneInfo.ConvertTime(new DateTimeOffset(DateTime.SpecifyKind(outcome.CreatedAt, DateTimeKind.Utc)), TaipeiTimeZone.Taipei),
+        TaipeiTimeZone.FromUtc(outcome.CreatedAt),
         // Google Books fallback is added in #14; until then no search uses it.
         FallbackUsed: false,
         outcome.Results.Select(RecommendationResultResponse.From).ToList());

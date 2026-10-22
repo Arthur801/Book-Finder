@@ -63,7 +63,7 @@
 | AI 紀錄為空 | 「還沒有 AI 搜尋紀錄」 |
 | AI 推薦 429（每日上限） | 「今天的 AI 推薦次數已用完，明天再來」 |
 | AI 推薦失敗 / 逾時 | 「AI 推薦暫時無法使用，請稍後再試」，保留輸入文字 |
-| JSON 端點 401 | 導向登入頁並帶 `returnUrl` 為目前頁面 |
+| JSON 端點 401 | 導向登入頁並帶 `returnUrl` 為目前頁面；書籍頁「加入書單」另帶 `pendingAction=add-to-library`，登入後自動加入（`identity-auth.md` §6） |
 | `/books/{id}`、`/ai/history/{id}` 不存在或非本人 | 404 頁 |
 | 伺服器錯誤 | 共用錯誤頁（不顯示 stack trace） |
 

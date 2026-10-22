@@ -35,7 +35,8 @@
 ## 4. 書單頁 `/library`
 
 - 依 `updated_at` 新到舊排序，不分頁。
-- 可依 Reading Status 篩選（全部 / 想讀 / 閱讀中 / 已讀），篩選以 query string 表示。
+- 可依 Reading Status 篩選（全部 / 想讀 / 閱讀中 / 已讀），篩選以 query string 表示：`?status=WANT_TO_READ|READING|FINISHED`。缺少或不合法的值視為「全部」，不回錯誤（#11 決定）。
+- Reading Status 顯示名稱：`WANT_TO_READ` 想讀、`READING` 閱讀中、`FINISHED` 已讀。評分顯示為五顆星（例：4 分為 ★★★★☆），沒有評分顯示「未評分」（#11 決定）。
 - 每筆：封面、書名、作者、Reading Status（可直接修改）、評分（可直接修改）、移除按鈕；點擊書名進入 `/books/{id}`。
 - 空書單顯示「還沒有加入任何書」與前往暢銷榜的連結。
 
@@ -44,6 +45,7 @@
 - 已登入且在 Library 中：顯示並可修改 Reading Status、評分，以及移除。
 - 已登入但不在 Library 中：顯示「加入書單」。
 - 未登入：顯示「加入書單」，點擊走待辦動作流程。
+- 已登入時按「加入書單」若收到 401（token 過期），同樣走待辦動作流程（`identity-auth.md` §6）。
 
 修改皆透過 JSON 端點（`api-spec.md`），成功後就地更新畫面，不重新載入頁面。
 

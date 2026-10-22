@@ -1,5 +1,6 @@
 using Book_Finder.Application.Library;
 using Book_Finder.Domain.Entities;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 
 namespace UnitTests;
@@ -10,6 +11,7 @@ public sealed class LibraryServiceTests
     private static readonly Guid UserA = Guid.Parse("00000000-0000-0000-0000-00000000000a");
     private static readonly Guid UserB = Guid.Parse("00000000-0000-0000-0000-00000000000b");
     private static readonly Guid BookId = Guid.Parse("00000000-0000-0000-0000-000000000001");
+    private const string PendingAction = "add-to-library";
 
     [Fact]
     public async Task Add_new_entry_is_want_to_read_without_rating_and_uses_fake_time()
@@ -133,11 +135,74 @@ public sealed class LibraryServiceTests
         Assert.Equal<(Guid, ReadingStatus?)?>((UserB, null), store.LastListArgs);
     }
 
+    [Fact]
+    public async Task Pending_add_with_a_valid_action_and_book_path_adds_the_book()
+    {
+        var (sut, store, _) = Create();
+
+        await sut.AddPendingAsync(UserA, PendingAction, "/books/" + BookId, CancellationToken.None);
+
+        Assert.Equal(1, store.AddCallCount);
+        Assert.NotNull(store.Find(UserA, BookId));
+    }
+
+    [Theory]
+    [InlineData(null, "/books/{0}")]
+    [InlineData("other", "/books/{0}")]
+    [InlineData("add-to-library", null)]
+    [InlineData("add-to-library", "/ai")]
+    [InlineData("add-to-library", "/books/{0}?x=1")]
+    public async Task Pending_add_with_an_unrelated_action_or_return_url_does_nothing(string? pendingAction, string? returnUrl)
+    {
+        var (sut, store, _) = Create();
+
+        await sut.AddPendingAsync(UserA, pendingAction, returnUrl?.Replace("{0}", BookId.ToString()), CancellationToken.None);
+
+        Assert.Equal(0, store.AddCallCount);
+        Assert.Empty(store.Entries);
+    }
+
+    [Fact]
+    public async Task Pending_add_completes_without_throwing_when_the_store_fails()
+    {
+        var (sut, store, _) = Create();
+        store.ThrowOnAdd = new InvalidOperationException("database down");
+
+        await sut.AddPendingAsync(UserA, PendingAction, "/books/" + BookId, CancellationToken.None);
+
+        Assert.Equal(1, store.AddCallCount);
+        Assert.Empty(store.Entries);
+    }
+
+    [Fact]
+    public async Task Pending_add_rethrows_cancellation_when_the_request_token_is_cancelled()
+    {
+        var (sut, store, _) = Create();
+        using var cts = new CancellationTokenSource();
+        await cts.CancelAsync();
+        store.ThrowOnAdd = new OperationCanceledException(cts.Token);
+
+        await Assert.ThrowsAsync<OperationCanceledException>(() =>
+            sut.AddPendingAsync(UserA, PendingAction, "/books/" + BookId, cts.Token));
+    }
+
+    [Fact]
+    public async Task Pending_add_completes_when_the_book_does_not_exist()
+    {
+        var (sut, store, _) = Create();
+        var unknownBook = Guid.NewGuid();
+
+        await sut.AddPendingAsync(UserA, PendingAction, "/books/" + unknownBook, CancellationToken.None);
+
+        Assert.Equal(1, store.AddCallCount);
+        Assert.Empty(store.Entries);
+    }
+
     private static (LibraryService Sut, FakeLibraryStore Store, FakeTimeProvider Time) Create()
     {
         var store = new FakeLibraryStore(BookId);
         var time = new FakeTimeProvider(Now);
-        var sut = new LibraryService(store, time);
+        var sut = new LibraryService(store, time, NullLogger<LibraryService>.Instance);
         return (sut, store, time);
     }
 
@@ -149,6 +214,8 @@ public sealed class LibraryServiceTests
         private readonly Dictionary<(Guid UserId, Guid BookId), LibraryEntry> _entries = [];
 
         public int AddCallCount { get; private set; }
+
+        public Exception? ThrowOnAdd { get; set; }
 
         public (Guid UserId, Guid BookId)? LastFindArgs { get; private set; }
 
@@ -171,6 +238,9 @@ public sealed class LibraryServiceTests
         public Task<LibraryEntry?> AddIfMissingAsync(LibraryEntry entry, CancellationToken ct)
         {
             AddCallCount++;
+            if (ThrowOnAdd is not null)
+                throw ThrowOnAdd;
+
             if (!_books.Contains(entry.BookId))
                 return Task.FromResult<LibraryEntry?>(null);
 

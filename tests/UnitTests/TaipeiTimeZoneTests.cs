@@ -30,6 +30,20 @@ public sealed class TaipeiTimeZoneTests
     }
 
     [Fact]
+    public void From_utc_shows_the_stored_utc_time_at_plus_8_and_treats_the_value_as_utc()
+    {
+        var expected = new DateTimeOffset(2026, 10, 22, 0, 0, 0, TimeSpan.FromHours(8));
+
+        var fromUtcKind = TaipeiTimeZone.FromUtc(new DateTime(2026, 10, 21, 16, 0, 0, DateTimeKind.Utc));
+        var unspecifiedKind = TaipeiTimeZone.FromUtc(new DateTime(2026, 10, 21, 16, 0, 0, DateTimeKind.Unspecified));
+
+        Assert.Equal(expected, fromUtcKind);
+        Assert.Equal(TimeSpan.FromHours(8), fromUtcKind.Offset);
+        Assert.Equal(expected, unspecifiedKind);
+        Assert.Equal(TimeSpan.FromHours(8), unspecifiedKind.Offset);
+    }
+
+    [Fact]
     public void Captured_at_is_shown_in_taipei_time_with_the_fallback_zone()
     {
         var fallback = TaipeiTimeZone.Resolve(_ => throw new TimeZoneNotFoundException());

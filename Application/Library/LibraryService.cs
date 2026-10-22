@@ -1,9 +1,10 @@
 using Book_Finder.Domain.Entities;
+using Microsoft.Extensions.Logging;
 
 namespace Book_Finder.Application.Library;
 
-// Library use cases (user-library.md §3, §4). The rules live here; storage is the injected ILibraryStore port.
-public sealed class LibraryService(ILibraryStore store, TimeProvider time)
+// Library use cases (user-library.md §3, §4, §5). The rules live here; storage is the injected ILibraryStore port.
+public sealed class LibraryService(ILibraryStore store, TimeProvider time, ILogger<LibraryService> logger)
 {
     public async Task<AddToLibraryResult> AddAsync(Guid userId, Guid bookId, CancellationToken ct)
     {
@@ -24,6 +25,29 @@ public sealed class LibraryService(ILibraryStore store, TimeProvider time)
             return new AddToLibraryResult.BookNotFound();
 
         return new AddToLibraryResult.Added(stored);
+    }
+
+    // The pending add is best-effort (identity-auth.md §6): the sign-in or registration has already succeeded, so a failure
+    // here is logged and the caller still goes on. Only a cancelled request is allowed to propagate.
+    public async Task AddPendingAsync(Guid userId, string? pendingAction, string? returnUrl, CancellationToken ct)
+    {
+        if (PendingLibraryAction.TryGetBookToAdd(pendingAction, returnUrl) is not { } bookId)
+            return;
+
+        try
+        {
+            var result = await AddAsync(userId, bookId, ct);
+            if (result is AddToLibraryResult.BookNotFound)
+                logger.LogWarning("Pending add-to-library skipped: Book {BookId} does not exist (user {UserId}).", bookId, userId);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(exception, "Pending add-to-library failed for user {UserId} and Book {BookId}; signing in anyway.", userId, bookId);
+        }
     }
 
     public Task<LibraryEntry?> FindAsync(Guid userId, Guid bookId, CancellationToken ct) =>

@@ -69,7 +69,9 @@ MVP 不做：Google 帳號登入、email 驗證、忘記密碼、修改個人資
 - 登入或註冊成功後，若 `pendingAction=add-to-library` 且 `returnUrl` 為 `/books/{id}`：
   1. 依 `user-library.md` 加入規則加入該書（已存在則不變）；
   2. 導向 `/books/{id}`。
-- 不認得的 `pendingAction` 忽略。
+- 不認得的 `pendingAction` 忽略。`returnUrl` 必須正好是 `/books/{id}`（`id` 為標準連字號格式的 GUID，不帶 query、fragment 或其他路徑），否則不執行待辦動作，只照常導向。
+- 待辦動作是 best-effort 的後續步驟（#11 決定）：登入或註冊成功是主要結果，加入失敗（Book 不存在、資料庫錯誤等）只記 Warning log（含 user id 與 book id，不含 email 或密碼），仍照常發 cookie 並導向 `returnUrl`，不回錯誤。使用者回到書籍頁時會再看到「加入書單」，可以自己重按。
+- 已登入但 token 過期時，在書籍頁按「加入書單」收到 401，同樣導向 `/account/login?returnUrl=/books/{id}&pendingAction=add-to-library`，登入後自動完成加入（#11 決定）。
 
 ## 7. Rate Limiting
 

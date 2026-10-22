@@ -4,8 +4,6 @@
     'use strict';
 
     var API_URL_PREFIX = '/api/library/';
-    var LOGIN_PATH = '/account/login';
-    var PENDING_ACTION = 'add-to-library';
     var ADD_FAILED_TEXT = '加入失敗，請稍後再試';
     var UNRATED_TEXT = '未評分';
     var STATUS_LABELS = {
@@ -36,9 +34,9 @@
     }
 
     // Sends the visitor to log in, and from there back to this Book page, which then adds it (identity-auth.md §6).
-    function redirectToLogin() {
-        var returnUrl = encodeURIComponent(window.location.pathname + window.location.search);
-        window.location.assign(LOGIN_PATH + '?returnUrl=' + returnUrl + '&pendingAction=' + PENDING_ACTION);
+    // The URL is the one the server rendered on the button, so the return path is the Book detail path only.
+    function redirectToLogin(loginUrl) {
+        window.location.assign(loginUrl);
     }
 
     // The same markup the server renders for a Book in the Library (_LibrarySection.cshtml), so the page looks alike.
@@ -93,7 +91,7 @@
             .then(function (response) {
                 if (response.status === 401) {
                     // The session expired or was never there: go through login and come back to add the Book.
-                    redirectToLogin();
+                    redirectToLogin(button.getAttribute('data-login-url'));
                     return null;
                 }
                 if (response.status !== 200) {

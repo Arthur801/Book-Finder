@@ -16,10 +16,7 @@ public sealed record LibraryEntryResponse(
         entry.BookId,
         ReadingStatusCode.ToCode(entry.ReadingStatus),
         entry.Rating,
-        ToTaipei(entry.AddedAt),
-        ToTaipei(entry.UpdatedAt));
-
-    // Shown in Asia/Taipei, as the contract's +08:00 offset. The stored time is UTC.
-    private static DateTimeOffset ToTaipei(DateTime utc) =>
-        TimeZoneInfo.ConvertTime(new DateTimeOffset(DateTime.SpecifyKind(utc, DateTimeKind.Utc)), TaipeiTimeZone.Taipei);
+        // Shown in Asia/Taipei, as the contract's +08:00 offset. The stored times are UTC.
+        TaipeiTimeZone.FromUtc(entry.AddedAt),
+        TaipeiTimeZone.FromUtc(entry.UpdatedAt));
 }
