@@ -13,9 +13,8 @@ else if (Model.Entry is null)
 else
 {
     // Read-only in #11; #12 adds the controls that change status and rating.
-    var stars = Model.Entry.Rating;
     <div class="library-status">
         <p class="mb-1">書單狀態：@Model.Entry.StatusLabel</p>
-        <p class="library-rating mb-0">@(stars is { } count ? new string('★', count) + new string('☆', 5 - count) : "未評分")</p>
+        <p class="library-rating mb-0">@RatingText.From(Model.Entry.Rating)</p>
     </div>
 }
