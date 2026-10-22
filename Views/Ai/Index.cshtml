@@ -1,3 +1,4 @@
+@model Book_Finder.Models.AiHistoryListViewModel
 @{
     ViewData["Title"] = "AI 推薦";
 }
@@ -15,6 +16,8 @@
     <p id="ai-status" class="text-muted" role="status" aria-live="polite"></p>
     <ol id="ai-results" class="list-unstyled mb-0"></ol>
 </section>
+
+<partial name="_AiHistoryList" model="Model" />
 
 @section Scripts {
     <script src="~/js/ai.js" asp-append-version="true"></script>

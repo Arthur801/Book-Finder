@@ -1,0 +1,72 @@
+@model Book_Finder.Models.AiHistoryListViewModel
+@*
+    The AI search history list (recommendation.md §12, ui-flow.md §3.4). /ai renders it below the form, and /ai/history-list returns
+    it alone so ai.js can replace the whole section after a successful search. This partial is the only place the list markup lives.
+*@
+
+<section id="ai-history" class="mt-5" aria-labelledby="ai-history-heading">
+    <h2 id="ai-history-heading" class="h5 mb-3">AI 搜尋紀錄</h2>
+
+    @if (Model.HasItems)
+    {
+        <ol class="list-unstyled ai-history-list mb-0">
+            @foreach (var item in Model.Items)
+            {
+                <li class="border-bottom">
+                    <a class="ai-history-item d-block py-2 text-decoration-none" href="/ai/history/@item.SearchId">
+                        <div class="ai-history-requirement" title="@item.RequirementText">@item.RequirementText</div>
+                        <div class="d-flex gap-3 small text-muted">
+                            <span class="ai-history-time">@item.CreatedAtText</span>
+                            <span class="ai-history-count">@item.ResultCount 本</span>
+                        </div>
+                    </a>
+                </li>
+            }
+        </ol>
+    }
+    else
+    {
+        <p class="text-muted">還沒有 AI 搜尋紀錄</p>
+    }
+
+    @if (Model.TotalCount > 0)
+    {
+        <nav aria-label="AI 搜尋紀錄分頁" class="search-pager mt-4">
+            <ul class="pagination flex-wrap">
+                @if (Model.PreviousUrl is { } previousUrl)
+                {
+                    <li class="page-item"><a class="page-link" href="@previousUrl" rel="prev">上一頁</a></li>
+                }
+                else
+                {
+                    <li class="page-item disabled"><span class="page-link" aria-disabled="true">上一頁</span></li>
+                }
+
+                @foreach (var link in Model.PageLinks)
+                {
+                    if (link.Page is null)
+                    {
+                        <li class="page-item disabled"><span class="page-link">…</span></li>
+                    }
+                    else if (link.IsCurrent)
+                    {
+                        <li class="page-item active"><span class="page-link" aria-current="page">@link.Page</span></li>
+                    }
+                    else
+                    {
+                        <li class="page-item"><a class="page-link" href="@link.Url">@link.Page</a></li>
+                    }
+                }
+
+                @if (Model.NextUrl is { } nextUrl)
+                {
+                    <li class="page-item"><a class="page-link" href="@nextUrl" rel="next">下一頁</a></li>
+                }
+                else
+                {
+                    <li class="page-item disabled"><span class="page-link" aria-disabled="true">下一頁</span></li>
+                }
+            </ul>
+        </nav>
+    }
+</section>
