@@ -6,6 +6,7 @@
     var STORAGE_KEY = 'bookFinder.aiRequirement';
     var API_URL = '/api/recommendations';
     var LOGIN_URL = '/account/login?returnUrl=%2Fai';
+    var HISTORY_LIST_URL = '/ai/history-list?page=1';
     var SEARCHING_TEXT = 'AI 正在為你找書…（約需 10～30 秒）';
     var EMPTY_TEXT = '請輸入閱讀需求';
     var NO_RESULT_TEXT = '找不到符合的書，試著換個描述';
@@ -111,6 +112,31 @@
             return row;
         }
 
+        // ui-flow.md §3.4: after a successful search the history list shows page 1 again, fetched from the server so the
+        // rows and the pager come from the same partial as the page (no list markup or paging rule here). If the fetch
+        // fails the old list simply stays; the results above are already shown.
+        function refreshHistory() {
+            fetch(HISTORY_LIST_URL, { credentials: 'same-origin' })
+                .then(function (response) {
+                    if (response.status !== 200) {
+                        return null;
+                    }
+                    return response.text().then(function (html) {
+                        var current = document.getElementById('ai-history');
+                        if (current) {
+                            current.outerHTML = html;
+                        }
+                        // The list now shows page 1, so the address should too (a reload then shows the same list).
+                        if (window.location.search !== '') {
+                            window.history.replaceState(null, '', '/ai');
+                        }
+                    });
+                })
+                .catch(function () {
+                    // Nothing to do: the old list stays.
+                });
+        }
+
         function renderResults(items) {
             if (items.length === 0) {
                 showStatus(NO_RESULT_TEXT);
@@ -133,6 +159,7 @@
             if (response.status === 200) {
                 return response.json().then(function (body) {
                     renderResults(body.results || []);
+                    refreshHistory();
                 });
             }
             // ui-flow.md §3.5: the daily limit has its own message; 502, 504 and anything else fall through to the
