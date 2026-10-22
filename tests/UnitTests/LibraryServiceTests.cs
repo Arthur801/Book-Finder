@@ -198,6 +198,109 @@ public sealed class LibraryServiceTests
         Assert.Empty(store.Entries);
     }
 
+    [Fact]
+    public async Task Update_with_an_empty_change_returns_the_entry_without_touching_the_store_or_updated_at()
+    {
+        var (sut, store, time) = Create();
+        var originalUpdatedAt = Now.AddDays(-1).UtcDateTime;
+        store.Seed(new LibraryEntry
+        {
+            UserId = UserA,
+            BookId = BookId,
+            ReadingStatus = ReadingStatus.Reading,
+            Rating = 4,
+            AddedAt = Now.AddDays(-3).UtcDateTime,
+            UpdatedAt = originalUpdatedAt,
+        });
+        time.Advance(TimeSpan.FromHours(5));
+
+        var result = await sut.UpdateAsync(UserA, BookId, new LibraryChange(null, new RatingChange.Unchanged()), CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.Equal(ReadingStatus.Reading, result.ReadingStatus);
+        Assert.Equal((short)4, result.Rating);
+        Assert.Equal(originalUpdatedAt, result.UpdatedAt);
+        Assert.Equal(0, store.UpdateCallCount);
+    }
+
+    [Fact]
+    public async Task Update_with_an_empty_change_on_a_missing_entry_returns_null()
+    {
+        var (sut, store, _) = Create();
+
+        var result = await sut.UpdateAsync(UserA, BookId, new LibraryChange(null, new RatingChange.Unchanged()), CancellationToken.None);
+
+        Assert.Null(result);
+        Assert.Equal(0, store.UpdateCallCount);
+    }
+
+    [Fact]
+    public async Task Update_with_a_change_sends_the_fake_time_to_the_store_and_returns_the_updated_entry()
+    {
+        var (sut, store, time) = Create();
+        store.Seed(new LibraryEntry
+        {
+            UserId = UserA,
+            BookId = BookId,
+            ReadingStatus = ReadingStatus.WantToRead,
+            Rating = null,
+            AddedAt = Now.AddDays(-3).UtcDateTime,
+            UpdatedAt = Now.AddDays(-3).UtcDateTime,
+        });
+        time.Advance(TimeSpan.FromHours(5));
+
+        var result = await sut.UpdateAsync(UserA, BookId, new LibraryChange(ReadingStatus.Finished, new RatingChange.Set(5)), CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.Equal(ReadingStatus.Finished, result.ReadingStatus);
+        Assert.Equal((short)5, result.Rating);
+        Assert.Equal(Now.AddHours(5).UtcDateTime, result.UpdatedAt);
+        Assert.Equal(1, store.UpdateCallCount);
+        Assert.Equal(Now.AddHours(5).UtcDateTime, store.LastUpdateNow);
+        Assert.Equal((UserA, BookId), store.LastUpdateArgs);
+    }
+
+    [Fact]
+    public async Task Update_passes_user_and_book_through_and_returns_null_for_a_missing_entry()
+    {
+        var (sut, store, _) = Create();
+        store.Seed(new LibraryEntry
+        {
+            UserId = UserA,
+            BookId = BookId,
+            ReadingStatus = ReadingStatus.WantToRead,
+            Rating = null,
+            AddedAt = Now.UtcDateTime,
+            UpdatedAt = Now.UtcDateTime,
+        });
+
+        var otherUser = await sut.UpdateAsync(UserB, BookId, new LibraryChange(ReadingStatus.Reading, new RatingChange.Unchanged()), CancellationToken.None);
+
+        Assert.Null(otherUser);
+        Assert.Equal((UserB, BookId), store.LastUpdateArgs);
+        Assert.Null(store.Find(UserB, BookId));
+    }
+
+    [Fact]
+    public async Task Remove_passes_user_and_book_through_to_the_store()
+    {
+        var (sut, store, _) = Create();
+        store.Seed(new LibraryEntry
+        {
+            UserId = UserA,
+            BookId = BookId,
+            ReadingStatus = ReadingStatus.WantToRead,
+            Rating = null,
+            AddedAt = Now.UtcDateTime,
+            UpdatedAt = Now.UtcDateTime,
+        });
+
+        await sut.RemoveAsync(UserB, BookId, CancellationToken.None);
+
+        Assert.Equal((UserB, BookId), store.LastRemoveArgs);
+        Assert.NotNull(store.Find(UserA, BookId));
+    }
+
     private static (LibraryService Sut, FakeLibraryStore Store, FakeTimeProvider Time) Create()
     {
         var store = new FakeLibraryStore(BookId);
@@ -261,6 +364,42 @@ public sealed class LibraryServiceTests
         {
             LastListArgs = (userId, filter);
             return Task.FromResult(ListResult);
+        }
+
+        public int UpdateCallCount { get; private set; }
+
+        public (Guid UserId, Guid BookId)? LastUpdateArgs { get; private set; }
+
+        public DateTime? LastUpdateNow { get; private set; }
+
+        public (Guid UserId, Guid BookId)? LastRemoveArgs { get; private set; }
+
+        public Task<LibraryEntry?> UpdateAsync(Guid userId, Guid bookId, LibraryChange change, DateTime now, CancellationToken ct)
+        {
+            UpdateCallCount++;
+            LastUpdateArgs = (userId, bookId);
+            LastUpdateNow = now;
+
+            if (!_entries.TryGetValue((userId, bookId), out var entry))
+                return Task.FromResult<LibraryEntry?>(null);
+
+            if (change.NewStatus is { } status)
+                entry.ReadingStatus = status;
+            entry.Rating = change.Rating switch
+            {
+                RatingChange.Clear => null,
+                RatingChange.Set set => set.Value,
+                _ => entry.Rating,
+            };
+            entry.UpdatedAt = now;
+            return Task.FromResult<LibraryEntry?>(entry);
+        }
+
+        public Task RemoveAsync(Guid userId, Guid bookId, CancellationToken ct)
+        {
+            LastRemoveArgs = (userId, bookId);
+            _entries.Remove((userId, bookId));
+            return Task.CompletedTask;
         }
     }
 }

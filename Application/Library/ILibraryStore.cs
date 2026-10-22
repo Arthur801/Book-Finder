@@ -16,4 +16,11 @@ public interface ILibraryStore
 
     // Only this user's rows, filtered by Reading Status when a filter is given, newest UpdatedAt first.
     Task<IReadOnlyList<LibraryItem>> ListAsync(Guid userId, ReadingStatus? filter, CancellationToken ct);
+
+    // Applies the change and sets UpdatedAt to now, then returns the stored entry. AddedAt is never changed.
+    // Returns null when this user has no entry for the Book, so another user's entry is simply "not found".
+    Task<LibraryEntry?> UpdateAsync(Guid userId, Guid bookId, LibraryChange change, DateTime now, CancellationToken ct);
+
+    // Hard delete. Removing an entry that does not exist is not an error.
+    Task RemoveAsync(Guid userId, Guid bookId, CancellationToken ct);
 }
