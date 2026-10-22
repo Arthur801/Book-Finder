@@ -1,3 +1,4 @@
+using Book_Finder.Application.Common;
 using Book_Finder.Application.Recommendation;
 using Book_Finder.Domain.Entities;
 using Microsoft.Extensions.Logging;
@@ -26,7 +27,7 @@ public sealed class RecommendationServiceTests
         h.Embeddings.Respond(Retrieval, vector);
         h.Candidates.Result = [Book("A", 0.9), Book("B", 0.7)];
 
-        var outcome = await h.Service.RecommendAsync(UserId, Requirement, CancellationToken.None);
+        var outcome = await Recommend(h, UserId, Requirement, CancellationToken.None);
 
         Assert.Equal([Requirement], h.Parser.Calls);
         Assert.Equal([Retrieval], h.Embeddings.Calls);
@@ -60,7 +61,7 @@ public sealed class RecommendationServiceTests
         var h = Build(new RecommendationOptions { RankingDescriptionLength = 5 });
         h.Candidates.Result = [Book("A", description: "一二三四五六七八")];
 
-        await h.Service.RecommendAsync(UserId, Requirement, CancellationToken.None);
+        await Recommend(h, UserId, Requirement, CancellationToken.None);
 
         var candidate = Assert.Single(Assert.Single(h.Ranker.Calls).Candidates);
         Assert.Equal("一二三四五", candidate.Description);
@@ -75,7 +76,7 @@ public sealed class RecommendationServiceTests
         var h = Build();
         h.Parser.Respond(Requirement, new ParsedRequirement(RequirementFilters.None, retrievalText!, []));
 
-        await h.Service.RecommendAsync(UserId, Requirement, CancellationToken.None);
+        await Recommend(h, UserId, Requirement, CancellationToken.None);
 
         Assert.Equal([Requirement], h.Embeddings.Calls);
     }
@@ -85,7 +86,7 @@ public sealed class RecommendationServiceTests
     {
         var h = Build(new RecommendationOptions { SimilarityThreshold = 0.25, TopK = 7 });
 
-        await h.Service.RecommendAsync(UserId, Requirement, CancellationToken.None);
+        await Recommend(h, UserId, Requirement, CancellationToken.None);
 
         var search = Assert.Single(h.Candidates.Calls);
         Assert.Equal(0.25, search.Threshold);
@@ -98,7 +99,7 @@ public sealed class RecommendationServiceTests
         var h = Build(new RecommendationOptions { ResultLimit = 3 });
         h.Candidates.Result = Enumerable.Range(1, 5).Select(i => Book($"Book {i}")).ToList();
 
-        var outcome = await h.Service.RecommendAsync(UserId, Requirement, CancellationToken.None);
+        var outcome = await Recommend(h, UserId, Requirement, CancellationToken.None);
 
         Assert.Equal([1, 2, 3], outcome.Results.Select(r => (int)r.Rank));
         Assert.Equal(3, Assert.Single(h.Store.Calls).Results.Count);
@@ -112,7 +113,7 @@ public sealed class RecommendationServiceTests
         var h = Build();
         h.Parser.Respond(Requirement, new ParsedRequirement(new RequirementFilters("zh", 2024, 2010, null, null, null, null), Retrieval, []));
 
-        await h.Service.RecommendAsync(UserId, Requirement, CancellationToken.None);
+        await Recommend(h, UserId, Requirement, CancellationToken.None);
 
         var search = Assert.Single(h.Candidates.Calls);
         Assert.Equal(new RequirementFilters("zh", null, null, null, null, null, null), search.Filters);
@@ -128,7 +129,7 @@ public sealed class RecommendationServiceTests
         var h = Build();
         h.Parser.Respond(Requirement, new ParsedRequirement(new RequirementFilters(null, 2024, 2010, 0, null, null, null), Retrieval, []));
 
-        await h.Service.RecommendAsync(UserId, Requirement, CancellationToken.None);
+        await Recommend(h, UserId, Requirement, CancellationToken.None);
 
         var summary = Assert.Single(h.Logger.Entries, e => e.Level == LogLevel.Information);
         Assert.Equal(new RequirementFilters(null, null, null, null, null, null, null), summary.Properties["Filters"]);
@@ -142,7 +143,7 @@ public sealed class RecommendationServiceTests
         var h = Build();
         h.Candidates.Result = [];
 
-        var outcome = await h.Service.RecommendAsync(UserId, Requirement, CancellationToken.None);
+        var outcome = await Recommend(h, UserId, Requirement, CancellationToken.None);
 
         Assert.Empty(h.Ranker.Calls);
         var save = Assert.Single(h.Store.Calls);
@@ -157,7 +158,7 @@ public sealed class RecommendationServiceTests
         var h = Build();
         h.Candidates.Result = [];
 
-        await h.Service.RecommendAsync(UserId, Requirement, CancellationToken.None);
+        await Recommend(h, UserId, Requirement, CancellationToken.None);
 
         var summary = Assert.Single(h.Logger.Entries, e => e.Level == LogLevel.Information);
         Assert.Equal(0, summary.Properties["CandidateCount"]);
@@ -180,7 +181,7 @@ public sealed class RecommendationServiceTests
             .ToList();
         h.Ranker.RespondToAll(items);
 
-        var outcome = await h.Service.RecommendAsync(UserId, Requirement, CancellationToken.None);
+        var outcome = await Recommend(h, UserId, Requirement, CancellationToken.None);
 
         Assert.Equal(10, outcome.Results.Count);
         Assert.Equal(Enumerable.Range(1, 10).Select(i => (short)i), outcome.Results.Select(r => r.Rank));
@@ -200,7 +201,7 @@ public sealed class RecommendationServiceTests
         var error = new InvalidOperationException("parser down");
         h.Parser.ThrowForAll(error);
 
-        var actual = await Assert.ThrowsAsync<InvalidOperationException>(() => h.Service.RecommendAsync(UserId, Requirement, CancellationToken.None));
+        var actual = await Assert.ThrowsAsync<InvalidOperationException>(() => Recommend(h, UserId, Requirement, CancellationToken.None));
 
         Assert.Same(error, actual);
         AssertNothingSaved(h);
@@ -215,7 +216,7 @@ public sealed class RecommendationServiceTests
         var error = new InvalidOperationException("embedding down");
         h.Embeddings.Throw(Requirement, error);
 
-        var actual = await Assert.ThrowsAsync<InvalidOperationException>(() => h.Service.RecommendAsync(UserId, Requirement, CancellationToken.None));
+        var actual = await Assert.ThrowsAsync<InvalidOperationException>(() => Recommend(h, UserId, Requirement, CancellationToken.None));
 
         Assert.Same(error, actual);
         AssertNothingSaved(h);
@@ -229,7 +230,7 @@ public sealed class RecommendationServiceTests
         var error = new InvalidOperationException("search down");
         h.Candidates.Error = error;
 
-        var actual = await Assert.ThrowsAsync<InvalidOperationException>(() => h.Service.RecommendAsync(UserId, Requirement, CancellationToken.None));
+        var actual = await Assert.ThrowsAsync<InvalidOperationException>(() => Recommend(h, UserId, Requirement, CancellationToken.None));
 
         Assert.Same(error, actual);
         AssertNothingSaved(h);
@@ -244,7 +245,7 @@ public sealed class RecommendationServiceTests
         var error = new InvalidOperationException("ranker down");
         h.Ranker.ThrowForAll(error);
 
-        var actual = await Assert.ThrowsAsync<InvalidOperationException>(() => h.Service.RecommendAsync(UserId, Requirement, CancellationToken.None));
+        var actual = await Assert.ThrowsAsync<InvalidOperationException>(() => Recommend(h, UserId, Requirement, CancellationToken.None));
 
         Assert.Same(error, actual);
         AssertNothingSaved(h);
@@ -258,7 +259,7 @@ public sealed class RecommendationServiceTests
         var error = new InvalidOperationException("database down");
         h.Store.Error = error;
 
-        var actual = await Assert.ThrowsAsync<InvalidOperationException>(() => h.Service.RecommendAsync(UserId, Requirement, CancellationToken.None));
+        var actual = await Assert.ThrowsAsync<InvalidOperationException>(() => Recommend(h, UserId, Requirement, CancellationToken.None));
 
         Assert.Same(error, actual);
         Assert.Single(h.Store.Calls);
@@ -272,7 +273,7 @@ public sealed class RecommendationServiceTests
         using var cts = new CancellationTokenSource();
         cts.Cancel();
 
-        await Assert.ThrowsAsync<OperationCanceledException>(() => h.Service.RecommendAsync(UserId, Requirement, cts.Token));
+        await Assert.ThrowsAsync<OperationCanceledException>(() => Recommend(h, UserId, Requirement, cts.Token));
 
         AssertNothingSaved(h);
         Assert.Empty(h.Candidates.Calls);
@@ -288,7 +289,7 @@ public sealed class RecommendationServiceTests
         h.Parser.Respond(secret, new ParsedRequirement(RequirementFilters.None, "SECRET-RETRIEVAL-9b1c", []));
         h.Candidates.Result = [Book("A", 0.9), Book("B", 0.7)];
 
-        var outcome = await h.Service.RecommendAsync(UserId, secret, CancellationToken.None);
+        var outcome = await Recommend(h, UserId, secret, CancellationToken.None);
 
         var summary = Assert.Single(h.Logger.Entries, e => e.Level == LogLevel.Information);
         Assert.DoesNotContain("SECRET", summary.Message);
@@ -302,7 +303,7 @@ public sealed class RecommendationServiceTests
         var h = Build();
         h.Candidates.Result = [Book("A", 0.9), Book("B", 0.7)];
 
-        var outcome = await h.Service.RecommendAsync(UserId, Requirement, CancellationToken.None);
+        var outcome = await Recommend(h, UserId, Requirement, CancellationToken.None);
 
         var summary = Assert.Single(h.Logger.Entries, e => e.Level == LogLevel.Information);
         Assert.Equal(outcome.SearchId, summary.Properties["SearchId"]);
@@ -317,7 +318,94 @@ public sealed class RecommendationServiceTests
             Assert.IsType<double>(summary.Properties[key]);
     }
 
+    // ----- Daily limit (§11) -----
+
+    [Fact]
+    public async Task Reaching_the_daily_limit_returns_daily_limit_reached_and_calls_no_external_service()
+    {
+        var h = Build();
+        h.Usage.Count = 20;
+
+        var attempt = await h.Service.RecommendAsync(UserId, Requirement, CancellationToken.None);
+
+        Assert.IsType<RecommendationAttempt.DailyLimitReached>(attempt);
+        Assert.Empty(h.Parser.Calls);
+        Assert.Empty(h.Embeddings.Calls);
+        Assert.Empty(h.Candidates.Calls);
+        Assert.Empty(h.Ranker.Calls);
+        Assert.Empty(h.Store.Calls);
+    }
+
+    [Fact]
+    public async Task One_search_below_the_daily_limit_runs_the_full_flow()
+    {
+        var h = Build();
+        h.Usage.Count = 19;
+
+        var attempt = await h.Service.RecommendAsync(UserId, Requirement, CancellationToken.None);
+
+        Assert.IsType<RecommendationAttempt.Succeeded>(attempt);
+        Assert.Single(h.Parser.Calls);
+        Assert.Single(h.Store.Calls);
+    }
+
+    [Fact]
+    public async Task The_limit_comes_from_options()
+    {
+        var h = Build(new RecommendationOptions { DailyLimit = 3 });
+        h.Usage.Count = 3;
+
+        var attempt = await h.Service.RecommendAsync(UserId, Requirement, CancellationToken.None);
+
+        Assert.IsType<RecommendationAttempt.DailyLimitReached>(attempt);
+    }
+
+    [Fact]
+    public async Task The_count_covers_the_taipei_day_that_contains_now()
+    {
+        var h = Build();
+
+        await h.Service.RecommendAsync(UserId, Requirement, CancellationToken.None);
+
+        // SavedAt is 12:00 on 2026-10-21 in Taipei, so the Taipei day started at 00:00 +08:00, which is 16:00 UTC on 2026-10-20.
+        var call = Assert.Single(h.Usage.Calls);
+        Assert.Equal(UserId, call.UserId);
+        Assert.Equal(new DateTime(2026, 10, 20, 16, 0, 0, DateTimeKind.Utc), call.SinceUtc);
+        Assert.Equal(TaipeiTimeZone.StartOfDayUtc(new DateTimeOffset(SavedAt)), call.SinceUtc);
+    }
+
+    [Fact]
+    public async Task The_count_is_taken_before_the_parser_runs()
+    {
+        var h = Build();
+
+        await h.Service.RecommendAsync(UserId, Requirement, CancellationToken.None);
+
+        Assert.Equal(0, h.Usage.ParserCallsBeforeCount);
+    }
+
+    [Fact]
+    public async Task Reaching_the_limit_logs_one_information_line_without_the_requirement_text()
+    {
+        var h = Build();
+        h.Usage.Count = 20;
+        const string secret = "SECRET-LIMIT-REQUIREMENT-41c2";
+
+        await h.Service.RecommendAsync(UserId, secret, CancellationToken.None);
+
+        var entry = Assert.Single(h.Logger.Entries);
+        Assert.Equal(LogLevel.Information, entry.Level);
+        Assert.Equal(UserId, entry.Properties["UserId"]);
+        Assert.Equal(20, entry.Properties["Used"]);
+        Assert.Equal(20, entry.Properties["DailyLimit"]);
+        Assert.DoesNotContain("SECRET", entry.Message);
+        Assert.DoesNotContain(entry.Properties, p => p.Value is string text && text.Contains("SECRET"));
+    }
+
     // ----- Helpers -----
+
+    private static async Task<RecommendationOutcome> Recommend(Harness h, Guid userId, string requirementText, CancellationToken cancellationToken) =>
+        Assert.IsType<RecommendationAttempt.Succeeded>(await h.Service.RecommendAsync(userId, requirementText, cancellationToken)).Outcome;
 
     private static void AssertNothingSaved(Harness h)
     {
@@ -352,6 +440,7 @@ public sealed class RecommendationServiceTests
         var ranker = new FakeRecommendationRanker();
         var store = new FakeRecommendationStore { Saved = new SavedRecommendationSearch(Guid.NewGuid(), SavedAt) };
         var logger = new RecordingLogger<RecommendationService>();
+        var usage = new FakeRecommendationUsage(parser);
         var time = new FakeTimeProvider(new DateTimeOffset(SavedAt));
         var service = new RecommendationService(
             parser,
@@ -359,10 +448,11 @@ public sealed class RecommendationServiceTests
             candidates,
             ranker,
             store,
+            usage,
             Options.Create(options ?? new RecommendationOptions()),
             time,
             logger);
-        return new Harness(service, parser, embeddings, candidates, ranker, store, logger);
+        return new Harness(service, parser, embeddings, candidates, ranker, store, usage, logger);
     }
 
     private sealed record Harness(
@@ -372,7 +462,27 @@ public sealed class RecommendationServiceTests
         FakeCandidateSearch Candidates,
         FakeRecommendationRanker Ranker,
         FakeRecommendationStore Store,
+        FakeRecommendationUsage Usage,
         RecordingLogger<RecommendationService> Logger);
+
+    // Scripted IRecommendationUsage. Count is the number of searches already saved today; every request is recorded.
+    private sealed class FakeRecommendationUsage(FakeRequirementParser parser) : IRecommendationUsage
+    {
+        public int Count { get; set; }
+        public List<Call> Calls { get; } = [];
+
+        // How many parser calls had happened when the count ran. 0 means the limit was checked before any parsing.
+        public int ParserCallsBeforeCount { get; private set; } = -1;
+
+        public Task<int> CountSinceAsync(Guid userId, DateTime sinceUtc, CancellationToken cancellationToken)
+        {
+            Calls.Add(new Call(userId, sinceUtc));
+            ParserCallsBeforeCount = parser.Calls.Count;
+            return Task.FromResult(Count);
+        }
+
+        public sealed record Call(Guid UserId, DateTime SinceUtc);
+    }
 
     // Scripted ICandidateSearch. Records every call, including calls that threw, and returns Result unless Error is set.
     private sealed class FakeCandidateSearch : ICandidateSearch

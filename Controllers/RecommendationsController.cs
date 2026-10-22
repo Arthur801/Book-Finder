@@ -22,8 +22,18 @@ public class RecommendationsController(RecommendationService recommendations, Pr
             return ValidationFailed(input.Error!);
 
         var userId = User.CurrentUserId();
-        var outcome = await recommendations.RecommendAsync(userId, input.Text!, HttpContext.RequestAborted);
-        return Ok(RecommendationResponse.From(outcome));
+        var attempt = await recommendations.RecommendAsync(userId, input.Text!, HttpContext.RequestAborted);
+        switch (attempt)
+        {
+            case RecommendationAttempt.Succeeded succeeded:
+                return Ok(RecommendationResponse.From(succeeded.Outcome));
+
+            case RecommendationAttempt.DailyLimitReached:
+                return ApiProblemResults.DailyLimitExceeded(problemDetails, HttpContext);
+
+            default:
+                throw new InvalidOperationException($"Unexpected recommendation attempt {attempt.GetType().Name}.");
+        }
     }
 
     private IActionResult ValidationFailed(string message) =>

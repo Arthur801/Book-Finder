@@ -1,3 +1,4 @@
+using Book_Finder.Application.Common;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -11,14 +12,28 @@ public sealed class RecommendationService(
     ICandidateSearch candidates,
     IRecommendationRanker ranker,
     IRecommendationStore store,
+    IRecommendationUsage usage,
     IOptions<RecommendationOptions> options,
     TimeProvider time,
     ILogger<RecommendationService> logger)
 {
     // requirementText is already validated and trimmed by the caller. The summary log never includes it (§14).
-    public async Task<RecommendationOutcome> RecommendAsync(Guid userId, string requirementText, CancellationToken cancellationToken)
+    public async Task<RecommendationAttempt> RecommendAsync(Guid userId, string requirementText, CancellationToken cancellationToken)
     {
         var settings = options.Value;
+
+        // The daily limit comes first, so a refused request never reaches the parser, the embedding service or the ranker (§11).
+        // Check and save are not locked together, so concurrent requests can overshoot the limit by a search or two; the spec accepts that.
+        var used = await usage.CountSinceAsync(userId, TaipeiTimeZone.StartOfDayUtc(time.GetUtcNow()), cancellationToken);
+        if (used >= settings.DailyLimit)
+        {
+            logger.LogInformation(
+                "Daily Recommendation limit reached for user {UserId}: {Used} of {DailyLimit} searches today",
+                userId,
+                used,
+                settings.DailyLimit);
+            return new RecommendationAttempt.DailyLimitReached();
+        }
 
         var parseStart = time.GetTimestamp();
         var parsed = await parser.ParseAsync(requirementText, cancellationToken);
@@ -86,7 +101,7 @@ public sealed class RecommendationService(
             rankingMs,
             saveMs);
 
-        return new RecommendationOutcome(saved.SearchId, saved.CreatedAt, results);
+        return new RecommendationAttempt.Succeeded(new RecommendationOutcome(saved.SearchId, saved.CreatedAt, results));
     }
 
     private double ElapsedMs(long start) => time.GetElapsedTime(start).TotalMilliseconds;

@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.Time.Testing;
 using Pgvector.EntityFrameworkCore;
 using Testcontainers.PostgreSql;
 using TestDoubles;
@@ -77,6 +78,9 @@ public sealed class BookFinderFactory(string connectionString) : WebApplicationF
     // Null keeps the EF Library store. A test that needs the Library add to fail sets a fake here before the first request.
     public ILibraryStore? LibraryStore { get; set; }
 
+    // Null keeps the real clock. A test that needs the Taipei day to roll over sets a fake clock before the first request.
+    public FakeTimeProvider? Time { get; set; }
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseSetting("ConnectionStrings:DefaultConnection", connectionString);
@@ -92,6 +96,9 @@ public sealed class BookFinderFactory(string connectionString) : WebApplicationF
             services.AddSingleton<IRecommendationRanker>(Ranker);
             if (LibraryStore is { } libraryStore)
                 services.AddSingleton(libraryStore);
+            // The app registers TimeProvider only if nothing else did, so this later registration is the one that resolves.
+            if (Time is { } time)
+                services.AddSingleton<TimeProvider>(time);
         });
         // The layout's asp-append-version watches each asset file, and every watch opens an inotify instance that a
         // host keeps until a GC. Across the suite that reaches the Linux per-user limit (128), so tests serve no web

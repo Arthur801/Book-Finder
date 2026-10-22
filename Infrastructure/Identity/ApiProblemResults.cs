@@ -25,6 +25,17 @@ public static class ApiProblemResults
         return From(problem);
     }
 
+    // The daily AI recommendation limit (api-spec.md §2, recommendation.md §11). Same 429 status as the rate limit, different type.
+    public static ObjectResult DailyLimitExceeded(ProblemDetailsFactory problemDetails, HttpContext http)
+    {
+        var problem = problemDetails.CreateProblemDetails(
+            http,
+            statusCode: StatusCodes.Status429TooManyRequests,
+            title: "今天的 AI 推薦次數已用完",
+            type: "/errors/daily-limit-exceeded");
+        return From(problem);
+    }
+
     // Built from a fresh ModelState so only the given fields are reported, whatever the binder said about the body.
     public static ObjectResult Validation(
         ProblemDetailsFactory problemDetails,
