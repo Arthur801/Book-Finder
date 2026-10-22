@@ -2,6 +2,7 @@ using Book_Finder.Application.Library;
 using Book_Finder.Domain.Entities;
 using Book_Finder.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 
 namespace DatabaseIntegration;
 
@@ -105,6 +106,23 @@ public class EfLibraryStoreTests(PostgresFixture fixture)
         Assert.Null(stored);
         await using var fresh = fixture.CreateContext();
         Assert.False(await fresh.LibraryEntries.AsNoTracking().AnyAsync(entry => entry.UserId == userId));
+    }
+
+    [Fact]
+    public async Task Unknown_user_is_not_reported_as_a_missing_book()
+    {
+        var bookId = await SeedBookAsync("Book");
+        var missingUserId = Guid.CreateVersion7();
+        await using var db = fixture.CreateContext();
+        var store = new EfLibraryStore(db);
+
+        var exception = await Assert.ThrowsAsync<PostgresException>(() =>
+            store.AddIfMissingAsync(Entry(missingUserId, bookId, ReadingStatus.WantToRead, null, Now), CancellationToken.None));
+
+        Assert.Equal(PostgresErrorCodes.ForeignKeyViolation, exception.SqlState);
+        Assert.Equal("FK_user_books_users_user_id", exception.ConstraintName);
+        await using var fresh = fixture.CreateContext();
+        Assert.False(await fresh.LibraryEntries.AsNoTracking().AnyAsync(entry => entry.BookId == bookId));
     }
 
     [Fact]
