@@ -1,3 +1,4 @@
+using Book_Finder.Application.Common;
 using Book_Finder.Models;
 
 namespace UnitTests;
@@ -41,6 +42,48 @@ public sealed class TaipeiTimeZoneTests
         Assert.Equal(TimeSpan.FromHours(8), fromUtcKind.Offset);
         Assert.Equal(expected, unspecifiedKind);
         Assert.Equal(TimeSpan.FromHours(8), unspecifiedKind.Offset);
+    }
+
+    [Fact]
+    public void Start_of_day_at_2359_taipei_is_the_start_of_that_day_not_the_next()
+    {
+        var start = TaipeiTimeZone.StartOfDayUtc(new DateTimeOffset(2026, 10, 22, 15, 59, 59, TimeSpan.Zero));
+
+        Assert.Equal(new DateTime(2026, 10, 21, 16, 0, 0, DateTimeKind.Utc), start);
+    }
+
+    [Fact]
+    public void Start_of_day_at_taipei_midnight_is_that_instant()
+    {
+        var start = TaipeiTimeZone.StartOfDayUtc(new DateTimeOffset(2026, 10, 22, 16, 0, 0, TimeSpan.Zero));
+
+        Assert.Equal(new DateTime(2026, 10, 22, 16, 0, 0, DateTimeKind.Utc), start);
+    }
+
+    [Fact]
+    public void Start_of_day_one_second_after_taipei_midnight_is_that_midnight()
+    {
+        var start = TaipeiTimeZone.StartOfDayUtc(new DateTimeOffset(2026, 10, 22, 16, 0, 1, TimeSpan.Zero));
+
+        Assert.Equal(new DateTime(2026, 10, 22, 16, 0, 0, DateTimeKind.Utc), start);
+    }
+
+    [Fact]
+    public void Start_of_day_with_a_plus_8_offset_matches_its_utc_equivalent()
+    {
+        var plus8 = new DateTimeOffset(2026, 10, 23, 0, 0, 1, TimeSpan.FromHours(8));
+        var utc = plus8.ToUniversalTime();
+
+        Assert.Equal(TaipeiTimeZone.StartOfDayUtc(utc), TaipeiTimeZone.StartOfDayUtc(plus8));
+        Assert.Equal(new DateTime(2026, 10, 22, 16, 0, 0, DateTimeKind.Utc), TaipeiTimeZone.StartOfDayUtc(plus8));
+    }
+
+    [Fact]
+    public void Start_of_day_returns_a_utc_kind_value()
+    {
+        var start = TaipeiTimeZone.StartOfDayUtc(new DateTimeOffset(2026, 10, 22, 15, 59, 59, TimeSpan.Zero));
+
+        Assert.Equal(DateTimeKind.Utc, start.Kind);
     }
 
     [Fact]

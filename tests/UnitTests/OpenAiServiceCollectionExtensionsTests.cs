@@ -121,6 +121,7 @@ public sealed class OpenAiServiceCollectionExtensionsTests
     [InlineData("Recommendation:ResultLimit", "0", "Recommendation:ResultLimit 必須介於 1 到 10")]
     [InlineData("Recommendation:ResultLimit", "11", "Recommendation:ResultLimit 必須介於 1 到 10")]
     [InlineData("Recommendation:RankingDescriptionLength", "0", "Recommendation:RankingDescriptionLength 必須大於 0")]
+    [InlineData("Recommendation:DailyLimit", "0", "Recommendation:DailyLimit 必須大於 0")]
     public void Invalid_recommendation_setting_fails_validation_at_startup(string key, string value, string expectedMessage)
     {
         using var provider = Build(new Dictionary<string, string?>
