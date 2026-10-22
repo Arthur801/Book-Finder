@@ -15,5 +15,5 @@ public sealed record LibraryControlsViewModel(
 {
     // An edit that comes back 401 returns to the page the visitor was on, so no pendingAction is needed (ui-flow.md §3.5).
     public static string EditLoginUrlFor(HttpRequest request) =>
-        $"/account/login?returnUrl={Uri.EscapeDataString(request.Path.Value + request.QueryString.Value)}";
+        LoginLink.For(request.Path.Value + request.QueryString.Value);
 }
