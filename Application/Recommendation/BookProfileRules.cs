@@ -21,10 +21,10 @@ public static class BookProfileRules
         }
 
         var profile = new GeneratedBookProfile(
-            Summary: BlankToNull(raw.Summary),
+            Summary: MetadataLines.Normalize(raw.Summary),
             Framework: NormalizeFramework(raw.Framework, hasTableOfContents, dropped),
             KeyTopics: NormalizeKeyTopics(raw.KeyTopics),
-            TargetAudience: BlankToNull(raw.TargetAudience),
+            TargetAudience: MetadataLines.Normalize(raw.TargetAudience),
             Difficulty: difficulty);
 
         return new NormalizedBookProfile(profile, dropped);
@@ -41,7 +41,7 @@ public static class BookProfileRules
         var sections = new List<BookProfileSection>();
         foreach (var section in framework.Sections)
         {
-            var title = BlankToNull(section.Title);
+            var title = MetadataLines.Normalize(section.Title);
             if (title is null)
             {
                 dropped.Add("framework section with a blank title");
@@ -71,17 +71,11 @@ public static class BookProfileRules
             return null;
 
         var topics = keyTopics
-            .Select(BlankToNull)
+            .Select(MetadataLines.Normalize)
             .OfType<string>()
             .Distinct(StringComparer.Ordinal)
             .ToList();
 
         return topics.Count == 0 ? null : topics;
-    }
-
-    private static string? BlankToNull(string? value)
-    {
-        var trimmed = value?.Trim();
-        return string.IsNullOrEmpty(trimmed) ? null : trimmed;
     }
 }
