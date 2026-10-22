@@ -13,23 +13,29 @@ internal static class AccountFlow
     public const string LogoutPath = "/account/logout";
 
     public static async Task<HttpResponseMessage> RegisterAsync(
-        HttpClient client, string email, string password, string displayName, string? returnUrl = null)
+        HttpClient client, string email, string password, string displayName, string? returnUrl = null, string? pendingAction = null)
     {
         var form = await client.GetPageAsync(RegisterPath);
         var fields = new List<(string Name, string Value)> { ("Email", email), ("Password", password), ("DisplayName", displayName) };
-        if (returnUrl is not null)
-            fields.Add(("ReturnUrl", returnUrl));
+        AddOptionalFields(fields, returnUrl, pendingAction);
         return await PostFormAsync(client, RegisterPath, AntiforgeryToken(form), fields.ToArray());
     }
 
     public static async Task<HttpResponseMessage> LoginAsync(
-        HttpClient client, string email, string password, string? returnUrl = null)
+        HttpClient client, string email, string password, string? returnUrl = null, string? pendingAction = null)
     {
         var form = await client.GetPageAsync(LoginPath);
         var fields = new List<(string Name, string Value)> { ("Email", email), ("Password", password) };
+        AddOptionalFields(fields, returnUrl, pendingAction);
+        return await PostFormAsync(client, LoginPath, AntiforgeryToken(form), fields.ToArray());
+    }
+
+    private static void AddOptionalFields(List<(string Name, string Value)> fields, string? returnUrl, string? pendingAction)
+    {
         if (returnUrl is not null)
             fields.Add(("ReturnUrl", returnUrl));
-        return await PostFormAsync(client, LoginPath, AntiforgeryToken(form), fields.ToArray());
+        if (pendingAction is not null)
+            fields.Add(("PendingAction", pendingAction));
     }
 
     // Posts form fields with the antiforgery token the form was rendered with. Pass no fields for a body-less POST.

@@ -1,3 +1,4 @@
+using Book_Finder.Application.Library;
 using Book_Finder.Application.Recommendation;
 using Book_Finder.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Hosting;
@@ -73,6 +74,9 @@ public sealed class BookFinderFactory(string connectionString) : WebApplicationF
 
     public FakeRecommendationRanker Ranker { get; } = new();
 
+    // Null keeps the EF Library store. A test that needs the Library add to fail sets a fake here before the first request.
+    public ILibraryStore? LibraryStore { get; set; }
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseSetting("ConnectionStrings:DefaultConnection", connectionString);
@@ -86,6 +90,8 @@ public sealed class BookFinderFactory(string connectionString) : WebApplicationF
             services.AddSingleton<IEmbeddingGenerator>(Embeddings);
             services.AddSingleton<IRequirementParser>(RequirementParser);
             services.AddSingleton<IRecommendationRanker>(Ranker);
+            if (LibraryStore is { } libraryStore)
+                services.AddSingleton(libraryStore);
         });
         // The layout's asp-append-version watches each asset file, and every watch opens an inotify instance that a
         // host keeps until a GC. Across the suite that reaches the Linux per-user limit (128), so tests serve no web
