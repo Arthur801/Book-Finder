@@ -1,0 +1,21 @@
+@model Book_Finder.Models.LibrarySectionViewModel
+
+@if (!Model.IsSignedIn)
+{
+    <a class="btn btn-primary" href="@Model.LoginUrl">加入書單</a>
+}
+else if (Model.Entry is null)
+{
+    <button type="button" class="btn btn-primary" data-library-add data-book-id="@Model.BookId">加入書單</button>
+    @Html.AntiForgeryToken()
+    <p class="library-error text-danger small mt-2 mb-0" role="alert" hidden></p>
+}
+else
+{
+    // Read-only in #11; #12 adds the controls that change status and rating.
+    var stars = Model.Entry.Rating;
+    <div class="library-status">
+        <p class="mb-1">書單狀態：@Model.Entry.StatusLabel</p>
+        <p class="library-rating mb-0">@(stars is { } count ? new string('★', count) + new string('☆', 5 - count) : "未評分")</p>
+    </div>
+}
