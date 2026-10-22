@@ -1,5 +1,6 @@
 using Book_Finder.Application.Bestsellers;
 using Book_Finder.Application.Catalog;
+using Book_Finder.Application.Library;
 using Book_Finder.Application.Recommendation;
 using Book_Finder.Infrastructure.BackgroundJobs;
 using Book_Finder.Infrastructure.Caching;
@@ -44,6 +45,10 @@ builder.Services.AddScoped<BookSearchService>();
 builder.Services.AddScoped<ICandidateSearch, EfCandidateSearch>();
 builder.Services.AddScoped<IRecommendationStore, EfRecommendationStore>();
 builder.Services.AddScoped<RecommendationService>();
+
+// Library (#11): one Library service over the EF store (user-library.md §2).
+builder.Services.AddScoped<ILibraryStore, EfLibraryStore>();
+builder.Services.AddScoped<LibraryService>();
 
 // Embedding backfill: OpenAI generator + EF store, one round at startup and then every Embedding:Interval (recommendation.md §10).
 builder.Services.AddBookFinderOpenAi(builder.Configuration);
