@@ -29,3 +29,14 @@ body {
 .form-floating > .form-control-plaintext:focus::placeholder, .form-floating > .form-control:focus::placeholder {
   text-align: start;
 }
+
+/* Library stars (_LibraryControls.cshtml): filled when aria-pressed is true, muted otherwise. The glyph never changes. */
+.library-star {
+  font-size: 1.25rem;
+  line-height: 1;
+  color: #adb5bd;
+}
+
+.library-star[aria-pressed="true"] {
+  color: #f5a623;
+}

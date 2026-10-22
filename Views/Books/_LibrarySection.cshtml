@@ -4,17 +4,11 @@
 {
     <a class="btn btn-primary" href="@Model.LoginUrl">加入書單</a>
 }
-else if (Model.Entry is null)
-{
-    <button type="button" class="btn btn-primary" data-library-add data-book-id="@Model.BookId" data-login-url="@Model.LoginUrl">加入書單</button>
-    @Html.AntiForgeryToken()
-    <p class="library-error text-danger small mt-2 mb-0" role="alert" hidden></p>
-}
 else
 {
-    // Read-only in #11; #12 adds the controls that change status and rating.
-    <div class="library-status">
-        <p class="mb-1">書單狀態：@Model.Entry.StatusLabel</p>
-        <p class="library-rating mb-0">@RatingText.From(Model.Entry.Rating)</p>
-    </div>
+    @* Both are rendered and library.js switches which one is visible after an add or a remove. *@
+    <button type="button" class="btn btn-primary" data-library-add data-book-id="@Model.BookId" data-login-url="@Model.LoginUrl" hidden="@Model.InLibrary">加入書單</button>
+    <p class="library-error text-danger small mt-2 mb-0" role="alert" data-library-add-error hidden data-failed-text="加入失敗，請稍後再試"></p>
+    @await Html.PartialAsync("_LibraryControls", Model.Controls!)
+    @Html.AntiForgeryToken()
 }

@@ -18,6 +18,7 @@ public class LibraryController(LibraryService library) : Controller
         ReadingStatus? filter = ReadingStatusCode.TryParse(status, out var parsed) ? parsed : null;
 
         var items = await library.ListAsync(User.CurrentUserId(), filter, cancellationToken);
-        return View(LibraryPageViewModel.From(filter, items));
+        // A 401 from a row's controls returns to this page with its filter (the query string is part of the path).
+        return View(LibraryPageViewModel.From(filter, items, LibraryControlsViewModel.EditLoginUrlFor(Request)));
     }
 }

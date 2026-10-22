@@ -15,37 +15,39 @@
     </ul>
 </section>
 
-@if (Model.IsEmpty)
-{
-    <div class="library-empty text-muted">
-        <p class="mb-2">還沒有加入任何書</p>
-        <a href="/bestsellers">去看看暢銷榜</a>
-    </div>
-}
-else
-{
-    <ol class="list-unstyled library-list mb-0">
-        @foreach (var item in Model.Items)
-        {
-            <li class="library-item d-flex align-items-center gap-3 py-2 border-bottom" data-book-id="@item.BookId">
-                @if (item.ThumbnailUrl is not null)
+@* One token for every row's controls. It is rendered even when the list is empty. *@
+@Html.AntiForgeryToken()
+
+@* The empty state is always rendered. library.js reveals it when the last row is removed, without building markup. *@
+<div class="library-empty text-muted" hidden="@(!Model.IsEmpty)">
+    <p class="mb-2">還沒有加入任何書</p>
+    <a href="/bestsellers">去看看暢銷榜</a>
+</div>
+
+<ol class="list-unstyled library-list mb-0">
+    @foreach (var item in Model.Items)
+    {
+        <li class="library-item d-flex align-items-center gap-3 py-2 border-bottom" data-book-id="@item.BookId">
+            @if (item.ThumbnailUrl is not null)
+            {
+                <img class="cover" src="@item.ThumbnailUrl" alt="" width="48" height="68" loading="lazy" style="object-fit: cover;" />
+            }
+            else
+            {
+                <span class="cover cover-placeholder text-muted small" style="width: 48px;">無封面</span>
+            }
+            <div class="flex-grow-1">
+                <a class="book-title" href="/books/@item.BookId">@item.Title</a>
+                @if (item.Authors is not null)
                 {
-                    <img class="cover" src="@item.ThumbnailUrl" alt="" width="48" height="68" loading="lazy" style="object-fit: cover;" />
+                    <div class="authors text-muted small">@item.Authors</div>
                 }
-                else
-                {
-                    <span class="cover cover-placeholder text-muted small" style="width: 48px;">無封面</span>
-                }
-                <div class="flex-grow-1">
-                    <a class="book-title" href="/books/@item.BookId">@item.Title</a>
-                    @if (item.Authors is not null)
-                    {
-                        <div class="authors text-muted small">@item.Authors</div>
-                    }
-                    <div class="library-status small">@item.StatusLabel</div>
-                    <div class="library-rating small">@item.RatingText</div>
-                </div>
-            </li>
-        }
-    </ol>
+                @await Html.PartialAsync("_LibraryControls", item.Controls)
+            </div>
+        </li>
+    }
+</ol>
+
+@section Scripts {
+    <script src="~/js/library.js" asp-append-version="true"></script>
 }

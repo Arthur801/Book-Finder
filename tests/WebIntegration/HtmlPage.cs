@@ -35,6 +35,46 @@ internal static partial class HtmlPage
     // The inner markup of the Library section on the Book detail page (section id="library").
     public static string LibrarySection(string html) => LibrarySectionTag().Match(html).Groups[1].Value;
 
+    // The shared library controls in page order, one per Book shown (_LibraryControls.cshtml).
+    public static IReadOnlyList<RenderedLibraryControls> LibraryControls(string html) =>
+        LibraryControlsBlock().Matches(html).Select(match =>
+        {
+            var container = match.Groups[1].Value;
+            var body = match.Groups[2].Value;
+            var options = StatusOption().Matches(StatusSelect().Match(body).Groups[1].Value).Select(option =>
+                new RenderedStatusOption(
+                    Attributes(option.Groups[1].Value).GetValueOrDefault("value", ""),
+                    option.Groups[2].Value,
+                    HasBareAttribute(option.Groups[1].Value, "selected"))).ToList();
+            var stars = StarButton().Matches(body)
+                .Select(star => (Rating: int.Parse(star.Groups[2].Value), Pressed: Attributes(star.Groups[1].Value).GetValueOrDefault("aria-pressed") == "true"))
+                .OrderBy(star => star.Rating)
+                .Select(star => star.Pressed)
+                .ToList();
+            var clear = ClearButton().Match(body);
+
+            return new RenderedLibraryControls(
+                Guid.Parse(Attributes(container)["data-book-id"]),
+                Attributes(container).GetValueOrDefault("data-login-url"),
+                HasBareAttribute(container, "hidden"),
+                options,
+                stars,
+                clear.Success && HasBareAttribute(clear.Groups[1].Value, "disabled"),
+                RemoveButton().IsMatch(body));
+        }).ToList();
+
+    // The Book page's add button, or null when the page renders none (anonymous visitor, or a Book already in the Library).
+    public static RenderedAddButton? LibraryAddButton(string html) =>
+        AddButton().Match(html) is { Success: true } match
+            ? new RenderedAddButton(
+                HasBareAttribute(match.Groups[1].Value, "hidden"),
+                Attributes(match.Groups[1].Value).GetValueOrDefault("data-login-url"))
+            : null;
+
+    // True when the attribute list has this attribute without a value (hidden, disabled, selected).
+    public static bool HasBareAttribute(string attributes, string name) =>
+        Regex.IsMatch(attributes, $@"(?<![\w-]){Regex.Escape(name)}(?![\w=-])");
+
     // The text of the <title> element, e.g. "三體 - 好想找書".
     public static string PageTitle(string html) => PageTitleTag().Match(html).Groups[1].Value;
 
@@ -157,6 +197,28 @@ internal static partial class HtmlPage
     [GeneratedRegex("<section\\b[^>]*\\bid=\"library\"[^>]*>(.*?)</section>", RegexOptions.Singleline)]
     private static partial Regex LibrarySectionTag();
 
+    // The container's attributes, then its body up to the error line that closes it (the last child of the container).
+    [GeneratedRegex("<div\\b([^>]*\\bdata-library-controls\\b[^>]*)>(.*?)<p\\b[^>]*\\blibrary-error\\b[^>]*>.*?</p>\\s*</div>", RegexOptions.Singleline)]
+    private static partial Regex LibraryControlsBlock();
+
+    [GeneratedRegex("<select\\b[^>]*\\bdata-library-status\\b[^>]*>(.*?)</select>", RegexOptions.Singleline)]
+    private static partial Regex StatusSelect();
+
+    [GeneratedRegex("<option\\b([^>]*)>([^<]*)</option>")]
+    private static partial Regex StatusOption();
+
+    [GeneratedRegex("<button\\b([^>]*\\bdata-library-rating=\"([1-5])\"[^>]*)>")]
+    private static partial Regex StarButton();
+
+    [GeneratedRegex("<button\\b([^>]*\\bdata-library-clear-rating\\b[^>]*)>")]
+    private static partial Regex ClearButton();
+
+    [GeneratedRegex("<button\\b[^>]*\\bdata-library-remove\\b[^>]*>")]
+    private static partial Regex RemoveButton();
+
+    [GeneratedRegex("<button\\b([^>]*\\bdata-library-add\\b[^>]*)>")]
+    private static partial Regex AddButton();
+
     [GeneratedRegex("<input\\b([^>]*)>")]
     private static partial Regex Input();
 
@@ -209,3 +271,22 @@ internal sealed record RenderedSearchResult(
 
 // One pager entry: a page link, the current page (no link), a disabled Previous or Next, or an ellipsis (no href).
 internal sealed record PagerEntry(string Text, string? Href, bool IsCurrent, bool IsDisabled);
+
+// One shared library controls block as rendered. StarPressed holds the five stars in order, 1 to 5.
+internal sealed record RenderedLibraryControls(
+    Guid BookId,
+    string? LoginUrl,
+    bool Hidden,
+    IReadOnlyList<RenderedStatusOption> StatusOptions,
+    IReadOnlyList<bool> StarPressed,
+    bool ClearDisabled,
+    bool HasRemoveButton)
+{
+    public string? SelectedStatus => StatusOptions.Where(option => option.Selected).Select(option => (string?)option.Value).FirstOrDefault();
+}
+
+// One status option: its code (value), its label text, and whether it is the selected one.
+internal sealed record RenderedStatusOption(string Value, string Label, bool Selected);
+
+// The Book page's add button: whether it is hidden and the login URL its data-login-url carries.
+internal sealed record RenderedAddButton(bool Hidden, string? LoginUrl);

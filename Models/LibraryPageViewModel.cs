@@ -3,7 +3,7 @@ using Book_Finder.Domain.Entities;
 
 namespace Book_Finder.Models;
 
-// The Library page (user-library.md §4, ui-flow.md §3.5). Read-only in #11; #12 adds the editing controls to each row.
+// The Library page (user-library.md §4, ui-flow.md §3.5). Each row carries its shared editing controls (#12).
 // Holds no description or table of contents (AGENTS.md §1.3).
 public sealed record LibraryPageViewModel(
     ReadingStatus? Filter,
@@ -13,15 +13,14 @@ public sealed record LibraryPageViewModel(
     public bool IsEmpty => Items.Count == 0;
 
     // Items are already newest UpdatedAt first (the store orders them). Null filter means 全部.
-    public static LibraryPageViewModel From(ReadingStatus? filter, IReadOnlyList<LibraryItem> items)
+    public static LibraryPageViewModel From(ReadingStatus? filter, IReadOnlyList<LibraryItem> items, string editLoginUrl)
     {
         var rows = items.Select(item => new LibraryRowViewModel(
             item.BookId,
             item.Title,
             item.Authors.Count == 0 ? null : string.Join("、", item.Authors),
             item.ThumbnailUrl,
-            ReadingStatusCode.Label(item.Status),
-            RatingText.From(item.Rating))).ToList();
+            new LibraryControlsViewModel(item.BookId, item.Status, item.Rating, editLoginUrl))).ToList();
 
         var tabs = new List<LibraryFilterTab> { new("全部", "/library", filter is null) };
         foreach (var status in new[] { ReadingStatus.WantToRead, ReadingStatus.Reading, ReadingStatus.Finished })
@@ -42,8 +41,7 @@ public sealed record LibraryRowViewModel(
     string Title,
     string? Authors,
     string? ThumbnailUrl,
-    string StatusLabel,
-    string RatingText);
+    LibraryControlsViewModel Controls);
 
 // One filter tab: its label, the link to it, and whether it is the current filter.
 public sealed record LibraryFilterTab(string Label, string Url, bool IsActive);
