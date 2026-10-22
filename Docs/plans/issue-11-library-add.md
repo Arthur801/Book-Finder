@@ -58,7 +58,7 @@ record LibraryItem(Guid BookId, string Title, IReadOnlyList<string> Authors,
 
 // 資料存取介面（由 M2 實作）
 interface ILibraryStore
-    Task<LibraryEntry?> AddIfMissingAsync(Guid userId, Guid bookId, DateTime now, ct)  // 書不存在回 null
+    Task<LibraryEntry?> AddIfMissingAsync(LibraryEntry entry, ct)  // 由服務組好新 Entry；已存在回傳既有的、不覆寫；書不存在回 null
     Task<LibraryEntry?> FindAsync(Guid userId, Guid bookId, ct)
     Task<IReadOnlyList<LibraryItem>> ListAsync(Guid userId, ReadingStatus? filter, ct)
 
