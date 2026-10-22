@@ -48,6 +48,17 @@ public static class ApiProblemResults
         return From(problem);
     }
 
+    // The Recommendation Search ran past the 60 s limit (recommendation.md §13). Nothing was saved and the attempt is not counted.
+    public static ObjectResult AiTimeout(ProblemDetailsFactory problemDetails, HttpContext http)
+    {
+        var problem = problemDetails.CreateProblemDetails(
+            http,
+            statusCode: StatusCodes.Status504GatewayTimeout,
+            title: "AI 推薦逾時",
+            type: "/errors/ai-timeout");
+        return From(problem);
+    }
+
     // Built from a fresh ModelState so only the given fields are reported, whatever the binder said about the body.
     public static ObjectResult Validation(
         ProblemDetailsFactory problemDetails,

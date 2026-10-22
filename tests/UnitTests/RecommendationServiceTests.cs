@@ -402,6 +402,93 @@ public sealed class RecommendationServiceTests
         Assert.DoesNotContain(entry.Properties, p => p.Value is string text && text.Contains("SECRET"));
     }
 
+    // ----- Timeout (§13) -----
+
+    [Fact]
+    public async Task Ranker_still_waiting_at_60_seconds_times_out_and_nothing_is_saved()
+    {
+        var h = Build();
+        h.Candidates.Result = [Book("A")];
+        h.Ranker.Gate.Close();
+
+        var pending = h.Service.RecommendAsync(UserId, Requirement, CancellationToken.None);
+        await h.Ranker.Gate.Entered;
+        h.Time.Advance(TimeSpan.FromSeconds(60));
+
+        await Assert.ThrowsAsync<AiTimeoutException>(() => pending);
+        AssertNothingSaved(h);
+    }
+
+    [Fact]
+    public async Task Ranker_still_waiting_at_59_seconds_does_not_time_out_and_finishes_normally()
+    {
+        var h = Build();
+        h.Candidates.Result = [Book("A")];
+        h.Ranker.Gate.Close();
+
+        var pending = h.Service.RecommendAsync(UserId, Requirement, CancellationToken.None);
+        await h.Ranker.Gate.Entered;
+        h.Time.Advance(TimeSpan.FromSeconds(59));
+        Assert.False(pending.IsCompleted);
+
+        h.Ranker.Gate.Release();
+        var attempt = await pending;
+
+        Assert.IsType<RecommendationAttempt.Succeeded>(attempt);
+        Assert.Single(h.Store.Calls);
+    }
+
+    [Fact]
+    public async Task Parser_still_waiting_at_60_seconds_times_out_and_no_later_step_runs()
+    {
+        var h = Build();
+        h.Parser.Gate.Close();
+
+        var pending = h.Service.RecommendAsync(UserId, Requirement, CancellationToken.None);
+        await h.Parser.Gate.Entered;
+        h.Time.Advance(TimeSpan.FromSeconds(60));
+
+        await Assert.ThrowsAsync<AiTimeoutException>(() => pending);
+        Assert.Empty(h.Embeddings.Calls);
+        Assert.Empty(h.Candidates.Calls);
+        AssertNothingSaved(h);
+    }
+
+    [Fact]
+    public async Task Timeout_logs_one_warning_with_the_elapsed_time_and_the_step_that_was_running()
+    {
+        var h = Build();
+        h.Ranker.Gate.Close();
+        h.Candidates.Result = [Book("A")];
+
+        var pending = h.Service.RecommendAsync(UserId, Requirement, CancellationToken.None);
+        await h.Ranker.Gate.Entered;
+        h.Time.Advance(TimeSpan.FromSeconds(60));
+        await Assert.ThrowsAsync<AiTimeoutException>(() => pending);
+
+        var warning = Assert.Single(h.Logger.Entries, e => e.Level == LogLevel.Warning);
+        Assert.Equal("ranking", warning.Properties["Step"]);
+        Assert.Equal(60000d, warning.Properties["ElapsedMs"]);
+        Assert.DoesNotContain(Requirement, warning.Message);
+    }
+
+    [Fact]
+    public async Task Caller_cancelling_while_the_ranker_waits_propagates_the_cancellation_not_a_timeout()
+    {
+        var h = Build();
+        h.Candidates.Result = [Book("A")];
+        h.Ranker.Gate.Close();
+        using var cts = new CancellationTokenSource();
+
+        var pending = h.Service.RecommendAsync(UserId, Requirement, cts.Token);
+        await h.Ranker.Gate.Entered;
+        await cts.CancelAsync();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pending);
+        AssertNothingSaved(h);
+        Assert.DoesNotContain(h.Logger.Entries, e => e.Level == LogLevel.Warning);
+    }
+
     // ----- Helpers -----
 
     private static async Task<RecommendationOutcome> Recommend(Harness h, Guid userId, string requirementText, CancellationToken cancellationToken) =>
@@ -452,7 +539,7 @@ public sealed class RecommendationServiceTests
             Options.Create(options ?? new RecommendationOptions()),
             time,
             logger);
-        return new Harness(service, parser, embeddings, candidates, ranker, store, usage, logger);
+        return new Harness(service, parser, embeddings, candidates, ranker, store, usage, logger, time);
     }
 
     private sealed record Harness(
@@ -463,7 +550,8 @@ public sealed class RecommendationServiceTests
         FakeRecommendationRanker Ranker,
         FakeRecommendationStore Store,
         FakeRecommendationUsage Usage,
-        RecordingLogger<RecommendationService> Logger);
+        RecordingLogger<RecommendationService> Logger,
+        FakeTimeProvider Time);
 
     // Scripted IRecommendationUsage. Count is the number of searches already saved today; every request is recorded.
     private sealed class FakeRecommendationUsage(FakeRequirementParser parser) : IRecommendationUsage

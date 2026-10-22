@@ -8,6 +8,10 @@ public sealed class RecommendationOptions
     // recommendation_results.rank is constrained to 1..10 in the database, so no setting may go above this.
     public const int MaxResultLimit = 10;
 
+    // The whole search, from parsing to saving, must finish within this (recommendation.md §13). It is a fixed spec value rather than a
+    // setting, because §13's setting list does not include it, so no configuration can move the limit.
+    public static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(60);
+
     // No code default: the chat model comes only from configuration (recommendation.md §13); a blank value fails startup validation.
     public string ChatModel { get; set; } = string.Empty;
 
