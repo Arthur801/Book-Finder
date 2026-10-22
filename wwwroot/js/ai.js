@@ -10,6 +10,7 @@
     var EMPTY_TEXT = '請輸入閱讀需求';
     var NO_RESULT_TEXT = '找不到符合的書，試著換個描述';
     var UNAVAILABLE_TEXT = 'AI 推薦暫時無法使用，請稍後再試';
+    var DAILY_LIMIT_TEXT = '今天的 AI 推薦次數已用完，明天再來';
 
     // Storage can be blocked (private windows, disabled site data); then the text is simply not carried over.
     function saveRequirement(text) {
@@ -121,7 +122,7 @@
             });
         }
 
-        // Only a 400 validation problem shows the server's message; every other failure gets the generic one.
+        // A 400 validation problem shows the server's message and a 429 the daily-limit message; every other failure gets the generic one.
         function handleResponse(response, text) {
             if (response.status === 401) {
                 // The session expired or was never there: keep the text, sign in, and come back here.
@@ -133,6 +134,12 @@
                 return response.json().then(function (body) {
                     renderResults(body.results || []);
                 });
+            }
+            // ui-flow.md §3.5: the daily limit has its own message; 502, 504 and anything else fall through to the
+            // general one below. The typed text stays in the textarea in every case.
+            if (response.status === 429) {
+                showStatus(DAILY_LIMIT_TEXT);
+                return null;
             }
             if (response.status === 400) {
                 return response.json().then(function (problem) {
