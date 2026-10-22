@@ -35,17 +35,5 @@ public class LibraryApiController(LibraryService library, ProblemDetailsFactory 
         }
     }
 
-    private IActionResult NotFoundProblem()
-    {
-        var problem = problemDetails.CreateProblemDetails(
-            HttpContext,
-            statusCode: StatusCodes.Status404NotFound,
-            title: "找不到資源",
-            type: "/errors/not-found");
-        return new ObjectResult(problem)
-        {
-            StatusCode = StatusCodes.Status404NotFound,
-            ContentTypes = { "application/problem+json" },
-        };
-    }
+    private IActionResult NotFoundProblem() => ApiProblemResults.NotFound(problemDetails, HttpContext);
 }

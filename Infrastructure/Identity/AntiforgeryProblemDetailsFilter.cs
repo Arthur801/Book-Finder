@@ -24,11 +24,7 @@ public sealed class AntiforgeryProblemDetailsFilter(ProblemDetailsFactory proble
             statusCode: StatusCodes.Status400BadRequest,
             title: "請重新整理頁面後再試",
             type: "/errors/antiforgery");
-        context.Result = new ObjectResult(problem)
-        {
-            StatusCode = StatusCodes.Status400BadRequest,
-            ContentTypes = { "application/problem+json" },
-        };
+        context.Result = ApiProblemResults.From(problem);
     }
 
     public void OnResultExecuted(ResultExecutedContext context)
