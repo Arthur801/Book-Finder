@@ -9,7 +9,7 @@ public sealed record LibrarySectionViewModel(Guid BookId, bool IsSignedIn, Libra
 {
     // The anonymous add link. It sends the visitor to log in and then back here to add the Book (identity-auth.md §6).
     public string LoginUrl =>
-        $"/account/login?returnUrl={Uri.EscapeDataString($"/books/{BookId}")}&pendingAction=add-to-library";
+        $"/account/login?returnUrl={Uri.EscapeDataString($"{PendingLibraryAction.BookPathPrefix}{BookId}")}&pendingAction={PendingLibraryAction.AddToLibrary}";
 
     public static LibrarySectionViewModel From(Guid bookId, bool isSignedIn, LibraryEntry? entry) =>
         new(bookId, isSignedIn, entry is null ? null : new LibraryEntryView(

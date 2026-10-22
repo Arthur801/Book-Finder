@@ -6,7 +6,7 @@
 }
 else if (Model.Entry is null)
 {
-    <button type="button" class="btn btn-primary" data-library-add data-book-id="@Model.BookId">加入書單</button>
+    <button type="button" class="btn btn-primary" data-library-add data-book-id="@Model.BookId" data-login-url="@Model.LoginUrl">加入書單</button>
     @Html.AntiForgeryToken()
     <p class="library-error text-danger small mt-2 mb-0" role="alert" hidden></p>
 }

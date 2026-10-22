@@ -48,10 +48,11 @@ public sealed class BookLibrarySectionTests(WebFixture fixture)
         var section = LibrarySection(await client.GetPageAsync(DetailPath(book)));
 
         Assert.Contains($"data-book-id=\"{book}\"", section);
+        Assert.Contains($"data-login-url=\"/account/login?returnUrl=%2Fbooks%2F{book}&pendingAction=add-to-library\"", section);
         Assert.Matches("<button\\b[^>]*\\bdata-library-add\\b[^>]*>加入書單</button>", section);
         Assert.NotNull(InputValue(section, "__RequestVerificationToken"));
         Assert.DoesNotContain("library-status", section);
-        Assert.DoesNotContain("pendingAction", section);
+        Assert.DoesNotContain("href=", section);
     }
 
     [Fact]

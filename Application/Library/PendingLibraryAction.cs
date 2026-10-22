@@ -6,7 +6,7 @@ public static class PendingLibraryAction
 {
     public const string AddToLibrary = "add-to-library";
 
-    private const string BookPathPrefix = "/books/";
+    public const string BookPathPrefix = "/books/";
 
     // xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
     private const int CanonicalBookIdLength = 36;
