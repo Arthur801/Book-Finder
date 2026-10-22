@@ -23,13 +23,3 @@
   2. 改為以 `books.updated_at > book_embeddings.updated_at` 預先篩選，只讀取可能已改變的 Book，再計算 hash 比對。
   3. 補測試：contributors 或 subjects 變更會更新 `books.updated_at`；未變更的 Book 不進入待補齊；`updated_at` 較新但 hash 未變時不重建。
   4. 移除 `recommendation.md` §10 中「MVP 規模下全量讀取可接受」的註記，改為新的篩選規則。
-
-## /ai 頁面的 AI 搜尋紀錄列表
-
-- **暫緩日期**：2026-10-21（#13 M9 文件整理時，使用者決定）。
-- **原本規格**：`Docs/ui/ui-flow.md` §3.4（下方紀錄列表；成功後插入最前面）。紀錄列表的資料規則見 `Docs/modules/recommendation.md` §12。
-- **暫緩原因**：#13 只做輸入與結果，紀錄列表屬 #16。
-- **恢復時要做的事**：
-  1. 實作 `/ai` 下方的 AI 搜尋紀錄列表：只列自己的紀錄、`created_at` 新到舊、每頁 20 筆，點擊進入 `/ai/history/{id}`（`recommendation.md` §12）。
-  2. 推薦成功後，把這次搜尋插入紀錄列表最前面（ui-flow §3.4）；失敗的推薦不插入。
-  3. 補測試：列表只含本人紀錄、排序與分頁、成功後列表更新、失敗時列表不變。

@@ -1,3 +1,4 @@
+using Book_Finder.Application.Common;
 using Book_Finder.Application.Recommendation;
 
 namespace Book_Finder.Models;
@@ -11,9 +12,9 @@ public sealed record AiHistoryDetailViewModel(
 {
     public bool HasItems => Items.Count > 0;
 
-    public static AiHistoryDetailViewModel From(HistoryDetail detail) => new(
+    public static AiHistoryDetailViewModel From(RecommendationSearchDetail detail) => new(
         detail.RequirementText,
-        AiHistoryListViewModel.FormatCreatedAt(detail.CreatedAt),
+        TaipeiTimeZone.FormatMinute(detail.CreatedAt),
         detail.Results.Select(AiHistoryDetailItemViewModel.From).ToList());
 }
 
@@ -33,7 +34,7 @@ public sealed record AiHistoryDetailItemViewModel(
     private const string DifficultyPlaceholder = "—";
 
     // The same text and rounding as the recommendation results in ai.js (Math.round(relevance * 100)).
-    public static AiHistoryDetailItemViewModel From(HistoryResult result) => new(
+    public static AiHistoryDetailItemViewModel From(SavedRecommendationResult result) => new(
         result.Rank,
         result.BookId,
         result.Title,

@@ -4,8 +4,8 @@ namespace Book_Finder.Application.Recommendation;
 public interface IRecommendationHistory
 {
     // Newest first (created_at DESC, id DESC). page is 1-based; the caller has already validated it.
-    Task<HistoryPage> ListAsync(Guid userId, int page, int pageSize, CancellationToken cancellationToken);
+    Task<RecommendationSearchPage> ListAsync(Guid userId, int page, int pageSize, CancellationToken cancellationToken);
 
     // Null when the search does not exist or belongs to another user. The two cases are deliberately indistinguishable.
-    Task<HistoryDetail?> GetAsync(Guid userId, Guid searchId, CancellationToken cancellationToken);
+    Task<RecommendationSearchDetail?> GetAsync(Guid userId, Guid searchId, CancellationToken cancellationToken);
 }

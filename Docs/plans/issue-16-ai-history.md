@@ -40,19 +40,19 @@
 
 **職責**：讀出某位使用者自己的紀錄列表與單筆詳情。
 
-**檔案**：`Application/Recommendation/IRecommendationHistory.cs`、`HistoryModels.cs`、`Infrastructure/Persistence/EfRecommendationHistory.cs`
+**檔案**：`Application/Recommendation/IRecommendationHistory.cs`、`RecommendationSearchReadModels.cs`、`Infrastructure/Persistence/EfRecommendationHistory.cs`
 
 **接口**：
 
 ```csharp
 interface IRecommendationHistory
-    Task<HistoryPage> ListAsync(Guid userId, int page, int pageSize, CancellationToken ct)
-    Task<HistoryDetail?> GetAsync(Guid userId, Guid searchId, CancellationToken ct)  // 別人的或不存在 → null
+    Task<RecommendationSearchPage> ListAsync(Guid userId, int page, int pageSize, CancellationToken ct)
+    Task<RecommendationSearchDetail?> GetAsync(Guid userId, Guid searchId, CancellationToken ct)  // 別人的或不存在 → null
 
-record HistoryPage(IReadOnlyList<HistorySummary> Items, int TotalCount)
-record HistorySummary(Guid SearchId, string RequirementText, DateTime CreatedAt, int ResultCount)
-record HistoryDetail(Guid SearchId, string RequirementText, DateTime CreatedAt, IReadOnlyList<HistoryResult> Results)
-record HistoryResult(short Rank, Guid BookId, string Title, IReadOnlyList<string> Authors,
+record RecommendationSearchPage(IReadOnlyList<RecommendationSearchSummary> Items, int TotalCount)
+record RecommendationSearchSummary(Guid SearchId, string RequirementText, DateTime CreatedAt, int ResultCount)
+record RecommendationSearchDetail(Guid SearchId, string RequirementText, DateTime CreatedAt, IReadOnlyList<SavedRecommendationResult> Results)
+record SavedRecommendationResult(short Rank, Guid BookId, string Title, IReadOnlyList<string> Authors,
                      string? ThumbnailUrl, string Reason, double? Relevance)
 ```
 
@@ -69,7 +69,7 @@ record HistoryResult(short Rank, Guid BookId, string Title, IReadOnlyList<string
 
 **職責**：在 `/ai` 下方顯示紀錄列表與分頁。
 
-**檔案**：`AiController.Index(int page = 1)`、`AiController.HistoryList(int page = 1)`、`Models/AiHistoryListViewModel.cs`、`Views/Ai/_AiHistoryList.cshtml`、`Views/Ai/Index.cshtml`
+**檔案**：`AiController.Index(string? page)`（頁碼由共用的 `Models/PageNumber` 解析）、`AiController.HistoryList(string? page)`、`Models/AiHistoryListViewModel.cs`、`Views/Ai/_AiHistoryList.cshtml`、`Views/Ai/Index.cshtml`
 
 **規則**：
 
@@ -87,7 +87,7 @@ record HistoryResult(short Rank, Guid BookId, string Title, IReadOnlyList<string
 
 **職責**：顯示一次搜尋的快照。
 
-**檔案**：`AiController.History(string id)`、`Models/AiHistoryViewModel.cs`、`Views/Ai/History.cshtml`、`Views/Ai/NotFound.cshtml`（或共用既有 404 view）
+**檔案**：`AiController.History(string id)`、`Models/AiHistoryDetailViewModel.cs`、`Views/Ai/History.cshtml`、`Views/Ai/NotFound.cshtml`（或共用既有 404 view）
 
 **規則**：
 

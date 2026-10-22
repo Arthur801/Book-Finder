@@ -118,14 +118,18 @@
         function refreshHistory() {
             fetch(HISTORY_LIST_URL, { credentials: 'same-origin' })
                 .then(function (response) {
-                    if (response.status !== 200) {
+                    // An expired session is redirected to the login page, and fetch follows that: the final response is a 200
+                    // with the login page, so a redirected response counts as a failure too.
+                    if (response.status !== 200 || response.redirected) {
                         return null;
                     }
                     return response.text().then(function (html) {
                         var current = document.getElementById('ai-history');
-                        if (current) {
-                            current.outerHTML = html;
+                        // Only a response that really is the history list replaces the old one.
+                        if (!current || html.indexOf('id="ai-history"') === -1) {
+                            return null;
                         }
+                        current.outerHTML = html;
                         // The list now shows page 1, so the address should too (a reload then shows the same list).
                         if (window.location.search !== '') {
                             window.history.replaceState(null, '', '/ai');
