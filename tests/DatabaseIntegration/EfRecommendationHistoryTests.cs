@@ -66,6 +66,23 @@ public class EfRecommendationHistoryTests(PostgresFixture fixture)
         Assert.Equal([searchIds[0]], secondPage.Items.Select(item => item.SearchId));
     }
 
+    // A page number this large overflows int when multiplied by the page size; it is past the end, so it has no rows.
+    [Theory]
+    [InlineData(int.MaxValue)]
+    [InlineData(200_000_000)]
+    public async Task A_page_past_the_end_with_an_offset_beyond_int_has_no_rows_but_keeps_the_total(int page)
+    {
+        var userId = await SeedUserAsync();
+        await SeedSearchAsync(userId, Now, "only");
+        await using var db = fixture.CreateContext();
+        var history = new EfRecommendationHistory(db);
+
+        var result = await history.ListAsync(userId, page, 20, CancellationToken.None);
+
+        Assert.Empty(result.Items);
+        Assert.Equal(1, result.TotalCount);
+    }
+
     [Fact]
     public async Task List_counts_results_per_search_including_zero()
     {

@@ -10,11 +10,16 @@ internal sealed class EfRecommendationHistory(AppDbContext db) : IRecommendation
         var searches = db.RecommendationSearches.AsNoTracking().Where(search => search.UserId == userId);
         var totalCount = await searches.CountAsync(cancellationToken);
 
+        // Compared as long so a very large page number cannot overflow. A page past the end has no rows, so it skips the page query.
+        var offset = (long)(page - 1) * pageSize;
+        if (offset >= totalCount)
+            return new HistoryPage([], totalCount);
+
         // The result count is a correlated subquery, so the page comes back in one query instead of one count per search.
         var rows = await searches
             .OrderByDescending(search => search.CreatedAt)
             .ThenByDescending(search => search.Id)
-            .Skip((page - 1) * pageSize)
+            .Skip((int)offset)
             .Take(pageSize)
             .Select(search => new
             {
