@@ -48,7 +48,7 @@ public sealed class AiProfileOptionsTests
         var configuration = new ConfigurationBuilder().AddInMemoryCollection(values).Build();
         var services = new ServiceCollection();
         services.AddOptions();
-        services.AddBookProfileBackgroundJobs(configuration);
+        services.AddBookProfiles(configuration);
         return services.BuildServiceProvider();
     }
 }

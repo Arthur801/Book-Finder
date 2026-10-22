@@ -49,9 +49,6 @@ builder.Services.AddScoped<IRecommendationUsage, EfRecommendationUsage>();
 builder.Services.AddScoped<IRecommendationHistory, EfRecommendationHistory>();
 // AI profile (#18): difficulty reads and stale checks over book_ai_profiles (recommendation.md §9).
 builder.Services.AddScoped<IBookProfileStore, EfBookProfileStore>();
-// Book AI profile (#18): after a save, the difficulty snapshot is read and missing profiles are queued (recommendation.md §9).
-builder.Services.AddScoped<BookProfileScheduler>();
-builder.Services.AddScoped<BookDifficultyReader>();
 builder.Services.AddScoped<RecommendationService>();
 
 // Library (#11): one Library service over the EF store (user-library.md §2).
@@ -64,8 +61,8 @@ builder.Services.AddScoped<IEmbeddingStore, EfEmbeddingStore>();
 builder.Services.AddScoped<EmbeddingBackfillService>();
 builder.Services.AddHostedService<EmbeddingBackfillWorker>();
 
-// Book AI profile: in-process queue drained one Book at a time by BookProfileWorker (recommendation.md §9).
-builder.Services.AddBookProfileBackgroundJobs(builder.Configuration);
+// Book AI profile (#18): difficulty reader, scheduler, in-process queue and the worker that drains it (recommendation.md §9).
+builder.Services.AddBookProfiles(builder.Configuration);
 
 var app = builder.Build();
 
