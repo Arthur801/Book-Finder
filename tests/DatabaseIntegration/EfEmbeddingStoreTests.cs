@@ -3,6 +3,7 @@ using Book_Finder.Application.Recommendation;
 using Book_Finder.Domain.Entities;
 using Book_Finder.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Pgvector;
 
 namespace DatabaseIntegration;
@@ -236,6 +237,32 @@ public class EfEmbeddingStoreTests(PostgresFixture fixture)
         return new EfEmbeddingStore(db, new FixedTimeProvider(now ?? Now));
     }
 
+    // The pending scan runs on every backfill round over every Book, so it must not read the profile-only columns.
+    [Fact]
+    public async Task The_pending_scan_never_selects_publisher_or_table_of_contents()
+    {
+        await using (var seed = fixture.CreateContext())
+        {
+            await ResetAsync(seed);
+            var book = NewBook(seed, "Dune", Day, subtitle: "Sub", description: "Desc");
+            book.Publisher = "Chilton";
+            book.TableOfContents = "1. Arrakis";
+            AddContributor(seed, book.Id, 0, "Frank Herbert");
+            AddSubject(seed, book.Id, "Fiction");
+            await seed.SaveChangesAsync();
+        }
+
+        var recorder = new CommandTextRecorder();
+        await using var db = fixture.CreateContext(recorder);
+        var pending = await NewStore(db).FindPendingAsync(10, CancellationToken.None);
+
+        // The scan still reads the Book, so the statements are not empty and the description is among them.
+        Assert.Single(pending);
+        Assert.Contains(recorder.CommandTexts, sql => sql.Contains("description", StringComparison.Ordinal));
+        Assert.All(recorder.CommandTexts, sql => Assert.DoesNotContain("table_of_contents", sql, StringComparison.Ordinal));
+        Assert.All(recorder.CommandTexts, sql => Assert.DoesNotContain("publisher", sql, StringComparison.Ordinal));
+    }
+
     private static async Task ResetAsync(AppDbContext db)
     {
         await db.Database.ExecuteSqlRawAsync("TRUNCATE books CASCADE");
@@ -301,6 +328,22 @@ public class EfEmbeddingStoreTests(PostgresFixture fixture)
         vector[0] = first;
         vector[1] = second;
         return vector;
+    }
+
+    // Records the text of every reader statement, so a test can check which columns the SQL selects.
+    private sealed class CommandTextRecorder : DbCommandInterceptor
+    {
+        public List<string> CommandTexts { get; } = [];
+
+        public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<DbDataReader> result,
+            CancellationToken cancellationToken = default)
+        {
+            CommandTexts.Add(command.CommandText);
+            return base.ReaderExecutingAsync(command, eventData, result, cancellationToken);
+        }
     }
 
     private sealed class FixedTimeProvider(DateTimeOffset now) : TimeProvider

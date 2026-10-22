@@ -1,11 +1,11 @@
 namespace Book_Finder.Application.Recommendation;
 
-// Book AI Profile settings bound from the "AiProfile" configuration section (recommendation.md §9).
+// Book AI Profile settings bound from the "AiProfile" configuration section (recommendation.md §9.4).
 public sealed class AiProfileOptions
 {
     public const string SectionName = "AiProfile";
 
-    // Read by BookProfileWorker: when false the worker exits at startup and no profile is generated.
+    // Read by BookProfileWorker and BookProfileScheduler: when false the worker exits at startup and nothing is queued (§9.4).
     public bool Enabled { get; set; } = true;
 
     // Maximum number of Books waiting in the queue. A Book that does not fit is dropped and queued later.

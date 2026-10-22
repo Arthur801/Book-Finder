@@ -1,7 +1,7 @@
 namespace Book_Finder.Application.Recommendation;
 
 // Builds the AI profile input text for a Book and its SHA-256 hash (recommendation.md §9).
-// The hash is the profile's source_content_hash (Q1), so any metadata change regenerates the profile,
+// The hash is the profile's source_content_hash (recommendation.md §9.2), so any metadata change regenerates the profile,
 // while model or prompt version changes do not. The output must be fully deterministic.
 public static class BookProfileText
 {

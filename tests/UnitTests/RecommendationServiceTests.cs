@@ -526,7 +526,7 @@ public sealed class RecommendationServiceTests
         Assert.Single(h.Logger.Entries);
     }
 
-    // ----- Book AI profile after the save (#18, recommendation.md §9, invariant 10) -----
+    // ----- Book AI profile after the save (#18, recommendation.md §2(10), §9.1) -----
 
     [Fact]
     public async Task Difficulties_are_read_after_the_save_and_before_the_books_are_queued()
@@ -579,7 +579,7 @@ public sealed class RecommendationServiceTests
     }
 
     [Fact]
-    public async Task A_failed_difficulty_read_still_succeeds_with_an_empty_snapshot_and_logs_a_warning()
+    public async Task A_failed_difficulty_read_still_succeeds_with_an_empty_snapshot()
     {
         var h = Build();
         h.Candidates.Result = [Book("A")];
@@ -591,9 +591,6 @@ public sealed class RecommendationServiceTests
         Assert.Empty(outcome.Difficulties);
         Assert.Single(h.Store.Calls);
         Assert.Contains("find", h.Events);
-        var warning = Assert.Single(h.Logger.Entries, e => e.Level == LogLevel.Warning);
-        Assert.Same(error, warning.Exception);
-        Assert.DoesNotContain(Requirement, warning.Message);
     }
 
     [Fact]
@@ -686,7 +683,7 @@ public sealed class RecommendationServiceTests
         var profiles = new FakeProfileStore(events, ranker);
         var queue = new FakeProfileQueue(events);
         var schedulerLogger = new RecordingLogger<BookProfileScheduler>();
-        var scheduler = new BookProfileScheduler(profiles, queue, schedulerLogger);
+        var scheduler = new BookProfileScheduler(profiles, queue, schedulerLogger, Options.Create(new AiProfileOptions()));
         var logger = new RecordingLogger<RecommendationService>();
         var usage = new FakeRecommendationUsage(parser);
         var time = new FakeTimeProvider(new DateTimeOffset(SavedAt));
@@ -697,7 +694,7 @@ public sealed class RecommendationServiceTests
             ranker,
             store,
             usage,
-            profiles,
+            new BookDifficultyReader(profiles, new RecordingLogger<BookDifficultyReader>()),
             scheduler,
             Options.Create(options ?? new RecommendationOptions()),
             time,

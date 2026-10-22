@@ -9,7 +9,7 @@ public sealed record GeneratedBookProfile(
     string? TargetAudience,
     short? Difficulty);
 
-// Structured overview of the Book (issue #18 Q5). IsOfficialToc is true only when the Book has a real table of contents.
+// Structured overview of the Book (recommendation.md §9.3, data-model.md §5.6). IsOfficialToc is true only when the Book has a real table of contents.
 public sealed record BookProfileFramework(bool IsOfficialToc, IReadOnlyList<BookProfileSection> Sections);
 
 public sealed record BookProfileSection(string Title, string Summary);

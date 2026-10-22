@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text.RegularExpressions;
+using Book_Finder.Application.Recommendation;
 using Book_Finder.Domain.Entities;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
@@ -236,6 +237,23 @@ public sealed partial class AiHistoryDetailTests(WebFixture fixture)
         Assert.Equal(0.82m, saved.RelevanceScore);
     }
 
+    // The profile read is the only failing dependency, so the page still renders and shows "—" for the difficulty (recommendation.md §9.1).
+    [Fact]
+    public async Task A_failing_profile_read_shows_a_dash_for_the_difficulty_instead_of_an_error()
+    {
+        await fixture.ResetDatabaseAsync();
+        var book = (await CatalogSeed.AddBooksAsync(fixture, [new BookSeed("甲書")])).Single();
+        await using var app = fixture.CreateFactory();
+        app.ProfileStore = new ThrowingProfileStore();
+        var client = await SignInAsync(app, "detail-profile-down@x.com");
+        var searchId = await SeedSearchAsync(await UserIdAsync("detail-profile-down@x.com"), CreatedAtUtc, "需求",
+            new SavedResult(book.BookId, "理由", 0.82m));
+
+        var html = await client.GetPageAsync(DetailPath(searchId));
+
+        Assert.Equal("相關度 82%　難度 —", DetailRows(html).Single().Meta);
+    }
+
     private static string DetailPath(Guid searchId) => $"/ai/history/{searchId}";
 
     // Writes a search with its snapshot results straight to the database, so created_at and the saved values are exactly what the test says.
@@ -308,6 +326,25 @@ public sealed partial class AiHistoryDetailTests(WebFixture fixture)
                     Match(body, "class=\"[^\"]*\\bai-history-meta\\b[^\"]*\"[^>]*>([^<]*)<"));
             })
             .ToList();
+
+    // Only the difficulty read fails. The other members are never reached by the history page.
+    private sealed class ThrowingProfileStore : IBookProfileStore
+    {
+        public Task<IReadOnlyDictionary<Guid, short>> ReadDifficultiesAsync(IReadOnlyCollection<Guid> bookIds, CancellationToken cancellationToken) =>
+            Task.FromException<IReadOnlyDictionary<Guid, short>>(new InvalidOperationException("profile table down"));
+
+        public Task<IReadOnlyList<Guid>> FindStaleAsync(IReadOnlyCollection<Guid> bookIds, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<BookProfileSource?> LoadSourceAsync(Guid bookId, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task UpsertAsync(
+            Guid bookId,
+            GeneratedBookProfile profile,
+            string sourceContentHash,
+            string modelName,
+            string promptVersion,
+            CancellationToken cancellationToken) => throw new NotSupportedException();
+    }
 
     private sealed record SavedResult(Guid BookId, string Reason, decimal? Relevance);
 

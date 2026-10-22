@@ -163,7 +163,7 @@ public class EfBookProfileStoreTests(PostgresFixture fixture)
     }
 
     [Fact]
-    public async Task Framework_is_stored_in_the_Q5_shape()
+    public async Task Framework_is_stored_in_the_documented_shape()
     {
         await using var db = fixture.CreateContext();
         await ResetAsync(db);
