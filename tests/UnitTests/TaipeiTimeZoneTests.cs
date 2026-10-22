@@ -45,6 +45,14 @@ public sealed class TaipeiTimeZoneTests
     }
 
     [Fact]
+    public void Format_minute_shows_the_taipei_time_to_the_minute_and_drops_the_seconds()
+    {
+        var text = TaipeiTimeZone.FormatMinute(new DateTime(2026, 10, 21, 16, 0, 59, DateTimeKind.Utc));
+
+        Assert.Equal("2026-10-22 00:00", text);
+    }
+
+    [Fact]
     public void Start_of_day_at_2359_taipei_is_the_start_of_that_day_not_the_next()
     {
         var start = TaipeiTimeZone.StartOfDayUtc(new DateTimeOffset(2026, 10, 22, 15, 59, 59, TimeSpan.Zero));

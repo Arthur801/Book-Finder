@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace Book_Finder.Application.Common;
 
 // Asia/Taipei for showing captured_at and for the day boundary of the daily Recommendation limit (recommendation.md §11).
@@ -13,6 +15,9 @@ public static class TaipeiTimeZone
     // Shows a stored UTC time in Taipei. The value is treated as UTC whatever its Kind, as the stored times are.
     public static DateTimeOffset FromUtc(DateTime utc) =>
         TimeZoneInfo.ConvertTime(new DateTimeOffset(DateTime.SpecifyKind(utc, DateTimeKind.Utc)), Taipei);
+
+    // The stored UTC time in Taipei time to the minute, as the AI history list and its detail page show it (yyyy-MM-dd HH:mm).
+    public static string FormatMinute(DateTime utc) => FromUtc(utc).ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
 
     // The UTC instant of 00:00 Taipei on the Taipei calendar day that contains now (recommendation.md §11).
     public static DateTime StartOfDayUtc(DateTimeOffset now)

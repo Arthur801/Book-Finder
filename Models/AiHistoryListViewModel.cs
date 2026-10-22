@@ -1,4 +1,3 @@
-using System.Globalization;
 using Book_Finder.Application.Common;
 using Book_Finder.Application.Recommendation;
 
@@ -23,7 +22,7 @@ public sealed record AiHistoryListViewModel(
         var items = page.Items.Select(item => new AiHistoryItemViewModel(
             item.SearchId,
             item.RequirementText,
-            FormatCreatedAt(item.CreatedAt),
+            TaipeiTimeZone.FormatMinute(item.CreatedAt),
             item.ResultCount)).ToList();
 
         var pager = PagerViewModel.For(currentPage, TotalPagesOf(page.TotalCount), UrlFor);
@@ -33,10 +32,6 @@ public sealed record AiHistoryListViewModel(
 
     // The link to one page of the /ai page. Page 1 is plain /ai, as the first page is the default.
     public static string UrlFor(int page) => page == 1 ? "/ai" : $"/ai?page={page}";
-
-    // The stored time is UTC; the list shows it in Taipei time, to the minute.
-    internal static string FormatCreatedAt(DateTime createdAtUtc) =>
-        TaipeiTimeZone.FromUtc(createdAtUtc).ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
 }
 
 // One row of the history list as shown. CreatedAtText is already in Taipei time.

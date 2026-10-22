@@ -1,3 +1,4 @@
+using Book_Finder.Application.Common;
 using Book_Finder.Application.Recommendation;
 
 namespace Book_Finder.Models;
@@ -13,7 +14,7 @@ public sealed record AiHistoryDetailViewModel(
 
     public static AiHistoryDetailViewModel From(RecommendationSearchDetail detail) => new(
         detail.RequirementText,
-        AiHistoryListViewModel.FormatCreatedAt(detail.CreatedAt),
+        TaipeiTimeZone.FormatMinute(detail.CreatedAt),
         detail.Results.Select(AiHistoryDetailItemViewModel.From).ToList());
 }
 
