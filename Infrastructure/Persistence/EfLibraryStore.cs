@@ -8,9 +8,13 @@ namespace Book_Finder.Infrastructure.Persistence;
 // Library data access (user-library.md §2, §3). Every query is filtered by the user id the caller passes in.
 internal sealed class EfLibraryStore(AppDbContext db) : ILibraryStore
 {
+    private const string BookForeignKey = "FK_user_books_books_book_id";
+
     // Not found is detected from the foreign key violation instead of a check before the insert. A check-then-insert
     // could still lose to a concurrent Book delete between the two statements; the foreign key is what really guarantees it.
     // A row that already exists is skipped by ON CONFLICT before the foreign key is checked, so an existing entry never fails here.
+    // Only the Book foreign key is translated to null. The user foreign key means a missing user, not a missing Book,
+    // so it must not be reported as BookNotFound; that violation propagates to the caller.
     public async Task<LibraryEntry?> AddIfMissingAsync(LibraryEntry entry, CancellationToken ct)
     {
         try
@@ -22,7 +26,7 @@ internal sealed class EfLibraryStore(AppDbContext db) : ILibraryStore
                 ON CONFLICT (user_id, book_id) DO NOTHING
                 """, ct);
         }
-        catch (PostgresException exception) when (exception.SqlState == PostgresErrorCodes.ForeignKeyViolation)
+        catch (PostgresException exception) when (exception is { SqlState: PostgresErrorCodes.ForeignKeyViolation, ConstraintName: BookForeignKey })
         {
             return null;
         }
