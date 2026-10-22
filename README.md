@@ -29,4 +29,12 @@ A .net core website about using LLM to find a book you want.
 
    VS Code 偵錯可在 `launch.json` 的設定加上 `"envFile": "${workspaceFolder}/.env"`。
 
+4. 網站只用 HTTPS 執行：`dotnet run` 會開在 `https://localhost:7083`（`Properties/launchSettings.json` 只有 `https` profile）。第一次需要信任開發用憑證：
+
+   ```bash
+   dotnet dev-certs https --trust
+   ```
+
+   不要改用 HTTP：登入 cookie 與 antiforgery cookie 都要求 `Secure`（`Docs/modules/identity-auth.md` §5），在 HTTP 下登入、註冊等表單頁會直接回 500（`...SecurePolicy = Always, but the current request is not an SSL request`）。
+
 正式環境的 key 來自 SSM（`Docs/deployment/deployment.md` §5）。
