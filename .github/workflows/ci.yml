@@ -10,7 +10,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # Pushes to main are keyed per commit so every merge commit keeps its own run; PRs still cancel superseded runs.
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -32,7 +33,7 @@ jobs:
 
       - run: dotnet restore Book-Finder.slnx
 
-      # Fails when whitespace or formatting in the .NET projects differs from .editorconfig rules.
+      # Fails when whitespace or formatting in the .NET projects differs from dotnet format's default rules (the repo has no .editorconfig).
       - run: dotnet format Book-Finder.slnx --verify-no-changes --no-restore
 
       - uses: actions/setup-python@v7
@@ -40,7 +41,10 @@ jobs:
           python-version: '3.14'
 
       # The ruff version is pinned in crawler/requirements.txt, the single source of truth for this job.
-      - run: pip install "$(grep -E '^ruff==' requirements.txt)"
+      - run: |
+          ruff_pin=$(grep -E '^ruff==' requirements.txt || true)
+          test -n "$ruff_pin" || { echo "::error::ruff==<version> pin not found in crawler/requirements.txt"; exit 1; }
+          pip install "$ruff_pin"
         working-directory: crawler
 
       - run: ruff check --output-format github .
@@ -91,6 +95,12 @@ jobs:
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
+
+      - uses: actions/cache@v6
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', 'dotnet-tools.json') }}
+          restore-keys: nuget-${{ runner.os }}-
 
       - run: dotnet tool restore
 

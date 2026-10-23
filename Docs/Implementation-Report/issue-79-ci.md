@@ -33,15 +33,15 @@
 
 ### M1：CI workflow（#80）
 
-- `ci.yml` 於 PR 與 push 到 `main` 時執行，同一 ref 的舊 PR 執行會被取消。
+- `ci.yml` 於 PR 與 push 到 `main` 時執行，同一 ref 的舊 PR 執行會被取消。push 到 `main` 則依 commit 分組，每個 merge commit 各自保有結果（review 後修正）。
 - `.NET build and tests`：`dotnet restore`、`dotnet build -c Release`、`dotnet test --no-build`，trx 結果上傳為 artifact。整合測試以 Testcontainers 啟動 pgvector，ubuntu-latest 提供 Docker。
 - `Crawler tests`：需要 .NET SDK，因為 `crawler/tests/conftest.py` 會執行 `dotnet tool restore`、`dotnet build` 與 `dotnet ef` 來產生 schema。安裝 Playwright Chromium 後執行 pytest，JUnit XML 上傳為 artifact。
-- NuGet 快取：專案沒有 `packages.lock.json`，`setup-dotnet` 內建的快取無法產生 key，因此改用 `actions/cache` 直接快取 `~/.nuget/packages`。
+- NuGet 快取：專案沒有 `packages.lock.json`，`setup-dotnet` 內建的快取無法產生 key，因此改用 `actions/cache` 直接快取 `~/.nuget/packages`。`.NET build and tests` 與 `Crawler tests` 兩個 job 都有此快取（review 後為 crawler job 補上）。
 - pip 快取：使用 `setup-python` 的 `cache: pip`。
 
 ### M2：格式與 lint（#81）
 
-- `dotnet format Book-Finder.slnx --verify-no-changes`：`.editorconfig` 的規則；本模組修正 `SchemaTests.cs` 的空白。
+- `dotnet format Book-Finder.slnx --verify-no-changes`：使用 dotnet format 內建的預設規則（repo 沒有 `.editorconfig`）；本模組修正 `SchemaTests.cs` 的空白。
 - ruff：
   - `ruff==0.17.2` 釘定在 `crawler/requirements.txt`，CI 由該檔案讀取版本，作為單一來源。
   - `crawler/ruff.toml`：target `py314`、line-length 165。
@@ -99,8 +99,17 @@
 - `Analyze (…)` 未列為 required check，由 ruleset 的 code scanning rule 涵蓋。
 - Playwright 瀏覽器未快取，偶發變慢時會拖長 `Crawler tests` job。
 - 各 job 未設定 `timeout-minutes`，使用預設值 360 分鐘。
+- 各 job 重複 `setup-dotnet` 與 NuGet 快取步驟；未抽成 composite action，也未建立 `global.json`。屬判斷題，本次未處理。
+- Dependabot docker 只涵蓋 `crawler/Dockerfile`，未涵蓋 `compose.yaml` 中的 `pgvector/pgvector:pg17` image。
 
 ## Code Review 與修正
 
 - 主 agent 已逐一審查各模組：以 actionlint 檢查 workflow，重跑 lint，比對 `books_crawler/` 的變更確認行為不變，以 `gh api` 確認 action 版本，並以 schema 驗證 `dependabot.yml`。
-- 兩軸 Code Review（Standards／Spec）結果：待補
+- 兩軸 Code Review（範圍 `23f7aeb...60948db`），主 agent 逐項驗證：
+  - Standards：無違反文件規範（AGENTS.md §2.3：無 secret、未關閉安全機制、`permissions: contents: read`、使用 `pull_request` 而非 `pull_request_target`；`books_crawler/` 行為不變，broad except 保留）。
+    - 已修正：`ci.yml` 註解引用不存在的 `.editorconfig`（報告同步修正）；lint job 以 grep 取 ruff pin，找不到時改為明確失敗。
+    - 不成立：「`ruff.toml` 未 select，只跑預設 E/F，`# noqa: BLE001` 無作用」——以 `ruff check --show-settings` 確認 ruff 0.17.2 讀取 `crawler/ruff.toml`、啟用 407 條規則，含 BLE001、PLW1510、UP017、SIM117；「cache key 的 `dotnet-tools.json` 不在根目錄」——該檔位於 repo 根目錄。
+    - 判斷題未處理：各 job 重複 setup-dotnet＋NuGet cache；dependabot 各 ecosystem 設定重複（不支援 anchor）；`test_page_list.py` 分類表被 ruff 拆成每行一對。
+  - Spec：#79 範圍內項目皆已實作；第二次執行命中快取（main push run 39918278421 有 `Cache hit for: nuget-Linux-…`，pip 由 restore-key 還原）。
+    - 已修正：crawler job 缺少 NuGet 快取；main 的 push run 被 concurrency 取消（run 39918259137，merge #81），改為 push 依 commit 分組。
+    - 範圍外但合理保留：CodeQL 每週排程、concurrency 設定、Dependabot 分組與上限。
