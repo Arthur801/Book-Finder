@@ -51,6 +51,7 @@ def validate(path: Path) -> subprocess.CompletedProcess:
 
 # manifest_classify
 
+
 def test_classify_in_sync_when_lines_are_equal(tmp_path):
     text = manifest((ID1, H1), (ID2, H2))
     assert classify(tmp_path, text, text) == "in-sync"
@@ -92,6 +93,7 @@ def test_classify_disjoint_manifests_are_divergent(tmp_path):
 
 # manifest_pending
 
+
 def test_pending_lists_target_lines_after_the_applied_prefix(tmp_path):
     applied = write(tmp_path / "a.txt", manifest((ID1, H1)))
     target = write(tmp_path / "t.txt", manifest((ID1, H1), (ID2, H2), (ID3, H3)))
@@ -114,10 +116,13 @@ def test_pending_from_empty_applied_is_the_whole_target(tmp_path):
     assert result.stdout == target
 
 
-@pytest.mark.parametrize("applied_entries,target_entries", [
-    ([(ID1, H1), (ID2, H2)], [(ID1, H1)]),
-    ([(ID1, H1)], [(ID1, H2)]),
-])
+@pytest.mark.parametrize(
+    "applied_entries,target_entries",
+    [
+        ([(ID1, H1), (ID2, H2)], [(ID1, H1)]),
+        ([(ID1, H1)], [(ID1, H2)]),
+    ],
+)
 def test_pending_refuses_non_forward_manifests(tmp_path, applied_entries, target_entries):
     result = run_lib(
         "manifest_pending",
@@ -129,6 +134,7 @@ def test_pending_refuses_non_forward_manifests(tmp_path, applied_entries, target
 
 
 # manifest_validate_file
+
 
 def test_validate_accepts_a_well_formed_manifest(tmp_path):
     assert validate(write(tmp_path / "m.txt", manifest((ID1, H1), (ID2, H2)))).returncode == 0
@@ -175,17 +181,20 @@ def test_validate_accepts_exactly_max_size(tmp_path):
     assert validate(write(tmp_path / "exact.txt", exact)).returncode == 0
 
 
-@pytest.mark.parametrize("bad_line", [
-    f"2026101017461_Short {H1}",           # 13-digit timestamp
-    f"20261010174616_ {H1}",               # empty name
-    f"20261010174616_Has-Dash {H1}",       # name outside [A-Za-z0-9]
-    f"20261010174616_Name {H1[:-1]}",      # short hash
-    f"20261010174616_Name {H1.upper()}",   # uppercase hex
-    f"20261010174616_Name  {H1}",          # double space
-    f"20261010174616_Name\t{H1}",          # tab separator
-    f"20261010174616_Name {H1} extra",     # trailing field
-    f"20261010174616_Name {H1}\r",         # CRLF line ending
-])
+@pytest.mark.parametrize(
+    "bad_line",
+    [
+        f"2026101017461_Short {H1}",  # 13-digit timestamp
+        f"20261010174616_ {H1}",  # empty name
+        f"20261010174616_Has-Dash {H1}",  # name outside [A-Za-z0-9]
+        f"20261010174616_Name {H1[:-1]}",  # short hash
+        f"20261010174616_Name {H1.upper()}",  # uppercase hex
+        f"20261010174616_Name  {H1}",  # double space
+        f"20261010174616_Name\t{H1}",  # tab separator
+        f"20261010174616_Name {H1} extra",  # trailing field
+        f"20261010174616_Name {H1}\r",  # CRLF line ending
+    ],
+)
 def test_validate_rejects_bad_line(tmp_path, bad_line):
     assert validate(write(tmp_path / "m.txt", bad_line + "\n")).returncode != 0
 
@@ -203,6 +212,7 @@ def test_validate_rejects_missing_trailing_newline(tmp_path):
 
 
 # manifest_schema_digest
+
 
 def test_digest_is_sha256_prefixed(tmp_path):
     result = run_lib("manifest_schema_digest", str(write(tmp_path / "m.txt", manifest((ID1, H1)))))
