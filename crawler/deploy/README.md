@@ -28,7 +28,7 @@ docker run --rm --entrypoint python book-finder-crawler:local -c \
 
 ## 2. 映像發布（GHCR，由 CD 管理）
 
-- Image：`ghcr.io/arthur801/book-finder-crawler`。CD 在推送 `v*` tag 時建置，以 `:<tag>` 推送，取得 digest 後做 attestation，並寫入該 release 的 `release.json`。
+- Image：`ghcr.io/arthur801/book-finder-crawler`。CD 在推送 `v*` tag 時建置。順序：先將 image 推送至每次 workflow attempt 專屬的 `build-<run_id>-<run_attempt>` staging tag，取得 digest 後建立並驗證 attestation；驗證成功後才以 `docker buildx imagetools create --prefer-index=false` 建立正式 `v*` release tag（commit point），並確認該 tag 解析到同一 digest。digest 寫入該 release 的 `release.json`。完整流程見 `deploy/README.md` §1.6。
 - **不要手動推送。** 需要使用的 digest 來自 release 的 `release.json`，或 CD 的 plan summary。
 - 每次部署只使用 digest（`image@sha256:…`），不使用可變的 tag。
 - 若 EC2 需要拉取 private package，見 `deploy/README.md` §2.8（GHCR visibility）。

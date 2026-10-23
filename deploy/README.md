@@ -70,7 +70,7 @@ flowchart LR
 
 | 碼 | 名稱 | 常見原因 | history result | 操作者要做什麼 |
 |---|---|---|---|---|
-| 0 | OK | plan 可以部署；或 deploy 成功（web 與 crawler 都在目標版本） | `success` | 無 |
+| 0 | OK | plan 可以部署；或 deploy 成功：web 已切換到目標 release；crawler 符合該 chain 的預期狀態（in-sync / forward 更新至目標 crawler，schema-ahead 維持目前的 crawler） | `success` | 無 |
 | 1 | ROLLED_BACK | in-sync 或 schema-ahead 的 web 切換失敗，已回到舊 runtime | `rolled-back` | 看 journal 的健康檢查失敗原因，修正後再 dispatch。不需要 reconcile |
 | 2 | BAD_INPUT | 參數或 SSH 指令格式錯誤；release metadata 或內容不合格；`divergent`；`release_api` 超出 host 支援範圍；schema-ahead 的 `crawler_digest` 不是目前的；cutover 條件不符；compose 不支援 `format: raw`；設定檔錯誤；人工指令的確認值不符 | `rejected` | 不要重試同一組參數；依 stderr 的原因修正 |
 | 3 | DRIFT | state 不存在（需 bootstrap）；runtime 或 schema 與 state 不符；CAS 失敗（revision 過期）；deploy 或 db-maintenance lock 逾時；目前 runtime 健康檢查失敗（未改動）；snapshot 失敗（未 migrate，crawler 已恢復）；run id 已使用；unit 已存在；crawler 仍 paused；互動式 deploy 的跟隨逾時（回報 `running`；CD 使用 `--detach`，不會遇到此項） | `drift` | 依原因處理。未改動時修正後重新 plan，再 dispatch |
@@ -301,8 +301,8 @@ sudo python3 <checkout>/deploy/host/book-finder-admin install-host \
 **Immutable Releases**（Settings → Releases → Enable release immutability）
 
 - 必須在**第一個 release 之前**開啟。這個設定只對開啟後發布的 release 生效。
-- 開啟後（依 GitHub 官方文件 [Immutable releases](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases)）：publish 之後 release asset 與 Git tag 不能修改；刪除 release 會釋放 tag 名稱，但同名 tag 不能再次使用。title 與 release notes 仍可編輯。只對開啟後發布的 release 生效。建議順序：先建立 draft、上傳全部 asset，再 publish。`gh release verify <tag>` 可檢查 release 是否 immutable。
-- 尚未確認此功能是否已 GA（**待確認**）。
+- 開啟後（依 GitHub 官方文件 [Immutable releases](https://docs.github.com/en/code-security/supply-chain-security/understanding-your-software-supply-chain/immutable-releases)）：publish 之後 release asset 與 Git tag 不能修改；刪除 immutable release 後可以刪除其 Git tag，但該 tag 名稱仍不能再次使用。title 與 release notes 仍可編輯。只對開啟後發布的 release 生效。建議順序：先建立 draft、上傳全部 asset，再 publish。`gh release verify <tag>` 可檢查 release 是否 immutable。
+- Immutable Releases 已於 2025-10-28 GA（[changelog](https://github.blog/changelog/2025-10-28-immutable-releases-are-now-generally-available/)）；第一次正式 release 前仍須確認 repository 已啟用此設定。
 
 **`v*` tag ruleset**（建議，程式不強制）
 
@@ -327,7 +327,7 @@ sudo python3 <checkout>/deploy/host/book-finder-admin install-host \
 ### 3.1 前置條件
 
 1. §2 全部完成，`install-host` 成功。
-2. 爬蟲腳本與排程已安裝：`run-crawler.sh` 到 `CRAWLER_RUNNER`、`crawler.cron` 到 `CRON_FILE`（bootstrap 會讀取並計算兩者的雜湊，缺任一個就拒絕）。`crawler.conf` 的 `CRAWLER_IMAGE=` 應設為 `ghcr.io/arthur801/book-finder-crawler@sha256:<digest>`，並已 `docker pull`（爬蟲以 `--pull=never` 執行）。bootstrap 本身不檢查 `CRAWLER_IMAGE=`；之後的 `resume-crawler` 會檢查。
+2. 爬蟲腳本與排程已安裝：`run-crawler.sh` 到 `CRAWLER_RUNNER`、`crawler.cron` 到 `CRON_FILE`（bootstrap 會讀取並計算兩者的雜湊，缺任一個就拒絕）。`crawler.conf` 的 `CRAWLER_IMAGE=` 必須已設定為 `<CRAWLER_IMAGE_REPOSITORY>@<crawler digest>`（例如 `ghcr.io/arthur801/book-finder-crawler@sha256:<digest>`），並已 `docker pull`（爬蟲以 `--pull=never` 執行）。bootstrap-state 會讀取並驗證此值，與 `--crawler-digest` 不一致時拒絕；`resume-crawler` 也會檢查。
 3. 目標 release 的 tag 已發布。`bootstrap-state --release` 與 `--web-digest` 必須指向同一個已發布 release：程式只檢查 tag 的格式，**不驗證 tag 與 digest 的對應**，由操作者確認（對照 GitHub Release 的 `release.json`）。
 4. `docker pull <PSQL_IMAGE>` 已完成。
 
@@ -363,7 +363,7 @@ sudo /opt/book-finder/host/book-finder-admin bootstrap-state \
 
 ### 3.4 Host 會做什麼
 
-依 `machine.py` 的順序（每個動作都先寫 state 再進行下一步）：
+依 `machine.py` 的順序：
 
 1. 取得 deploy lock、CAS 檢查 revision、runtime、schema；schema dirty 則 exit 6。
 2. 用 `docker compose` 的 probe 確認 raw env_file 支援，失敗 exit 2。
@@ -374,6 +374,8 @@ sudo /opt/book-finder/host/book-finder-admin bootstrap-state \
 7. 健康檢查：本機 `127.0.0.1:5000` 與 `PUBLIC_URL`，每個 90 秒內都要回 200（不跟隨 redirect）。
 8. 成功：更新 crawler（pull、smoke、安裝 `run-crawler.sh`、`crawler.cron`、改寫 `crawler.conf`），然後 `runtime=docker`、`previous_runtime=systemd`，寫 completed。
 9. 失敗（web）：回滾。systemd 舊 runtime 的回滾是 `compose down`，再 `systemctl start <SYSTEMD_UNIT>`，並檢查健康。
+
+state.json 是 production state，只在影響復原語意的轉換（pause、dirty、migrated、promote、resume）時以 CAS 寫入；執行紀錄是 history.jsonl（started/completed）。
 
 ### 3.5 驗證
 
@@ -693,7 +695,7 @@ Journal 是**輔助資訊**，不是結果的來源。結果以 history 為準�
 | 8 | Web 的 `ForwardedHeaders__KnownNetworks__0`（`172.31.250.0/24`）是否涵蓋 host nginx 經 docker-proxy 的來源位址 | 待確認（compose 註解的推論） | 健康檢查與登入 cookie 的 `Secure` 行為 |
 | 9 | 爬蟲的 `docker run --pull=never`：image 是否已由 host 拉取 | 程式在 `_update_crawler` 會 pull；bootstrap 前需手動 pull | `docker image inspect <CRAWLER_IMAGE>` |
 | 10 | GHCR package 是否 public；若 private，host 的登入方式 | 待確認（§2.8） | `docker pull` 不需登入即可成功 |
-| 11 | Immutable Releases 是否已 GA | 待確認（查證結果：尚未確認） | GitHub 文件 |
+| 11 | 確認 repository 已啟用 Immutable Releases（GA 日期 2025-10-28，見 §2.8） | 第一次正式 release 前需在 repository 設定中啟用 | Settings → Releases；發布後 `gh release verify <tag>` |
 | 12 | 客戶管理 KMS key 是否使用（影響 `kms:Decrypt`） | 待確認 | SSM 參數的 key 設定 |
 | 13 | 不變式編號 `S1`、`S2` | 已在 v5 併入其他不變式：S1 → N7（transient unit 不用 `--pipe`），S2 → I6（GC 保留被引用的 image 與目錄）。ADR-006 保留編號說明 | 無須額外處理 |
 | 14 | `google-books-api-key`（`deployment.md` §5） | 在 #14（Google Books fallback）實作時才使用；目前程式未讀取，host 也不注入 | 不屬於本次部署；實作 #14 時再納入 host.conf 與 SSM 設定 |

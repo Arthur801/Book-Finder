@@ -141,7 +141,7 @@
 ### 計畫 §7 的查證結果（2026-10-23）
 
 1. **`gh attestation verify`**：gh 2.103.0 的 help 列出 `--signer-workflow`、`--source-ref`、`--source-digest`、`--deny-self-hosted-runners`。本機 gh 2.46 沒有 `attestation`，因此驗證只在 CI runner 上執行（I7）。
-2. **Immutable Releases**：開啟後，publish 之後 asset 不能修改或刪除，tag 鎖定在原 commit，也不能刪除。只對開啟後發布的 release 生效。刪除 release 後 tag 名稱不能重用。尚未確認是否已 GA。
+2. **Immutable Releases**：開啟後，publish 之後 asset 不能修改或刪除，tag 鎖定在原 commit，也不能刪除。只對開啟後發布的 release 生效。刪除 immutable release 後可以刪除其 Git tag，但該 tag 名稱仍不能再次使用。已於 2025-10-28 GA。
 3. **`docker cp` 與 symlink**：不帶 `-L` 時複製出來的是連結本身。實測 `/opt/release/migrations.txt -> /etc/shadow` 複製後仍是指向 host `/etc/shadow` 的連結。因此讀取前以 `lstat` 拒絕 symlink。
 4. **efbundle 的 transaction**：支援 `efbundle <MIGRATION>`。從 AiProfile 升級，pending 為 Indexes 與 RequireRecommendationUser；故意塞入 NULL 讓後者失敗，結果 exit 1，Indexes 已 commit，RequireRecommendationUser 完整 rollback。每個 migration 各自在一個 transaction 中執行。
 5. **systemd-run**：`--collect` 且不加 `--pipe` 時，launcher 被 kill -9 後 unit 仍會跑完。unit 被回收後，`systemctl show` 回傳 `inactive`/`success`，與不存在的 unit 看起來相同，因此結果必須以 history 為準（N7）。本次是用 `--user` manager 測試的，system manager 的語意相同，正式環境要在 EC2 上再確認。
@@ -160,7 +160,7 @@
 - **host nginx 設定**：不在本 repository 中。`PUBLIC_URL` 的健康檢查依賴它正確轉發並加上 `X-Forwarded-Proto`。
 - **Web 的 `KnownNetworks`**：`172.31.250.0/24` 是否涵蓋 host nginx 經 docker-proxy 的來源位址，待確認。
 - **GHCR visibility**：public 或 private 尚未決定；private 時 host 需要登入。
-- **Immutable Releases GA**：尚未確認。
+- **Immutable Releases GA**：已於 2025-10-28 GA（https://github.blog/changelog/2025-10-28-immutable-releases-are-now-generally-available/）；第一次正式 release 前仍須確認 repository 已啟用此設定。
 - **`production-plan` 的 reviewer**：未決定（程式不依賴）。
 - **Google Books SSM 參數**：`deployment.md` §5 保留該參數，並標示為 #14（Google Books fallback）實作時才使用；目前程式未讀取，host 也不注入。
 - **不變式編號 S1、S2**：已在 v5 併入其他不變式（S1 → N7，transient unit 不用 `--pipe`；S2 → I6，GC 保留被引用的 image 與目錄）。ADR-006 保留編號說明，無須額外處理。
