@@ -60,14 +60,18 @@ TAG_BROKEN = "v1.1.1"
 # The migrations added to the scratch copies are dated after every real migration, so they always append.
 SCRATCH_MIGRATION_2 = "20991231000000_ScratchAdditive"
 SCRATCH_MIGRATION_3 = "20991231000001_ScratchSecond"
-PSQL_IMAGE_TAG = "pgvector/pgvector:0.8.7-pg17"
+# Images the suite pulls are referenced by digest (tag kept for readability); the digests were read from the local store.
+PSQL_IMAGE_TAG = "pgvector/pgvector:0.8.7-pg17@sha256:ac08538c6f8b9904c33c8224c5e5706dbe760aca29db1d096972b4052c22a75d"
+PSQL_IMAGE_DIGEST = "sha256:ac08538c6f8b9904c33c8224c5e5706dbe760aca29db1d096972b4052c22a75d"
+REGISTRY_IMAGE = "registry:2.8.3@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373"
 DB_USER = "book_finder_dev"
 DB_NAME = "book_finder"
 GENERIC_WAIT_S = 120
 
 
 def log(message: str) -> None:
-    print(message, flush=True)
+    # A leading newline keeps the line clear of pytest's -q progress dot, so each PASS line starts at column 0.
+    print("\n" + message, flush=True)
 
 
 def docker(*args: str, check: bool = True, timeout: float = 900) -> subprocess.CompletedProcess:
@@ -490,9 +494,9 @@ def stack(tmp_path_factory):
             lambda: docker("exec", DB_CONTAINER, "pg_isready", "-h", "127.0.0.1", "-U", DB_USER, "-d", DB_NAME, check=False).returncode == 0,
             120,
         ), "database did not accept connections"
-        stack.psql_digest = docker("image", "inspect", "-f", "{{index .RepoDigests 0}}", PSQL_IMAGE_TAG).stdout.strip().split("@", 1)[1]
+        stack.psql_digest = PSQL_IMAGE_DIGEST
 
-        docker("run", "-d", "--name", REGISTRY_CONTAINER, "-p", "127.0.0.1::5000", "registry:2")
+        docker("run", "-d", "--name", REGISTRY_CONTAINER, "-p", "127.0.0.1::5000", REGISTRY_IMAGE)
         started.append(REGISTRY_CONTAINER)
         registry_port = docker("port", REGISTRY_CONTAINER, "5000/tcp").stdout.strip().rsplit(":", 1)[1]
         stack.registry = f"127.0.0.1:{registry_port}"
