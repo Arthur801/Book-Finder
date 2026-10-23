@@ -56,6 +56,11 @@ jobs:
       - run: ruff format --check .
         working-directory: crawler
 
+      # The CI scripts share the crawler's ruff settings; the ruff installed above runs from the repository root.
+      - run: ruff check --output-format github --config crawler/ruff.toml .github/scripts
+
+      - run: ruff format --check --config crawler/ruff.toml .github/scripts
+
   dotnet:
     name: .NET build and tests
     runs-on: ubuntu-latest
