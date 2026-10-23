@@ -743,9 +743,15 @@ def test_crawler_conf_rewrite_keeps_other_lines_and_mode(tmp_path):
     world = in_sync_world(tmp_path)
     conf = Path(world.settings.crawler_conf)
     os.chmod(conf, 0o640)
+    # The operator's pause switch must survive a deploy that rewrites CRAWLER_IMAGE (#101).
+    conf.write_text(conf.read_text() + "CRAWLER_ENABLED=false\n", encoding="utf-8")
     assert world.run_unit(deploy_text(world))[0] == OK
     lines = conf.read_text().splitlines()
-    assert lines == [f"CRAWLER_IMAGE={world.settings.crawler_image_repository}@{CRAWLER2}", "SCHEDULE=0 3 * * *"]
+    assert lines == [
+        f"CRAWLER_IMAGE={world.settings.crawler_image_repository}@{CRAWLER2}",
+        "SCHEDULE=0 3 * * *",
+        "CRAWLER_ENABLED=false",
+    ]
     assert stat.S_IMODE(os.stat(conf).st_mode) == 0o640
 
 
@@ -759,8 +765,10 @@ def test_rewrite_crawler_image_requires_exactly_one_key_line():
 
 
 def test_rewrite_crawler_image_is_byte_identical_outside_the_key_line():
-    data = b"# header\r\nCRAWLER_IMAGE=old\nSCHEDULE=0 3 * * *\n"
-    assert machine.rewrite_crawler_image(data, f"repo@{CRAWLER2}") == f"# header\r\nCRAWLER_IMAGE=repo@{CRAWLER2}\nSCHEDULE=0 3 * * *\n".encode()
+    data = b"# header\r\nCRAWLER_IMAGE=old\nSCHEDULE=0 3 * * *\nCRAWLER_ENABLED=false\n"
+    assert (
+        machine.rewrite_crawler_image(data, f"repo@{CRAWLER2}") == f"# header\r\nCRAWLER_IMAGE=repo@{CRAWLER2}\nSCHEDULE=0 3 * * *\nCRAWLER_ENABLED=false\n".encode()
+    )
 
 
 @pytest.mark.parametrize(
