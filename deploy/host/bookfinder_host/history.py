@@ -55,6 +55,7 @@ def completed_record(
     resolved_by_operator: bool = False,
     operator: str | None = None,
     reason: str | None = None,
+    snapshot_id: str | None = None,
 ) -> dict[str, Any]:
     record: dict[str, Any] = {
         "run_id": run_id,
@@ -64,6 +65,8 @@ def completed_record(
         "at": at,
         "state_summary": state_summary,
     }
+    if snapshot_id is not None:
+        record["snapshot_id"] = snapshot_id
     if resolved_by_operator:
         record.update({"resolved_by_operator": True, "operator": operator, "reason": reason})
     return record

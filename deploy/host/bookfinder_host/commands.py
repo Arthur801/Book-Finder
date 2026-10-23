@@ -1,34 +1,45 @@
-"""SSH command grammar, plan/status/deploy gates, and the exit-code mapping.
+"""SSH command grammar, plan/status/deploy gates, the SSH-side launch and follow, and the unit body of deploy.
 
 Why: this module is the only thing an SSH key can reach. The grammar accepts exactly three commands with fixed fields,
 the plan key may run only plan and status, and every deploy gate fails with a documented code before anything on the
-host changes. The state machine itself (M3b) is a stub here.
+host changes. A deploy runs as a transient unit (N7): the SSH side only checks, launches and follows, while the unit
+body takes the lock, writes the started record and runs the state machine in machine.py.
 """
 
+import io
 import json
 import os
 import re
 import shlex
+import sys
 import tempfile
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, TextIO
 
+from bookfinder_host import adapters, locks, machine, runs
 from bookfinder_host import config as cfg
 from bookfinder_host import history as hi
-from bookfinder_host import locks
 from bookfinder_host import manifest as mf
 from bookfinder_host import runtime as rt
 from bookfinder_host import state as st
 from bookfinder_host.exit_codes import BAD_INPUT, DIRTY, DRIFT, INDETERMINATE, OK, RESULT_BY_EXIT
-from bookfinder_host.ports import Clock, Runner, SubprocessRunner, SystemClock
+from bookfinder_host.ports import Clock, CommandResult, Effects, Runner, SubprocessRunner, SystemClock
 
 # Test-only hook: when set, the fakes file replaces docker, systemd, aws, psql and the clock. It is refused for root,
 # and the SSH forced command never sets it, so production cannot reach it by accident.
 TEST_HOOK_ENV = "BOOKFINDER_HOST_TEST_FAKES"
 DEFAULT_CONFIG = Path(cfg.DEFAULT_CONFIG_PATH)
-UNIT_PREFIX = "book-finder-deploy-"
+DEFAULT_ENTRY = Path(__file__).resolve().parent.parent / "deploy-entry"
+# Passed by systemd-run to the entry script; only accepted when INVOCATION_ID shows systemd started the process.
+UNIT_BODY_FLAG = "--unit-body"
+# The SSH side polls every 2 s. A unit that is gone with no started record gets 30 s before "not-started" is final,
+# because a unit can exit before it ever writes its started record.
+FOLLOW_INTERVAL_S = 2.0
+NOT_STARTED_GRACE_S = 30.0
+# The db-maintenance lock is held through a migration, which may include a long snapshot and a slow efbundle.
+MAINTENANCE_TIMEOUT_S = 45 * 60.0
 
 TAG_RE = re.compile(r"v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?")
 DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}")
@@ -37,7 +48,6 @@ REVISION_RE = re.compile(r"[0-9]{1,9}")
 CHAINS = ("in-sync", "forward", "schema-ahead")
 # --run-id is chosen by CD (${{ github.run_id }}-${{ github.run_attempt }}) so CD can poll status even if SSH drops.
 DEPLOY_VALUE_FLAGS = ("--run-id", "--expect-revision", "--expect-runtime", "--expect-schema", "--chain")
-NOT_IMPLEMENTED_RESULT = "not-implemented"
 
 
 class UsageError(Exception):
@@ -85,6 +95,9 @@ class Deps:
     clock: Clock
     db_query: Callable[[str], str]
     host_api_range: tuple[int, int]
+    effects: Effects
+    entry_argv: tuple[str, ...] = (sys.executable, str(DEFAULT_ENTRY))
+    maintenance_timeout_s: float = MAINTENANCE_TIMEOUT_S
 
 
 def _require(pattern: re.Pattern[str], value: str, what: str) -> str:
@@ -98,8 +111,14 @@ def parse_command(text: str) -> Command:
         tokens = shlex.split(text)
     except ValueError as exc:
         raise UsageError(f"cannot parse command: {exc}") from exc
+    return parse_tokens(tokens)
+
+
+def parse_tokens(tokens: list[str]) -> Command:
     if not tokens:
         raise UsageError("empty command")
+    if UNIT_BODY_FLAG in tokens:
+        raise UsageError(f"{UNIT_BODY_FLAG} is reserved for systemd")
     verb, args = tokens[0], tokens[1:]
     if verb == "plan":
         if len(args) != 2:
@@ -161,15 +180,40 @@ def _parse_deploy(args: list[str]) -> DeployCommand:
     )
 
 
+def render_deploy_tokens(command: DeployCommand) -> list[str]:
+    """The canonical deploy tokens handed to the unit; they round-trip through parse_tokens."""
+    tokens = [
+        "deploy",
+        command.tag,
+        command.web_digest,
+        command.crawler_digest,
+        "--run-id",
+        command.run_id,
+        "--expect-revision",
+        str(command.expect_revision),
+        "--expect-runtime",
+        command.expect_runtime,
+        "--expect-schema",
+        command.expect_schema,
+        "--chain",
+        command.chain,
+    ]
+    if command.cutover:
+        tokens.append("--cutover")
+    return tokens
+
+
 def load_production_deps() -> Deps:
     settings = cfg.load_settings(DEFAULT_CONFIG)
-    runner = SubprocessRunner()
+    # Above the aws waiter's own limit, so a slow snapshot is not cut short by this process.
+    runner = SubprocessRunner(timeout_s=3600.0)
     return Deps(
         settings=settings,
         runner=runner,
         clock=SystemClock(),
         db_query=cfg.make_psql_query(runner, settings),
         host_api_range=cfg.read_host_api_range(),
+        effects=adapters.build_effects(runner, settings),
     )
 
 
@@ -178,28 +222,63 @@ def load_fake_deps(path: str) -> Deps:
 
     document, host, clock = testing.fakes_from_file(path)
     settings = cfg.Settings(**document["settings"])
-    return Deps(
+    deps = Deps(
         settings=settings,
         runner=host,
         clock=clock,
         db_query=cfg.make_psql_query(host, settings),
         host_api_range=(1, 1),
+        effects=testing.FakeEffects(host, release_tree=host.release_dir).as_effects(),
     )
+    host.on_systemd_run = make_inline_launcher(deps)
+    return deps
+
+
+def make_inline_launcher(deps: Deps) -> Callable[[Sequence[str]], CommandResult]:
+    """Test-only: runs the unit body in this process when systemd-run is asked to start it.
+
+    Why: the SSH side and the unit are separate processes in production; tests need the unit's history writes to
+    happen, so the fake systemd-run calls the same entry point the real unit would. systemd-run itself succeeds.
+    """
+
+    def launch(argv: Sequence[str]) -> CommandResult:
+        index = list(argv).index(UNIT_BODY_FLAG)
+        sink_out, sink_err = io.StringIO(), io.StringIO()
+        main([UNIT_BODY_FLAG, *argv[index + 1 :]], {"INVOCATION_ID": "inline"}, sink_out, sink_err, deps=deps)
+        return CommandResult(0, "", "")
+
+    return launch
 
 
 def main(argv: list[str], environ: Mapping[str, str], out: TextIO, err: TextIO, deps: Deps | None = None) -> int:
-    if argv not in ([], ["--plan-only"]):
-        err.write("usage: deploy-entry [--plan-only]\n")
-        return BAD_INPUT
-    plan_only = bool(argv)
-    try:
-        command = parse_command(environ.get("SSH_ORIGINAL_COMMAND", ""))
-    except UsageError as exc:
-        err.write(f"rejected: {exc}\n")
-        return BAD_INPUT
-    if plan_only and isinstance(command, DeployCommand):
-        err.write("rejected: deploy is not allowed through the plan key\n")
-        return BAD_INPUT
+    unit_body = bool(argv) and argv[0] == UNIT_BODY_FLAG
+    if unit_body:
+        # The unit gets its command in argv, never from SSH_ORIGINAL_COMMAND, and only when systemd started it.
+        if "SSH_ORIGINAL_COMMAND" in environ or "INVOCATION_ID" not in environ:
+            err.write(f"rejected: {UNIT_BODY_FLAG} is accepted only from a systemd unit\n")
+            return BAD_INPUT
+        try:
+            command = parse_tokens(argv[1:])
+        except UsageError as exc:
+            err.write(f"rejected: {exc}\n")
+            return BAD_INPUT
+        if not isinstance(command, DeployCommand):
+            err.write(f"rejected: {UNIT_BODY_FLAG} takes only deploy\n")
+            return BAD_INPUT
+        plan_only = False
+    else:
+        if argv not in ([], ["--plan-only"]):
+            err.write("usage: deploy-entry [--plan-only]\n")
+            return BAD_INPUT
+        plan_only = bool(argv)
+        try:
+            command = parse_command(environ.get("SSH_ORIGINAL_COMMAND", ""))
+        except UsageError as exc:
+            err.write(f"rejected: {exc}\n")
+            return BAD_INPUT
+        if plan_only and isinstance(command, DeployCommand):
+            err.write("rejected: deploy is not allowed through the plan key\n")
+            return BAD_INPUT
     try:
         if deps is None:
             if TEST_HOOK_ENV in environ:
@@ -214,46 +293,23 @@ def main(argv: list[str], environ: Mapping[str, str], out: TextIO, err: TextIO, 
         err.write(f"configuration error: {exc}\n")
         return BAD_INPUT
     try:
-        return dispatch(command, deps, out, err)
+        return dispatch(command, deps, out, err, unit_body=unit_body)
     except Exception as exc:  # noqa: BLE001 - deliberate: an unexpected error must not exit 1 (rolled-back)
         err.write(f"internal error: {type(exc).__name__}: {exc}\n")
         return BAD_INPUT
 
 
-def dispatch(command: Command, deps: Deps, out: TextIO, err: TextIO) -> int:
+def dispatch(command: Command, deps: Deps, out: TextIO, err: TextIO, unit_body: bool = False) -> int:
     if isinstance(command, PlanCommand):
         return run_plan(command, deps, out, err)
     if isinstance(command, StatusCommand):
         return run_status(command, deps, out)
-    return run_deploy(command, deps, out, err)
+    if unit_body:
+        return run_deploy_unit(command, deps, out, err)
+    return run_deploy_ssh(command, deps, out, err)
 
 
 # Helpers shared by plan and deploy
-
-
-def _unit_name(run_id: str) -> str:
-    return f"{UNIT_PREFIX}{run_id}"
-
-
-def unit_state(runner: Runner, unit: str) -> str:
-    result = runner.run(["systemctl", "show", "--property=LoadState", "--property=ActiveState", unit])
-    if result.returncode != 0:
-        raise rt.ObservationError(f"systemctl show failed for {unit}")
-    properties = dict(line.split("=", 1) for line in result.stdout.splitlines() if "=" in line)
-    if properties.get("LoadState") == "not-found":
-        return "missing"
-    mapping = {
-        "active": "active",
-        "reloading": "active",
-        "deactivating": "active",  # still running until it finishes, so not safe to call dead
-        "activating": "activating",
-        "inactive": "inactive",
-        "failed": "failed",
-    }
-    active = properties.get("ActiveState", "")
-    if active not in mapping:
-        raise rt.ObservationError(f"unexpected ActiveState for {unit}: {active!r}")
-    return mapping[active]
 
 
 def _read_state(deps: Deps, err: TextIO) -> st.State | None:
@@ -264,33 +320,6 @@ def _read_state(deps: Deps, err: TextIO) -> st.State | None:
     except st.StateCorrupt as exc:
         err.write(f"state is unreadable: {exc}\n")
     return None
-
-
-def _open_run_ids(records: hi.Records) -> list[str]:
-    completed = {entry.get("run_id") for entry in records.entries if entry.get("phase") == "completed"}
-    open_runs: list[str] = []
-    for entry in records.entries:
-        run_id = entry.get("run_id")
-        if entry.get("phase") == "started" and run_id not in completed and run_id not in open_runs:
-            open_runs.append(run_id)
-    return open_runs
-
-
-def _indeterminate_reasons(deps: Deps) -> list[str]:
-    """Every reason that history blocks plan and deploy (exit 8, N7)."""
-    try:
-        records = hi.read(deps.settings.history_file)
-    except hi.HistoryCorrupt as exc:
-        return [f"history: {exc}"]
-    reasons = ["history: final line is incomplete"] if records.tail_corrupt else []
-    open_runs = _open_run_ids(records)
-    if any(RUN_ID_RE.fullmatch(run_id or "") is None for run_id in open_runs):
-        return reasons + ["history: malformed run id"]
-    try:
-        states = {run_id: unit_state(deps.runner, _unit_name(run_id)) for run_id in open_runs}
-    except rt.ObservationError as exc:
-        return reasons + [f"units: {exc}"]
-    return reasons + hi.unresolved_indeterminate(records, states)
 
 
 def _observe_runtime(state: st.State, deps: Deps) -> tuple[rt.ObservedRuntime | None, list[str]]:
@@ -339,7 +368,7 @@ def _plan_locked(command: PlanCommand, deps: Deps, out: TextIO, err: TextIO) -> 
     state = _read_state(deps, err)
     if state is None:
         return DRIFT
-    blocked = _indeterminate_reasons(deps)
+    blocked = runs.indeterminate_reasons(deps.settings, deps.runner)
     if blocked:
         out.write(json.dumps({"revision": state.revision, "indeterminate": blocked}, sort_keys=True) + "\n")
         return INDETERMINATE
@@ -389,27 +418,12 @@ def _plan_locked(command: PlanCommand, deps: Deps, out: TextIO, err: TextIO) -> 
 
 
 def run_status(command: StatusCommand, deps: Deps, out: TextIO) -> int:
-    unit = _unit_name(command.run_id)
-    try:
-        records = hi.read(deps.settings.history_file)
-    except hi.HistoryCorrupt:
-        # An unreadable history cannot prove an outcome, so the answer is indeterminate.
-        out.write(json.dumps({"run_id": command.run_id, "status": "indeterminate"}, sort_keys=True) + "\n")
-        return OK
-    try:
-        state = unit_state(deps.runner, unit)
-    except rt.ObservationError:
-        # Unknown unit state is treated as not running, which yields indeterminate instead of a false "running".
-        state = "inactive"
-    status_text = hi.status(records, command.run_id, state)
-    out.write(json.dumps({"run_id": command.run_id, "status": status_text}, sort_keys=True) + "\n")
+    text = runs.status_text(deps.settings, deps.runner, command.run_id)
+    out.write(json.dumps({"run_id": command.run_id, "status": text}, sort_keys=True) + "\n")
     return OK
 
 
-# deploy
-
-
-def _check_deploy_gates(command: DeployCommand, state: st.State, deps: Deps) -> None:
+def _check_deploy_gates(command: DeployCommand, state: st.State, deps: Deps) -> mf.ReleaseMetadata:
     """Every check that must pass before the state machine may change anything (plan section 5, step 0)."""
     if state.revision != command.expect_revision:
         raise GateFailure(DRIFT, f"revision is {state.revision}, expected {command.expect_revision}")
@@ -443,14 +457,90 @@ def _check_deploy_gates(command: DeployCommand, state: st.State, deps: Deps) -> 
     drift = runtime_drift + _observe_schema(state, deps)
     if drift:
         raise GateFailure(DRIFT, "; ".join(drift))
+    return target
 
 
-def run_state_machine(command: DeployCommand, state: st.State, deps: Deps, run_id: str) -> int:
-    """Placeholder for the state machine of plan section 5; implemented in M3b."""
-    raise NotImplementedError("the deploy state machine is implemented in M3b")
+# deploy
+#
+# The SSH side (run_deploy_ssh) only checks, launches and follows; it changes nothing on the host itself. The unit
+# (run_deploy_unit) holds the deploy lock, writes started, runs the gates, and hands over to the state machine.
 
 
-def run_deploy(command: DeployCommand, deps: Deps, out: TextIO, err: TextIO) -> int:
+def run_deploy_ssh(command: DeployCommand, deps: Deps, out: TextIO, err: TextIO) -> int:
+    run_id = command.run_id
+    try:
+        history = hi.read(deps.settings.history_file)
+    except hi.HistoryCorrupt:
+        history = None
+    # A run id is never reused: a retried SSH call must not start a second deployment for the same CD run.
+    if history is not None and any(entry.get("run_id") == run_id for entry in history.entries):
+        err.write(f"run id already used: {run_id}\n")
+        return DRIFT
+    blocked = runs.indeterminate_reasons(deps.settings, deps.runner)
+    if blocked:
+        err.write(f"indeterminate runs block deploy: {', '.join(blocked)}\n")
+        return INDETERMINATE
+    unit = runs.unit_name(run_id)
+    try:
+        load_state = runs.unit_load_state(deps.runner, unit)
+    except rt.ObservationError as exc:
+        err.write(f"cannot inspect unit {unit}: {exc}\n")
+        return DRIFT
+    if load_state != "not-found":
+        err.write(f"unit {unit} already exists; the same run is not started twice\n")
+        return DRIFT
+    # Argv only: the unit receives the validated tokens and reads its secrets from SSM itself, never from this call.
+    launch_argv = [
+        "systemd-run",
+        f"--unit={unit}",
+        "--property=Type=exec",
+        "--collect",
+        "--quiet",
+        "--",
+        *deps.entry_argv,
+        UNIT_BODY_FLAG,
+        *render_deploy_tokens(command),
+    ]
+    launched = deps.runner.run(launch_argv)
+    if launched.returncode != 0:
+        err.write(f"systemd-run failed: {launched.stderr.strip()[:300]}\n")
+        return DRIFT
+    return _follow(command, deps, out, err, launched_at=deps.clock.monotonic())
+
+
+def _follow(command: DeployCommand, deps: Deps, out: TextIO, err: TextIO, launched_at: float) -> int:
+    """Polls status until it is terminal. Losing this process loses nothing: the unit and history carry on (N7)."""
+    unit = runs.unit_name(command.run_id)
+    shown = 0
+    while True:
+        shown = _show_journal(deps, unit, shown, err)
+        status = runs.status_text(deps.settings, deps.runner, command.run_id)
+        if status.startswith("completed:"):
+            code = runs.completed_exit_code(deps.settings, command.run_id)
+            return _report_final(out, command.run_id, status, INDETERMINATE if code is None else code)
+        if status == "indeterminate":
+            return _report_final(out, command.run_id, status, INDETERMINATE)
+        if status == "not-started" and deps.clock.monotonic() - launched_at >= NOT_STARTED_GRACE_S:
+            return _report_final(out, command.run_id, status, DRIFT)
+        deps.clock.sleep(FOLLOW_INTERVAL_S)
+
+
+def _show_journal(deps: Deps, unit: str, shown: int, err: TextIO) -> int:
+    """Informational only: the journal is not a source of truth, so any failure here is ignored."""
+    result = deps.runner.run(["journalctl", "-u", unit, "-o", "cat", "--no-pager"])
+    if result.returncode != 0:
+        return shown
+    lines = result.stdout.splitlines()
+    err.writelines(line + "\n" for line in lines[shown:])
+    return len(lines)
+
+
+def _report_final(out: TextIO, run_id: str, status: str, code: int) -> int:
+    out.write(json.dumps({"run_id": run_id, "status": status, "exit_code": code}, sort_keys=True) + "\n")
+    return code
+
+
+def run_deploy_unit(command: DeployCommand, deps: Deps, out: TextIO, err: TextIO) -> int:
     try:
         with locks.exclusive(deps.settings.deploy_lock_file, deps.settings.lock_timeout_s, deps.clock):
             return _deploy_locked(command, deps, out, err)
@@ -463,7 +553,6 @@ def _deploy_locked(command: DeployCommand, deps: Deps, out: TextIO, err: TextIO)
     state = _read_state(deps, err)
     if state is None:
         return DRIFT
-    # A run id is never reused: a retried SSH call must not start a second deployment for the same CD run.
     try:
         history = hi.read(deps.settings.history_file)
     except hi.HistoryCorrupt:
@@ -471,50 +560,25 @@ def _deploy_locked(command: DeployCommand, deps: Deps, out: TextIO, err: TextIO)
     if history is not None and any(entry.get("run_id") == command.run_id for entry in history.entries):
         err.write(f"run id already used: {command.run_id}\n")
         return DRIFT
-    blocked = _indeterminate_reasons(deps)
+    blocked = runs.indeterminate_reasons(deps.settings, deps.runner)
     if blocked:
         err.write(f"indeterminate runs block deploy: {', '.join(blocked)}\n")
         return INDETERMINATE
     run_id = command.run_id
+    # started is fsynced before any change (N7); from here every known outcome writes exactly one completed record.
     hi.append(
         deps.settings.history_file,
         hi.started_record(
             run_id=run_id,
-            unit=_unit_name(run_id),
+            unit=runs.unit_name(run_id),
             at=deps.clock.now(),
             target={"tag": command.tag, "web_digest": command.web_digest, "crawler_digest": command.crawler_digest},
             expected_revision=command.expect_revision,
         ),
     )
     try:
-        _check_deploy_gates(command, state, deps)
-        return run_state_machine(command, state, deps, run_id)
+        target = _check_deploy_gates(command, state, deps)
     except GateFailure as failure:
-        return _finish(deps, out, err, run_id, state, failure.code, RESULT_BY_EXIT[failure.code], failure.reason)
-    except NotImplementedError as exc:
-        return _finish(deps, out, err, run_id, state, BAD_INPUT, NOT_IMPLEMENTED_RESULT, str(exc))
-
-
-def _finish(
-    deps: Deps,
-    out: TextIO,
-    err: TextIO,
-    run_id: str,
-    state: st.State,
-    code: int,
-    result: str,
-    reason: str,
-) -> int:
-    hi.append(
-        deps.settings.history_file,
-        hi.completed_record(
-            run_id=run_id,
-            result=result,
-            exit_code=code,
-            at=deps.clock.now(),
-            state_summary=st.state_summary(state),
-        ),
-    )
-    out.write(json.dumps({"run_id": run_id, "result": result, "exit_code": code}, sort_keys=True) + "\n")
-    err.write(f"{reason}\n")
-    return code
+        return machine.finish_run(deps, out, err, run_id, state, failure.code, RESULT_BY_EXIT[failure.code], failure.reason)
+    # An unexpected exception is not caught here on purpose: the run then stays indeterminate instead of claiming a result.
+    return machine.run_state_machine(command, state, deps, run_id, target, out, err)

@@ -15,7 +15,7 @@ INDETERMINATE = 8
 
 # History stores a result name next to the exit code; these names are part of the on-disk format.
 RESULT_BY_EXIT = {
-    OK: "ok",
+    OK: "success",
     ROLLED_BACK: "rolled-back",
     BAD_INPUT: "rejected",
     DRIFT: "rejected",

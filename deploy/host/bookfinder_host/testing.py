@@ -5,11 +5,13 @@ assert which commands were (or were not) issued.
 """
 
 import json
+import shutil
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
+from bookfinder_host.adapters import RealFiles
 from bookfinder_host.manifest import Migration
-from bookfinder_host.ports import CommandResult
+from bookfinder_host.ports import CommandResult, EffectFailed, Effects
 
 Handler = Callable[[Sequence[str]], CommandResult]
 
@@ -121,6 +123,10 @@ class FakeHost:
         self.containers = containers if containers is not None else ([CONTAINER_ID] if running else [])
         self.pull_ok = pull_ok
         self.calls: list[list[str]] = []
+        # Handles "systemd-run"; commands.make_inline_launcher installs one that runs the unit body in-process.
+        self.on_systemd_run: Callable[[Sequence[str]], CommandResult] | None = None
+        # Lines that "journalctl -u" returns; informational output only.
+        self.journal: list[str] = []
 
     def run(self, argv: Sequence[str], *, env: Mapping[str, str] | None = None) -> CommandResult:
         command = list(argv)
@@ -147,9 +153,19 @@ class FakeHost:
             return ok(("active" if self.unit_states.get(command[2]) == "active" else "inactive") + "\n")
         if command[:2] == ["systemctl", "show"]:
             unit = command[-1]
-            if unit not in self.unit_states:
-                return ok("LoadState=not-found\nActiveState=inactive\n")
-            return ok(f"LoadState=loaded\nActiveState={self.unit_states[unit]}\n")
+            load = "loaded" if unit in self.unit_states else "not-found"
+            values = {"LoadState": load, "ActiveState": self.unit_states.get(unit, "inactive")}
+            if "--value" in command:
+                # systemctl prints only the value of the single requested property.
+                requested = [part for part in command if part in values]
+                return ok(values[requested[0]] + "\n")
+            return ok("".join(f"{name}={value}\n" for name, value in values.items()))
+        if command[0] == "systemd-run":
+            if self.on_systemd_run is None:
+                raise AssertionError("systemd-run reached a FakeHost without an inline launcher")
+            return self.on_systemd_run(command)
+        if command[0] == "journalctl":
+            return ok("".join(f"{line}\n" for line in self.journal))
         raise AssertionError(f"unexpected command: {command}")
 
     def _copy(self, source: str, dest: Path) -> CommandResult:
@@ -160,13 +176,207 @@ class FakeHost:
         return ok()
 
 
-def write_release(directory: Path, migrations: Sequence[Migration], release_api: str = "1") -> Path:
+FAKE_COMPOSE = "services:\n  web:\n    image: ${WEB_IMAGE}\n"
+
+
+def write_release(directory: Path, migrations: Sequence[Migration], release_api: str = "1", compose: str = FAKE_COMPOSE) -> Path:
     from bookfinder_host.manifest import render_manifest
 
     directory.mkdir(parents=True, exist_ok=True)
     (directory / "migrations.txt").write_text(render_manifest(list(migrations)), encoding="utf-8")
     (directory / "RELEASE_API").write_text(release_api + "\n", encoding="utf-8")
+    (directory / "compose.prod.yaml").write_text(compose, encoding="utf-8")
     return directory
+
+
+class FakeEffects:
+    """Scripted state-machine effects. Every call is appended to self.trace, so tests can assert the order of steps."""
+
+    def __init__(self, host: FakeHost, *, release_tree: Path | None = None) -> None:
+        self.trace: list[str] = []
+        self.docker = FakeDocker(self, host, release_tree if release_tree is not None else host.release_dir)
+        self.compose = FakeCompose(self)
+        self.aws = FakeAws(self)
+        self.ssm = FakeSsm(self)
+        self.systemd = FakeSystemd(self)
+        self.http = FakeHttp(self)
+        self.files = TracingFiles(self)
+
+    def as_effects(self) -> Effects:
+        return Effects(
+            docker=self.docker,
+            compose=self.compose,
+            aws=self.aws,
+            ssm=self.ssm,
+            systemd=self.systemd,
+            http=self.http,
+            files=self.files,
+        )
+
+
+class FakeDocker:
+    def __init__(self, fx: FakeEffects, host: FakeHost, release_tree: Path | None) -> None:
+        self.fx = fx
+        self.host = host
+        self.release_tree = release_tree
+        self.pull_error: str | None = None
+        self.extract_error: str | None = None
+        self.efbundle_rc = 0
+        self.efbundle_raises: BaseException | None = None
+        # Database ids that the database reports after efbundle runs; None leaves them unchanged.
+        self.efbundle_db_ids: list[str] | None = None
+        self.efbundle_hook: Callable[[str, str], None] | None = None
+        self.smoke_rc = 0
+        self.env_files_seen: list[str] = []
+
+    def pull(self, reference: str) -> None:
+        self.fx.trace.append(f"docker.pull {reference}")
+        if self.pull_error is not None:
+            raise EffectFailed(self.pull_error)
+
+    def extract_release(self, reference: str, dest: Path) -> None:
+        self.fx.trace.append(f"docker.extract {reference}")
+        if self.extract_error is not None:
+            raise EffectFailed(self.extract_error)
+        if self.release_tree is None:
+            raise EffectFailed("no release tree configured")
+        # copytree with symlinks=True mirrors docker cp without -L: links are copied as links.
+        shutil.copytree(self.release_tree, dest, symlinks=True)
+
+    def run_efbundle(self, reference: str, env_file: str) -> int:
+        self.fx.trace.append(f"docker.efbundle {reference}")
+        self.env_files_seen.append(env_file)
+        if self.efbundle_hook is not None:
+            self.efbundle_hook(reference, env_file)
+        if self.efbundle_raises is not None:
+            raise self.efbundle_raises
+        if self.efbundle_db_ids is not None:
+            self.host.db_ids = list(self.efbundle_db_ids)
+        return self.efbundle_rc
+
+    def smoke_crawler(self, reference: str) -> int:
+        self.fx.trace.append(f"docker.smoke {reference}")
+        return self.smoke_rc
+
+
+class FakeCompose:
+    def __init__(self, fx: FakeEffects) -> None:
+        self.fx = fx
+        self.up_failures = 0
+        self.down_failures = 0
+        self.up_calls: list[tuple[str, dict[str, str]]] = []
+        self.down_calls: list[tuple[str, dict[str, str]]] = []
+        self.on_up: Callable[[], None] | None = None
+
+    def up(self, compose_file: str, project: str, env: Mapping[str, str]) -> None:
+        self.fx.trace.append(f"compose.up {compose_file}")
+        self.up_calls.append((compose_file, dict(env)))
+        if self.on_up is not None:
+            self.on_up()
+        if self.up_failures > 0:
+            self.up_failures -= 1
+            raise EffectFailed("compose up failed")
+
+    def down(self, compose_file: str, project: str, env: Mapping[str, str]) -> None:
+        self.fx.trace.append(f"compose.down {compose_file}")
+        self.down_calls.append((compose_file, dict(env)))
+        if self.down_failures > 0:
+            self.down_failures -= 1
+            raise EffectFailed("compose down failed")
+
+
+class FakeAws:
+    def __init__(self, fx: FakeEffects) -> None:
+        self.fx = fx
+        self.create_error: str | None = None
+        self.wait_error: str | None = None
+        self.on_create: Callable[[], None] | None = None
+        self.created: list[str] = []
+
+    def create_snapshot(self, instance_id: str, snapshot_id: str) -> None:
+        self.fx.trace.append(f"aws.create {snapshot_id}")
+        if self.on_create is not None:
+            self.on_create()
+        if self.create_error is not None:
+            raise EffectFailed(self.create_error)
+        self.created.append(snapshot_id)
+
+    def wait_snapshot_available(self, snapshot_id: str) -> None:
+        self.fx.trace.append(f"aws.wait {snapshot_id}")
+        if self.wait_error is not None:
+            raise EffectFailed(self.wait_error)
+
+
+class FakeSsm:
+    def __init__(self, fx: FakeEffects) -> None:
+        self.fx = fx
+        self.values: dict[str, str] = {}
+        self.missing: set[str] = set()
+
+    def get_parameter(self, name: str) -> str:
+        self.fx.trace.append(f"ssm.get {name}")
+        if name in self.missing:
+            raise EffectFailed(f"parameter {name} not found")
+        return self.values.get(name, f"secret-for-{name.strip('/').replace('/', '-')}")
+
+
+class FakeSystemd:
+    def __init__(self, fx: FakeEffects) -> None:
+        self.fx = fx
+        self.stop_error: str | None = None
+        self.start_error: str | None = None
+
+    def stop(self, unit: str) -> None:
+        self.fx.trace.append(f"systemd.stop {unit}")
+        if self.stop_error is not None:
+            raise EffectFailed(self.stop_error)
+
+    def start(self, unit: str) -> None:
+        self.fx.trace.append(f"systemd.start {unit}")
+        if self.start_error is not None:
+            raise EffectFailed(self.start_error)
+
+
+class FakeHttp:
+    def __init__(self, fx: FakeEffects) -> None:
+        self.fx = fx
+        # Per-URL scripted statuses; the last scripted value repeats. Unscripted URLs answer 200.
+        self.script: dict[str, list[int]] = {}
+        # When set, decides every status itself; used to tie health results to the phase of the switch.
+        self.responder: Callable[[str], int] | None = None
+        self.calls: list[tuple[str, dict[str, str]]] = []
+
+    def status(self, url: str, headers: Mapping[str, str], timeout_s: float) -> int:
+        self.fx.trace.append(f"http {url}")
+        self.calls.append((url, dict(headers)))
+        if self.responder is not None:
+            return self.responder(url)
+        sequence = self.script.get(url)
+        if not sequence:
+            return 200
+        return sequence.pop(0) if len(sequence) > 1 else sequence[0]
+
+
+class TracingFiles:
+    """The real filesystem adapter, with each write recorded; state-machine tests run it against a tmp directory."""
+
+    def __init__(self, fx: FakeEffects) -> None:
+        self.fx = fx
+        self.real = RealFiles()
+
+    def ensure_dir(self, path: str, mode: int) -> None:
+        self.real.ensure_dir(path, mode)
+
+    def read_bytes(self, path: str) -> bytes:
+        return self.real.read_bytes(path)
+
+    def write_atomic(self, path: str, data: bytes, mode: int | None) -> None:
+        self.fx.trace.append(f"files.write {path}")
+        self.real.write_atomic(path, data, mode)
+
+    def remove(self, path: str) -> None:
+        self.fx.trace.append(f"files.remove {path}")
+        self.real.remove(path)
 
 
 def write_fakes_file(path: Path, *, settings: dict, host: FakeHost, now: str, epoch: float) -> Path:

@@ -108,7 +108,7 @@ def pending(applied: Sequence[Migration], target: Sequence[Migration]) -> list[M
     return list(target[len(applied) :])
 
 
-def _read_release_api(path: Path) -> int:
+def read_release_api(path: Path) -> int:
     try:
         data = read_regular_file(path, RELEASE_API_MAX_BYTES)
     except FileNotFoundError as exc:
@@ -144,7 +144,7 @@ def extract_release_metadata(runner: Runner, image_ref: str, dest_dir: Path) -> 
             if copied.returncode != 0:
                 raise ManifestError(f"docker cp failed for {name}: {copied.stderr.strip()}")
         migrations = read_manifest_file(dest_dir / "migrations.txt")
-        release_api = _read_release_api(dest_dir / "RELEASE_API")
+        release_api = read_release_api(dest_dir / "RELEASE_API")
     finally:
         # The container was never started, so removing it has no effect on the running host; a failed rm is harmless.
         runner.run(["docker", "rm", container_id])

@@ -21,6 +21,12 @@ PSQL_IMAGE=docker.io/library/postgres@sha256:"""
 DATABASE_URL_PARAMETER=/book-finder/prod/database-url
 AWS_REGION=ap-northeast-1
 SYSTEMD_UNIT=book-finder.service
+PUBLIC_URL=https://book-finder.example
+RDS_INSTANCE_ID=book-finder-prod
+SSM_DB_CONNECTION=/book-finder/prod/db-connection
+SSM_OPENAI_KEY=/book-finder/prod/openai-key
+SSM_JWT_KEY=/book-finder/prod/jwt-key
+CRAWLER_IMAGE_REPOSITORY=ghcr.io/example/book-finder-crawler
 """
 )
 
@@ -51,6 +57,9 @@ def test_loads_valid_configuration(tmp_path):
         lambda text: text.replace(
             "WEB_IMAGE_REPOSITORY=ghcr.io/example/book-finder-web\n", "WEB_IMAGE_REPOSITORY=ghcr.io/example/book-finder-web:v1\n"
         ),  # no tag in repository
+        lambda text: text.replace("PUBLIC_URL=https://book-finder.example", "PUBLIC_URL=http://book-finder.example"),  # TLS only
+        lambda text: text.replace("CRAWLER_IMAGE_REPOSITORY=ghcr.io/example/book-finder-crawler", "CRAWLER_IMAGE_REPOSITORY=ghcr.io/x:1"),
+        lambda text: text + "CRON_FILE=relative/cron\n",  # paths must be absolute
     ],
 )
 def test_rejects_bad_configuration(tmp_path, mutation):

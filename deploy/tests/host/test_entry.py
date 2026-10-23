@@ -4,6 +4,7 @@ Why: the forced SSH command invokes the script, not the module, so the argv hand
 contract are only proven by running it. docker, systemd, aws and psql are replaced by the TEST-ONLY fakes file.
 """
 
+import dataclasses
 import json
 import os
 import subprocess
@@ -15,6 +16,7 @@ from bookfinder_host import history as hi
 from bookfinder_host import state as st
 from bookfinder_host.manifest import Migration
 from bookfinder_host.testing import FakeHost, sample_state, write_fakes_file, write_release
+from worlds import build_settings
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 ENTRY = REPO_ROOT / "deploy" / "host" / "deploy-entry"
@@ -29,18 +31,7 @@ RUN_ID = "1234-5"
 def fakes(tmp_path):
     state = sample_state(applied=[Migration(ID1, H1)])
     release = write_release(tmp_path / "release", [Migration(ID1, H1)])
-    paths = {
-        "state_file": str(tmp_path / "state.json"),
-        "history_file": str(tmp_path / "history.jsonl"),
-        "deploy_lock_file": str(tmp_path / "deploy.lock"),
-        "web_image_repository": "ghcr.io/example/book-finder-web",
-        "psql_image": "docker.io/library/postgres@sha256:" + "f" * 64,
-        "database_url_parameter": "/book-finder/prod/database-url",
-        "aws_region": "ap-northeast-1",
-        "systemd_unit": "book-finder.service",
-        "compose_project": "book-finder",
-        "lock_timeout_s": 0.5,
-    }
+    paths = dataclasses.asdict(build_settings(tmp_path))
     host = FakeHost(release_dir=release, db_ids=[ID1])
     path = write_fakes_file(tmp_path / "fakes.json", settings=paths, host=host, now="2026-10-23T00:00:00Z", epoch=1_800_000_000.0)
     Path(paths["state_file"]).write_text(json.dumps(st.state_to_json(state)), encoding="utf-8")
@@ -97,7 +88,7 @@ def test_retried_deploy_with_the_same_run_id_is_refused_through_the_entry(fakes)
         f"deploy {TAG} {DIGEST} {DIGEST} --run-id {RUN_ID} --expect-revision {state.revision} "
         f"--expect-runtime {st.runtime_fingerprint(state.runtime)} --expect-schema {state.schema.digest} --chain in-sync"
     )
-    assert run_entry(fakes, command).returncode == 2
+    assert run_entry(fakes, command).returncode == 0  # the first run completes
     history_before = Path(fakes["paths"]["history_file"]).read_text()
     second = run_entry(fakes, command)
     assert second.returncode == 3
@@ -105,16 +96,16 @@ def test_retried_deploy_with_the_same_run_id_is_refused_through_the_entry(fakes)
     assert Path(fakes["paths"]["history_file"]).read_text() == history_before
 
 
-def test_deploy_through_entry_records_the_run_and_stops_at_the_stub(fakes):
+def test_deploy_through_entry_runs_the_unit_to_success(fakes):
     state = fakes["state"]
     command = (
         f"deploy {TAG} {DIGEST} {DIGEST} --run-id {RUN_ID} --expect-revision {state.revision} "
         f"--expect-runtime {st.runtime_fingerprint(state.runtime)} --expect-schema {state.schema.digest} --chain in-sync"
     )
     done = run_entry(fakes, command)
-    assert done.returncode == 2
+    assert done.returncode == 0, done.stderr
     report = json.loads(done.stdout)
-    assert report["result"] == "not-implemented"
+    assert report == {"run_id": RUN_ID, "status": "completed:success", "exit_code": 0}
     records = hi.read(fakes["paths"]["history_file"]).entries
     assert [r["phase"] for r in records] == ["started", "completed"]
 
