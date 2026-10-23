@@ -32,10 +32,16 @@ MAX_METADATA_BYTES = 64 * 1024
 MAX_SQL_BYTES = 4 * 1024 * 1024
 MAX_JSON_BYTES = 1024 * 1024
 MAX_SUMMARY_PLAN_BYTES = 64 * 1024
-# Matches the host's N3/N7 timing: the SSH side polls every 30 s and gives a missing started record a grace period.
+# Follow budget arithmetic (cd.yml deploy job, timeout-minutes: 180): the launch with --detach takes at most about 2 min
+# (the host acknowledges within 60 s, plus the ssh connection), then this follow may run 160 min, so 2 + 160 < 180.
+# The SSH side polls every 30 s; a missing started record gets a grace period before it is final.
 POLL_INTERVAL_S = 30.0
 NOT_STARTED_GRACE_S = 120.0
-FOLLOW_TIMEOUT_S = 150 * 60.0
+FOLLOW_TIMEOUT_S = 160 * 60.0
+# The host answers "launched" from --detach; that means the unit owns the run, so keep polling.
+LAUNCHED_STATUS = "launched"
+# ssh exits 255 when it cannot connect or the connection drops; any other failure of `status` is not transient.
+SSH_TRANSIENT_EXIT = 255
 TAG_RE = re.compile(r"v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?")
 COMMIT_RE = re.compile(r"[0-9a-f]{40}")
 DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}")
@@ -684,7 +690,7 @@ def follow_deploy(
                 return Outcome(False, status, "indeterminate: manual resolve-run required; do not re-dispatch")
             if status == "not-started" and elapsed >= grace:
                 return Outcome(False, status, "not-started: nothing changed; safe to re-dispatch")
-            if status not in ("running", "not-started"):
+            if status not in ("running", "not-started", LAUNCHED_STATUS):
                 return Outcome(False, status, "unexpected status from the host")
         if elapsed >= timeout:
             return Outcome(False, status or "unknown", f"still not finished after {int(timeout // 60)} minutes; poll status {run_id} later")
@@ -850,9 +856,18 @@ def _cmd_deploy_follow(args: argparse.Namespace) -> None:
     def poll() -> str:
         argv = status_ssh_argv(args.host, args.key, args.known_hosts, args.run_id)
         result = system_runner(argv)
-        return result.stdout if result.returncode == 0 else ""
+        if result.returncode == 0:
+            return result.stdout
+        if result.returncode == SSH_TRANSIENT_EXIT:
+            return ""  # no answer this time; the next poll decides
+        # Any other failure means the host refused the status call, which is not a transient network problem.
+        raise CdError(f"status refused by the host (exit {result.returncode}); poll status {args.run_id} by hand")
 
-    outcome = follow_deploy(args.run_id, first, poll, time.monotonic, time.sleep)
+    try:
+        outcome = follow_deploy(args.run_id, first, poll, time.monotonic, time.sleep)
+    except CdError as exc:
+        append_text(args.summary, f"## Deploy result\n\n- run: `{args.run_id}`\n- status: `unknown`\n- {exc}\n")
+        raise
     append_text(args.summary, f"## Deploy result\n\n- run: `{args.run_id}`\n- status: `{outcome.status}`\n- {outcome.message}\n")
     if not outcome.ok:
         raise CdError(outcome.message)

@@ -612,6 +612,41 @@ def test_follow_times_out_as_failure_and_unknown_status_fails():
     assert not bogus.ok and "unexpected" in bogus.message
 
 
+def test_follow_keeps_polling_a_launched_answer_until_completed():
+    clock = FakeClock()
+    answers = iter([status_line("running"), status_line("completed:success")])
+    out = cd.follow_deploy("123-1", status_line("launched"), lambda: next(answers), clock.now, clock.sleep)
+    assert out.ok and out.status == "completed:success"
+    assert clock.sleeps == [30.0, 30.0]
+
+
+def test_follow_budget_is_160_minutes_and_fits_the_180_minute_job():
+    assert cd.FOLLOW_TIMEOUT_S == 160 * 60
+    launch_budget_s = 2 * 60  # the host acknowledges --detach within 60 s; the ssh connection takes the rest
+    assert launch_budget_s + cd.FOLLOW_TIMEOUT_S < 180 * 60
+
+
+def test_deploy_follow_retries_ssh_255_and_refuses_other_status_failures(tmp_path, monkeypatch):
+    summary = tmp_path / "summary.md"
+    first = tmp_path / "first.json"
+    first.write_text(status_line("launched", run_id="55-2"), encoding="utf-8")
+    monkeypatch.setattr(cd.time, "sleep", lambda seconds: None)
+    answers = iter(
+        [Result(255, "", "connection reset"), Result(0, status_line("running", run_id="55-2"), ""), Result(0, status_line("completed:success", run_id="55-2"), "")]
+    )
+    monkeypatch.setattr(cd, "system_runner", lambda argv: next(answers))
+    args = ["deploy-follow", "--run-id", "55-2", "--first-output", str(first), "--host", "h", "--key", "k", "--known-hosts", "kh", "--summary", str(summary)]
+    assert cd.main(args) == 0
+    assert "status: `completed:success`" in summary.read_text(encoding="utf-8")
+
+    refused = iter([Result(2, "", "bad input")])
+    monkeypatch.setattr(cd, "system_runner", lambda argv: next(refused))
+    summary.write_text("", encoding="utf-8")
+    assert cd.main(args) == 1
+    text = summary.read_text(encoding="utf-8")
+    assert "status: `unknown`" in text and "refused by the host (exit 2)" in text
+
+
 def test_status_for_another_run_is_no_answer():
     assert cd.parse_status(status_line("completed:success", run_id="999-1"), "123-1") is None
     assert cd.parse_status("not json\n", "123-1") is None

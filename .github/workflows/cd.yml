@@ -504,6 +504,8 @@ jobs:
       always() && needs.guard.result == 'success' && needs.plan.result == 'success' && needs.compat.result == 'success' &&
       (needs.build.result == 'success' || needs.resolve.result == 'success')
     runs-on: ubuntu-latest
+    # Budget: the launch (--detach) returns within about 2 min, and deploy-follow may take 160 min (cd_release.py
+    # FOLLOW_TIMEOUT_S), so 2 + 160 < 180. Keep the two numbers in step.
     timeout-minutes: 180
     environment: production
     permissions:
@@ -534,7 +536,8 @@ jobs:
           printf '%s\n' "$SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/known_hosts"
           chmod 0600 "$RUNNER_TEMP/deploy_key" "$RUNNER_TEMP/known_hosts"
 
-      # The deploy command is validated by the host grammar. The first answer is only a hint; the status poll decides.
+      # The deploy command is validated by the host grammar. --detach returns once the host has acknowledged the run;
+      # the first answer is only a hint, and the status poll in the next step decides the result.
       - name: Start the deploy on the host
         env:
           EC2_USER: ${{ vars.EC2_USER }}
@@ -542,7 +545,7 @@ jobs:
         run: |
           set +e
           args=(deploy "$TAG" "$WEB_DIGEST" "$CRAWLER_FOR_DEPLOY" --run-id "$RUN_ID" --expect-revision "$REVISION"
-            --expect-runtime "$EXPECT_RUNTIME" --expect-schema "$EXPECT_SCHEMA" --chain "$CHAIN")
+            --expect-runtime "$EXPECT_RUNTIME" --expect-schema "$EXPECT_SCHEMA" --chain "$CHAIN" --detach)
           if [[ $CUTOVER_OK == true ]]; then
             args+=(--cutover)
           fi
@@ -550,7 +553,8 @@ jobs:
             -o StrictHostKeyChecking=yes -o BatchMode=yes -o ConnectTimeout=30 \
             "$EC2_USER@$EC2_HOST" "${args[*]}" > "$RUNNER_TEMP/deploy-start.json"
 
-      # Follows status for this run id. A dropped SSH call or a running answer keeps polling; history decides the result.
+      # The only follower: polls status for this run id every 30 s until the host reports a terminal result. A dropped
+      # SSH call, a launched or running answer keep polling; history decides the result.
       - name: Follow the deploy until the host reports a result
         if: always()
         env:
