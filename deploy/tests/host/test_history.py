@@ -202,4 +202,3 @@ def test_completed_operation_is_not_open():
     records = hi.Records([op_started(), op_completed()], tail_corrupt=False)
     assert hi.open_operations(records) == []
     assert hi.unresolved_indeterminate(records, {}) == []
-
