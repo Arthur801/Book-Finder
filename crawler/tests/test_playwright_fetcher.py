@@ -23,23 +23,19 @@ from books_crawler.fetcher import BrowserUnavailableError, FetchError
 from tests.browser_fakes import FakeBrowserContext, FakeDriver, FakePage, FakeResponse, launching
 
 NORMAL_HTML = (
-    "<!doctype html><html><head><meta charset=\"utf-8\"><title>博客來 測試頁</title></head>"
-    "<body><div class=\"main_column\"><h1>本機測試書</h1></div>"
-    "<script>document.body.insertAdjacentHTML(\"beforeend\", "
+    '<!doctype html><html><head><meta charset="utf-8"><title>博客來 測試頁</title></head>'
+    '<body><div class="main_column"><h1>本機測試書</h1></div>'
+    '<script>document.body.insertAdjacentHTML("beforeend", '
     "'<p id=\"rendered-by-script\">script ran before load</p>');</script></body></html>"
 )
 NAVIGATOR_HTML = (
-    "<!doctype html><html><head><meta charset=\"utf-8\"><title>probe</title></head><body>"
+    '<!doctype html><html><head><meta charset="utf-8"><title>probe</title></head><body>'
     "<script>document.title = navigator.language; document.body.dataset.ua = navigator.userAgent;"
     "</script></body></html>"
 )
-CHALLENGE_HTML = (
-    "<!doctype html><html><head><meta charset=\"utf-8\"><title>歡迎光臨博客來</title></head>"
-    "<body><p>正在進行安全性檢查</p></body></html>"
-)
+CHALLENGE_HTML = '<!doctype html><html><head><meta charset="utf-8"><title>歡迎光臨博客來</title></head><body><p>正在進行安全性檢查</p></body></html>'
 TITLE_WITH_CONTENT_HTML = (
-    "<!doctype html><html><head><meta charset=\"utf-8\"><title>歡迎光臨博客來</title></head>"
-    "<body><div class=\"main_column\"><h1>本機測試書</h1></div></body></html>"
+    '<!doctype html><html><head><meta charset="utf-8"><title>歡迎光臨博客來</title></head><body><div class="main_column"><h1>本機測試書</h1></div></body></html>'
 )
 
 # path -> (status, extra headers, body)

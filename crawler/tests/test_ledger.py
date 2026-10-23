@@ -58,9 +58,7 @@ def test_all_rows_resolved_is_success_with_counters_and_snapshot():
     assert (report.existing_book_count, report.attached_source_count, report.new_book_count) == (2, 1, 2)
     assert report.skipped == [] and report.error is None and report.aborted_at_rank is None
     assert [row.rank for row in ledger.snapshot] == [1, 2, 3, 4]
-    assert [(row.book_id, row.source_id) for row in ledger.snapshot] == [
-        (item.source_ref.book_id, item.source_ref.source_id) for item in outcomes
-    ]
+    assert [(row.book_id, row.source_id) for row in ledger.snapshot] == [(item.source_ref.book_id, item.source_ref.source_id) for item in outcomes]
 
 
 @pytest.mark.parametrize(
@@ -88,8 +86,7 @@ def test_consecutive_error_limit(first_failing_rank, failures, expected_abort_ra
         assert report.exit_code == 1
         assert report.consecutive_error_count == 21
         assert report.error == (
-            f"run aborted at rank {expected_abort_rank} after 21 consecutive error(s) (limit 20): "
-            f"fetch_error: rank {expected_abort_rank} failed"
+            f"run aborted at rank {expected_abort_rank} after 21 consecutive error(s) (limit 20): fetch_error: rank {expected_abort_rank} failed"
         )
 
 

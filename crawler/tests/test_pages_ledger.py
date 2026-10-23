@@ -175,6 +175,4 @@ def test_a_skipped_row_is_logged_with_its_page_url_and_attempts(caplog):
 
     ledger.record(outcome)
 
-    assert caplog.messages == [
-        f"page rank 2 ({outcome.url}) skipped after 3 attempt(s) (fetch_error): simulated"
-    ]
+    assert caplog.messages == [f"page rank 2 ({outcome.url}) skipped after 3 attempt(s) (fetch_error): simulated"]

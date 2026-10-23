@@ -166,9 +166,7 @@ def replace_bestsellers(conn: psycopg.Connection, rows: Sequence[SnapshotRow], c
         )
         for row in rows:
             if owners.get(row.source_id) != row.book_id:
-                raise SnapshotValidationError(
-                    f"rank {row.rank}: source {row.source_id} is not a BOOKS_COM_TW source of Book {row.book_id}"
-                )
+                raise SnapshotValidationError(f"rank {row.rank}: source {row.source_id} is not a BOOKS_COM_TW source of Book {row.book_id}")
         conn.execute("DELETE FROM bestsellers")
         with conn.cursor() as cursor:
             cursor.executemany(

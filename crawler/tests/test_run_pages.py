@@ -239,9 +239,7 @@ def test_unparseable_category_page_is_skipped_without_retry_and_the_list_continu
     assert report.error is None
     assert report.exit_code == 0
     assert report.status is RunStatus.PARTIAL_SUCCESS
-    assert [(page.url, page.failure.error_type, page.failure.attempts) for page in report.skipped_pages] == [
-        (CATEGORY_2, SkipReason.PARSE_ERROR, 1)
-    ]
+    assert [(page.url, page.failure.error_type, page.failure.attempts) for page in report.skipped_pages] == [(CATEGORY_2, SkipReason.PARSE_ERROR, 1)]
 
 
 def test_category_page_fetch_is_retried_then_the_list_continues(store, monkeypatch):
@@ -267,9 +265,7 @@ def test_category_page_that_keeps_failing_is_skipped_after_three_attempts_and_th
     assert report.error is None
     assert report.exit_code == 0
     assert report.status is RunStatus.PARTIAL_SUCCESS
-    assert [(page.url, page.failure.error_type, page.failure.attempts) for page in report.skipped_pages] == [
-        (CATEGORY_2, SkipReason.FETCH_ERROR, 3)
-    ]
+    assert [(page.url, page.failure.error_type, page.failure.attempts) for page in report.skipped_pages] == [(CATEGORY_2, SkipReason.FETCH_ERROR, 3)]
     assert report.skipped_pages[0].failure.error_message == "category page failed after 3 attempts: HTTP 403"
 
 
@@ -303,9 +299,7 @@ def test_detail_that_keeps_failing_is_skipped_after_three_attempts_and_the_page_
     assert report.error is None
     assert report.exit_code == 0
     assert report.status is RunStatus.PARTIAL_SUCCESS
-    assert [(row.url, row.failure.error_type, row.failure.attempts) for row in report.skipped] == [
-        (product_url(2), SkipReason.FETCH_ERROR, 3)
-    ]
+    assert [(row.url, row.failure.error_type, row.failure.attempts) for row in report.skipped] == [(product_url(2), SkipReason.FETCH_ERROR, 3)]
 
 
 def test_detail_parse_error_is_retried_three_times_then_skipped_as_parse_error(store, monkeypatch):
@@ -319,9 +313,7 @@ def test_detail_parse_error_is_retried_three_times_then_skipped_as_parse_error(s
     assert store.persisted_urls() == [product_url(2)]
     assert report.error is None
     assert report.status is RunStatus.PARTIAL_SUCCESS
-    assert [(row.rank, row.failure.error_type, row.failure.attempts) for row in report.skipped] == [
-        (1, SkipReason.PARSE_ERROR, 3)
-    ]
+    assert [(row.rank, row.failure.error_type, row.failure.attempts) for row in report.skipped] == [(1, SkipReason.PARSE_ERROR, 3)]
 
 
 def test_restricted_member_page_is_skipped_without_retry_and_is_not_an_error(store, monkeypatch):
@@ -567,7 +559,9 @@ def test_isbn_match_attaches_a_second_source_to_the_existing_book_and_keeps_its_
     crawl(monkeypatch, {CATEGORY_1: [RankingRow(rank=1, url=product_url(201))]}, parse_detail=fake_detail_parser(first), connect=lambda: db.connect(db_url))
     second = {product_url(202): make_draft(product_url(202), title="Reprint listing", identifiers=isbn)}
 
-    report, deps = crawl(monkeypatch, {CATEGORY_2: [RankingRow(rank=1, url=product_url(202))]}, parse_detail=fake_detail_parser(second), connect=lambda: db.connect(db_url))
+    report, deps = crawl(
+        monkeypatch, {CATEGORY_2: [RankingRow(rank=1, url=product_url(202))]}, parse_detail=fake_detail_parser(second), connect=lambda: db.connect(db_url)
+    )
 
     assert report.error is None
     assert deps.fetcher.detail_calls() == [product_url(202)]
@@ -692,11 +686,14 @@ def test_pages_mode_passes_the_browser_settings_to_the_fetcher_factory(monkeypat
     assert settings == {"kind": FetcherKind.BROWSER, "navigation_timeout_ms": 45000}
 
 
-@pytest.mark.parametrize("entry_module, runner_name", [
-    ("books_crawler.__main__", "daily"),
-    ("books_crawler.first_book", "first-book"),
-    ("books_crawler.pages", "pages"),
-])
+@pytest.mark.parametrize(
+    "entry_module, runner_name",
+    [
+        ("books_crawler.__main__", "daily"),
+        ("books_crawler.first_book", "first-book"),
+        ("books_crawler.pages", "pages"),
+    ],
+)
 def test_each_entry_point_runs_its_own_mode(monkeypatch, entry_module, runner_name):
     seen = stub_runs(monkeypatch)
     monkeypatch.setenv("DATABASE_URL", "postgresql://unused")

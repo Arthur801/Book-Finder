@@ -228,9 +228,7 @@ class RunLedger:
         if self.aborted:
             raise ValueError(f"the run already aborted at rank {self._aborted_at_rank}")
         if outcome.rank <= self._last_rank:
-            raise ValueError(
-                f"rank {outcome.rank} recorded after rank {self._last_rank}: outcomes must arrive in rank order"
-            )
+            raise ValueError(f"rank {outcome.rank} recorded after rank {self._last_rank}: outcomes must arrive in rank order")
         self._last_rank = outcome.rank
         if isinstance(outcome, SkippedRow):
             self._record_skip(outcome)

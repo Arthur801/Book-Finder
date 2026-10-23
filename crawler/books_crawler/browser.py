@@ -33,10 +33,7 @@ log = logging.getLogger("books_crawler.browser")
 # Normal desktop Chrome UA and zh-TW locale for the Playwright browser. Approved by the user on
 # 2026-10-11 (crawler.md §15.1). The major version matches the Chromium that the pinned playwright release
 # installs (see crawler/README.md); update both together.
-BROWSER_USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/153.0.0.0 Safari/537.36"
-)
+BROWSER_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36"
 BROWSER_LOCALE = "zh-TW"
 
 # What a launch hands over: the Playwright driver, the browser and the one shared context.

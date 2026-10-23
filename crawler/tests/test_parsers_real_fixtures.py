@@ -209,9 +209,7 @@ CASES = {
 @pytest.mark.parametrize("product_id", sorted(CASES))
 def test_detail_fixture_extracts_expected_values(product_id):
     expected = CASES[product_id]
-    draft = parse_detail_html(
-        fixture_html(detail_fixture_name(product_id)), product_url(int(product_id))
-    )
+    draft = parse_detail_html(fixture_html(detail_fixture_name(product_id)), product_url(int(product_id)))
 
     assert draft.source_url == product_url(int(product_id))
     assert draft.title == expected["title"]
@@ -243,6 +241,7 @@ def test_detail_parser_accepts_tracking_url_and_canonicalizes_it():
 # ---------------------------------------------------------------------------
 # Restricted books (crawler.md §6): the logged-out member gate vs. the logged-in page
 # ---------------------------------------------------------------------------
+
 
 def test_real_restricted_member_gate_is_recognized():
     html = fixture_html(RESTRICTED_GATE_FIXTURE)
@@ -337,6 +336,7 @@ def test_missing_cover_image_is_null():
 # Scoping: nothing outside the product container is read (no whole-page fallback)
 # ---------------------------------------------------------------------------
 
+
 def test_missing_product_container_is_a_parse_error_not_a_whole_page_scan():
     html = detail_without_product_container(_base_html())
 
@@ -355,6 +355,7 @@ def test_title_comes_only_from_the_product_container():
 # Subjects: every level of every 本書分類 group (Q1)
 # ---------------------------------------------------------------------------
 
+
 def test_subjects_from_all_groups_are_kept_once_in_page_order():
     html = detail_with_second_subject_group(_base_html(), ["歷史", "政治", "台灣史"])
 
@@ -367,10 +368,9 @@ def test_subjects_from_all_groups_are_kept_once_in_page_order():
 # Description / TOC line breaks (Q3)
 # ---------------------------------------------------------------------------
 
+
 def test_inline_award_badges_stay_on_one_line_in_description():
-    draft = parse_detail_html(
-        fixture_html(detail_fixture_name("0010852315")), product_url(10852315)
-    )
+    draft = parse_detail_html(fixture_html(detail_fixture_name("0010852315")), product_url(10852315))
 
     lines = draft.description.split("\n")
     assert lines[0] == "臺灣文學第一本"

@@ -131,9 +131,7 @@ def test_full_ranking_success_writes_100_bestsellers(db_url):
         ORDER BY b.rank
         """,
     )
-    for (rank, source_type, source_url, source_book_id, bestseller_book_id, source_id, bestseller_source_id), row in zip(
-        joined, rows, strict=True
-    ):
+    for (rank, source_type, source_url, source_book_id, bestseller_book_id, source_id, bestseller_source_id), row in zip(joined, rows, strict=True):
         assert source_type == "BOOKS_COM_TW"
         assert source_url == row.url
         assert source_book_id == bestseller_book_id
@@ -143,17 +141,12 @@ def test_full_ranking_success_writes_100_bestsellers(db_url):
 def test_existing_urls_are_reused_without_detail_fetch_or_metadata_change(db_url):
     run(db_url, ranking_rows(100))
     before = query(db_url, "SELECT id, title, publisher, created_at, updated_at FROM books ORDER BY id")
-    old_ids_by_url = dict(
-        query(db_url, "SELECT source_url, book_id FROM book_sources WHERE source_type = 'BOOKS_COM_TW'")
-    )
+    old_ids_by_url = dict(query(db_url, "SELECT source_url, book_id FROM book_sources WHERE source_type = 'BOOKS_COM_TW'"))
 
     # Second run: products 51..100 are already known, 101..150 are new. The drafts for the known
     # products carry different titles, so any accidental overwrite would be visible.
     rows = ranking_rows(100, offset=50)
-    drafts = {
-        row.url: make_draft(row.url, title="CHANGED TITLE" if row.url in old_ids_by_url else None)
-        for row in rows
-    }
+    drafts = {row.url: make_draft(row.url, title="CHANGED TITLE" if row.url in old_ids_by_url else None) for row in rows}
 
     report, fetcher = run(db_url, rows, drafts)
 
@@ -238,9 +231,7 @@ def test_detail_failing_twice_then_succeeding_writes_the_book_normally(db_url):
     assert fetcher.calls.count(rows[0].url) == 3
     assert sleep.calls == RETRY_SLEEPS
     assert len(bestsellers(db_url)) == 100
-    assert query(db_url, "SELECT title FROM books WHERE id = (SELECT book_id FROM bestsellers WHERE rank = 1)") == [
-        ("Book " + rows[0].url.rsplit("/", 1)[-1],)
-    ]
+    assert query(db_url, "SELECT title FROM books WHERE id = (SELECT book_id FROM bestsellers WHERE rank = 1)") == [("Book " + rows[0].url.rsplit("/", 1)[-1],)]
 
 
 def test_book_transaction_failing_twice_then_succeeding_writes_the_book_normally(db_url, monkeypatch):
@@ -336,9 +327,7 @@ def test_fetch_retry_that_reaches_a_restricted_page_is_skipped_as_restricted_aft
     assert query(db_url, "SELECT count(*) FROM book_sources WHERE source_url = %s", (target,)) == [(0,)]
 
 
-def test_write_retry_that_finds_an_isbn_used_by_an_earlier_rank_is_skipped_as_duplicate_after_two_attempts(
-    db_url, monkeypatch
-):
+def test_write_retry_that_finds_an_isbn_used_by_an_earlier_rank_is_skipped_as_duplicate_after_two_attempts(db_url, monkeypatch):
     isbn = normalize_isbn("978-0-306-40615-7")
     _seed_with_identifiers(db_url, {1: (isbn,)})  # Book A carries the ISBN and is used by rank 1 below
     rows = [RankingRow(rank=1, url=product_url(1)), RankingRow(rank=2, url=product_url(201))] + [
@@ -375,6 +364,7 @@ def test_write_retry_that_finds_an_isbn_used_by_an_earlier_rank_is_skipped_as_du
 # ISBN attach policy (crawler.md §5, data-model §6)
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.parametrize("raw_isbn", ["978-0-306-40615-7", "0-306-40615-2"], ids=["isbn13", "isbn10"])
 def test_new_source_with_known_isbn_attaches_to_existing_book(db_url, caplog, raw_isbn):
     caplog.set_level(logging.INFO, logger="books_crawler")
@@ -390,16 +380,12 @@ def test_new_source_with_known_isbn_attaches_to_existing_book(db_url, caplog, ra
     )[0]
     existing_book_id = existing[0]
     books_before = count(db_url, "books")
-    identifiers_before = query(
-        db_url, "SELECT identifier_type, identifier_value FROM book_identifiers WHERE book_id = %s", (existing_book_id,)
-    )
+    identifiers_before = query(db_url, "SELECT identifier_type, identifier_value FROM book_identifiers WHERE book_id = %s", (existing_book_id,))
 
     # Run 2: ranks 2..100 are known products; rank 1 is a product never seen before with the same ISBN.
     rows = [RankingRow(rank=1, url=product_url(101))] + [RankingRow(rank=rank, url=product_url(rank)) for rank in range(2, 101)]
     drafts = {row.url: make_draft(row.url) for row in rows}
-    drafts[product_url(101)] = make_draft(
-        product_url(101), title="Other edition title", publisher="Other publisher", identifiers=(isbn,)
-    )
+    drafts[product_url(101)] = make_draft(product_url(101), title="Other edition title", publisher="Other publisher", identifiers=(isbn,))
 
     report, fetcher = run(db_url, rows, drafts)
 
@@ -407,12 +393,8 @@ def test_new_source_with_known_isbn_attaches_to_existing_book(db_url, caplog, ra
     assert report.attached_source_count == 1
     assert product_url(101) in fetcher.detail_calls()  # the new product's detail page was fetched
     assert count(db_url, "books") == books_before  # no new Book was created
-    assert query(
-        db_url, "SELECT id, title, publisher, created_at, updated_at FROM books WHERE id = %s", (existing_book_id,)
-    ) == [existing]
-    assert query(
-        db_url, "SELECT identifier_type, identifier_value FROM book_identifiers WHERE book_id = %s", (existing_book_id,)
-    ) == identifiers_before
+    assert query(db_url, "SELECT id, title, publisher, created_at, updated_at FROM books WHERE id = %s", (existing_book_id,)) == [existing]
+    assert query(db_url, "SELECT identifier_type, identifier_value FROM book_identifiers WHERE book_id = %s", (existing_book_id,)) == identifiers_before
     assert query(
         db_url,
         "SELECT book_id, source_type, external_id, first_seen_at, last_seen_at FROM book_sources WHERE source_url = %s",
@@ -433,9 +415,7 @@ def test_isbn13_match_takes_priority_over_isbn10_match(db_url):
     _seed_with_identifiers(db_url, {1: (isbn13,), 2: (isbn10_of_other,)})
     book_a = query(db_url, "SELECT book_id FROM book_sources WHERE source_url = %s", (product_url(1),))[0][0]
 
-    rows = [RankingRow(rank=1, url=product_url(101))] + [
-        RankingRow(rank=rank, url=product_url(rank)) for rank in range(2, 101)
-    ]
+    rows = [RankingRow(rank=1, url=product_url(101))] + [RankingRow(rank=rank, url=product_url(rank)) for rank in range(2, 101)]
     drafts = {row.url: make_draft(row.url) for row in rows}
     # The new source carries the ISBN-10 of book B (rank 2) and the ISBN-13 of book A (rank 1).
     drafts[product_url(101)] = make_draft(product_url(101), identifiers=(isbn10_of_other, isbn13))
@@ -533,6 +513,7 @@ def test_two_new_sources_sharing_an_isbn_skip_the_later_rank(db_url):
 # Writes inside one source's transaction (crawler.md §9)
 # ---------------------------------------------------------------------------
 
+
 def test_failed_book_transaction_is_rolled_back_retried_and_skipped_while_others_are_unaffected(db_url):
     _seed_with_identifiers(db_url, {})
     rows = ranking_rows(100, offset=100)  # all new: rank 5 fails in every attempt
@@ -570,6 +551,7 @@ def test_failed_book_transaction_is_rolled_back_retried_and_skipped_while_others
 # Language codes through the DB path (data-model §2.1)
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.parametrize(
     "label, code",
     [("英文", "en"), ("日文", "ja"), ("韓文", "ko"), ("繁體中文", "zh-TW"), ("簡體中文", "zh-CN")],
@@ -586,6 +568,7 @@ def test_language_code_is_written_to_books(db_url, label, code):
 # ---------------------------------------------------------------------------
 # Atomic bestseller replacement
 # ---------------------------------------------------------------------------
+
 
 def test_new_book_columns_match_data_model_with_nulls_for_missing_fields(db_url):
     rows = ranking_rows(100)
@@ -627,20 +610,32 @@ def test_new_book_columns_match_data_model_with_nulls_for_missing_fields(db_url)
         (book_id,),
     )[0]
     assert book == (
-        "完整書名", None, "某某出版社", date(2026, 10, 11), "DAY", "zh-TW",
-        "內容簡介", "第一章 開始", 320, "https://img.example.test/cover.jpg", NOW, NOW,
+        "完整書名",
+        None,
+        "某某出版社",
+        date(2026, 10, 11),
+        "DAY",
+        "zh-TW",
+        "內容簡介",
+        "第一章 開始",
+        320,
+        "https://img.example.test/cover.jpg",
+        NOW,
+        NOW,
     )
-    assert query(
-        db_url, "SELECT identifier_type, identifier_value FROM book_identifiers WHERE book_id = %s ORDER BY 1, 2", (book_id,)
-    ) == [("ISBN_10", "0306406152"), ("ISBN_13", "9780306406157")]
+    assert query(db_url, "SELECT identifier_type, identifier_value FROM book_identifiers WHERE book_id = %s ORDER BY 1, 2", (book_id,)) == [
+        ("ISBN_10", "0306406152"),
+        ("ISBN_13", "9780306406157"),
+    ]
     assert query(
         db_url,
         "SELECT contributor_order, name, role FROM book_contributors WHERE book_id = %s ORDER BY contributor_order",
         (book_id,),
     ) == [(1, "作者甲", "AUTHOR"), (2, "譯者乙", "TRANSLATOR")]
-    assert query(
-        db_url, "SELECT subject, source_type FROM book_subjects WHERE book_id = %s ORDER BY subject", (book_id,)
-    ) == [("小說", "BOOKS_COM_TW"), ("文學", "BOOKS_COM_TW")]
+    assert query(db_url, "SELECT subject, source_type FROM book_subjects WHERE book_id = %s ORDER BY subject", (book_id,)) == [
+        ("小說", "BOOKS_COM_TW"),
+        ("文學", "BOOKS_COM_TW"),
+    ]
     assert query(
         db_url,
         "SELECT source_type, external_id, first_seen_at, last_seen_at FROM book_sources WHERE source_url = %s",
@@ -671,10 +666,7 @@ def test_failed_snapshot_replacement_keeps_previous_list_and_last_seen(db_url):
     sources_before = query(db_url, "SELECT id, last_seen_at FROM book_sources ORDER BY id")
     sources = query(db_url, "SELECT rank, source_id FROM bestsellers ORDER BY rank")
     books = dict(query(db_url, "SELECT rank, book_id FROM bestsellers"))
-    snapshot = [
-        SnapshotRow(rank=rank, book_id=books[rank], source_id=source_id)
-        for rank, source_id in sources
-    ]
+    snapshot = [SnapshotRow(rank=rank, book_id=books[rank], source_id=source_id) for rank, source_id in sources]
     # Rank 50 repeats rank 49's Book and source: it passes the source check, but the schema's unique
     # bestsellers.book_id makes the INSERT fail after 49 rows were written.
     snapshot[49] = SnapshotRow(rank=50, book_id=books[49], source_id=sources[48][1])
@@ -710,9 +702,12 @@ def test_replacement_rejects_a_source_that_is_not_the_books_own_books_com_tw_sou
     sources_before = query(db_url, "SELECT id, last_seen_at FROM book_sources ORDER BY id")
     snapshot[4] = SnapshotRow(rank=5, book_id=target.book_id, source_id=bad_source)
 
-    with db.connect(db_url) as conn, pytest.raises(
-        db.SnapshotValidationError,
-        match=f"rank 5: source {bad_source} is not a BOOKS_COM_TW source of Book {target.book_id}",
+    with (
+        db.connect(db_url) as conn,
+        pytest.raises(
+            db.SnapshotValidationError,
+            match=f"rank 5: source {bad_source} is not a BOOKS_COM_TW source of Book {target.book_id}",
+        ),
     ):
         db.replace_bestsellers(conn, snapshot, captured_at=LATER)
 
@@ -736,6 +731,7 @@ def test_an_empty_snapshot_still_replaces_the_list(db_url):
 # last_seen_at on Book Sources (Q2): source metadata, set only by a successful run
 # ---------------------------------------------------------------------------
 
+
 def test_existing_source_last_seen_advances_on_success_and_book_is_untouched(db_url):
     run(db_url, ranking_rows(100), now=NOW)
     book_before = query(db_url, "SELECT id, title, updated_at FROM books ORDER BY id")
@@ -746,13 +742,9 @@ def test_existing_source_last_seen_advances_on_success_and_book_is_untouched(db_
     assert report.status is RunStatus.SUCCESS
     assert fetcher.detail_calls() == [product_url(n) for n in range(101, 151)]
     for number in range(51, 101):
-        assert query(
-            db_url, "SELECT first_seen_at, last_seen_at FROM book_sources WHERE source_url = %s", (product_url(number),)
-        ) == [(NOW, LATER)], number
+        assert query(db_url, "SELECT first_seen_at, last_seen_at FROM book_sources WHERE source_url = %s", (product_url(number),)) == [(NOW, LATER)], number
     for number in range(101, 151):
-        assert query(
-            db_url, "SELECT first_seen_at, last_seen_at FROM book_sources WHERE source_url = %s", (product_url(number),)
-        ) == [(LATER, LATER)], number
+        assert query(db_url, "SELECT first_seen_at, last_seen_at FROM book_sources WHERE source_url = %s", (product_url(number),)) == [(LATER, LATER)], number
     book_after = query(db_url, "SELECT id, title, updated_at FROM books ORDER BY id")
     assert set(book_before) <= set(book_after)  # Book rows are unchanged; only Book Source rows moved
 
@@ -771,17 +763,19 @@ def test_failed_run_leaves_last_seen_unchanged(db_url):
 # Consecutive error threshold (crawler.md §6, §11; CRAWL-05) and run log (crawler.md §12)
 # ---------------------------------------------------------------------------
 
+
 # The streak and status rules themselves are covered in test_ledger.py; these cases check what only
 # a real run against the database shows: what an abort leaves behind, and that scattered errors
 # still replace the list.
-@pytest.mark.parametrize("failing_ranks, expected_status, abort_rank", [
-    (set(range(1, 22)), RunStatus.FAILED, 21),  # early abort: later ranks are never requested
-    (set(range(80, 101)), RunStatus.FAILED, 100),  # late abort: books committed before it stay
-    (set(range(1, 101, 2)), RunStatus.PARTIAL_SUCCESS, None),  # 50 scattered errors still replace
-])
-def test_abort_keeps_previous_data_and_scattered_errors_still_replace(
-    db_url, caplog, failing_ranks, expected_status, abort_rank
-):
+@pytest.mark.parametrize(
+    "failing_ranks, expected_status, abort_rank",
+    [
+        (set(range(1, 22)), RunStatus.FAILED, 21),  # early abort: later ranks are never requested
+        (set(range(80, 101)), RunStatus.FAILED, 100),  # late abort: books committed before it stay
+        (set(range(1, 101, 2)), RunStatus.PARTIAL_SUCCESS, None),  # 50 scattered errors still replace
+    ],
+)
+def test_abort_keeps_previous_data_and_scattered_errors_still_replace(db_url, caplog, failing_ranks, expected_status, abort_rank):
     caplog.set_level(logging.INFO, logger="books_crawler")
     run(db_url, ranking_rows(), now=NOW)
     previous = bestsellers(db_url)
@@ -806,9 +800,7 @@ def test_abort_keeps_previous_data_and_scattered_errors_still_replace(
         old_urls = [item[0] for item in seen_before]
         assert query(db_url, "SELECT source_url, last_seen_at FROM book_sources WHERE source_url = ANY(%s) ORDER BY source_url", (old_urls,)) == seen_before
         assert f"aborted_at_rank={abort_rank}" in caplog.text
-        assert report.error.startswith(
-            f"run aborted at rank {abort_rank} after 21 consecutive error(s) (limit 20): fetch_error: "
-        )
+        assert report.error.startswith(f"run aborted at rank {abort_rank} after 21 consecutive error(s) (limit 20): fetch_error: ")
         # One ERROR line per failed run, with the same prefix as every other failure (crawler.md §11).
         assert [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR] == [f"run failed: {report.error}"]
         # Successfully committed new books before a late abort remain in Catalog.
@@ -916,9 +908,7 @@ def test_browser_unavailable_on_a_detail_page_fails_the_run_without_retry_or_ski
     rows = ranking_rows(100, offset=100)
     sleep = FakeSleep()
 
-    report, fetcher = run(
-        db_url, rows, failures={rows[0].url: BrowserUnavailableError("no chromium")}, sleep=sleep
-    )
+    report, fetcher = run(db_url, rows, failures={rows[0].url: BrowserUnavailableError("no chromium")}, sleep=sleep)
 
     assert report.status is RunStatus.FAILED
     assert "BrowserUnavailableError" in report.error

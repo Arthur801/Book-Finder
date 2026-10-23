@@ -13,12 +13,10 @@ SCRIPT = Path(__file__).resolve().parents[1] / "deploy" / "run-crawler.sh"
 @pytest.fixture
 def host(tmp_path):
     config = tmp_path / "crawler.conf"
-    config.write_text(
-        "CRAWLER_IMAGE=crawler:test\nAWS_REGION=test-region\nDATABASE_URL_PARAMETER=/test/db\n"
-    )
+    config.write_text("CRAWLER_IMAGE=crawler:test\nAWS_REGION=test-region\nDATABASE_URL_PARAMETER=/test/db\n")
     # Bash functions override external services even though the wrapper sets a fixed PATH.
     stubs = tmp_path / "stubs.sh"
-    stubs.write_text('''
+    stubs.write_text("""
 aws() { printf 'postgresql://test:secret@example.invalid/db\\n'; }
 chown() { :; }
 docker() {
@@ -35,7 +33,7 @@ docker() {
     printf 'end\\n' >> "$CALLS"
     return "${DOCKER_RESULT:-0}"
 }
-''')
+""")
     env = {
         **os.environ,
         "BASH_ENV": str(stubs),

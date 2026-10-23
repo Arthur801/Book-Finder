@@ -95,6 +95,7 @@ def _canonical(href: str | None, where: str) -> str:
 # Ranking page
 # ---------------------------------------------------------------------------
 
+
 def parse_ranking_html(html: str) -> list[RankingRow]:
     soup = BeautifulSoup(html, "html.parser")
 
@@ -120,6 +121,7 @@ def parse_ranking_html(html: str) -> list[RankingRow]:
 # ---------------------------------------------------------------------------
 # Product detail page
 # ---------------------------------------------------------------------------
+
 
 def _product_container(soup: BeautifulSoup) -> Tag:
     container = soup.select_one(_PRODUCT_CONTAINER)

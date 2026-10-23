@@ -75,9 +75,7 @@ def test_first_book_challenge_exhausts_retries_and_fails(monkeypatch, caplog):
     assert (report.aborted_at_rank, report.consecutive_error_count) == (1, 1)
     assert report.skipped[0].failure.attempts == 3
     assert report.error == "run aborted at rank 1 after 1 consecutive error(s) (limit 0): fetch_error: Cloudflare challenge"
-    assert [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR] == [
-        f"first-book import failed: {report.error}"
-    ]
+    assert [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR] == [f"first-book import failed: {report.error}"]
     assert deps.fetcher.calls == [RANKING_PAGE_URL, first, first, first]
     assert deps.sleep.calls == [1.0, 2.0]
 

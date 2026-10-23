@@ -244,9 +244,7 @@ def _assert_derived_source_skipped(db_url, report, fetcher, previous, error_frag
     assert fetcher.detail_calls() == [DERIVED_NEW_SOURCE_URL] * 3
     snapshot = bestsellers(db_url)
     assert [row[0] for row in snapshot] == [rank for rank in range(1, 101) if rank != DERIVED_RANK]
-    assert [row[1:3] for row in snapshot if row[0] < DERIVED_RANK] == [
-        row[1:3] for row in previous if row[0] < DERIVED_RANK
-    ]
+    assert [row[1:3] for row in snapshot if row[0] < DERIVED_RANK] == [row[1:3] for row in previous if row[0] < DERIVED_RANK]
     assert query(db_url, "SELECT count(*) FROM book_sources WHERE source_url = %s", (DERIVED_NEW_SOURCE_URL,)) == [(0,)]
 
 

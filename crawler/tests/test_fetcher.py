@@ -19,9 +19,7 @@ from books_crawler.fetcher import (
 CRAWLER_DIR = Path(__file__).resolve().parents[1]
 CONTENT = '<html><head><title>博客來-中文書</title></head><body><div class="main_column"><h1>書</h1></div></body></html>'
 CHALLENGE = "<html><head><title>歡迎光臨博客來</title></head><body><p>正在進行安全性檢查</p></body></html>"
-CHALLENGE_TITLE_WITH_CONTENT = (
-    '<html><head><title>歡迎光臨博客來</title></head><body><div class="main_column"><h1>書</h1></div></body></html>'
-)
+CHALLENGE_TITLE_WITH_CONTENT = '<html><head><title>歡迎光臨博客來</title></head><body><div class="main_column"><h1>書</h1></div></body></html>'
 CONNECTION_ERROR = "<html><body><h2>您的連線暫時異常 請稍後再嘗試 謝謝！</h2></body></html>"
 CONNECTION_ERROR_EN = "<html><body><p>Connection is temporarily unavailable</p></body></html>"
 CONNECTION_PHRASE_IN_CONTENT = '<html><body><div class="main_column">Connection is temporarily unavailable</div></body></html>'
