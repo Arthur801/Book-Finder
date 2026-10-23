@@ -1,0 +1,38 @@
+# Production compose file for the web container. It ships in the web image at /opt/release/ and is run by the host
+# state machine as: docker compose -p book-finder -f <release_dir>/compose.prod.yaml up -d
+# Why project-independent: the file is the one the release was built with, so a rollback runs the old file, not the
+# checkout on the host. It holds no secrets; the three SSM values arrive through WEB_ENV_FILE.
+services:
+  web:
+    image: ${WEB_IMAGE:?WEB_IMAGE must be a digest-pinned web image}
+    env_file: ${WEB_ENV_FILE:?WEB_ENV_FILE must name the rendered environment file}
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_HTTPS_PORT: "443"
+      # Must equal the subnet of the web network below: nginx reaches the container through the loopback port, so
+      # the request arrives from this network's gateway, and only a source in this range may set forwarded headers.
+      ForwardedHeaders__KnownNetworks__0: 172.31.250.0/24
+      # Antiforgery keys must survive container replacement, so they live in a named volume (see dp-keys).
+      DataProtection__KeysPath: /data-protection-keys
+    # Loopback only: nginx on the host is the only client, and TLS terminates there.
+    ports:
+      - "127.0.0.1:5000:8080"
+    volumes:
+      - dp-keys:/data-protection-keys
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    networks:
+      - web
+
+networks:
+  web:
+    ipam:
+      config:
+        - subnet: 172.31.250.0/24
+
+volumes:
+  dp-keys:

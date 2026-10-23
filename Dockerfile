@@ -24,6 +24,12 @@ RUN dotnet restore Book-Finder.csproj && dotnet tool restore
 COPY . .
 RUN dotnet publish Book-Finder.csproj --configuration Release -o /out/app --no-restore
 
+# Host files for the release directory. crawler/deploy is the single source for run-crawler.sh and crawler.cron (the
+# crawler's own tests and README read the same files), so the image never carries a second copy that could drift.
+# compose.prod.yaml comes from the repository root. Nothing else under crawler/ enters the build context (.dockerignore).
+RUN mkdir -p /out/release
+COPY deploy/release/compose.prod.yaml crawler/deploy/run-crawler.sh crawler/deploy/crawler.cron /out/release/
+
 # The bundle and SQL scripts need a DbContext, and Program.cs throws without a connection string. The placeholder is
 # set per RUN only, so it never becomes an image ENV.
 RUN export ConnectionStrings__DefaultConnection=Host=placeholder \
