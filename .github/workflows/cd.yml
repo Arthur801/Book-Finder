@@ -1,0 +1,495 @@
+name: CD
+
+# A release tag (v*) builds, tests, attests and publishes immutable images, then waits for approval before the host deploys.
+# A dispatch from main deploys an already-published release without building anything. Every decision that matters
+# (tag validity, release contents, plan classification, deploy result) is made by .github/scripts/cd_release.py or the host.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Published release tag to deploy, for example v1.2.3
+        required: true
+        type: string
+      cutover:
+        description: Only for the first switch from the systemd runtime to Docker. Requires an in-sync chain.
+        type: boolean
+        default: false
+
+# Every job declares the permissions it needs; nothing is granted to the workflow as a whole.
+permissions: {}
+
+jobs:
+  guard:
+    name: Check the event and tag
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.check.outputs.tag }}
+      commit: ${{ steps.check.outputs.commit }}
+      mode: ${{ steps.check.outputs.mode }}
+    steps:
+      # Full history with all tags: the merge-base check needs origin/main and the tag must exist locally.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate the tag and its commit
+        id: check
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_TAG: ${{ inputs.release_tag }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [[ $EVENT_NAME == push ]]; then
+            [[ $REF_TYPE == tag ]] || { echo "::error::push events must be tags"; exit 1; }
+            tag_input=$REF_NAME
+            mode=build
+          elif [[ $EVENT_NAME == workflow_dispatch ]]; then
+            [[ $REF == refs/heads/main ]] || { echo "::error::deploy is dispatched from main only"; exit 1; }
+            tag_input=$INPUT_TAG
+            mode=resolve
+          else
+            echo "::error::unsupported event"
+            exit 1
+          fi
+          # The tag is checked against the regex before it reaches any git or gh command.
+          python3 .github/scripts/cd_release.py validate-tag --tag "$tag_input"
+          tag=$tag_input
+          commit=$(git rev-parse --verify --quiet "refs/tags/$tag^{commit}") || { echo "::error::tag $tag does not exist"; exit 1; }
+          git merge-base --is-ancestor "$commit" origin/main || { echo "::error::tag $tag is not on origin/main"; exit 1; }
+          if [[ $mode == resolve ]]; then
+            state=$(python3 .github/scripts/cd_release.py release-state --tag "$tag")
+            [[ $state == published ]] || { echo "::error::no published release for $tag (state: $state)"; exit 1; }
+          fi
+          {
+            echo "commit=$commit"
+            echo "mode=$mode"
+          } >> "$GITHUB_OUTPUT"
+
+  test:
+    name: Test
+    needs: guard
+    if: needs.guard.outputs.mode == 'build'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/ci.yml
+
+  build:
+    name: Build and release
+    needs: [guard, test]
+    if: needs.guard.outputs.mode == 'build' && needs.test.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+      attestations: write
+    # Two runs for one tag must not interleave pushes and releases; the second waits for the first to finish.
+    concurrency:
+      group: cd-build-${{ github.ref }}
+      cancel-in-progress: false
+    outputs:
+      web_digest: ${{ steps.digests.outputs.web_digest }}
+      crawler_digest: ${{ steps.digests.outputs.crawler_digest }}
+    env:
+      TAG: ${{ needs.guard.outputs.tag }}
+      COMMIT: ${{ needs.guard.outputs.commit }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Confirm the checkout is the tagged commit
+        run: test "$(git rev-parse HEAD)" = "$COMMIT"
+
+      - name: Log in to GHCR
+        run: docker login ghcr.io -u ${{ github.actor }} --password-stdin <<< "${{ secrets.GITHUB_TOKEN }}"
+
+      # I7: an existing tag is reused only after its provenance verifies. A registry error other than "not found" fails here.
+      - name: Check the web image tag
+        id: web_state
+        env:
+          REF: ghcr.io/arthur801/book-finder-web:${{ needs.guard.outputs.tag }}
+        run: python3 .github/scripts/cd_release.py image-state --ref "$REF"
+
+      - name: Verify the existing web image
+        if: steps.web_state.outputs.exists == 'true'
+        env:
+          REF: ghcr.io/arthur801/book-finder-web@${{ steps.web_state.outputs.digest }}
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/cd_release.py verify-attestation --ref "$REF" --tag "$TAG" --commit "$COMMIT"
+
+      - name: Build and push the web image
+        if: steps.web_state.outputs.exists == 'false'
+        id: web_build
+        env:
+          REF: ghcr.io/arthur801/book-finder-web:${{ needs.guard.outputs.tag }}
+        run: |
+          set -euo pipefail
+          docker build --build-arg "GIT_COMMIT=$COMMIT" -t "$REF" .
+          docker push "$REF"
+          echo "digest=$(docker inspect --format '{{index .RepoDigests 0}}' "$REF" | sed 's/^[^@]*@//')" >> "$GITHUB_OUTPUT"
+
+      - name: Attest the web image
+        if: steps.web_state.outputs.exists == 'false'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/arthur801/book-finder-web
+          subject-digest: ${{ steps.web_build.outputs.digest }}
+          push-to-registry: true
+
+      - name: Check the crawler image tag
+        id: crawler_state
+        env:
+          REF: ghcr.io/arthur801/book-finder-crawler:${{ needs.guard.outputs.tag }}
+        run: python3 .github/scripts/cd_release.py image-state --ref "$REF"
+
+      - name: Verify the existing crawler image
+        if: steps.crawler_state.outputs.exists == 'true'
+        env:
+          REF: ghcr.io/arthur801/book-finder-crawler@${{ steps.crawler_state.outputs.digest }}
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/cd_release.py verify-attestation --ref "$REF" --tag "$TAG" --commit "$COMMIT"
+
+      - name: Build and push the crawler image
+        if: steps.crawler_state.outputs.exists == 'false'
+        id: crawler_build
+        env:
+          REF: ghcr.io/arthur801/book-finder-crawler:${{ needs.guard.outputs.tag }}
+        run: |
+          set -euo pipefail
+          docker build -t "$REF" crawler/
+          docker push "$REF"
+          echo "digest=$(docker inspect --format '{{index .RepoDigests 0}}' "$REF" | sed 's/^[^@]*@//')" >> "$GITHUB_OUTPUT"
+
+      - name: Attest the crawler image
+        if: steps.crawler_state.outputs.exists == 'false'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/arthur801/book-finder-crawler
+          subject-digest: ${{ steps.crawler_build.outputs.digest }}
+          push-to-registry: true
+
+      - name: Record the image digests
+        id: digests
+        env:
+          WEB: ${{ steps.web_build.outputs.digest || steps.web_state.outputs.digest }}
+          CRAWLER: ${{ steps.crawler_build.outputs.digest || steps.crawler_state.outputs.digest }}
+        run: |
+          {
+            echo "web_digest=$WEB"
+            echo "crawler_digest=$CRAWLER"
+          } >> "$GITHUB_OUTPUT"
+
+      # Only the three named files leave the image: migrations.txt, RELEASE_API and sql/<id>.sql, with symlinks rejected.
+      - name: Extract the release files from the web image
+        env:
+          WEB_REF: ghcr.io/arthur801/book-finder-web@${{ steps.digests.outputs.web_digest }}
+        run: python3 .github/scripts/cd_release.py extract-release --image "$WEB_REF" --dest "$RUNNER_TEMP/release"
+
+      - name: Build release.json and the upload set
+        env:
+          WEB_DIGEST: ${{ steps.digests.outputs.web_digest }}
+          CRAWLER_DIGEST: ${{ steps.digests.outputs.crawler_digest }}
+        run: |
+          python3 .github/scripts/cd_release.py build-release-json --tag "$TAG" --commit "$COMMIT" \
+            --web-digest "$WEB_DIGEST" --crawler-digest "$CRAWLER_DIGEST" \
+            --release-dir "$RUNNER_TEMP/release" --assets-dir "$RUNNER_TEMP/assets"
+
+      # Immutable flow: a new tag gets a draft, uploads, then publish. A draft is resumed. A published release must match.
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/cd_release.py publish-release --tag "$TAG" --assets-dir "$RUNNER_TEMP/assets"
+
+  resolve:
+    name: Resolve a published release
+    needs: guard
+    if: needs.guard.outputs.mode == 'resolve'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      attestations: read
+    outputs:
+      web_digest: ${{ steps.release.outputs.web_digest }}
+      crawler_digest: ${{ steps.release.outputs.crawler_digest }}
+    env:
+      TAG: ${{ needs.guard.outputs.tag }}
+      COMMIT: ${{ needs.guard.outputs.commit }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download the release.json of the tag
+        run: gh release download "$TAG" --pattern release.json --dir "$RUNNER_TEMP/release"
+
+      - name: Validate release.json against the tag and commit
+        id: release
+        run: python3 .github/scripts/cd_release.py validate-release-json --file "$RUNNER_TEMP/release/release.json" --tag "$TAG" --commit "$COMMIT"
+
+      - name: Verify the web image attestation
+        env:
+          REF: ghcr.io/arthur801/book-finder-web@${{ steps.release.outputs.web_digest }}
+        run: python3 .github/scripts/cd_release.py verify-attestation --ref "$REF" --tag "$TAG" --commit "$COMMIT"
+
+      - name: Verify the crawler image attestation
+        env:
+          REF: ghcr.io/arthur801/book-finder-crawler@${{ steps.release.outputs.crawler_digest }}
+        run: python3 .github/scripts/cd_release.py verify-attestation --ref "$REF" --tag "$TAG" --commit "$COMMIT"
+
+  plan:
+    name: Plan on the host
+    needs: [guard, build, resolve]
+    if: always() && needs.guard.result == 'success' && (needs.build.result == 'success' || needs.resolve.result == 'success')
+    runs-on: ubuntu-latest
+    environment: production-plan
+    permissions:
+      contents: read
+    outputs:
+      revision: ${{ steps.plan.outputs.revision }}
+      expect_runtime: ${{ steps.plan.outputs.expect_runtime }}
+      expect_schema: ${{ steps.plan.outputs.expect_schema }}
+      chain: ${{ steps.plan.outputs.chain }}
+      pending: ${{ steps.plan.outputs.pending }}
+      applied_last: ${{ steps.plan.outputs.applied_last }}
+      rebuild_tag: ${{ steps.plan.outputs.rebuild_tag }}
+      rebuild_web_digest: ${{ steps.plan.outputs.rebuild_web_digest }}
+      runtime_web_digest: ${{ steps.plan.outputs.runtime_web_digest }}
+      state_crawler_digest: ${{ steps.plan.outputs.state_crawler_digest }}
+      crawler_for_deploy: ${{ steps.plan.outputs.crawler_for_deploy }}
+      cutover_ok: ${{ steps.plan.outputs.cutover_ok }}
+    env:
+      TAG: ${{ needs.guard.outputs.tag }}
+      WEB_DIGEST: ${{ needs.build.outputs.web_digest || needs.resolve.outputs.web_digest }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The target's own release.json is the only source for its crawler digest and migration list.
+      - name: Download the target release.json
+        run: gh release download "$TAG" --pattern release.json --dir "$RUNNER_TEMP/target"
+
+      - name: Write the plan SSH files
+        env:
+          PLAN_SSH_KEY: ${{ secrets.PLAN_SSH_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+        run: |
+          umask 077
+          printf '%s\n' "$PLAN_SSH_KEY" > "$RUNNER_TEMP/plan_key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/known_hosts"
+          chmod 0600 "$RUNNER_TEMP/plan_key" "$RUNNER_TEMP/known_hosts"
+
+      # The exit code is kept, not checked here: plan-outputs writes the host's JSON to the summary first, then fails.
+      - name: Run plan on the host
+        id: host
+        env:
+          EC2_USER: ${{ vars.EC2_USER }}
+          EC2_HOST: ${{ vars.EC2_HOST }}
+        run: |
+          set +e
+          ssh -i "$RUNNER_TEMP/plan_key" -o IdentitiesOnly=yes -o UserKnownHostsFile="$RUNNER_TEMP/known_hosts" \
+            -o StrictHostKeyChecking=yes -o BatchMode=yes -o ConnectTimeout=30 \
+            "$EC2_USER@$EC2_HOST" "plan $TAG $WEB_DIGEST" > "$RUNNER_TEMP/plan.json"
+          echo "exit=$?" >> "$GITHUB_OUTPUT"
+
+      - name: Validate the plan and derive the deploy inputs
+        id: plan
+        env:
+          HOST_EXIT: ${{ steps.host.outputs.exit }}
+          CUTOVER: ${{ inputs.cutover && 'true' || 'false' }}
+        run: |
+          python3 .github/scripts/cd_release.py plan-outputs --plan-file "$RUNNER_TEMP/plan.json" --host-exit "$HOST_EXIT" \
+            --release-json "$RUNNER_TEMP/target/release.json" --tag "$TAG" --web-digest "$WEB_DIGEST" --cutover "$CUTOVER"
+
+      # N8: the pending SQL comes from the target release assets, not from a fresh generation on this runner.
+      - name: Show the pending SQL from the target release
+        env:
+          PENDING: ${{ steps.plan.outputs.pending }}
+          APPLIED_LAST: ${{ steps.plan.outputs.applied_last }}
+          CHAIN: ${{ steps.plan.outputs.chain }}
+        run: |
+          set -euo pipefail
+          sql_dir="$RUNNER_TEMP/pending-sql"
+          mkdir -p "$sql_dir"
+          if [[ $PENDING != none ]]; then
+            for id in $PENDING; do
+              gh release download "$TAG" --pattern "$id.sql" --dir "$sql_dir"
+            done
+          fi
+          python3 .github/scripts/cd_release.py pending-sql-summary --release-json "$RUNNER_TEMP/target/release.json" \
+            --sql-dir "$sql_dir" --applied-last "$APPLIED_LAST" --chain "$CHAIN" --pending "$PENDING"
+
+      - name: Remove the plan SSH files
+        if: always()
+        run: rm -f "$RUNNER_TEMP/plan_key" "$RUNNER_TEMP/known_hosts" "$RUNNER_TEMP/plan.json"
+
+  compat:
+    name: Migration compat check
+    needs: [guard, build, resolve, plan]
+    if: always() && needs.plan.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      attestations: read
+    outputs:
+      report_sha256: ${{ steps.report.outputs.report_sha256 }}
+    env:
+      TAG: ${{ needs.guard.outputs.tag }}
+      TARGET_DIGEST: ${{ needs.build.outputs.web_digest || needs.resolve.outputs.web_digest }}
+      REBUILD_TAG: ${{ needs.plan.outputs.rebuild_tag }}
+      REBUILD_DIGEST: ${{ needs.plan.outputs.rebuild_web_digest }}
+      RUNTIME_DIGEST: ${{ needs.plan.outputs.runtime_web_digest }}
+      APPLIED_LAST: ${{ needs.plan.outputs.applied_last }}
+      EXPECTED_SCHEMA: ${{ needs.plan.outputs.expect_schema }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # N1: the schema was built by the rebuild release, so that release's images and attestation are checked first.
+      - name: Download and validate the rebuild release.json
+        id: rebuild
+        run: |
+          set -euo pipefail
+          gh release download "$REBUILD_TAG" --pattern release.json --dir "$RUNNER_TEMP/rebuild-release"
+          python3 .github/scripts/cd_release.py validate-release-json --file "$RUNNER_TEMP/rebuild-release/release.json" \
+            --tag "$REBUILD_TAG" --web-digest "$REBUILD_DIGEST"
+
+      - name: Verify the rebuild image attestation
+        env:
+          REF: ghcr.io/arthur801/book-finder-web@${{ needs.plan.outputs.rebuild_web_digest }}
+          COMMIT: ${{ steps.rebuild.outputs.commit }}
+        run: python3 .github/scripts/cd_release.py verify-attestation --ref "$REF" --tag "$REBUILD_TAG" --commit "$COMMIT"
+
+      - name: Pull the images by digest
+        run: |
+          set -euo pipefail
+          web=ghcr.io/arthur801/book-finder-web
+          docker pull "$web@$REBUILD_DIGEST"
+          docker pull "$web@$TARGET_DIGEST"
+          if [[ $RUNTIME_DIGEST != none ]]; then
+            docker pull "$web@$RUNTIME_DIGEST"
+          fi
+
+      - name: Cut the rebuild manifest at the applied migration
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/cd_release.py extract-release --image "ghcr.io/arthur801/book-finder-web@$REBUILD_DIGEST" \
+            --dest "$RUNNER_TEMP/rebuild-image"
+          python3 .github/scripts/cd_release.py applied-manifest --rebuild-migrations "$RUNNER_TEMP/rebuild-image/migrations.txt" \
+            --applied-last "$APPLIED_LAST" --expected-digest "$EXPECTED_SCHEMA" --out "$RUNNER_TEMP/applied.txt"
+
+      - name: Run the compat check
+        run: |
+          set -euo pipefail
+          web=ghcr.io/arthur801/book-finder-web
+          runtime=none
+          if [[ $RUNTIME_DIGEST != none ]]; then
+            runtime="$web@$RUNTIME_DIGEST"
+          fi
+          bash deploy/migration-test/compat.sh --rebuild-image "$web@$REBUILD_DIGEST" --target-image "$web@$TARGET_DIGEST" \
+            --runtime-image "$runtime" --applied "$RUNNER_TEMP/applied.txt" --seeds-dir deploy/migration-test/seeds \
+            --report "$RUNNER_TEMP/compat-report.json"
+
+      # Runs even when the check fails, so the reviewer sees which mandatory check broke.
+      - name: Summarize the compat report
+        if: always()
+        run: python3 .github/scripts/cd_release.py summarize-compat --report "$RUNNER_TEMP/compat-report.json"
+
+      - name: Record the report digest
+        id: report
+        if: always()
+        run: |
+          if [[ -f $RUNNER_TEMP/compat-report.json ]]; then
+            echo "report_sha256=$(sha256sum "$RUNNER_TEMP/compat-report.json" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: compat-report
+          path: ${{ runner.temp }}/compat-report.json
+          if-no-files-found: warn
+
+  deploy:
+    name: Deploy to production
+    needs: [guard, build, resolve, plan, compat]
+    # The environment's required reviewers are the approval gate: nothing reaches the host before approval.
+    if: >-
+      always() && needs.guard.result == 'success' && needs.plan.result == 'success' && needs.compat.result == 'success' &&
+      (needs.build.result == 'success' || needs.resolve.result == 'success')
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    environment: production
+    permissions:
+      contents: read
+    env:
+      TAG: ${{ needs.guard.outputs.tag }}
+      WEB_DIGEST: ${{ needs.build.outputs.web_digest || needs.resolve.outputs.web_digest }}
+      CRAWLER_FOR_DEPLOY: ${{ needs.plan.outputs.crawler_for_deploy }}
+      REVISION: ${{ needs.plan.outputs.revision }}
+      EXPECT_RUNTIME: ${{ needs.plan.outputs.expect_runtime }}
+      EXPECT_SCHEMA: ${{ needs.plan.outputs.expect_schema }}
+      CHAIN: ${{ needs.plan.outputs.chain }}
+      CUTOVER_OK: ${{ needs.plan.outputs.cutover_ok }}
+      RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Write the deploy SSH files
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+        run: |
+          umask 077
+          printf '%s\n' "$DEPLOY_SSH_KEY" > "$RUNNER_TEMP/deploy_key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/known_hosts"
+          chmod 0600 "$RUNNER_TEMP/deploy_key" "$RUNNER_TEMP/known_hosts"
+
+      # The deploy command is validated by the host grammar. The first answer is only a hint; the status poll decides.
+      - name: Start the deploy on the host
+        env:
+          EC2_USER: ${{ vars.EC2_USER }}
+          EC2_HOST: ${{ vars.EC2_HOST }}
+        run: |
+          set +e
+          args=(deploy "$TAG" "$WEB_DIGEST" "$CRAWLER_FOR_DEPLOY" --run-id "$RUN_ID" --expect-revision "$REVISION"
+            --expect-runtime "$EXPECT_RUNTIME" --expect-schema "$EXPECT_SCHEMA" --chain "$CHAIN")
+          if [[ $CUTOVER_OK == true ]]; then
+            args+=(--cutover)
+          fi
+          ssh -i "$RUNNER_TEMP/deploy_key" -o IdentitiesOnly=yes -o UserKnownHostsFile="$RUNNER_TEMP/known_hosts" \
+            -o StrictHostKeyChecking=yes -o BatchMode=yes -o ConnectTimeout=30 \
+            "$EC2_USER@$EC2_HOST" "${args[*]}" > "$RUNNER_TEMP/deploy-start.json"
+
+      # Follows status for this run id. A dropped SSH call or a running answer keeps polling; history decides the result.
+      - name: Follow the deploy until the host reports a result
+        if: always()
+        env:
+          EC2_USER: ${{ vars.EC2_USER }}
+          EC2_HOST: ${{ vars.EC2_HOST }}
+        run: |
+          python3 .github/scripts/cd_release.py deploy-follow --run-id "$RUN_ID" --first-output "$RUNNER_TEMP/deploy-start.json" \
+            --host "$EC2_USER@$EC2_HOST" --key "$RUNNER_TEMP/deploy_key" --known-hosts "$RUNNER_TEMP/known_hosts"
+
+      - name: Remove the deploy SSH files
+        if: always()
+        run: rm -f "$RUNNER_TEMP/deploy_key" "$RUNNER_TEMP/known_hosts" "$RUNNER_TEMP/deploy-start.json"
