@@ -83,9 +83,9 @@ jobs:
         working-directory: crawler
 
       # The CI scripts share the crawler's ruff settings; the ruff installed above runs from the repository root.
-      - run: ruff check --output-format github --config crawler/ruff.toml .github/scripts deploy/tests
+      - run: ruff check --output-format github --config crawler/ruff.toml .github/scripts deploy/tests deploy/host
 
-      - run: ruff format --check --config crawler/ruff.toml .github/scripts deploy/tests
+      - run: ruff format --check --config crawler/ruff.toml .github/scripts deploy/tests deploy/host
 
       # The pytest version is pinned in crawler/requirements.txt, like ruff, so both tools move together.
       - run: |
@@ -95,6 +95,19 @@ jobs:
         working-directory: crawler
 
       - run: pytest .github/scripts/tests deploy/tests -q
+
+      # The host program runs on Ubuntu 24.04's Python 3.12, so its tests also run there to catch newer syntax or stdlib use.
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+
+      - run: |
+          pytest_pin=$(grep -E '^pytest==' requirements.txt || true)
+          test -n "$pytest_pin" || { echo "::error::pytest==<version> pin not found in crawler/requirements.txt"; exit 1; }
+          python -m pip install "$pytest_pin"
+        working-directory: crawler
+
+      - run: python -m pytest deploy/tests -q
 
       # These scripts run in the Docker job (release manifest, smoke tests and migration compat check); shellcheck catches shell mistakes earlier.
       - run: shellcheck deploy/release/build-manifest.sh deploy/smoke/web-smoke.sh deploy/lib/manifest.sh deploy/lib/smoke.sh deploy/migration-test/compat.sh
