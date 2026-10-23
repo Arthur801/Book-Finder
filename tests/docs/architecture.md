@@ -38,7 +38,7 @@
 | 位置 | 實際責任 | 入口 |
 |---|---|---|
 | [crawler/tests](../../crawler/tests) | pytest、HTML fixture、DB、local Chromium 與 browser fake | CI Crawler tests；不隨 dotnet test |
-| [.github/scripts/tests](../../.github/scripts/tests) | 版本同步、migration manifest checker | CI lint pytest |
+| [.github/scripts/tests](../../.github/scripts/tests) | 版本同步、migration manifest checker，以及 CD release／attestation／staging-tag／digest confirmation 測試（[target test_cd_release.py](https://github.com/Arthur801/Book-Finder/blob/ce7b4f46c0889db6b10216294cac658136796ad7/.github/scripts/tests/test_cd_release.py)；merge target `main@ce7b4f46c0889db6b10216294cac658136796ad7`） | CI lint pytest |
 | [deploy/tests](../../deploy/tests) | Python host 與部署工具，CI Python 3.14 與 3.12 | CI lint pytest |
 | [web-smoke.sh](../../deploy/smoke/web-smoke.sh) | Docker internal network HTTP、container replacement key persistence 與負控制 | CI Docker job |
 | [compat.sh](../../deploy/migration-test/compat.sh) | base／target migration 與 runtime 相容性報告 | PR 指定 migration／checker 路徑變更時執行 |
@@ -49,6 +49,6 @@ crawler Playwright 不是網站 E2E。CI checker 可讀 GitHub release metadata�
 
 Web signing key 為每 run 隨機測試值，OpenAI key 是 placeholder。四個 AI ports 均由 fake 取代。保留 auth 與 antiforgery 負面測試；不以關閉安全檢查來解決 fixture 問題。書籍簡介與目錄不應由 View／JSON 洩漏。DB 與 Web fixture 各自 container，不共用 seed。
 
-test-plan Web「骨架」描述落後於目前 Auth／Library／AI API/history coverage；CI 章節也未完整列出新增 Docker／deploy／checker checks。規格要求 Google Books fallback，但現有 RecommendationService 與測試尚無對應 adapter 流程，不能宣稱完整 REC-03 保護。詳見待辦。本次未量測時間、讀取實際 CI run、驗證 Docker／browser 或 production。
+[target test-plan](https://github.com/Arthur801/Book-Finder/blob/ce7b4f46c0889db6b10216294cac658136796ad7/Docs/testing/test-plan.md) 的 §2 Web「骨架」描述仍落後於目前 Auth／Library／AI API/history coverage；§6 的 CI/CD、Docker、deploy/checker 流程已於 merge target `main@ce7b4f46c0889db6b10216294cac658136796ad7` 更新，不能繼續列為 authority 未同步。§6 已涵蓋 Python 3.14／3.12 pytest、版本／migration checkers、Docker smoke／no-keys control、imagetools roundtrip、migration compat，以及 CD 的 guard → test → build/resolve → plan → compat → deploy。此處查核的是固定 target authority 與 test source；相對連結保留為文件分支導覽。規格要求 Google Books fallback，但現有 RecommendationService 與測試尚無對應 adapter 流程，不能宣稱完整 REC-03 保護。詳見待辦。本次未量測時間、讀取實際 CI run、驗證 Docker／browser 或 production。
 
 [流程](workflow-diagram.md) · [待辦](backlog.md) · [歷史](update-history.md) · [案例](test-suite.md)
