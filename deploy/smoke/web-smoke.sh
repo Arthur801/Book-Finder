@@ -19,16 +19,11 @@ if [[ $# -eq 2 ]]; then
 fi
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
-# Same database image as compose.yaml, so the smoke test does not drift from the local setup.
-db_image=$(sed -n 's/^[[:space:]]*image:[[:space:]]*\(pgvector\/pgvector:[^[:space:]]*\)[[:space:]]*$/\1/p' "$repo_root/compose.yaml" | head -n1)
-# Digest-pinned so the HTTP client cannot change under the check.
-curl_image="curlimages/curl:8.22.0@sha256:58adaa4e8dca9c988bae2aba4ab3434a0bb2da16bbe3f92dec39ec7785166777"
+# shellcheck source=deploy/lib/smoke.sh
+source "$repo_root/deploy/lib/smoke.sh"
+db_image=$(smoke_db_image "$repo_root")
 
-random_hex() {
-  od -An -N"$1" -tx1 /dev/urandom | tr -d ' \n'
-}
-
-suffix=$(random_hex 6)
+suffix=$(smoke_random_hex 6)
 network="bf-smoke-$suffix"
 db="bf-smoke-db-$suffix"
 web="bf-smoke-web-$suffix"
@@ -56,39 +51,18 @@ fail() {
 
 # Secrets are exported and passed by name only, so they never appear in argv or this script's output.
 export POSTGRES_PASSWORD
-POSTGRES_PASSWORD=$(random_hex 12)
+POSTGRES_PASSWORD=$(smoke_random_hex 12)
 export ConnectionStrings__DefaultConnection="Host=$db;Port=5432;Database=book_finder;Username=book_finder_dev;Password=$POSTGRES_PASSWORD"
 export Jwt__SigningKey
-Jwt__SigningKey=$(random_hex 24)
+Jwt__SigningKey=$(smoke_random_hex 24)
 export OPENAIAPI_KEY="sk-smoke-placeholder-not-a-real-key"
 
 [[ -n $db_image ]] || fail "pgvector image not found in compose.yaml"
 
-# Internal network: containers on it have no route to the internet. A few random subnets are tried in case one overlaps.
-subnet=""
-for _ in 1 2 3 4 5; do
-  octet=$((100 + RANDOM % 100))
-  if docker network create --internal --subnet "172.30.$octet.0/24" "$network" >/dev/null 2>&1; then
-    subnet="172.30.$octet.0/24"
-    break
-  fi
-done
-[[ -n $subnet ]] || fail "could not create internal network $network on 172.30.100-199.0/24"
+smoke_create_network "$network" || fail "could not create internal network $network on 172.30.100-199.0/24"
+subnet=$SMOKE_SUBNET
 
-docker run -d --name "$db" --network "$network" \
-  -e POSTGRES_DB=book_finder -e POSTGRES_USER=book_finder_dev -e POSTGRES_PASSWORD \
-  "$db_image" >/dev/null
-
-# The entrypoint starts a temporary server on the Unix socket only; -h 127.0.0.1 waits for the real server.
-db_ready=0
-for _ in $(seq 60); do
-  if docker exec "$db" pg_isready -h 127.0.0.1 -U book_finder_dev -d book_finder >/dev/null 2>&1; then
-    db_ready=1
-    break
-  fi
-  sleep 1
-done
-[[ $db_ready -eq 1 ]] || fail "database did not accept connections within 60 s"
+smoke_start_db "$db" "$network" "$db_image" || fail "database did not accept connections within 60 s"
 
 run_efbundle() {
   docker run --rm --network "$network" -e ConnectionStrings__DefaultConnection \
@@ -123,20 +97,17 @@ fi
 docker run "${web_args[@]}" "$image" >/dev/null
 
 curl_run() {
-  docker run --rm --network "$network" "$curl_image" --silent --show-error --max-time 15 "$@"
+  smoke_curl "$network" "$@"
 }
 
 wait_ready() {
-  local code=""
-  for _ in $(seq 60); do
-    if [[ $(docker inspect -f '{{.State.Running}}' "$web" 2>/dev/null) != true ]]; then
-      fail "web container stopped before it answered"
-    fi
-    code=$(curl_run -H "X-Forwarded-Proto: https" -o /dev/null -w '%{http_code}' "http://$web:8080/" || true)
-    [[ $code == 200 ]] && return 0
-    sleep 1
-  done
-  fail "web did not answer / within 60 s (last status ${code:-none})"
+  local rc=0
+  smoke_wait_ready "$network" "$web" || rc=$?
+  case $rc in
+    0) ;;
+    2) fail "web container stopped before it answered" ;;
+    *) fail "web did not answer / within 60 s (last status ${SMOKE_LAST_STATUS:-none})" ;;
+  esac
 }
 wait_ready
 
@@ -151,23 +122,14 @@ location=$(grep -i '^location:' <<<"$headers" | tr -d '\r' | sed 's/^[Ll]ocation
 [[ $location == https://* ]] || fail "GET / without forwarded proto redirected to '$location', expected https://"
 pass "GET / without forwarded proto -> 307 to https"
 
-login_url="http://$web:8080/account/login"
-login_response=$(curl_run -s -i -H "X-Forwarded-Proto: https" "$login_url" || true)
-login_headers=$(sed '/^\r\?$/q' <<<"$login_response" | tr -d '\r')
-login_body=$(sed '1,/^\r\?$/d' <<<"$login_response")
-antiforgery_cookie=$(grep -i '^set-cookie: \.AspNetCore\.Antiforgery\.' <<<"$login_headers" | head -n1 | sed -E 's/^[Ss]et-[Cc]ookie: ([^;]*).*/\1/' || true)
-token=$(grep -o '<input[^>]*__RequestVerificationToken[^>]*>' <<<"$login_body" | grep -o 'value="[^"]*"' | head -n1 | cut -d'"' -f2 || true)
-[[ -n $antiforgery_cookie ]] || fail "GET /account/login did not set an antiforgery cookie"
-[[ -n $token ]] || fail "GET /account/login form has no __RequestVerificationToken"
+login_rc=0
+smoke_fetch_login_form "$network" "$web" || login_rc=$?
+[[ $login_rc -ne 1 ]] || fail "GET /account/login did not set an antiforgery cookie"
+[[ $login_rc -ne 2 ]] || fail "GET /account/login form has no __RequestVerificationToken"
 pass "GET /account/login issued an antiforgery cookie and form token"
 
 login_post() {
-  curl_run -s -o /dev/null -w '%{http_code}' -X POST \
-    -H "X-Forwarded-Proto: https" -H "Cookie: $antiforgery_cookie" \
-    --data-urlencode "__RequestVerificationToken=$token" \
-    --data-urlencode "Email=nobody@example.invalid" \
-    --data-urlencode "Password=wrong-password-123" \
-    "$login_url" || true
+  smoke_post_bad_login "$network" "$web"
 }
 
 # A restart keeps the container's writable layer, so the default key store survives it even without the volume.
