@@ -21,6 +21,32 @@ source "${CRAWLER_CONFIG_FILE:-/etc/book-finder/crawler.conf}"
 : "${AWS_REGION:?AWS_REGION is required}"
 : "${DATABASE_URL_PARAMETER:?DATABASE_URL_PARAMETER is required}"
 
+# Optional CA bundle for verify-full (DB_CA_BUNDLE, the same path the web container mounts). Checked before any state
+# changes, so a bad path is a configuration error (exit 2) rather than a docker failure after the lock is taken.
+# Mode 0644: the crawler container runs as a non-root user and must read the file.
+ca_mount=()
+if [[ -v DB_CA_BUNDLE ]]; then
+    ca_bundle=$DB_CA_BUNDLE
+    if [[ ! $ca_bundle =~ ^/[A-Za-z0-9._/-]+$ ]]; then
+        echo 'DB_CA_BUNDLE must be an absolute path made of letters, digits, ., _, - and /' >&2
+        exit 2
+    fi
+    if [[ -L $ca_bundle ]]; then
+        echo 'DB_CA_BUNDLE must not be a symbolic link' >&2
+        exit 2
+    fi
+    if [[ ! -f $ca_bundle || ! -r $ca_bundle ]]; then
+        echo 'DB_CA_BUNDLE must be a readable regular file' >&2
+        exit 2
+    fi
+    ca_mode=$(stat -c %a -- "$ca_bundle")
+    if (( (8#$ca_mode & 4) == 0 )); then
+        echo 'DB_CA_BUNDLE must be readable by others (mode 0644): the container user must read it' >&2
+        exit 2
+    fi
+    ca_mount=(--mount "type=bind,src=$ca_bundle,dst=$ca_bundle,readonly")
+fi
+
 # Operator switch for hosts the source site blocks (EC2). It is not paused: a paused crawler blocks deploys, and the
 # deploy reinstalls crawler.cron anyway. CD rewrites only CRAWLER_IMAGE=, so this line survives releases. Unset means
 # true; an empty value is a typo, so it is rejected rather than treated as unset.
@@ -114,6 +140,7 @@ docker run --rm --pull=never --init \
     --log-driver=json-file --log-opt max-size=10m --log-opt max-file=3 \
     --env-file "$env_file" --env CRAWLER_FETCHER=curl \
     --mount "type=bind,src=$state_dir/artifacts,dst=/app/crawler/artifacts" \
+    "${ca_mount[@]}" \
     "$CRAWLER_IMAGE" "$module"
 result=$?
 set -e
