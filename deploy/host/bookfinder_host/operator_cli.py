@@ -14,14 +14,18 @@ until resolve-run names that op_id.
 from __future__ import annotations
 
 import argparse
+import ctypes
+import errno
 import hashlib
 import json
 import os
 import re
 import secrets
 import shutil
+import stat
 import sys
 import tempfile
+import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -51,7 +55,15 @@ RESOLVE_EXIT = {
     "partial-crawler": 7,
     "drift": DRIFT,
 }
-INSTALLED_HOST_DIR = Path(__file__).resolve().parents[1]
+# The fixed link that the forced commands and sudoers use. It points at host-versions/<id> (install-host, N4 and M3c).
+# Not derived from __file__: the code runs through a resolved path, which is a version directory, not the link.
+INSTALLED_HOST_DIR = Path("/opt/book-finder/host")
+VERSIONS_DIRNAME = "host-versions"
+VERSION_ID_RE = re.compile(r"[0-9a-f]{16}")
+LINK_STAGING_PREFIX = "host.new-"
+STAGING_PREFIX = ".stage-"
+AT_FDCWD = -100
+RENAME_EXCHANGE = 2
 
 
 class UsageError(Exception):
@@ -282,6 +294,7 @@ def _perform(
     before,
     apply: Callable[[], tuple[object, object, dict]],
     verify_unchanged: Callable[[], bool],
+    unchanged_note: str = "state unchanged (verified)",
     start_cut: int | None = None,
 ):
     """The operator protocol (M3c): operator-started is durable before apply() changes anything.
@@ -324,7 +337,7 @@ def _perform(
                 f"unknown and op {op_id} stays indeterminate; inspect state and history before doing anything else",
             ) from exc
         return value
-    note = "state unchanged (verified)" if unchanged else f"outcome unknown - see op {op_id}"
+    note = unchanged_note if unchanged else f"outcome unknown - see op {op_id}"
     full = f"{message}; {note}"
     try:
         _complete(ctx, op_id, action, before, "failed", None, {"error": full[:MAX_ERROR_CHARS]})
@@ -646,6 +659,7 @@ def _resolve_run(ctx: Context) -> int:
         before={"run": "started without completed", "state": state_summary or None},
         apply=apply,
         verify_unchanged=lambda: not _run_has_completed(path, run_id),
+        unchanged_note="history unchanged (verified)",
         start_cut=None if tail is None else tail["cut"],
     )
     if state_summary.get("dirty"):
@@ -716,6 +730,7 @@ def _install(ctx: Context) -> int:
         new_low, new_high = cfg.read_host_api_range(source / "bookfinder_host" / "HOST_API_RANGE")
     except cfg.ConfigError as exc:
         raise Refusal(BAD_INPUT, str(exc)) from exc
+    # Read through the link, so this is the range of the tree that is currently pointed to.
     current_path = ctx.host_dir / "bookfinder_host" / "HOST_API_RANGE"
     try:
         old_low, old_high = cfg.read_host_api_range(current_path)
@@ -737,49 +752,214 @@ def _install(ctx: Context) -> int:
                 )
     new_text = f"{new_low}-{new_high}"
     ctx.err.write(f"host_api_range: old={old_text} new={new_text}\n")
+    _preflight_install(ctx.host_dir)
     _confirm(ctx, new_text, f"install the host program into {ctx.host_dir}")
+    before_pointer = _pointer(ctx.host_dir)
 
     def apply():
-        _swap_install(source, ctx.host_dir)
-        return {"host_api_range": new_text}, None, {}
+        result = _swap_install(source, ctx.host_dir)
+        return {"host_api_range": new_text, "version": result["version"], "previous": result["previous"]}, result, {}
 
-    # Until the swap is crash-safe (next change), an interrupted install is reported as unknown, never as unchanged.
-    _perform(
+    result = _perform(
         ctx,
         "install-host",
         intended={"host_api_range": new_text, "source": str(source)},
-        before={"host_api_range": old_text},
+        before={"host_api_range": old_text, "version": _version_of(before_pointer)},
         apply=apply,
-        verify_unchanged=lambda: False,
+        verify_unchanged=lambda: _pointer(ctx.host_dir) == before_pointer,
+        unchanged_note="host unchanged (verified)",
     )
-    return _report(ctx, "install-host", host_api_range=new_text, previous_kept=str(ctx.host_dir.parent / f"{ctx.host_dir.name}.prev"))
+    return _report(ctx, "install-host", host_api_range=new_text, version=result["version"], previous=result["previous"])
 
 
-def _swap_install(source: Path, target: Path) -> None:
-    """Copies the tree beside the target and renames it into place, keeping the previous install as <target>.prev."""
-    parent = target.parent
-    staging = Path(tempfile.mkdtemp(prefix=".host-new-", dir=parent))
+# install-host swap (N4, M3c review)
+#
+# Layout: <root>/host is a symlink to <root>/host-versions/<id>, where <id> is the first 16 hex digits of a hash over the
+# installed tree. Every version directory is complete before it gets a name, and the link is replaced with one rename(2),
+# so at every crash point <root>/host/deploy-entry resolves to a complete tree: the old one or the new one.
+#
+# The one case that started as a directory is the first install on a host with the old layout. The new link is made
+# beside it, then RENAME_EXCHANGE swaps the directory and the link in a single step, then the directory (now at the link's
+# temporary name) moves into host-versions. A crash after the exchange and before that move leaves the old tree under
+# <root>/host.new-<token>; the next install refuses and names it, because it is complete but must be moved by hand.
+
+
+def _no_checkpoint(name: str) -> None:
+    """Fault-injection hook for the tests: called after every swap step with the step's name."""
+
+
+def _fsync_dir(directory: Path | str) -> None:
+    fd = os.open(directory, os.O_RDONLY)
     try:
-        ignore = shutil.ignore_patterns("__pycache__", "*.pyc")
-        shutil.copytree(source / "bookfinder_host", staging / "bookfinder_host", ignore=ignore)
-        for name in ("deploy-entry", "book-finder-admin"):
-            shutil.copy2(source / name, staging / name)
-            os.chmod(staging / name, 0o755)
-        previous = parent / f"{target.name}.prev"
-        if previous.exists() or os.path.islink(previous):
-            shutil.rmtree(previous)
-        moved_old = target.exists()
-        if moved_old:
-            os.rename(target, previous)
-        try:
-            os.rename(staging, target)
-        except OSError:
-            if moved_old:
-                os.rename(previous, target)  # put the working install back before reporting
-            raise
-    except BaseException:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def _fsync_file(path: Path) -> None:
+    fd = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def _tree_id(root: Path) -> str:
+    """First 16 hex digits of a hash over every directory and file (path, mode, length, bytes) under root, in sorted order."""
+    digest = hashlib.sha256()
+    for path in sorted(root.rglob("*")):
+        relative = path.relative_to(root).as_posix()
+        if path.is_symlink():
+            raise OSError(f"{path} is a symlink; installed trees contain only regular files and directories")
+        if path.is_dir():
+            digest.update(f"d {relative}\n".encode())
+            continue
+        data = path.read_bytes()
+        digest.update(f"f {relative} {stat.S_IMODE(path.stat().st_mode):o} {len(data)}\n".encode())
+        digest.update(data)
+    return digest.hexdigest()[:16]
+
+
+def _copy_payload(source: Path, payload: Path) -> None:
+    ignore = shutil.ignore_patterns("__pycache__", "*.pyc")
+    shutil.copytree(source / "bookfinder_host", payload / "bookfinder_host", ignore=ignore)
+    for name in ("deploy-entry", "book-finder-admin"):
+        shutil.copy2(source / name, payload / name)
+        os.chmod(payload / name, 0o755)
+
+
+def _fsync_tree(root: Path) -> None:
+    directories = [root, *(path for path in root.rglob("*") if path.is_dir())]
+    for path in root.rglob("*"):
+        if path.is_file():
+            _fsync_file(path)
+    for directory in directories:
+        _fsync_dir(directory)
+
+
+def _pointer(host: Path) -> tuple[str, str | None]:
+    """What <root>/host is right now: a link and its target, a plain (legacy) directory, something else, or missing."""
+    if os.path.islink(host):
+        return ("link", os.readlink(host))
+    if host.is_dir():
+        return ("dir", None)
+    if os.path.lexists(host):
+        return ("other", None)
+    return ("missing", None)
+
+
+def _version_of(pointer: tuple[str, str | None]) -> str | None:
+    kind, target = pointer
+    return os.path.basename(target) if kind == "link" and target else None
+
+
+def _leftover_link_directories(root: Path) -> list[Path]:
+    return [path for path in root.iterdir() if path.name.startswith(LINK_STAGING_PREFIX) and path.is_dir() and not path.is_symlink()]
+
+
+def _preflight_install(host: Path) -> None:
+    leftovers = _leftover_link_directories(host.parent)
+    if leftovers:
+        raise Refusal(
+            DRIFT,
+            f"{leftovers[0]} is left over from an interrupted legacy migration and is a complete host tree; "
+            f"move it into {host.parent / VERSIONS_DIRNAME} by hand (rename) and rerun install-host",
+        )
+
+
+def _exchange(first: Path, second: Path) -> None:
+    """renameat2(RENAME_EXCHANGE): swaps two paths in one step. Refuses the call rather than falling back to two renames."""
+    libc = ctypes.CDLL(None, use_errno=True)
+    renameat2 = getattr(libc, "renameat2", None)
+    if renameat2 is None:
+        raise OSError(errno.ENOSYS, "renameat2 is not available in this C library")
+    renameat2.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
+    if renameat2(AT_FDCWD, os.fsencode(first), AT_FDCWD, os.fsencode(second), RENAME_EXCHANGE) != 0:
+        code = ctypes.get_errno()
+        raise OSError(code, os.strerror(code), f"{first} <-> {second}")
+
+
+def _swap_install(source: Path, host: Path, *, checkpoint=_no_checkpoint) -> dict[str, str | None]:
+    """Installs the source tree as the version that <host> points to; returns {"version", "previous"}.
+
+    Steps, each one checkpoint: staged, version-installed, then either link-created and pointer-swapped (normal), or
+    legacy-link-created, legacy-exchanged and legacy-moved (first install over a plain directory), then root-synced,
+    then pruning, which only removes versions that are neither current nor previous.
+    """
+    root = host.parent
+    versions = root / VERSIONS_DIRNAME
+    _preflight_install(host)
+    versions.mkdir(mode=0o755, exist_ok=True)
+    for stale in versions.iterdir():
+        if stale.name.startswith(STAGING_PREFIX):
+            shutil.rmtree(stale, ignore_errors=True)  # a staging copy from an interrupted install; nothing points at it
+    for stale in root.iterdir():
+        if stale.name.startswith(LINK_STAGING_PREFIX) and stale.is_symlink():
+            os.unlink(stale)
+    staging = Path(tempfile.mkdtemp(prefix=STAGING_PREFIX, dir=versions))
+    try:
+        payload = staging / "tree"
+        payload.mkdir()
+        _copy_payload(source, payload)
+        _fsync_tree(payload)
+        checkpoint("staged")
+        version = _tree_id(payload)
+        final = versions / version
+        if os.path.lexists(final):
+            if _tree_id(final) != version:
+                raise OSError(f"{final} exists with different content; refusing to overwrite a version")
+        else:
+            os.rename(payload, final)
+            _fsync_dir(versions)
+        checkpoint("version-installed")
+    finally:
         shutil.rmtree(staging, ignore_errors=True)
-        raise
+
+    kind, target = _pointer(host)
+    if kind == "link" and target is not None and Path(target) == final:
+        # Identical content is already current: nothing is swapped and no previous version is recorded or pruned.
+        checkpoint("root-synced")
+        return {"version": version, "previous": None}
+    previous: str | None = None
+    token = secrets.token_hex(4)
+    if kind == "dir":
+        legacy = f"legacy-{time.strftime('%Y%m%d%H%M%S', time.gmtime())}"
+        if os.path.lexists(versions / legacy):
+            legacy = f"{legacy}-{token}"
+        previous = legacy
+        temporary = root / f"{LINK_STAGING_PREFIX}{token}"
+        os.symlink(final, temporary)
+        checkpoint("legacy-link-created")
+        try:
+            _exchange(temporary, host)
+        except OSError as exc:
+            os.unlink(temporary)
+            raise OSError(exc.errno, f"the legacy host directory cannot be exchanged atomically here ({exc.strerror}); nothing was changed") from exc
+        checkpoint("legacy-exchanged")
+        os.rename(temporary, versions / legacy)
+        _fsync_dir(versions)
+        checkpoint("legacy-moved")
+    else:
+        if kind == "link" and target:
+            previous = os.path.basename(target)
+        temporary = root / f"{LINK_STAGING_PREFIX}{token}"
+        os.symlink(final, temporary)
+        checkpoint("link-created")
+        os.replace(temporary, host)  # rename(2) over the old link: one atomic step
+        checkpoint("pointer-swapped")
+    _fsync_dir(root)
+    checkpoint("root-synced")
+    _prune(versions, keep={version, previous})
+    return {"version": version, "previous": previous}
+
+
+def _prune(versions: Path, keep: set[str | None]) -> None:
+    """Removes version directories that are neither current nor previous. Runs after the swap; failures are ignored."""
+    for entry in versions.iterdir():
+        if entry.name in keep or not entry.is_dir() or entry.is_symlink():
+            continue
+        if VERSION_ID_RE.fullmatch(entry.name) or entry.name.startswith("legacy-"):
+            shutil.rmtree(entry, ignore_errors=True)
 
 
 _HANDLERS: dict[str, Callable[[Context], int]] = {

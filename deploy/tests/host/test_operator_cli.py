@@ -524,10 +524,13 @@ def test_install_keeps_the_previous_host_and_records_both_ranges(tmp_path):
     assert "old=1-1 new=1-2" in err
     assert (host / "bookfinder_host" / "HOST_API_RANGE").read_text() == "1 2\n"
     assert (host / "book-finder-admin").exists()
-    assert (host.parent / "host.prev" / "marker").read_text() == "old install"
+    assert host.is_symlink()
+    legacy = [p for p in (host.parent / "host-versions").iterdir() if p.name.startswith("legacy-")]
+    assert len(legacy) == 1 and (legacy[0] / "marker").read_text() == "old install"
     started, completed = op_pair(world)
-    assert started["before"] == {"host_api_range": "1-1"}
-    assert completed["after"] == {"host_api_range": "1-2"}
+    assert started["before"]["host_api_range"] == "1-1"
+    assert completed["after"]["host_api_range"] == "1-2"
+    assert completed["after"]["previous"] == legacy[0].name
 
 
 def test_install_refuses_when_the_current_runtime_is_outside_the_new_range(tmp_path):
@@ -590,7 +593,7 @@ def test_install_confirmation_must_match_the_new_range(tmp_path):
     code, _, _ = run_admin(world, ["install-host", "--source", str(source), *REASON], typed="1-9", host_dir=host)
     assert code == 2
     assert (host / "marker").read_text() == "old install"
-    assert not (host.parent / "host.prev").exists()
+    assert not (host.parent / "host-versions").exists()
 
 
 def test_yes_i_verified_must_equal_the_value_shown(tmp_path):
@@ -835,11 +838,9 @@ def test_a_known_failure_is_recorded_as_failed(tmp_path, monkeypatch, name):
     started, completed = op_pair(world)
     assert completed["result"] == "failed" and completed["op_id"] == started["op_id"]
     assert "write refused" in completed["error"]
-    if name == "install-host":
-        assert "outcome unknown - see op" in err
-    else:
-        assert "state unchanged (verified)" in err and "outcome unknown" not in err
-        assert not mutation_happened(name, world, before_revision)
+    note = {"install-host": "host unchanged (verified)", "resolve-run": "history unchanged (verified)"}.get(name, "state unchanged (verified)")
+    assert note in err and "outcome unknown" not in err
+    assert not mutation_happened(name, world, before_revision)
     # A recorded failure closes the operation, so the other operator commands run again.
     assert run_admin(world, OTHER_OPERATOR_ARGV, typed="x")[0] != 8
 
