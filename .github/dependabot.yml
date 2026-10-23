@@ -60,3 +60,18 @@ updates:
         update-types:
           - minor
           - patch
+
+  # Dependabot can only bump compose.yaml; .github/scripts/check_version_sync.py forces the test fixtures' pgvector image strings to follow.
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: deps
+    groups:
+      docker-compose-minor-patch:
+        update-types:
+          - minor
+          - patch

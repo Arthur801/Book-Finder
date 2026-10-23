@@ -2,11 +2,14 @@
 
 Why: Dependabot bumps Microsoft.EntityFrameworkCore.* PackageReferences in the
 .csproj files but never touches the dotnet-ef tool manifest (dotnet-tools.json),
-so the two drift apart. Each check returns error strings; main() prints them as
-GitHub annotations and exits 1 when any check fails.
+so the two drift apart. Dependabot also bumps the pgvector image in compose.yaml
+but never the image strings hard-coded in the test fixtures, so those drift too.
+Each check returns error strings; main() prints them as GitHub annotations and
+exits 1 when any check fails.
 """
 
 import json
+import re
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -14,6 +17,14 @@ from pathlib import Path
 EXCLUDED_DIRS = {"bin", "obj", ".venv", "node_modules"}
 EF_DESIGN_PACKAGE = "Microsoft.EntityFrameworkCore.Design"
 DOTNET_EF_TOOL = "dotnet-ef"
+COMPOSE_FILE = "compose.yaml"
+PGVECTOR_IMAGE_IN_COMPOSE = re.compile(r"image:\s*(pgvector/pgvector:\S+)")
+PGVECTOR_IMAGE_IN_CODE = re.compile(r"pgvector/pgvector:[\w.\-]+")
+TEST_IMAGE_FILES = [
+    "tests/DatabaseIntegration/PostgresFixture.cs",
+    "tests/WebIntegration/WebFixture.cs",
+    "crawler/tests/conftest.py",
+]
 
 
 def _csproj_files(root: Path) -> list[Path]:
@@ -50,8 +61,41 @@ def check_dotnet_ef_matches_ef_core(root: Path) -> list[str]:
     return errors
 
 
+def check_test_images_match_compose(root: Path) -> list[str]:
+    compose_path = root / COMPOSE_FILE
+    try:
+        compose_text = compose_path.read_text(encoding="utf-8")
+    except OSError as error:
+        return [f"cannot read {COMPOSE_FILE}: {error}"]
+
+    compose_images = set(PGVECTOR_IMAGE_IN_COMPOSE.findall(compose_text))
+    if not compose_images:
+        return [f"pgvector image not found in {COMPOSE_FILE}; cannot verify test images"]
+    if len(compose_images) > 1:
+        return [f"{COMPOSE_FILE} pins more than one pgvector image {sorted(compose_images)}; keep one"]
+    compose_image = compose_images.pop()
+
+    errors = []
+    for relative_name in TEST_IMAGE_FILES:
+        test_path = root / relative_name
+        try:
+            test_text = test_path.read_text(encoding="utf-8")
+        except OSError as error:
+            errors.append(f"cannot read {relative_name}: {error}; it must use {compose_image} from {COMPOSE_FILE}")
+            continue
+
+        test_images = PGVECTOR_IMAGE_IN_CODE.findall(test_text)
+        if not test_images:
+            errors.append(f"no pgvector image found in {relative_name}; it must use {compose_image} from {COMPOSE_FILE}")
+            continue
+        for test_image in sorted(set(test_images) - {compose_image}):
+            errors.append(f"change {test_image} in {relative_name} to {compose_image} to match {COMPOSE_FILE}")
+    return errors
+
+
 CHECKS = [
     check_dotnet_ef_matches_ef_core,
+    check_test_images_match_compose,
 ]
 
 
