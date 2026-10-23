@@ -2,6 +2,10 @@
 
 Why: the public health probe goes through the edge. Without X-Forwarded-Proto the app answers 307 to HTTPS, which is
 what production nginx prevents, so the stand-in must add it too. Used only by the local integration run.
+
+Response handling: only the upstream status and body are relayed. Health probes need nothing else, and echoing
+upstream response headers back to the client is unnecessary and was flagged by CodeQL (py/http-response-splitting).
+Content-Type is therefore fixed to application/octet-stream.
 Usage: edge_stub.py <listen-port> <upstream-port>
 """
 
@@ -29,9 +33,7 @@ def make_handler(upstream_port: int):
             finally:
                 connection.close()
             self.send_response(response.status)
-            for name, value in response.getheaders():
-                if name.lower() not in HOP_BY_HOP:
-                    self.send_header(name, value)
+            self.send_header("Content-Type", "application/octet-stream")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)

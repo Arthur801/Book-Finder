@@ -298,6 +298,34 @@ def test_verify_attestation_passes_only_with_the_full_policy():
         cd.verify_attestation(f"{cd.WEB_REPO}@{WEB}", "v1; x", COMMIT, ok)
 
 
+def test_staging_tag_accepts_only_run_and_attempt_numbers():
+    assert cd.check_staging_tag("build-123456-2") == "build-123456-2"
+    for bad in ["build-1", "build-1-2-3", "v1.2.3", "build-1-2\n", "build-x-1", "build-1-12345", "build-1-1; rm"]:
+        with pytest.raises(CdError):
+            cd.check_staging_tag(bad)
+
+
+def test_confirm_release_digest_requires_the_attested_digest():
+    present = lambda argv: Result(0, json.dumps({"digest": WEB}), "")
+    assert cd.confirm_release_digest(f"{cd.WEB_REPO}:{TAG}", WEB, present) == WEB
+    other = lambda argv: Result(0, json.dumps({"digest": WEB_OLD}), "")
+    with pytest.raises(CdError, match="unattested digest"):
+        cd.confirm_release_digest(f"{cd.WEB_REPO}:{TAG}", WEB, other)
+    absent = lambda argv: Result(1, "", "not found")
+    with pytest.raises(CdError, match="missing after the commit"):
+        cd.confirm_release_digest(f"{cd.WEB_REPO}:{TAG}", WEB, absent)
+    with pytest.raises(CdError):
+        cd.confirm_release_digest(f"{cd.WEB_REPO}:{TAG}", "sha256:xyz", present)
+
+
+def test_cli_staging_tag_and_confirm_release(tmp_path, monkeypatch):
+    assert cd.main(["validate-staging-tag", "--tag", "build-9-1"]) == 0
+    assert cd.main(["validate-staging-tag", "--tag", TAG]) == 1
+    monkeypatch.setattr(cd, "system_runner", lambda argv: Result(0, json.dumps({"digest": WEB}), ""))
+    assert cd.main(["confirm-release", "--ref", f"{cd.WEB_REPO}:{TAG}", "--digest", WEB]) == 0
+    assert cd.main(["confirm-release", "--ref", f"{cd.WEB_REPO}:{TAG}", "--digest", WEB_OLD]) == 1
+
+
 def test_release_state_reads_absent_draft_and_published():
     assert cd.release_state(TAG, lambda argv: Result(1, "", "release not found")) == "absent"
     assert cd.release_state(TAG, lambda argv: Result(0, "true\n", "")) == "draft"
@@ -601,6 +629,41 @@ def test_follow_times_out_as_failure_and_unknown_status_fails():
     assert not out.ok and "poll status 123-1" in out.message
     bogus = cd.follow_deploy("123-1", status_line("weird"), lambda: "", clock.now, clock.sleep)
     assert not bogus.ok and "unexpected" in bogus.message
+
+
+def test_follow_keeps_polling_a_launched_answer_until_completed():
+    clock = FakeClock()
+    answers = iter([status_line("running"), status_line("completed:success")])
+    out = cd.follow_deploy("123-1", status_line("launched"), lambda: next(answers), clock.now, clock.sleep)
+    assert out.ok and out.status == "completed:success"
+    assert clock.sleeps == [30.0, 30.0]
+
+
+def test_follow_budget_is_160_minutes_and_fits_the_180_minute_job():
+    assert cd.FOLLOW_TIMEOUT_S == 160 * 60
+    launch_budget_s = 2 * 60  # the host acknowledges --detach within 60 s; the ssh connection takes the rest
+    assert launch_budget_s + cd.FOLLOW_TIMEOUT_S < 180 * 60
+
+
+def test_deploy_follow_retries_ssh_255_and_refuses_other_status_failures(tmp_path, monkeypatch):
+    summary = tmp_path / "summary.md"
+    first = tmp_path / "first.json"
+    first.write_text(status_line("launched", run_id="55-2"), encoding="utf-8")
+    monkeypatch.setattr(cd.time, "sleep", lambda seconds: None)
+    answers = iter(
+        [Result(255, "", "connection reset"), Result(0, status_line("running", run_id="55-2"), ""), Result(0, status_line("completed:success", run_id="55-2"), "")]
+    )
+    monkeypatch.setattr(cd, "system_runner", lambda argv: next(answers))
+    args = ["deploy-follow", "--run-id", "55-2", "--first-output", str(first), "--host", "h", "--key", "k", "--known-hosts", "kh", "--summary", str(summary)]
+    assert cd.main(args) == 0
+    assert "status: `completed:success`" in summary.read_text(encoding="utf-8")
+
+    refused = iter([Result(2, "", "bad input")])
+    monkeypatch.setattr(cd, "system_runner", lambda argv: next(refused))
+    summary.write_text("", encoding="utf-8")
+    assert cd.main(args) == 1
+    text = summary.read_text(encoding="utf-8")
+    assert "status: `unknown`" in text and "refused by the host (exit 2)" in text
 
 
 def test_status_for_another_run_is_no_answer():

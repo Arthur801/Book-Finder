@@ -32,10 +32,16 @@ MAX_METADATA_BYTES = 64 * 1024
 MAX_SQL_BYTES = 4 * 1024 * 1024
 MAX_JSON_BYTES = 1024 * 1024
 MAX_SUMMARY_PLAN_BYTES = 64 * 1024
-# Matches the host's N3/N7 timing: the SSH side polls every 30 s and gives a missing started record a grace period.
+# Follow budget arithmetic (cd.yml deploy job, timeout-minutes: 180): the launch with --detach takes at most about 2 min
+# (the host acknowledges within 60 s, plus the ssh connection), then this follow may run 160 min, so 2 + 160 < 180.
+# The SSH side polls every 30 s; a missing started record gets a grace period before it is final.
 POLL_INTERVAL_S = 30.0
 NOT_STARTED_GRACE_S = 120.0
-FOLLOW_TIMEOUT_S = 150 * 60.0
+FOLLOW_TIMEOUT_S = 160 * 60.0
+# The host answers "launched" from --detach; that means the unit owns the run, so keep polling.
+LAUNCHED_STATUS = "launched"
+# ssh exits 255 when it cannot connect or the connection drops; any other failure of `status` is not transient.
+SSH_TRANSIENT_EXIT = 255
 TAG_RE = re.compile(r"v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?")
 COMMIT_RE = re.compile(r"[0-9a-f]{40}")
 DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}")
@@ -50,6 +56,8 @@ CONTAINER_ID_RE = re.compile(r"[0-9a-f]{12,64}")
 WEB_REF_RE = re.compile(re.escape(WEB_REPO) + r"@sha256:[0-9a-f]{64}")
 IMAGE_REF_RE = re.compile(rf"(?:{re.escape(WEB_REPO)}|{re.escape(CRAWLER_REPO)})@sha256:[0-9a-f]{{64}}")
 IMAGE_TAG_REF_RE = re.compile(rf"(?:{re.escape(WEB_REPO)}|{re.escape(CRAWLER_REPO)}):{TAG_RE.pattern}")
+# A build pushes here first; the release tag is created only after the staging digest is attested and verified.
+STAGING_TAG_RE = re.compile(r"build-[0-9]{1,20}-[0-9]{1,4}")
 RELEASE_KEYS = {"schema_version", "tag", "commit", "web_digest", "crawler_digest", "release_api", "migrations", "sql_assets"}
 PLAN_KEYS = {"revision", "runtime", "drift", "schema", "crawler", "compose_version", "target", "classification", "pending", "blocked"}
 TERMINAL_PREFIX = "completed:"
@@ -373,6 +381,26 @@ def verify_attestation(ref: str, tag: str, commit: str, runner: Runner) -> None:
         raise CdError(f"attestation verification failed for {ref.split('@', 1)[0]}; never rebuild over an existing tag")
 
 
+def check_staging_tag(value: object) -> str:
+    return check(STAGING_TAG_RE, value, "staging tag")
+
+
+def confirm_release_digest(ref: str, attested: str, runner: Runner) -> str:
+    """The commit check after `imagetools create`: the release tag must resolve to the digest that was attested.
+
+    A mismatch means the release tag now points at an unattested digest. This function cannot undo that; the message says so.
+    """
+    check(DIGEST_RE, attested, "attested digest")
+    state, digest = image_state(ref, runner)
+    if state != "present" or digest is None:
+        raise CdError("the release tag is missing after the commit")
+    if digest != attested:
+        raise CdError(
+            f"the release tag resolves to {digest}, not the attested {attested}; the tag is on an unattested digest and must be deleted by hand before any rerun"
+        )
+    return digest
+
+
 def release_state(tag: str, runner: Runner) -> str:
     check_tag(tag)
     result = runner(["gh", "release", "view", tag, "--json", "isDraft", "--jq", ".isDraft"])
@@ -673,7 +701,7 @@ def follow_deploy(
                 return Outcome(False, status, "indeterminate: manual resolve-run required; do not re-dispatch")
             if status == "not-started" and elapsed >= grace:
                 return Outcome(False, status, "not-started: nothing changed; safe to re-dispatch")
-            if status not in ("running", "not-started"):
+            if status not in ("running", "not-started", LAUNCHED_STATUS):
                 return Outcome(False, status, "unexpected status from the host")
         if elapsed >= timeout:
             return Outcome(False, status or "unknown", f"still not finished after {int(timeout // 60)} minutes; poll status {run_id} later")
@@ -785,6 +813,16 @@ def _cmd_verify_attestation(args: argparse.Namespace) -> None:
     print("attestation verified")
 
 
+def _cmd_validate_staging_tag(args: argparse.Namespace) -> None:
+    check_staging_tag(args.tag)
+    print("staging tag is valid")
+
+
+def _cmd_confirm_release(args: argparse.Namespace) -> None:
+    digest = confirm_release_digest(args.ref, args.digest, system_runner)
+    print(f"release tag resolves to the attested digest {digest}")
+
+
 def _cmd_plan_outputs(args: argparse.Namespace) -> None:
     plan_path = Path(args.plan_file)
     # The whole file is parsed (capped at 1 MiB); only the summary copy is truncated.
@@ -829,9 +867,18 @@ def _cmd_deploy_follow(args: argparse.Namespace) -> None:
     def poll() -> str:
         argv = status_ssh_argv(args.host, args.key, args.known_hosts, args.run_id)
         result = system_runner(argv)
-        return result.stdout if result.returncode == 0 else ""
+        if result.returncode == 0:
+            return result.stdout
+        if result.returncode == SSH_TRANSIENT_EXIT:
+            return ""  # no answer this time; the next poll decides
+        # Any other failure means the host refused the status call, which is not a transient network problem.
+        raise CdError(f"status refused by the host (exit {result.returncode}); poll status {args.run_id} by hand")
 
-    outcome = follow_deploy(args.run_id, first, poll, time.monotonic, time.sleep)
+    try:
+        outcome = follow_deploy(args.run_id, first, poll, time.monotonic, time.sleep)
+    except CdError as exc:
+        append_text(args.summary, f"## Deploy result\n\n- run: `{args.run_id}`\n- status: `unknown`\n- {exc}\n")
+        raise
     append_text(args.summary, f"## Deploy result\n\n- run: `{args.run_id}`\n- status: `{outcome.status}`\n- {outcome.message}\n")
     if not outcome.ok:
         raise CdError(outcome.message)
@@ -891,6 +938,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--tag", required=True)
     p.add_argument("--commit", required=True)
     p.set_defaults(func=_cmd_verify_attestation)
+
+    p = sub.add_parser("validate-staging-tag")
+    p.add_argument("--tag", required=True)
+    p.set_defaults(func=_cmd_validate_staging_tag)
+
+    p = sub.add_parser("confirm-release")
+    p.add_argument("--ref", required=True)
+    p.add_argument("--digest", required=True)
+    p.set_defaults(func=_cmd_confirm_release)
 
     p = sub.add_parser("plan-outputs")
     p.add_argument("--plan-file", required=True)

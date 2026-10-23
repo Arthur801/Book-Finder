@@ -44,6 +44,8 @@ SUDO_EMPTY_COMMAND_MESSAGE = (
 # accepts that only after 30 s, because the unit may still be starting or may have exited before writing started.
 FOLLOW_INTERVAL_S = 2.0
 NOT_STARTED_GRACE_S = 30.0
+# --detach waits this long for the run to be acknowledged (started, terminal, or not-started); then it returns "launched".
+DETACH_ACK_TIMEOUT_S = 60.0
 # The db-maintenance lock is held through a migration, which may include a long snapshot and a slow efbundle.
 MAINTENANCE_TIMEOUT_S = 45 * 60.0
 
@@ -89,6 +91,8 @@ class DeployCommand:
     expect_schema: str
     chain: str
     cutover: bool
+    # Only the SSH side reads this; it is never rendered into the unit's tokens, so the unit's argv is the same either way.
+    detach: bool = False
 
 
 Command = PlanCommand | StatusCommand | DeployCommand
@@ -147,14 +151,18 @@ def _parse_deploy(args: list[str]) -> DeployCommand:
     crawler_digest = _require(DIGEST_RE, args[2], "crawler digest")
     values: dict[str, str] = {}
     cutover = False
+    detach = False
     rest = args[3:]
     index = 0
     while index < len(rest):
         token = rest[index]
-        if token == "--cutover":
-            if cutover:
-                raise UsageError("duplicate --cutover")
-            cutover = True
+        if token in ("--cutover", "--detach"):
+            if (token == "--cutover" and cutover) or (token == "--detach" and detach):
+                raise UsageError(f"duplicate {token}")
+            if token == "--cutover":
+                cutover = True
+            else:
+                detach = True
             index += 1
             continue
         if token not in DEPLOY_VALUE_FLAGS:
@@ -183,6 +191,7 @@ def _parse_deploy(args: list[str]) -> DeployCommand:
         expect_schema=_require(DIGEST_RE, values["--expect-schema"], "expected schema digest"),
         chain=values["--chain"],
         cutover=cutover,
+        detach=detach,
     )
 
 
@@ -556,7 +565,35 @@ def run_deploy_ssh(command: DeployCommand, deps: Deps, out: TextIO, err: TextIO)
     if launched.returncode != 0:
         err.write(f"systemd-run failed: {launched.stderr.strip()[:300]}\n")
         return DRIFT
+    if command.detach:
+        return _acknowledge(command, deps, out, err, launched_at=deps.clock.monotonic())
     return _follow(command, deps, out, err, launched_at=deps.clock.monotonic())
+
+
+def _acknowledge(command: DeployCommand, deps: Deps, out: TextIO, err: TextIO, launched_at: float) -> int:
+    """--detach: waits only until the unit has taken ownership of the run, then returns (CD polls status from here on).
+
+    A terminal status is reported as usual. A started record means the unit owns the run, so the answer is "launched".
+    No started record and no unit after the grace period is not-started. If neither happens within DETACH_ACK_TIMEOUT_S,
+    the unit is still alive, so the answer is "launched" as well: the outcome is still decided by history, not by this call.
+    """
+    run_id = command.run_id
+    while True:
+        status = runs.status_text(deps.settings, deps.runner, run_id)
+        if status.startswith("completed:"):
+            code = runs.completed_exit_code(deps.settings, run_id)
+            return _report_final(out, run_id, status, INDETERMINATE if code is None else code)
+        if status == "indeterminate":
+            return _report_final(out, run_id, status, INDETERMINATE)
+        if runs.started_recorded(deps.settings, run_id):
+            return _report_final(out, run_id, "launched", OK)
+        elapsed = deps.clock.monotonic() - launched_at
+        if status == "not-started" and elapsed >= NOT_STARTED_GRACE_S:
+            return _report_final(out, run_id, status, DRIFT)
+        if elapsed >= DETACH_ACK_TIMEOUT_S:
+            err.write(f"not acknowledged within {int(DETACH_ACK_TIMEOUT_S)} s; poll status {run_id}\n")
+            return _report_final(out, run_id, "launched", OK)
+        deps.clock.sleep(FOLLOW_INTERVAL_S)
 
 
 def _follow(command: DeployCommand, deps: Deps, out: TextIO, err: TextIO, launched_at: float) -> int:

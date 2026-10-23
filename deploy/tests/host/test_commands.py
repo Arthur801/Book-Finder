@@ -72,6 +72,24 @@ def test_deploy_flags_may_come_in_any_order_without_cutover():
     assert deploy.expect_runtime == "systemd" and deploy.cutover is False
 
 
+def test_detach_is_an_optional_flag_validated_like_the_others():
+    base = f"deploy {TAG1} {DIGEST_OK} {CRAWLER} --run-id 1-1 --expect-revision 1 --expect-runtime systemd --expect-schema sha256:{'e' * 64} --chain in-sync"
+    assert cmd.parse_command(base).detach is False
+    assert cmd.parse_command(base + " --detach").detach is True
+    assert cmd.parse_command(base + " --detach --cutover").cutover is True
+    with pytest.raises(cmd.UsageError, match="duplicate --detach"):
+        cmd.parse_command(base + " --detach --detach")
+    with pytest.raises(cmd.UsageError):
+        cmd.parse_command(base + " --detach=1")
+    with pytest.raises(cmd.UsageError):
+        cmd.parse_command(base + " --detach 1")
+
+
+def test_detach_does_not_change_the_unit_tokens():
+    base = f"deploy {TAG1} {DIGEST_OK} {CRAWLER} --run-id 1-1 --expect-revision 1 --expect-runtime systemd --expect-schema sha256:{'e' * 64} --chain in-sync"
+    assert cmd.render_deploy_tokens(cmd.parse_command(base + " --detach")) == cmd.render_deploy_tokens(cmd.parse_command(base))
+
+
 @pytest.mark.parametrize(
     "text",
     [

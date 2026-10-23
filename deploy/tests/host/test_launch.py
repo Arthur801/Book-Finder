@@ -185,6 +185,100 @@ def test_follow_gives_up_after_the_timeout_and_the_unit_keeps_running(tmp_path):
     assert world.history().entries == []  # the SSH side wrote nothing; the unit owns the outcome
 
 
+class StartedLauncher(RecordingLauncher):
+    """Starts the unit without running its body: it writes the started record and the unit stays active."""
+
+    def __call__(self, argv):
+        self.calls.append(list(argv))
+        hi.append(self.world.settings.history_file, hi.started_record(run_id=DEPLOY_RUN_ID, unit=UNIT, at="t0", target={}, expected_revision=1))
+        self.world.host.unit_states[UNIT] = "active"
+        return CommandResult(0, "", "")
+
+
+def _detach_world(tmp_path):
+    world = in_sync(tmp_path)
+    world.deps = replace(world.deps, clock=FakeClock())
+    return world
+
+
+def test_detach_returns_the_result_of_a_run_that_already_finished(tmp_path):
+    world = _detach_world(tmp_path)
+    assert world.run(deploy_text(world) + " --detach") == OK
+    assert world.stdout_json() == {"run_id": DEPLOY_RUN_ID, "status": "completed:success", "exit_code": OK}
+    assert world.deps.clock.monotonic() == 0
+
+
+def test_detach_terminal_failure_keeps_its_exit_code(tmp_path):
+    world = _detach_world(tmp_path)
+    world.fx.http.script[cmd.machine.LOCAL_URL] = [503]
+    assert world.run(deploy_text(world) + " --detach") == DRIFT
+    assert world.stdout_json() == {"run_id": DEPLOY_RUN_ID, "status": "completed:drift", "exit_code": DRIFT}
+
+
+def test_detach_reports_launched_as_soon_as_the_unit_has_written_started(tmp_path):
+    world = _detach_world(tmp_path)
+    world.host.on_systemd_run = StartedLauncher(world)
+    assert world.run(deploy_text(world) + " --detach") == OK
+    assert world.stdout_json() == {"run_id": DEPLOY_RUN_ID, "status": "launched", "exit_code": OK}
+    assert world.deps.clock.monotonic() == 0
+
+
+def test_detach_waits_for_started_and_polls_every_two_seconds(tmp_path):
+    world = _detach_world(tmp_path)
+    world.host.on_systemd_run = RecordingLauncher(world, mark_active=True)
+
+    class StartsLater(FakeClock):
+        """Records every sleep and writes the started record after the second one."""
+
+        def __init__(self):
+            super().__init__()
+            self.sleeps: list[float] = []
+
+        def sleep(self, seconds):
+            super().sleep(seconds)
+            self.sleeps.append(seconds)
+            if len(self.sleeps) == 2:
+                hi.append(world.settings.history_file, hi.started_record(run_id=DEPLOY_RUN_ID, unit=UNIT, at="t0", target={}, expected_revision=1))
+
+    world.deps = replace(world.deps, clock=StartsLater())
+    assert world.run(deploy_text(world) + " --detach") == OK
+    assert world.stdout_json()["status"] == "launched"
+    assert world.deps.clock.sleeps == [cmd.FOLLOW_INTERVAL_S, cmd.FOLLOW_INTERVAL_S]
+
+
+def test_detach_is_bounded_to_sixty_seconds_when_the_unit_never_acknowledges(tmp_path):
+    world = _detach_world(tmp_path)
+    world.host.on_systemd_run = RecordingLauncher(world, mark_active=True)
+    assert world.run(deploy_text(world) + " --detach") == OK
+    assert world.stdout_json() == {"run_id": DEPLOY_RUN_ID, "status": "launched", "exit_code": OK}
+    assert cmd.DETACH_ACK_TIMEOUT_S == 60.0
+    assert 60.0 <= world.deps.clock.monotonic() < 60.0 + cmd.FOLLOW_INTERVAL_S
+    assert "not acknowledged within 60 s; poll status 5555-1" in world.err.getvalue()
+    assert world.history().entries == []
+
+
+def test_detach_unit_gone_without_started_is_not_started_after_the_grace_period(tmp_path):
+    world = _detach_world(tmp_path)
+    world.host.on_systemd_run = RecordingLauncher(world)  # launches nothing: the unit is missing
+    assert world.run(deploy_text(world) + " --detach") == DRIFT
+    assert world.stdout_json() == {"run_id": DEPLOY_RUN_ID, "status": "not-started", "exit_code": DRIFT}
+    assert world.deps.clock.monotonic() == cmd.NOT_STARTED_GRACE_S
+
+
+def test_detach_started_and_then_gone_is_indeterminate(tmp_path):
+    world = _detach_world(tmp_path)
+
+    class StartedThenGone(StartedLauncher):
+        def __call__(self, argv):
+            result = super().__call__(argv)
+            self.world.host.unit_states.pop(UNIT)  # the unit disappears without a completed record
+            return result
+
+    world.host.on_systemd_run = StartedThenGone(world)
+    assert world.run(deploy_text(world) + " --detach") == INDETERMINATE
+    assert world.stdout_json() == {"run_id": DEPLOY_RUN_ID, "status": "indeterminate", "exit_code": INDETERMINATE}
+
+
 def test_systemd_run_failure_is_drift_and_writes_nothing(tmp_path):
     world = in_sync(tmp_path)
     world.host.on_systemd_run = RecordingLauncher(world, returncode=1)
