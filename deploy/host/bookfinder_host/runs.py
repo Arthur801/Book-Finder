@@ -101,6 +101,15 @@ def status_text(settings: Settings, runner: Runner, run_id: str) -> str:
     return hi.status(records, run_id, state)
 
 
+def started_recorded(settings: Settings, run_id: str) -> bool:
+    """True once the unit has written its started record for this run id (N7 ②-③ depend on it)."""
+    try:
+        records = hi.read(settings.history_file)
+    except hi.HistoryCorrupt:
+        return False
+    return any(entry.get("run_id") == run_id and entry.get("phase") == "started" for entry in records.entries)
+
+
 def completed_exit_code(settings: Settings, run_id: str) -> int | None:
     records = hi.read(settings.history_file)
     for entry in records.entries:
