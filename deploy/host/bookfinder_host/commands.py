@@ -421,7 +421,7 @@ def _plan_locked(command: PlanCommand, deps: Deps, out: TextIO, err: TextIO) -> 
             "dirty_release": state.schema.dirty_release,
             "rebuild": {"tag": state.schema.rebuild.tag, "web_digest": state.schema.rebuild.web_digest},
         },
-        "crawler": {"paused": st.pause_to_json(state.crawler.paused)},
+        "crawler": {"paused": st.pause_to_json(state.crawler.paused), "digest": state.crawler.digest},
         "compose_version": compose_version,
         "target": {"tag": command.tag, "web_digest": command.web_digest, "release_api": target.release_api},
         "classification": classification,

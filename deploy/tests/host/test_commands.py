@@ -138,6 +138,9 @@ def test_plan_in_sync_is_deployable_and_prints_one_json_object(tmp_path):
     assert report["revision"] == 1
     assert report["target"] == {"tag": TAG1, "web_digest": DIGEST_OK, "release_api": 1}
     assert set(report) >= {"revision", "runtime", "drift", "schema", "crawler", "target", "classification", "pending"}
+    # CD reads the crawler digest for schema-ahead deploys (S7), so the plan must expose the state value.
+    assert report["crawler"]["digest"] == sample_state(applied=applied((ID1, H1), (ID2, H2))).crawler.digest
+    assert set(report["crawler"]) == {"paused", "digest"}
 
 
 def test_plan_forward_lists_pending_ids(tmp_path):
