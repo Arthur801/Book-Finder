@@ -4,10 +4,10 @@ using Book_Finder.Application.Library;
 using Book_Finder.Application.Recommendation;
 using Book_Finder.Infrastructure.BackgroundJobs;
 using Book_Finder.Infrastructure.Caching;
+using Book_Finder.Infrastructure.Hosting;
 using Book_Finder.Infrastructure.Identity;
 using Book_Finder.Infrastructure.OpenAi;
 using Book_Finder.Infrastructure.Persistence;
-using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Pgvector.EntityFrameworkCore;
@@ -17,6 +17,8 @@ var builder = WebApplication.CreateBuilder(args);
 // Add services to the container.
 builder.Services.AddControllersWithViews();
 builder.Services.AddBookFinderAuth(builder.Configuration);
+// Keys are persisted only when DataProtection:KeysPath is set (container deployment; deployment.md §3).
+builder.Services.AddBookFinderDataProtection(builder.Configuration);
 
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
     ?? throw new InvalidOperationException("缺少 ConnectionStrings:DefaultConnection 資料庫連線設定");
@@ -66,11 +68,9 @@ builder.Services.AddBookProfiles(builder.Configuration);
 
 var app = builder.Build();
 
-// nginx runs on the same host; retain the framework's trusted loopback proxies.
-app.UseForwardedHeaders(new ForwardedHeadersOptions
-{
-    ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
-});
+// nginx forwards requests from loopback (systemd) or the Docker network (container). Loopback stays trusted;
+// ForwardedHeaders:KnownNetworks adds the container network.
+app.UseForwardedHeaders(HostingSetup.CreateForwardedHeadersOptions(app.Configuration));
 
 // Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())
