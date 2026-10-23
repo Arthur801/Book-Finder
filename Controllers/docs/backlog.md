@@ -11,7 +11,7 @@
 - [ ] **P1／確認缺口／L3**。影響 `RecommendationsController` 的回應行為，但主要實作應在 Application / Catalog adapters。
 - 證據：`Application/Recommendation/RecommendationService.cs` 檢索後直接排序／保存；`Models/RecommendationResponse.cs` 固定 `FallbackUsed:false`，註解指出待 #14 接入。
 - 規格：[recommendation.md §6](../../Docs/modules/recommendation.md)、[book-catalog.md §6](../../Docs/modules/book-catalog.md)、REC-03。
-- 待辦：先完成 normalization、ISBN identity resolution 與保存，再接 Candidate `< 5` 分支；補 embedding 並重跑相同硬條件與 similarity 檢索。Controller 保持驗證／HTTP 映射責任，不能直接推薦 Google response 中的書。
+- 待辦：Recommendation 擁有 Candidate `< 5` 的 fallback 決策與 orchestration；透過 port 呼叫 Catalog-owned ingestion capability。Google Books normalization、cross-source identity resolution 與 Book persistence 規則由 Catalog 擁有；Infrastructure 實現 external API／EF adapter mechanics。Catalog 完成後，Recommendation 補 embedding、重跑相同硬條件與 similarity 檢索。Controller 保持驗證／HTTP 映射責任，不能直接推薦 raw Google response。
 - 驗收：本地候選 5 本時 Google fake 0 次；4 本時會呼叫；fallback 失敗使用既有候選；未過門檻不成候選；正確回傳與保存 fallback 狀態；仍遵守 60 秒 budget 與成功才保存。
 - 測試入口：`RecommendationServiceTests`、`RecommendationApiTests`，以及未來 normalization 的 DB 整合測試；案例 `AI-F01`～`AI-F03`。
 
@@ -59,7 +59,7 @@
 - [ ] **P2／待驗證／L3**。
 - 操作：使用 fake clock / cancellable adapter 在 parse、embedding、檢索、排序、保存時取消；另在已保存後的 difficulty／排隊階段注入例外或 request cancellation。
 - 現有保護：service 在每日 gate 後才啟動 60 秒 budget；保存後讀 difficulty／排隊改用 caller token；API filter 遇到已取消 request 不轉 500。
-- 驗收：伺服器 budget 到期回 504 且未保存；使用者斷線不算 AI timeout；保存後一般 profile 失敗只 Warning，不把已成功搜尋改成 502／504。先證明 transaction 邊界，不根據 HTTP response 猜測 DB 狀態。
+- 驗收：保存前核心步驟 budget 到期回 504 且不進保存；store 交易失敗無半成品。使用者斷線不算 AI timeout；保存後一般 profile 失敗只 Warning，caller cancellation 可傳遞但已存 Search／Results 保留。commit 與取消交界須獨立查 DB/outcome，不預先宣稱所有 timeout 一定未 commit。
 - 測試入口：`RecommendationServiceTests`、`RecommendationApiTests`、`ApiExceptionProblemDetailsFilterTests`、`BookDifficultyReaderTests`。
 - 案例：`AI-10`、`AI-11`、`DBG-03`。
 

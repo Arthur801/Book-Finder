@@ -1,13 +1,15 @@
 # Crawler Git 修改歷史
 
-> 查核 2026-10-24；HEAD `91333c334148fa5bfe07055d0e799dc13bb0bb4e`。依當前工作樹靜態閱讀；本次未執行 build、測試、部署、外部服務或真實抓取。
+查核基準 `91333c3` 的 source history 如下；`crawler/docs` 明確排除，不將 PR #100 新增或後續修正的文件 commits 計入 source history。
+
+> 查核 2026-10-24；HEAD `91333c334148fa5bfe07055d0e799dc13bb0bb4e`。依基準版本靜態閱讀；本次未執行 build、測試、部署、外部服務或真實抓取。
 
 ## 範圍與方法
 
-涵蓋目前可達 HEAD 的全量 crawler 非 merge commit，2026-10-11～2026-10-23；排除 crawler/docs。日期為 author date，作者為 author，非 committer 或部署日期。merge 省略避免重複，不宣稱檢視所有父線 merge diff。初始有其他 agent 的 Controllers/docs 未追蹤文件；沒有把它當 crawler 修改。
+涵蓋基準 `91333c3` 可達的全量 crawler 非 merge commit，2026-10-11～2026-10-23；排除 crawler/docs。日期為 author date，作者為 author，非 committer 或部署日期。merge 省略避免重複，不宣稱檢視所有父線 merge diff。
 
 ```bash
-git log --no-merges --reverse --date=short --format="%h|%ad|%an|%s" -- crawler ":!crawler/docs"
+git log --no-merges --reverse --date=short --format="%h|%ad|%an|%s" 91333c3 -- crawler ":!crawler/docs"
 git show --format= --name-status SHA -- crawler ":!crawler/docs"
 git show 1d18c25 -- crawler/books_crawler/db.py
 git show 0eacb56 -- crawler/books_crawler/run.py

@@ -1,10 +1,12 @@
 # Models Git 修改歷史
 
-> 查核日期：2026-10-24；基準：`91333c3`；目標：`Models/`。本次只做靜態閱讀，未執行 build、測試、Mermaid renderer、資料庫或外部服務。開始時來源無未提交修改；其他代理既有的 `Controllers/docs/` 不屬本文件範圍。
+查核基準 `91333c3` 的 source history 如下；`Models/docs` 明確排除，不將 PR #100 新增或後續修正的文件 commits 計入 source history。
+
+> 查核日期：2026-10-24；基準：`91333c3`；目標：`Models/`。本次只做靜態閱讀，未執行 build、測試、Mermaid renderer、資料庫或外部服務。
 
 ## 範圍與重跑方式
 
-來源為 `Models` 全部已追蹤歷史（包含之後搬走或刪除的 helper），排除 `Models/docs`。倉庫不是 shallow；採 `git log --reverse` 的反向提交遍歷順序，不宣稱按 author timestamp 排序。日期欄使用 author date（建立提交時設定的時間），附 committer date（本地 Git 接受該提交時間）以免混為部署日期；作者不等於部署者。查核HEAD `91333c3`，未提交文件尚無Git歷史。
+來源為 `Models` 全部已追蹤歷史（包含之後搬走或刪除的 helper），排除 `Models/docs`。倉庫不是 shallow；採 `git log --reverse` 的反向提交遍歷順序，不宣稱按 author timestamp 排序。日期欄使用 author date（建立提交時設定的時間），附 committer date（本地 Git 接受該提交時間）以免混為部署日期；作者不等於部署者。查核基準為 `91333c3`。
 
 ```bash
 git log --reverse --date=iso-strict --format='%h|%H|%ad|%cd|%an|%s' 91333c3 -- Models ':(exclude)Models/docs'

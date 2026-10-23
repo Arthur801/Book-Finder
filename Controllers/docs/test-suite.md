@@ -25,13 +25,15 @@
 |---|---|---|
 | PIPE-01／已有測試 | 無 cookie；GET 需登入頁，帶 page 或 status query | 302 登入；returnUrl 解碼後等於原 path/query；不是 API 401。 |
 | PIPE-02／已有測試 | 無 cookie；POST 需登入頁（如登出） | 302 `/account/login`，沒有 returnUrl；不把 POST-only 路由拿去 GET。 |
-| PIPE-03／已有測試 | 無 cookie；呼叫受保護 API | 401 `/errors/unauthenticated`，沒有登入 redirect；無 DB 寫入及外部 fake calls。 |
+| PIPE-03／待補強（HTTP 已有測試，本次未執行） | 無 cookie；呼叫受保護 API | 401 `/errors/unauthenticated`、無登入 redirect 的 HTTP 斷言已有來源；完整 production endpoint 矩陣的 DB 不變／依賴未呼叫需逐項補證，不能由 test-only status 推論。 |
 | PIPE-04／已有測試 | 有效 cookie、僅 Bearer header、錯簽章、破損 token 各自請求 | 僅有效 cookie 驗證成功；其餘視為匿名；Bearer header 不能代替 cookie。 |
 | PIPE-05／已有測試 | fake clock 在簽發後一天前一秒及剛好一天，讀 protected page / API | 前者有效；到一天立即過期，頁面 302／API 401；無 ClockSkew 寬限。 |
-| PIPE-06／已有測試 | 已登入 API 缺 CSRF header 或使用另一 session 的 token | 400 `/errors/antiforgery`，不進 service、不修改資料。 |
+| PIPE-06／待補強（HTTP 已有測試，本次未執行） | 已登入 API 缺 CSRF header 或使用另一 session 的 token | 400 `/errors/antiforgery` 已有來源；推薦缺 header 的外部 calls、Library 缺 header 的資料不變另有案例。跨 session／所有 production endpoints 的 service call 與副作用矩陣仍待補強。 |
 | PIPE-07／已有測試 | 表單 POST 缺 token；再以同 session 合法 token 重試 | 缺少時框架 400；合法時才進 action。不要要求頁面錯誤一定是 problem+json。 |
 | PIPE-08／已有測試 | API action 拋 AiUnavailableException／AiTimeoutException／一般例外 | 分別為 502 `ai-unavailable`、504 `ai-timeout`、500 `internal`；無 stack trace／secret。 |
 | PIPE-09／已有測試 | RequestAborted 已取消，在 API exception filter 測試中傳入例外 | filter 不吞取消、不建立 500 result；不是 AI timeout 的替代情境。 |
+
+PIPE-03／PIPE-06 證據分層（均未在本次執行）：[AuthPipelineTests](../../tests/WebIntegration/AuthPipelineTests.cs) 主要驗證 test-only endpoint 的 HTTP status／ProblemDetails。production [RecommendationApiTests](../../tests/WebIntegration/RecommendationApiTests.cs) 的 `Not_signed_in_returns_401_and_calls_no_external_service`、`Signed_in_request_without_antiforgery_header_returns_400_and_calls_no_external_service` 斷言 parser／embedding／ranker Calls 為零，未直接斷言 Search DB rows 或 spy service 入口。[LibraryApiTests](../../tests/WebIntegration/LibraryApiTests.cs) 的 `Not_signed_in_returns_401_and_saves_nothing`、`Signed_in_add_without_antiforgery_header_returns_400_and_saves_nothing` 斷言 Entry count 為零；`Patch_and_delete_without_antiforgery_header_return_400_and_change_nothing` 讀回既有 Entry rating 未變。這些局部斷言不等於所有資料／依賴皆無副作用。
 
 ## 3. HomeController 與 BestsellersController
 
@@ -91,8 +93,10 @@
 | AUTH-06／已有測試 | 登入或註冊驗證失敗，附 returnUrl／pendingAction | 重顯欄位錯誤並保留 email／回跳資訊；HTML 不含原密碼。 |
 | AUTH-07／已有測試 | 正確登入／註冊，待辦是 add-to-library，returnUrl 精確 `/books/{D GUID}` | cookie + 302 原 Book；Entry 為 WANT_TO_READ、rating null；原有 Entry 不變。 |
 | AUTH-08／已有測試 | 未知 action、非 Book path、query／fragment／尾斜線／非標準 GUID 變體 | 登入照常成功；不執行待辦；仍按安全 returnUrl 規則導向。精確 path 變體主要由 pure unit cases 驗證。 |
-| AUTH-09／已有測試 | 待辦 Book 不存在或 Library store 拋一般例外 | 仍發 cookie 與 redirect；失敗 Warning；無 email／password／JWT 洩漏。request cancellation 另走取消語意。 |
+| AUTH-09／待補強（登入結果已有測試，本次未執行） | 待辦 Book 不存在或 Library store 拋一般例外 | 仍發 cookie 與 redirect 已有 Web 案例；一般失敗不拋出、caller cancellation 傳遞有 unit 來源。Warning 與 log 不含 email／password／JWT 的完整斷言待建，不能以登入成功視為已驗證。 |
 | AUTH-F01／暫緩 | 同 IP 登入／註冊第 6 次；不同 IP／window | 目標為每 IP 每分鐘 5 次後 429；共用額度／成功計數須先決策，現階段不得宣稱已通過。見 CTL-02。 |
+
+AUTH-03 的 cookie 屬性與 max-age 證據為 [AuthCookieTests](../../tests/UnitTests/AuthCookieTests.cs)；登入／後續 protected request 另查 [AccountPagesTests](../../tests/WebIntegration/AccountPagesTests.cs) 與 AuthPipelineTests。AUTH-09 的 [PendingLibraryActionTests](../../tests/WebIntegration/PendingLibraryActionTests.cs) 驗證 Book 不存在／store 拋例外仍有 Set-Cookie 與 redirect；[LibraryServiceTests](../../tests/UnitTests/LibraryServiceTests.cs) 使用 NullLogger，未驗 Warning／敏感內容。後續須用 recording logger 補 Warning level 與敏感資料排除斷言。
 
 ## 7. LibraryController 與 LibraryApiController
 
@@ -130,9 +134,9 @@
 | AI-06／已有測試 | ranker 回非候選、重複、空理由、超過 10 筆、超範圍 relevance | 非候選／空理由丟棄；重複保留第一次有效；最多 10，rank 重新編 1..n；relevance 依 RankingRules 正規化。不得用 Bestseller rank 或 profile 排序。 |
 | AI-07／已有測試 | 本地候選 0；目前尚無 fallback | 不呼叫 ranker；200 空 results，仍保存成功搜尋並計入當日。未來接 fallback 後改為 fallback 重檢仍為 0 的情境。 |
 | AI-08／已有測試 | parser／embedding／ranker 各注入 AI unavailable | 502 `/errors/ai-unavailable`；不執行後續步驟，不保存 Search／Results。 |
-| AI-09／已有測試 | 非 AI adapter 的依賴拋一般例外 | 500 `/errors/internal`，沒有 stack trace；未成功搜尋不保存。 |
-| AI-10／已有測試 | fake 工作尚未完成，推進 60 秒 | 504 `/errors/ai-timeout`；無 Search／Results，不計額度；不是只測 parser 自訂逾時訊息。 |
-| AI-11／待補強 | client cancellation 與 60 秒 timeout 分別觸發，覆蓋保存／保存後邊界 | 依 CTL-07：取消不偽裝成 AI timeout；已保存後一般 difficulty／queue 失敗不推翻成功。要查 DB，不只看 response。 |
+| AI-09／已有測試 | 保存前核心依賴拋一般例外 | 500 `/errors/internal`，沒有 stack trace；保存前失敗不存 Search。post-save 一般 enrichment 失敗降級，caller 取消則屬 AI-11，不由此案例推定資料未保存。 |
+| AI-10／已有測試 | 保存前 parser／ranker fake 工作尚未完成，推進 60 秒 | 504 `/errors/ai-timeout`；無 Search／Results，不計額度；不是只測 parser 自訂逾時訊息。 |
+| AI-11／待補強 | client cancellation 與 60 秒 timeout 分別觸發，覆蓋保存／保存後邊界 | 依 CTL-07：取消不偽裝成 AI timeout；已保存後一般 difficulty／queue 失敗降級，caller cancellation 可傳遞但已存 Search／Results 保留。commit 交界需查 DB/outcome，維持待補強，不只看 response。 |
 | AI-12／已有測試 | A 今日已有 20 次成功搜尋，另有昨日搜尋與 B 今日搜尋 | A 下一次 429 `daily-limit-exceeded`，所有外部 fake 不呼叫；昨日與 B 不計入 A 今日。 |
 | AI-13／已有測試 | clock 從 Taipei 23:59:59 推到 00:00 | 新一天額度重設；failed search 不計數，0 結果成功搜尋仍計數。 |
 | AI-14／已有測試 | 無 profile，但 generator 立即回覆；推薦一次再等 worker 完成後再推薦 | 首次 difficulty 為 null（先讀快照再排隊）；後次可見儲存的 difficulty；profile 不改書籍簡介／目錄。 |

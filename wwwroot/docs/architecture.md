@@ -30,7 +30,7 @@
 
 ## 安全、內容與錯誤
 
-同源 fetch 搭 cookie credentials；非 GET 帶 RequestVerificationToken。Library 缺 token 時送空值讓 server 拒絕，AI 假設 DOM token 存在，讀 token 在 promise 前，缺少將同步 throw；現有 Razor 已輸出，不宣稱正常頁已故障。
+同源 fetch 搭 cookie credentials；非 GET 帶 RequestVerificationToken。Library 以 document.querySelector 取整個 document 第一個 matching antiforgery input；Library 區域與 Layout logout form 可各有 token，只有找不到任何 matching input 才送空值讓 server 拒絕，AI 假設 DOM token 存在，讀 token 在 promise 前，缺少將同步 throw；現有 Razor 已輸出，不宣稱正常頁已故障。
 
 結果 textContent 不解讀 title／reason HTML，Book ID 編碼路徑；thumbnail 僅 http(s)。history outerHTML 僅接受同源 server partial，id 字串檢查不是 sanitizer。簡介／目錄不在 API／DOM contract，AI reason 也不能大段引用；來源正規化與是否引用由 server 負責。sessionStorage 只放需求，不放 JWT、secret。
 

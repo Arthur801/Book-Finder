@@ -4,7 +4,7 @@
 
 ## 責任與 contract
 
-Domain/Entities 有 12 個資料類別、5 個 enum，全部公開可變 setter；無 navigation、行為方法、event 或專屬 csproj，由根 [專案](../../Book-Finder.csproj) 編譯。Application 決定規則；Infrastructure 管理 EF mapping、查詢投影及交易。
+Domain/Entities 有 12 個資料類別、5 個 enum，全部公開可變 setter；無 navigation、行為方法、event 或專屬 csproj，由根 [專案](../../Book-Finder.csproj) 編譯。依 [system architecture §4.1](../../Docs/architecture/system-architecture.md)，Domain 在架構上擁有核心 business rules／invariants；Application 負責 use case orchestration、application-level policy／validation 與 atomic boundary，Infrastructure 負責 EF mapping、查詢投影及 transaction mechanics。目前 Domain 偏 anemic model，規則的實際 enforcement 分散於 Application helpers 與 DB constraints；這個實作現況不代表規則 ownership 移交 Application。
 
 | 型別 | 輸入／表示 | 映射與 consumer |
 |---|---|---|
@@ -48,6 +48,6 @@ Book.Description、TableOfContents 與 User.PasswordHash 是公開 property，�
 
 ## 差距與限制
 
-資料模型 ERD 的 User optional 與 §5.11 非匿名／Guid UserId／NOT NULL 不一致（DOM-B01）。Google Books fallback 規格存在，現況 store flag 固定 false（DOM-B02）。日期與 precision 成對政策未由 DB 保證，須先決策（DOM-B03）。未找到本次動態重現 bug；未驗證 live schema、部署或外部 AI。
+資料模型 ERD 的 User optional 與 §5.11 非匿名／Guid UserId／NOT NULL 不一致（DOM-B01）。Google Books fallback 的跨層依賴尚未接入，現況 store flag 固定 false（DOM-B02）；此項不是 Domain entity 的 P1 implementation defect。日期與 precision 成對政策未由 DB 保證，須先決策（DOM-B03）。未找到本次動態重現 bug；未驗證 live schema、部署或外部 AI。
 
 互參：[流程](workflow-diagram.md)、[待辦](backlog.md)、[歷史](update-history.md)、[案例](test-suite.md)。

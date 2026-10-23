@@ -103,7 +103,7 @@ flowchart TD
     B -->|否；匿名| C[加入書單 login link；pendingAction]
     B -->|是；已登入| D[渲染 add 與 controls；以 hidden 切換]
     E[Library 頁面] --> F[篩選 tabs；每列 controls；空狀態預先渲染]
-    D --> G[頁面一次 token；controls 不產 token]
+    D --> G[Library interaction area 共用 request token；controls 不逐列產 token]
     F --> G
     G --> H{使用者動作}
     H -->|add| I[PUT；200 顯示 server entry]
@@ -120,6 +120,6 @@ flowchart TD
     K -->|204 Library 頁| R[移除列；最後一列後顯示空狀態]
 ```
 
-狀態與星星 labels 在 server partial，JS 只送請求與切狀態。PATCH rating 省略保留、null 清空由 API/parser 保證；錯誤回復使用 WeakMap 保存最近確認值。Library filter 不會因 PATCH 自動重排／移走列，不能從 server filter 推論 client 即時重查（見待辦）。跨頁、取消及 DB rollback 均屬 controller/service/store。
+Library interaction area 共用可用 request token；完整 authenticated document 的 Layout logout form 也會產 token，不能斷言整頁只有一個 input。library.js 從 document 中第一個 matching antiforgery input 取值，不限 Library 區域。狀態與星星 labels 在 server partial，JS 只送請求與切狀態。PATCH rating 省略保留、null 清空由 API/parser 保證；錯誤回復使用 WeakMap 保存最近確認值。Library filter 不會因 PATCH 自動重排／移走列，不能從 server filter 推論 client 即時重查（見待辦）。跨頁、取消及 DB rollback 均屬 controller/service/store。
 
 互參：[架構](architecture.md)、[待辦](backlog.md)、[歷史](update-history.md)、[案例](test-suite.md)。本次 Mermaid 僅結構檢查、未渲染。

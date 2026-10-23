@@ -1,5 +1,7 @@
 # tests 修改歷史
 
+查核基準 `91333c3` 的 source history 如下；`tests/docs` 明確排除，不將 PR #100 新增或後續修正的文件 commits 計入 source history。
+
 > 查核 2026-10-24；HEAD `91333c3`。日期採 author date，不代表部署日或本次測試結果。作者以 Git author 記錄；committer date 未用於排序。
 
 ## 範圍與可重跑命令
@@ -7,12 +9,12 @@
 直接來源為 `tests`，排除 `tests/docs`。查核全量可達歷史；下表以 `--reverse --no-merges` 呈現非 merge commits，merge 的來源變更已由其原 commit 表示，避免重複計數。沒有執行測試。
 
 ```sh
-git log --reverse --no-merges --date=short --format='%h|%ad|%an|%s' -- tests ':(exclude)tests/docs'
+git log --reverse --no-merges --date=short --format='%h|%ad|%an|%s' 91333c3 -- tests ':(exclude)tests/docs'
 git show --format= --stat <SHA> -- tests ':(exclude)tests/docs'
 git show <SHA> -- tests
 ```
 
-初始此代理尚未新增 tests/docs；其他代理的文件為平行工作，不當成 tests 實作變更。未提交文件不推定建立時間。Git 歷史不證明 runtime 或 CI 已通過。
+Git 歷史不證明 runtime 或 CI 已通過。
 
 ## 維護轉折（已閱讀重要 diff）
 

@@ -102,6 +102,6 @@ flowchart TD
  G[匿名 Book section] --> H[server 渲染登入連結 不走 JS PUT]
 ```
 
-PATCH 只送變更欄位；null 清 rating 與省略不同。失敗恢復 server 最後確認值；select 原生先改值，錯誤再還原。401 分支直接導航，沒有先解鎖（假定頁面離開）。按鈕 disabled 是 UI 防連點，非 server concurrency 保證；沒有程式層 request generation guard。篩選頁改 status 不移除或重新排序 row，直到 reload；是明訂行為。CSRF 讀 Razor hidden input，JS 不簽發 token、不讀 JWT。
+PATCH 只送變更欄位；null 清 rating 與省略不同。失敗恢復 server 最後確認值；select 原生先改值，錯誤再還原。401 分支直接導航，沒有先解鎖（假定頁面離開）。按鈕 disabled 是 UI 防連點，非 server concurrency 保證；沒有程式層 request generation guard。篩選頁改 status 不移除或重新排序 row，直到 reload；是明訂行為。CSRF 由 document.querySelector 取整個 document 第一個 matching Razor antiforgery input（可能是 Layout logout token）；只有 selector 完全找不到 input 才傳空值，並非只檢查 Library 區域。JS 不簽發 token、不讀 JWT。
 
 相關：[流程](workflow-diagram.md)／[架構](architecture.md)／[待辦](backlog.md)／[歷史](update-history.md)／[案例](test-suite.md)。

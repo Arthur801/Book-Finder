@@ -35,8 +35,8 @@ Authority：[test plan](../../Docs/testing/test-plan.md)、[data model](../../Do
 - 責任／風險／狀態：middleware／filters，L3，已有測試本次未執行；規格 Identity §5–6、api-spec 錯誤格式。
 - Given：匿名或過期 bf_auth；另備只有 Authorization header、合法 auth cookie 但無 antiforgery token、外站 returnUrl。
 - When：對受保護 API 與 GET／POST 頁面送 request；以 `SafeReturnUrl.Resolve` 判定 URL。
-- Then：header-only 不認證；API 401 problem+json；GET/HEAD login redirect 帶 returnUrl，其他 page method 無 returnUrl；已登入狀態變更 API 缺 CSRF 回 400，不執行 service；外站／空 returnUrl 回 `/`，合法本地路徑保留。
-- 入口：[AuthPipelineTests](../../tests/WebIntegration/AuthPipelineTests.cs)、[SafeReturnUrlTests](../../tests/UnitTests/SafeReturnUrlTests.cs)、[ApiExceptionProblemDetailsFilterTests](../../tests/UnitTests/ApiExceptionProblemDetailsFilterTests.cs)。
+- Then：header-only 不認證；API 401 problem+json；GET/HEAD login redirect 帶 returnUrl，其他 page method 無 returnUrl；已登入狀態變更 API 缺 CSRF 回 400；推薦 parser／embedding／ranker Calls 為零與 Library Entry 的特定資料不變另由 production endpoint 案例斷言，不能泛稱所有 service 均已 spy 驗證；外站／空 returnUrl 回 `/`，合法本地路徑保留。
+- 入口：[AuthPipelineTests](../../tests/WebIntegration/AuthPipelineTests.cs)、[SafeReturnUrlTests](../../tests/UnitTests/SafeReturnUrlTests.cs)、[ApiExceptionProblemDetailsFilterTests](../../tests/UnitTests/ApiExceptionProblemDetailsFilterTests.cs)、[RecommendationApiTests](../../tests/WebIntegration/RecommendationApiTests.cs) 的 `Signed_in_request_without_antiforgery_header_returns_400_and_calls_no_external_service`、[LibraryApiTests](../../tests/WebIntegration/LibraryApiTests.cs) 的 `Signed_in_add_without_antiforgery_header_returns_400_and_saves_nothing` 與 `Patch_and_delete_without_antiforgery_header_return_400_and_change_nothing`。前者查 AI Calls；後兩者分別查 Entry count／既有 rating，不涵蓋任意副作用。
 
 ## INF-T04 — Catalog／Bestseller cache 隔離與空值
 
@@ -96,9 +96,9 @@ Authority：[test plan](../../Docs/testing/test-plan.md)、[data model](../../Do
 
 ## INF-T11 — Google Books fallback（未實作）
 
-- 責任／風險／狀態：fallback adapter／normalizer，L3，未實作；對應 INF-B01；規格 Recommendation §6、Catalog §6。
+- 責任／風險／狀態：external／EF adapter mechanics（依 Catalog-owned normalization／identity／persistence 規則），L3，未實作；對應 INF-B01；規格 Recommendation §6、Catalog §6。
 - Given：本地候選恰 5 或 4；fake volumes 含重複 ISBN、無 ISBN、不相關書、外部失敗。
-- When：未來 RecommendationService 透過新 port 執行 fallback。
+- When：未來 RecommendationService 透過 Catalog capability port 編排 fallback，Catalog 呼叫 Infrastructure external／EF adapters。
 - Then：5 不外呼；4 才外呼，normalize／持久化／embedding 後重跑同門檻；ISBN 命中不重複 Book；外部失敗保留本地候選，已寫 Book 不因未推薦而 rollback；FallbackUsed 反映流程。
 - 入口：Google Books adapter tests 待建；擴充 EfCandidateSearchTests、EfRecommendationStoreTests；不可現在宣稱已通過。
 

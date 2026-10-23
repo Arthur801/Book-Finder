@@ -208,12 +208,18 @@ flowchart TD
     COUNT -->|否| RANK[LLM 排序 → RankingRules 驗證候選、理由、數量]
     RANK --> SAVE[transaction 保存搜尋與結果]
     ZERO --> SAVE
-    SAVE --> DIFF[保存後讀 difficulty 快照；不在 60 秒 budget 內]
+    SAVE --> HASRESULT{結果非空？}
+    HASRESULT -->|否| DONE
+    HASRESULT -->|是| DIFF[保存後讀 difficulty 快照；不在 60 秒 budget 內]
     DIFF --> QUEUE[再排入 profile queue；一般失敗只記 Warning]
     QUEUE --> DONE[Succeeded → RecommendationResponse → 200 JSON]
-    TIME -.-> FAIL[流程中的 OpenAI 失敗為 502；整體逾時為 504；其他例外為 500]
-    FAIL --> NO[失敗不保存搜尋；不計當日次數]
+    TIME -. 保存前核心步驟 .-> FAIL[AI unavailable 為 502；server budget 到期為 504；其他例外為 500]
+    FAIL --> NO[核心流程保存前失敗：不保存搜尋、不計當日次數]
+    DIFF -. caller 取消 .-> CANCEL[取消可傳遞；已保存 Search 與 Results 保留]
+    QUEUE -. caller 取消 .-> CANCEL
 ```
+
+**保存邊界**：quota、parse、embed、retrieve、rank 在保存前失敗不進入保存；store 交易失敗不留下 Search／Results 半成品。Search 保存後的 difficulty snapshot／profile scheduling 是 post-save enrichment，改用 caller token；一般失敗 Warning 降級，caller cancellation 可傳遞但不回滾已保存資料。不能由失敗／取消 response 推定 DB 沒有 Search；commit × cancellation 競態仍待 CTL-07 補證。
 
 **現況缺口**：目前候選檢索後直接進入排序／保存，尚無 Google Books adapter 與 fallback 分支，`RecommendationResponse.FallbackUsed` 固定 `false`。規格要求候選 `< 5` 才允許 fallback，且必須 normalize、寫入、補 embedding、重跑相同檢索後才成為候選；此處不將目標流程畫成已實作。見 [backlog.md 的 CTL-01](backlog.md)。
 

@@ -81,7 +81,7 @@ Controller 不寫 SQL、不直接呼叫 OpenAI／Google Books、不持有推薦�
 | 個人化內容 | Library state 置於獨立 `ViewData[LibrarySectionKey]` | 與共用書目一起快取會混入跨使用者資料 | 共用書目可快取，Library 每次以 token 使用者重新讀取 |
 | 資料存取 | Application service / read port → EF Core adapter → PostgreSQL | Controller 直接查 DbContext 會混合 HTTP 與 use case | Schema 由 EF migration 管理；本文件不授權任何 migration |
 | 分頁 | 共用 PageNumber / PagerViewModel；每頁 20 筆 | 無限捲動或 cursor pagination 會改變 UI contract | 超大正整數視為超頁；完整頁重導、片段讀末頁，兩者不可混用 |
-| 推薦 | Controller 驗證與映射；Application 控額度、計時、檢索、排序、保存 | Controller 內串 API 難以測試、易繞過 invariant | difficulty 快照與排隊在保存之後，失敗須降級 |
+| 推薦 | Controller 驗證與映射；Application 控額度、計時、檢索、排序、保存 | Controller 內串 API 難以測試、易繞過 invariant | difficulty 快照與排隊在保存之後；一般失敗降級，caller 取消可傳遞且不回滾已存資料 |
 | 測試 | WebApplicationFactory + Testcontainers + fake 外部 adapter | 只 mock Controller 無法驗證 middleware / binding / HTML | 需 Docker；Web 測試不代表瀏覽器 JS 已被執行 |
 
 ## 5. 安全、內容與錯誤邊界
@@ -93,7 +93,7 @@ Controller 不寫 SQL、不直接呼叫 OpenAI／Google Books、不持有推薦�
 - Book detail 與 AI history 的非法 GUID／查無資料回 404；AI history 他人資料也回相同 404。Library DELETE 的非法 GUID 則為 204。
 - Book `description`、`table of contents` 不進任何公開 ViewModel / JSON。AI profile 其他文字欄位不展示；理由不能大段引用原文。
 - 普通搜尋只查 Local DB。AI 每日限制在任何外部呼叫前檢查；Candidate Set 必須同時通過硬條件與 similarity 門檻，結果最多 10 本，允許 0 本。
-- 只有成功搜尋保存，包含 0 本結果；歷史列表只查本人；difficulty 即時讀取而不寫入搜尋結果快照。
+- 核心推薦在保存前失敗不保存；成功保存包含 0 本結果。保存後 enrichment 的 caller cancellation 可以傳遞，但 Search／Results 已存在且不回滾；不能將所有失敗概括為「不保存」。歷史列表只查本人；difficulty 即時讀取而不寫入搜尋結果快照。
 
 ## 6. 已知差距與文件時效
 

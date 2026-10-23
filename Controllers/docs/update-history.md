@@ -1,5 +1,7 @@
 # Controllers 修改歷史
 
+查核基準 `91333c3` 的 source history 如下；`Controllers/docs` 明確排除，不將 PR #100 新增或後續修正的文件 commits 計入 source history。
+
 整理日期：2026-10-24；Git 查核基準：`91333c3`。下表列出此基準可達歷史中，**直接修改 `Controllers/*.cs`** 的全部 27 筆 commit，依 `git log --reverse` 順序呈現，不將整個 commit 的所有變更都歸入 Controller。
 
 日期取自 Git author date（`--date=short`），不是部署日期；commit 存在不代表已部署，也不代表本次重新執行過該版本測試。歷史來源為實際 Git log / diff，不以 Implementation-Report 推定。
@@ -7,9 +9,9 @@
 ## 1. 查核方法
 
 ```bash
-git rev-parse --short HEAD
-git log --reverse --date=short --format='%h %ad %s' -- 'Controllers/*.cs'
-git log --reverse --name-only --format='%h %ad %s' --date=short -- 'Controllers/*.cs'
+git rev-parse --short 91333c3
+git log --reverse --date=short --format='%h %ad %s' 91333c3 -- 'Controllers/*.cs'
+git log --reverse --name-only --format='%h %ad %s' --date=short 91333c3 -- 'Controllers/*.cs'
 git show <commit> -- Controllers
 ```
 
@@ -55,4 +57,4 @@ git show <commit> -- Controllers
 - **難度可用性降級**：`cd17224` 修正 profile 讀取失敗影響整頁；不能因 future refactor 又直接查 store 而失去此保護。
 - **歷史範圍限制**：`Program.cs`、Identity filters、Application services、Models 或 Views 的單獨變更，可能影響 Controller 行為但不會出現在上表。調查特定回歸時須擴大到實際依賴路徑，不能只查 Controllers。
 
-本次新增的五份文件尚未以新 commit 記錄於此表；它們未修改 Controller 程式。現況與待辦請見 [architecture.md](architecture.md)、[backlog.md](backlog.md)。
+現況與待辦請見 [architecture.md](architecture.md)、[backlog.md](backlog.md)。

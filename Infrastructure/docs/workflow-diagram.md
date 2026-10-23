@@ -126,7 +126,7 @@ sequenceDiagram
 
 空候選只有排名 SQL；非空通常共四個 SQL。Filters null 不加入條件；ILike 經 LikePattern escape；`zh` 包含地區，`zh-TW` 精確比對；年與頁數含端點，NULL 不符合已指定範圍。排名不讀 Bestseller rank 或 Book AI Profile。History List 以本人 filter、long offset 防溢位；Get 對他人與不存在皆 null，結果 rank/reason 是保存快照，書名作者封面取目前 Book。
 
-**未實作規格目標**：Candidate Set `<5` 時 Google Books adapter、normalize、跨來源合併、同步 embedding 與重跑檢索。當前 `EfRecommendationStore` 固定 `FallbackUsed=false`。
+**未實作規格目標**：Recommendation 在 Candidate Set `<5` 時編排 Catalog ingestion；Catalog 擁有 normalization、跨來源 identity 與 Book persistence 規則，Infrastructure 實現 Google／EF adapter mechanics。Catalog 完成後由 Recommendation 同步 embedding、重跑檢索；Google 失敗保留原 local candidates，零候選不呼叫 ranker、保存零結果 Search。當前 `EfRecommendationStore` 固定 `FallbackUsed=false`。
 
 ## OpenAI 與背景狀態
 

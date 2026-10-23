@@ -1,5 +1,7 @@
 # Application Git 修改歷史
 
+查核基準 `91333c3` 的 source history 如下；`Application/docs` 明確排除，不將 PR #100 新增或後續修正的文件 commits 計入 source history。
+
 > 查核日期：2026-10-24；Git 基準 `91333c3`。目標 `Application/`；本次僅靜態查核，未執行 build、測試、資料庫或外部服務。規格、實作與測試證據分開記錄。
 
 ## 範圍與日期語意
@@ -9,9 +11,9 @@
 可重跑唯讀命令：
 
 ```sh
-git rev-parse HEAD
+git rev-parse 91333c3
 git rev-parse --is-shallow-repository
-git log --reverse --format='%h|%aI|%an|%s' -- Application ':(exclude)Application/docs'
+git log --reverse --format='%h|%aI|%an|%s' 91333c3 -- Application ':(exclude)Application/docs'
 git show --format=fuller <sha> -- Application ':(exclude)Application/docs'
 git show --format= --numstat <sha> -- Application ':(exclude)Application/docs'
 ```
@@ -101,7 +103,7 @@ git show --format= --numstat <sha> -- Application ':(exclude)Application/docs'
 
 [Program](../../Program.cs)、[EfRecommendationStore](../../Infrastructure/Persistence/EfRecommendationStore.cs)、cache readers、OpenAI adapters與background workers是目前跨層證據。本表只完整枚舉Application路徑歷史；沒有宣稱完整追溯所有依賴目錄，也未用Implementation-Report當規格。
 
-工作開始時觀察到其他代理新增`Controllers/docs/`，它不是Application來源變更；其他並行文件亦非本代理產物。截至查核基準 `91333c3`，`Application/docs/` 尚不存在；本 PR 中新增及後續修正這五份文件的 commits 不納入上述 Application source history。不能由來源建立時間推定部署時間。Git commit記錄不代表測試在本次通過、功能已上線或production已驗證。
+截至查核基準 `91333c3`，`Application/docs/` 尚不存在；本 PR 中新增及後續修正這五份文件的 commits 不納入上述 Application source history。不能由來源建立時間推定部署時間。Git commit記錄不代表測試在本次通過、功能已上線或production已驗證。
 
 ## 導覽
 

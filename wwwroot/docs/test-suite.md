@@ -83,10 +83,10 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter "FullyQualifiedN
 ## WT-09 — CSRF 與 DOM contract
 
 - 責任／規格：api-spec §1／2；View contract；風險 L3；狀態：待補強（server已有測試，JS payload待建）。
-- Given：真 View fixture；LibraryPage每頁一個token、Book authenticated有token、匿名Book只有login anchor；AI form有token。
-- When：執行各script並捕捉requests；server另以錯／缺token送非GET。
-- Then：所有非GET帶header；Library缺DOM token會送空值並由server400拒絕；AI缺token是同步例外（正常View已有token），作contract負例而非假造正常頁bug；匿名Book不執行PUT。token／JWT不寫storage。server拒絕CSRF且不修改資料。
-- 來源／擴充入口：[tests/WebIntegration/LibraryApiTests.cs](../../tests/WebIntegration/LibraryApiTests.cs)；browser案例未有可執行runner時維持待建，不宣稱通過。
+- Given：真 View fixture；Library interaction area 共用 token，authenticated Layout 的 logout form 可另有 token；Book authenticated 有 token、匿名 Book 只有 login anchor；AI form 有 token。Library 缺 token 負例必須移除整個 document 所有 matching inputs，另備只移除 Library 區域但保留 logout token 的對照。
+- When：執行各 script 並捕捉 requests；Library 對照 document 第一個 `input[name="__RequestVerificationToken"]` 的值；server 另以錯／缺 token 送非 GET。
+- Then：所有非GET帶header；Library selector 找不到任何 matching input 才送空值並由 server 400 拒絕；只移除 Library 區域 token 時，若 logout token 仍在，應使用 document 第一個 matching input，不得預期空值。AI form 缺 token 是同步例外（正常View已有token），作contract負例而非假造正常頁bug；匿名Book不執行PUT。token／JWT不寫storage。server CSRF 拒絕的資料證據限 LibraryApiTests 的 Entry count／既有 rating 斷言，不泛推所有副作用。
+- 來源／擴充入口：[tests/WebIntegration/LibraryApiTests.cs](../../tests/WebIntegration/LibraryApiTests.cs)；[LibraryPageTests](../../tests/WebIntegration/LibraryPageTests.cs) 的 `Page_renders_one_antiforgery_token_for_all_rows` 明確只計算 Library view 區域，排除 logout form。browser 案例未有可執行 runner 時維持待建，不宣稱通過。
 
 ## WT-10 — CSS、鍵盤與公開內容
 

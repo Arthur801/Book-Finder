@@ -53,7 +53,7 @@ OpenAiCall 保留 caller cancellation，其餘轉 AiUnavailableException；SDK �
 
 ## 差距與 runtime 限制
 
-Google Books fallback／normalizer 尚未實作，store 固定 FallbackUsed=false。登入限流、embedding 增量掃描依 [TODO](../../Docs/TODO.md) 明確暫緩。水平擴充前須重新評估 process-local cache／queue，不能直接宣稱多 instance 安全。
+Google Books fallback 尚未接入，store 固定 FallbackUsed=false。Recommendation 擁有 fallback orchestration；Catalog 擁有 normalization、cross-source identity 與 Book persistence 規則；Infrastructure 只實現 external API／EF adapter mechanics，不取得 Catalog 規則 ownership。登入限流、embedding 增量掃描依 [TODO](../../Docs/TODO.md) 明確暫緩。水平擴充前須重新評估 process-local cache／queue，不能直接宣稱多 instance 安全。
 
 HostingSetup 支援設定不等於已驗證容器切換、公開 HTTPS、可信 nginx 位址或實際 key mount。Production secrets、IAM、TLS、migration 執行屬部署範圍；本次無 live 證據。
 

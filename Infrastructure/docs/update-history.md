@@ -1,5 +1,7 @@
 # Infrastructure 修改歷史
 
+查核基準 `91333c3` 的 source history 如下；`Infrastructure/docs` 明確排除，不將 PR #100 新增或後續修正的文件 commits 計入 source history。
+
 > 查核日期：2026-10-24；基準 `91333c3`。本次只做文件靜態檢查，未執行 build、測試、migration、部署或外部服務。
 
 ## 查核範圍與方法
@@ -7,12 +9,12 @@
 來源 `Infrastructure/`，排除 `Infrastructure/docs/`；完整可見 Git 路徑歷史，不做時間截斷。下表按 `--reverse --topo-order`（拓樸由舊至新），日期為 **author date**，不代表部署日期或測試通過日期。merge 可能與分支事件重疊，不據此計算實作工作次數。subject 保留原文，右欄是實際目標路徑 diff 的檔案範圍，不能將整個 commit 的 subject 當成每個檔案的行為。
 
 ```bash
-git log --reverse --topo-order --date=short --format='%H|%ad|%s' -- Infrastructure ':!Infrastructure/docs'
+git log --reverse --topo-order --date=short --format='%H|%ad|%s' 91333c3 -- Infrastructure ':!Infrastructure/docs'
 git show --format=fuller --stat <SHA> -- Infrastructure ':!Infrastructure/docs'
 git show <SHA> -- Infrastructure
 ```
 
-初始工作樹已存在其他 agent 的 `Controllers/docs/`；不屬本目錄實作差異。此文件新增時未提交，不能推測未追蹤文件的建立歷史。`git rev-parse --is-shallow-repository` 回 `false`，本地 repository 非 shallow；遠端未取得的歷史仍不在本次範圍。
+`git rev-parse --is-shallow-repository` 回 `false`，本地 repository 非 shallow；遠端未取得的歷史仍不在本次範圍。
 
 | Author 日期 | SHA | subject | 本目錄實際改動檔案 |
 |---|---|---|---|

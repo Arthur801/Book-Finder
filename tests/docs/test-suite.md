@@ -57,8 +57,8 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter FullyQualifiedNa
 - 責任／規格：identity-auth、api-spec；L3；已有測試但本次未執行。
 - Given：匿名 client、有效登入 client、缺／錯 antiforgery token；AI fakes Calls 為空。
 - When：請求受保護 API、頁面與 POST；以既有 helper 建立有效對照。
-- Then：API 匿名 401、頁面按 contract challenge；CSRF 無效 400 ProblemDetails；無 stack trace 或真實 signing key；未通過 gate 不呼叫 AI。登入 cookie 固定安全屬性。
-- 位置：[AuthPipelineTests](../WebIntegration/AuthPipelineTests.cs)、[AccountPagesTests](../WebIntegration/AccountPagesTests.cs)、[AuthCookieTests](../UnitTests/AuthCookieTests.cs)。
+- Then：API 匿名 401、頁面按 contract challenge；CSRF 無效 400 ProblemDetails；無 stack trace 或真實 signing key；推薦 API 未通過認證／CSRF gate 時 parser／embedding／ranker Calls 為零。登入 cookie 固定安全屬性；不能由 test-only HTTP status 推定任意 production service／DB／log 均無副作用。
+- 位置：[AuthPipelineTests](../WebIntegration/AuthPipelineTests.cs)、[AccountPagesTests](../WebIntegration/AccountPagesTests.cs)、[AuthCookieTests](../UnitTests/AuthCookieTests.cs)、[RecommendationApiTests](../WebIntegration/RecommendationApiTests.cs) 的 `Not_signed_in_returns_401_and_calls_no_external_service` 與 `Signed_in_request_without_antiforgery_header_returns_400_and_calls_no_external_service`（明確斷言三種 AI Calls 為零）。
 
 ### TEST-05：搜尋與公開內容邊界
 

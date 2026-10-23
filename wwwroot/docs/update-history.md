@@ -1,13 +1,15 @@
 # wwwroot Git 修改歷史
 
-> 查核：2026-10-24；HEAD `91333c334148fa5bfe07055d0e799dc13bb0bb4e`。當前工作樹靜態證據；本次未執行 build、測試、瀏覽器、網路或發布。只新增本目錄五份文件。
+查核基準 `91333c3` 的 source history 如下；`wwwroot/docs` 明確排除，不將 PR #100 新增或後續修正的文件 commits 計入 source history。
+
+> 查核：2026-10-24；HEAD `91333c334148fa5bfe07055d0e799dc13bb0bb4e`。基準版本靜態證據；本次未執行 build、測試、瀏覽器、網路或發布。文件修正不納入來源歷史。
 
 ## 範圍與日期
 
-全量可達 HEAD 的 wwwroot 非 merge commit，2026-10-11～2026-10-22；排除 wwwroot/docs。日期為 author date，作者為 author；不代表 committer、發布或測試日期。merge 省略避免重複，沒有宣稱分析全部 merge 父線 diff。初始 wwwroot 無局部修改；其他 agent 的文件未納入此模組變動。
+基準 `91333c3` 可達的全量 wwwroot 非 merge commit，2026-10-11～2026-10-22；排除 wwwroot/docs。日期為 author date，作者為 author；不代表 committer、發布或測試日期。merge 省略避免重複，沒有宣稱分析全部 merge 父線 diff。
 
 ```bash
-git log --no-merges --reverse --date=short --format="%h|%ad|%an|%s" -- wwwroot ":!wwwroot/docs"
+git log --no-merges --reverse --date=short --format="%h|%ad|%an|%s" 91333c3 -- wwwroot ":!wwwroot/docs"
 git show --format= --name-status SHA -- wwwroot ":!wwwroot/docs"
 git show 66ecf55 f0e1f0f b2c72a0 -- wwwroot/js
 ```

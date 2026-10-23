@@ -1,9 +1,11 @@
 # Views Git 修改歷史
 
+查核基準 `91333c3` 的 source history 如下；`Views/docs` 明確排除，不將 PR #100 新增或後續修正的文件 commits 計入 source history。
+
 查核日期：2026-10-24；HEAD `91333c3`。直接來源範圍：`Views`，排除 `Views/docs`；完整可達歷史共 22 筆，非 shallow。排序為 `git log --reverse` 的反向 log 次序；日期欄是 author date（`%ad --date=short`），不是 committer／部署／測試日期。全部 author 為 Arthur801；co-author trailers 不改 author 欄位。
 
 ```bash
-git log --reverse --format='%H %ad %an %s' --date=short --stat -- Views ':!Views/docs'
+git log --reverse --format='%H %ad %an %s' --date=short --stat 91333c3 -- Views ':!Views/docs'
 git show dc4a570 -- Views
 git show 668d0fb -- Views
 git show 53c0391 -- Views
@@ -57,6 +59,6 @@ git show 894883b -- Views
 
 從 scaffold 轉領域 SSR 頁面，接著帳號與 AI，最後 Library 可編輯 controls 與 AI history partial/pager 共享。現在主要行為可在 JS、Models、Controllers 演進而不改 Views，因此本歷史不是完整產品能力清單。
 
-本子任務開始 Views 沒有本次新增文件；同一 worktree 已有其他目錄文件工作，均不編輯。此次僅新增 Views/docs 五檔，不修改來源、index 或提交。歷史來源排除產出 docs，避免把文件 commit 混成實作；Git source 不能證明 assets 已提供、瀏覽器互動通過、DB migration 已套用或 production 部署完成。
+歷史來源排除產出 docs，避免把文件 commit 混成實作；Git source 不能證明 assets 已提供、瀏覽器互動通過、DB migration 已套用或 production 部署完成。
 
 互參：[流程](workflow-diagram.md)、[架構](architecture.md)、[待辦](backlog.md)、[案例](test-suite.md)。

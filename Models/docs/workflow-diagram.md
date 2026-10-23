@@ -120,7 +120,7 @@ Bestseller 逐筆保留原 rank，不重新編號；作者用「、」串接；C
 
 ## 表單及 JSON 回應
 
-表單是 nullable mutable class，不帶 DataAnnotations；AccountService 統一驗證，Controller 以 ModelState 回傳錯誤，成功簽發 cookie／處理 pending action／安全重導。LoginLink 只編碼 returnUrl，不驗證目的地；真正限制 local URL 在 Application 的 SafeReturnUrl。pendingAction 依現有固定 ASCII 代碼使用，不是任意文字輸入 API。
+表單是 nullable mutable class，不帶 DataAnnotations；AccountService 統一驗證，Controller 以 ModelState 回傳錯誤，成功簽發 cookie／處理 pending action／安全重導。LoginLink 只編碼 returnUrl，不驗證目的地；真正限制 local URL 的 [SafeReturnUrl](../../Infrastructure/Identity/SafeReturnUrl.cs) 位於 Infrastructure/Identity，因依賴 MVC IUrlHelper 而放在該層，不是 Application 元件。pendingAction 依現有固定 ASCII 代碼使用，不是任意文字輸入 API。
 
 RecommendationResponse 只投影 searchId／createdAt／fallbackUsed／results；每筆 rank／book／reason／relevance／difficulty，book 只含 id／title／authors／thumbnailUrl。LibraryEntryResponse 只含 bookId／readingStatus／rating／addedAt／updatedAt，enum 轉精確代碼、UTC 轉 +08:00，不洩露 userId 或整個 entity。目前 fallbackUsed 固定 false，尚未實作的目標見 M-B03，不能宣稱 fallback 完成。
 
