@@ -9,6 +9,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from bookfinder_host import state as st
+from bookfinder_host.images import is_digest_ref
 from bookfinder_host.ports import Runner
 
 # Read-only: the history table is EF Core's, and EF writes only ids here.
@@ -28,27 +29,51 @@ class ObservedRuntime:
     kind: str
     running: bool
     image_id: str | None
+    containers: int = 1
 
 
 def observe_docker(runner: Runner, project: str = "book-finder", service: str = "web") -> ObservedRuntime:
-    listed = runner.run(["docker", "compose", "-p", project, "ps", "-q", service])
+    """Finds the web container by compose labels.
+
+    Why: labels identify the service without needing the compose file on the host, and stopped containers are listed
+    too (-a) so a leftover container is counted rather than silently ignored.
+    """
+    listed = runner.run(
+        [
+            "docker",
+            "ps",
+            "-a",
+            "--filter",
+            f"label=com.docker.compose.project={project}",
+            "--filter",
+            f"label=com.docker.compose.service={service}",
+            "--format",
+            "{{.ID}}",
+        ]
+    )
     if listed.returncode != 0:
-        raise ObservationError(f"docker compose ps failed: {listed.stderr.strip()}")
-    container = listed.stdout.strip()
-    if not container:
-        return ObservedRuntime(kind="docker", running=False, image_id=None)
-    if _CONTAINER_ID_RE.fullmatch(container) is None:
-        raise ObservationError("docker compose ps returned an unexpected id")
+        raise ObservationError(f"docker ps failed: {listed.stderr.strip()}")
+    containers = [line for line in listed.stdout.split("\n") if line]
+    for container in containers:
+        if _CONTAINER_ID_RE.fullmatch(container) is None:
+            raise ObservationError("docker ps returned an unexpected container id")
+    if not containers:
+        return ObservedRuntime(kind="docker", running=False, image_id=None, containers=0)
+    if len(containers) > 1:
+        return ObservedRuntime(kind="docker", running=False, image_id=None, containers=len(containers))
+    container = containers[0]
     inspected = runner.run(["docker", "inspect", "-f", "{{.State.Running}} {{.Image}}", container])
     if inspected.returncode != 0:
         raise ObservationError(f"docker inspect failed: {inspected.stderr.strip()}")
     parts = inspected.stdout.strip().split(" ")
     if len(parts) != 2 or parts[0] not in ("true", "false") or _IMAGE_ID_RE.fullmatch(parts[1]) is None:
         raise ObservationError(f"unexpected docker inspect output: {inspected.stdout.strip()!r}")
-    return ObservedRuntime(kind="docker", running=parts[0] == "true", image_id=parts[1])
+    return ObservedRuntime(kind="docker", running=parts[0] == "true", image_id=parts[1], containers=1)
 
 
 def image_id_for(runner: Runner, reference: str) -> str:
+    if not is_digest_ref(reference):
+        raise ObservationError(f"image must be referenced by digest: {reference!r}")
     inspected = runner.run(["docker", "image", "inspect", "-f", "{{.Id}}", reference])
     if inspected.returncode != 0:
         raise ObservationError(f"docker image inspect failed: {inspected.stderr.strip()}")
@@ -81,6 +106,9 @@ def check_runtime_matches(
     if observed.kind != "docker":
         reasons.append(f"runtime kind: state says docker but observed {observed.kind}")
         return reasons
+    if observed.containers > 1:
+        # Two web containers cannot be attributed to one image, so the observation is not usable.
+        return ["runtime: multiple web containers"]
     if not observed.running:
         reasons.append("runtime: web container is not running")
     if runner is None:

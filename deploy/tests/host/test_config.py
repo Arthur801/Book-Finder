@@ -47,6 +47,10 @@ def test_loads_valid_configuration(tmp_path):
         lambda text: text.replace("AWS_REGION=ap-northeast-1", "AWS_REGION=ap;reboot"),  # command separator
         lambda text: text.replace("AWS_REGION=ap-northeast-1", 'AWS_REGION="ap-northeast-1"'),  # quotes are not KEY=VALUE here
         lambda text: text + "STATE_FILE=/other\n",  # duplicate key
+        lambda text: text.replace("postgres@sha256:" + "f" * 64, "postgres:17"),  # psql image must be digest-pinned
+        lambda text: text.replace(
+            "WEB_IMAGE_REPOSITORY=ghcr.io/example/book-finder-web\n", "WEB_IMAGE_REPOSITORY=ghcr.io/example/book-finder-web:v1\n"
+        ),  # no tag in repository
     ],
 )
 def test_rejects_bad_configuration(tmp_path, mutation):

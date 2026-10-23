@@ -9,6 +9,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+from bookfinder_host.images import is_digest_ref, is_repository
 from bookfinder_host.ports import Runner
 from bookfinder_host.safefile import UnsafeFileError, read_regular_file
 
@@ -70,6 +71,10 @@ def parse_settings(text: str) -> Settings:
     if missing:
         raise ConfigError(f"host.conf is missing: {', '.join(missing)}")
     values = {**_OPTIONAL, **values}
+    if not is_repository(values["WEB_IMAGE_REPOSITORY"]):
+        raise ConfigError("WEB_IMAGE_REPOSITORY must be a repository without a tag or digest")
+    if not is_digest_ref(values["PSQL_IMAGE"]):
+        raise ConfigError("PSQL_IMAGE must be pinned by digest (<repository>@sha256:<digest>)")
     try:
         timeout = float(values["LOCK_TIMEOUT_S"])
     except ValueError as exc:

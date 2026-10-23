@@ -106,6 +106,8 @@ class FakeHost:
         local_image_id: str = IMAGE_ID,
         unit_states: dict[str, str] | None = None,
         database_url: str = "postgres://fake@db.internal/book_finder",
+        containers: list[str] | None = None,
+        pull_ok: bool = True,
     ) -> None:
         self.release_dir = release_dir
         self.db_ids = db_ids or []
@@ -115,6 +117,9 @@ class FakeHost:
         # Maps a transient unit name to its ActiveState; unknown units report LoadState=not-found.
         self.unit_states = unit_states or {}
         self.database_url = database_url
+        # Container ids answered for "docker ps"; by default one container when running, none otherwise.
+        self.containers = containers if containers is not None else ([CONTAINER_ID] if running else [])
+        self.pull_ok = pull_ok
         self.calls: list[list[str]] = []
 
     def run(self, argv: Sequence[str], *, env: Mapping[str, str] | None = None) -> CommandResult:
@@ -124,14 +129,16 @@ class FakeHost:
             return ok(CONTAINER_ID + "\n")
         if command[:2] == ["docker", "rm"]:
             return ok()
+        if command[:2] == ["docker", "pull"]:
+            return ok() if self.pull_ok else CommandResult(1, "", "manifest unknown")
         if command[:2] == ["docker", "cp"]:
             return self._copy(command[2], Path(command[3]))
         if command[0] == "aws":
             return ok(self.database_url + "\n")
         if command[:2] == ["docker", "run"]:
             return ok("".join(f"{migration_id}\n" for migration_id in self.db_ids))
-        if command[:3] == ["docker", "compose", "-p"]:
-            return ok(CONTAINER_ID + "\n" if self.running else "\n")
+        if command[:2] == ["docker", "ps"]:
+            return ok("".join(f"{container}\n" for container in self.containers))
         if command[:2] == ["docker", "inspect"]:
             return ok(f"{'true' if self.running else 'false'} {self.running_image_id}\n")
         if command[:3] == ["docker", "image", "inspect"]:

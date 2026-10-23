@@ -22,7 +22,7 @@ ID2 = "20261010174654_Catalog"
 def docker_runner(running="true", image=IMAGE_ID, ps=CID, ref_image=IMAGE_ID):
     return ScriptedRunner(
         [
-            (("docker", "compose"), lambda argv: ok(ps + "\n")),
+            (("docker", "ps"), lambda argv: ok(ps + "\n")),
             (("docker", "inspect"), lambda argv: ok(f"{running} {image}\n")),
             (("docker", "image", "inspect"), lambda argv: ok(ref_image + "\n")),
         ]
@@ -31,12 +31,43 @@ def docker_runner(running="true", image=IMAGE_ID, ps=CID, ref_image=IMAGE_ID):
 
 def test_observe_docker_reads_running_flag_and_image_id():
     observed = rt.observe_docker(docker_runner())
-    assert observed == rt.ObservedRuntime(kind="docker", running=True, image_id=IMAGE_ID)
+    assert observed == rt.ObservedRuntime(kind="docker", running=True, image_id=IMAGE_ID, containers=1)
 
 
 def test_observe_docker_with_no_container_is_not_running():
     observed = rt.observe_docker(docker_runner(ps="\n"))
-    assert observed == rt.ObservedRuntime(kind="docker", running=False, image_id=None)
+    assert observed == rt.ObservedRuntime(kind="docker", running=False, image_id=None, containers=0)
+
+
+def test_observe_docker_selects_the_service_by_compose_labels_not_compose_ps():
+    runner = docker_runner()
+    rt.observe_docker(runner, project="book-finder", service="web")
+    listing = runner.calls_argv()[0]
+    assert listing[:3] == ["docker", "ps", "-a"]
+    assert "label=com.docker.compose.project=book-finder" in listing
+    assert "label=com.docker.compose.service=web" in listing
+    assert all(argv[:2] != ["docker", "compose"] for argv in runner.calls_argv())
+
+
+def test_multiple_web_containers_are_reported_as_drift_without_inspecting_them():
+    runner = docker_runner(ps="aaaaaaaaaaaa\nbbbbbbbbbbbb\n")
+    observed = rt.observe_docker(runner)
+    assert observed.containers == 2 and observed.running is False
+    state_runtime = sample_state(web_digest=WEB1).runtime
+    assert rt.check_runtime_matches(state_runtime, observed, runner, REPO) == ["runtime: multiple web containers"]
+    assert all(argv[:2] != ["docker", "inspect"] for argv in runner.calls_argv())
+
+
+def test_observe_docker_rejects_malformed_container_id():
+    with pytest.raises(rt.ObservationError):
+        rt.observe_docker(docker_runner(ps="not-an-id\n"))
+
+
+def test_image_id_for_rejects_a_tag_reference_before_calling_docker():
+    runner = docker_runner()
+    with pytest.raises(rt.ObservationError):
+        rt.image_id_for(runner, f"{REPO}:v1.0.0")
+    assert runner.calls_argv() == []
 
 
 def test_observe_docker_rejects_unexpected_inspect_output():
@@ -45,7 +76,7 @@ def test_observe_docker_rejects_unexpected_inspect_output():
 
 
 def test_observe_docker_fails_when_compose_fails():
-    runner = ScriptedRunner([(("docker", "compose"), lambda argv: CommandResult(1, "", "no project"))])
+    runner = ScriptedRunner([(("docker", "ps"), lambda argv: CommandResult(1, "", "daemon down"))])
     with pytest.raises(rt.ObservationError):
         rt.observe_docker(runner)
 
