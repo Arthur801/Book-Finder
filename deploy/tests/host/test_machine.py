@@ -878,3 +878,54 @@ def test_carriage_return_in_a_secret_is_refused(tmp_path):
     assert "Jwt__SigningKey must be a non-empty single-line value" in err
     assert "with-cr" not in err and "with-cr" not in out
     assert not env_path(world).exists()
+
+
+# DB_CA_BUNDLE: the web override is required by the release, and rollback needs the previous release to carry it too
+
+CA_PATH = "/etc/book-finder/global-bundle.pem"
+CA_OVERRIDE = "compose.ca-bundle.yaml"
+
+
+def test_configured_bundle_rejects_a_release_without_the_override_before_anything_changes(tmp_path):
+    world = in_sync_world(tmp_path)
+    set_setting(world, db_ca_bundle=CA_PATH)
+    before = world.state
+    code, _, err = world.run_unit(deploy_text(world))
+    assert code == BAD_INPUT and f"no {CA_OVERRIDE}" in err
+    assert world.fx.compose.up_calls == []
+    assert not Path(world.settings.releases_dir, DIGEST_OK.split(":", 1)[1]).exists()
+    assert world.load_state() == before
+    assert completed_records(world)[-1]["result"] == "rejected"
+
+
+def test_configured_bundle_deploys_a_release_that_ships_the_override(tmp_path):
+    world = in_sync_world(tmp_path)
+    set_setting(world, db_ca_bundle=CA_PATH)
+    (world.host.release_dir / CA_OVERRIDE).write_text("services: {}\n", encoding="utf-8")
+    code, _, err = world.run_unit(deploy_text(world))
+    assert code == OK, err
+    assert len(world.fx.compose.up_calls) == 1
+
+
+def test_configured_bundle_refuses_rollback_to_a_release_without_the_override(tmp_path):
+    world = in_sync_world(tmp_path)
+    with_old_release(world)
+    (world.host.release_dir / CA_OVERRIDE).write_text("services: {}\n", encoding="utf-8")
+    set_setting(world, db_ca_bundle=CA_PATH)
+    only_web_failures_on_target(world)
+    code, _, err = world.run_unit(deploy_text(world))
+    assert code == FAILED_DOWN and f"no {CA_OVERRIDE}" in err and "rollback not possible" in err
+    assert len(world.fx.compose.up_calls) == 1  # only the target was started
+    assert completed_records(world)[-1]["result"] == "failed-down"
+
+
+def test_configured_bundle_rolls_back_to_a_release_that_ships_the_override(tmp_path):
+    world = in_sync_world(tmp_path)
+    old = with_old_release(world)
+    (old / CA_OVERRIDE).write_text("services: {}\n", encoding="utf-8")
+    (world.host.release_dir / CA_OVERRIDE).write_text("services: {}\n", encoding="utf-8")
+    set_setting(world, db_ca_bundle=CA_PATH)
+    only_web_failures_on_target(world)
+    code, _, _err = world.run_unit(deploy_text(world))
+    assert code == ROLLED_BACK
+    assert len(world.fx.compose.up_calls) == 2

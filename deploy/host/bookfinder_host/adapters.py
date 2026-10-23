@@ -16,6 +16,7 @@ from collections.abc import Mapping
 from bookfinder_host import config as cfg
 from bookfinder_host.manifest import CONTAINER_RELEASE_DIR
 from bookfinder_host.ports import EffectFailed, Effects, Runner
+from bookfinder_host.release_content import COMPOSE_CA_BUNDLE
 from bookfinder_host.safefile import read_regular_file
 
 _CONTAINER_ID_RE = re.compile(r"[0-9a-f]{12,64}")
@@ -30,8 +31,9 @@ def _checked(result, what: str) -> None:
 
 
 class RealDocker:
-    def __init__(self, runner: Runner) -> None:
+    def __init__(self, runner: Runner, ca_bundle: str | None = None) -> None:
         self._runner = runner
+        self._ca_bundle = ca_bundle
 
     def pull(self, reference: str) -> None:
         _checked(self._runner.run(["docker", "pull", reference]), "docker pull")
@@ -52,7 +54,20 @@ class RealDocker:
 
     def run_efbundle(self, reference: str, env_file: str) -> int:
         # The env file carries the secrets; docker copies it into the container config at create time.
-        result = self._runner.run(["docker", "run", "--rm", "--pull=never", "--env-file", env_file, "--entrypoint", "/app/efbundle", reference])
+        result = self._runner.run(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--pull=never",
+                *cfg.ca_bundle_mount_args(self._ca_bundle),
+                "--env-file",
+                env_file,
+                "--entrypoint",
+                "/app/efbundle",
+                reference,
+            ]
+        )
         return result.returncode
 
     def smoke_crawler(self, reference: str) -> int:
@@ -75,8 +90,14 @@ class RealDocker:
 
 
 class RealCompose:
-    def __init__(self, runner: Runner) -> None:
+    """Every command that touches the web service uses one file set: the release's compose file, plus the CA override
+    when DB_CA_BUNDLE is configured. The version and probe calls never add the override: it names service web, which
+    the capability probe's own file does not define.
+    """
+
+    def __init__(self, runner: Runner, ca_bundle: str | None = None) -> None:
         self._runner = runner
+        self._ca_bundle = ca_bundle
 
     def version(self) -> str:
         result = self._runner.run(["docker", "compose", "version", "--short"])
@@ -88,14 +109,23 @@ class RealCompose:
         _checked(result, "docker compose config")
         return result.stdout
 
+    def _web_files(self, compose_file: str) -> tuple[list[str], dict[str, str]]:
+        """The -f arguments for the release, and the environment the override file reads (DB_CA_BUNDLE)."""
+        if self._ca_bundle is None:
+            return ["-f", compose_file], {}
+        override = os.path.join(os.path.dirname(compose_file), COMPOSE_CA_BUNDLE)
+        return ["-f", compose_file, "-f", override], {"DB_CA_BUNDLE": self._ca_bundle}
+
     def up(self, compose_file: str, project: str, env: Mapping[str, str]) -> None:
+        files, extra = self._web_files(compose_file)
         _checked(
-            self._runner.run(["docker", "compose", "-p", project, "-f", compose_file, "up", "-d", "--remove-orphans"], env=env),
+            self._runner.run(["docker", "compose", "-p", project, *files, "up", "-d", "--remove-orphans"], env={**env, **extra}),
             "docker compose up",
         )
 
     def down(self, compose_file: str, project: str, env: Mapping[str, str]) -> None:
-        _checked(self._runner.run(["docker", "compose", "-p", project, "-f", compose_file, "down"], env=env), "docker compose down")
+        files, extra = self._web_files(compose_file)
+        _checked(self._runner.run(["docker", "compose", "-p", project, *files, "down"], env={**env, **extra}), "docker compose down")
 
 
 class RealAws:
@@ -237,8 +267,8 @@ class RealFiles:
 
 def build_effects(runner: Runner, settings: cfg.Settings) -> Effects:
     return Effects(
-        docker=RealDocker(runner),
-        compose=RealCompose(runner),
+        docker=RealDocker(runner, settings.db_ca_bundle),
+        compose=RealCompose(runner, settings.db_ca_bundle),
         aws=RealAws(runner, settings.aws_region, settings.aws_cli),
         ssm=RealSsm(runner, settings.aws_region, settings.aws_cli),
         systemd=RealSystemd(runner),

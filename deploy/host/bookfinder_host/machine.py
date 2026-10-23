@@ -27,7 +27,7 @@ from bookfinder_host import state as st
 from bookfinder_host.exit_codes import BAD_INPUT, DRIFT, FAILED_DOWN, FAILED_MIGRATION, OK, PARTIAL_CRAWLER, ROLLED_BACK
 from bookfinder_host.images import is_digest_ref
 from bookfinder_host.ports import EffectFailed, Effects
-from bookfinder_host.release_content import COMPOSE_FILE, ReleaseRejected, compose_sha256_of, validate_tree
+from bookfinder_host.release_content import COMPOSE_CA_BUNDLE, COMPOSE_FILE, ReleaseRejected, compose_sha256_of, validate_tree
 from bookfinder_host.safefile import UnsafeFileError, read_regular_file
 
 if TYPE_CHECKING:
@@ -293,6 +293,9 @@ def _materialize_release(r: _Run) -> None:
         except ReleaseRejected as exc:
             raise _Stop(BAD_INPUT, "rejected", f"release content rejected: {exc}") from exc
         _check_metadata_matches(payload, r.target)
+        if r.settings.db_ca_bundle is not None and not content.ca_bundle_override:
+            # Refused before the release is moved into place: a web container without the override would not reach RDS.
+            raise _Stop(BAD_INPUT, "rejected", f"release has no {COMPOSE_CA_BUNDLE} but DB_CA_BUNDLE is configured")
         if os.path.lexists(final):
             # Releases are immutable: an existing directory for this digest must carry the same compose file.
             try:
@@ -477,6 +480,13 @@ def _rollback(r: _Run, reason: str) -> None:
                     raise _Stop(FAILED_DOWN, "failed-down", "previous compose file does not match state; no rollback")
             except (OSError, UnsafeFileError) as exc:
                 raise _Stop(FAILED_DOWN, "failed-down", f"previous release is unreadable; no rollback: {exc}") from exc
+            if r.settings.db_ca_bundle is not None and not os.path.isfile(os.path.join(previous.release_dir, COMPOSE_CA_BUNDLE)):
+                # The previous release predates the CA override, so starting it would leave web without the bundle (no RDS).
+                raise _Stop(
+                    FAILED_DOWN,
+                    "failed-down",
+                    f"{reason}; the previous release has no {COMPOSE_CA_BUNDLE} but DB_CA_BUNDLE is configured; rollback not possible",
+                )
             try:
                 _render_env(r)
             except _Stop as stop:

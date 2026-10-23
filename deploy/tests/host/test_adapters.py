@@ -194,3 +194,81 @@ def test_ensure_dir_sets_the_mode_even_under_a_umask(tmp_path):
     path = tmp_path / "run"
     adapters.RealFiles().ensure_dir(str(path), 0o700)
     assert stat.S_IMODE(os.stat(path).st_mode) == 0o700
+
+
+CA = "/etc/book-finder/global-bundle.pem"
+RELEASE = "/opt/book-finder/releases/abc/compose.prod.yaml"
+
+
+def test_efbundle_mounts_the_ca_bundle_read_only_only_when_configured():
+    runner = Recorder()
+    adapters.RealDocker(runner, ca_bundle=CA).run_efbundle("ghcr.io/x/web@sha256:" + "1" * 64, "/run/book-finder/web-1.env")
+    argv, _ = runner.calls[0]
+    assert argv[:6] == ["docker", "run", "--rm", "--pull=never", "--mount", f"type=bind,src={CA},dst={CA},readonly"]
+    assert argv[6:] == [
+        "--env-file",
+        "/run/book-finder/web-1.env",
+        "--entrypoint",
+        "/app/efbundle",
+        "ghcr.io/x/web@sha256:" + "1" * 64,
+    ]
+
+
+def test_efbundle_without_ca_bundle_has_no_mount():
+    runner = Recorder()
+    adapters.RealDocker(runner, ca_bundle=None).run_efbundle("ghcr.io/x/web@sha256:" + "1" * 64, "/run/book-finder/web-1.env")
+    assert "--mount" not in runner.calls[0][0]
+
+
+def test_compose_up_without_ca_bundle_uses_only_the_release_compose_file():
+    runner = Recorder()
+    adapters.RealCompose(runner).up(RELEASE, "book-finder", {"WEB_IMAGE": "x"})
+    argv, passed = runner.calls[0]
+    assert argv == ["docker", "compose", "-p", "book-finder", "-f", RELEASE, "up", "-d", "--remove-orphans"]
+    assert passed == {"WEB_IMAGE": "x"}
+
+
+def test_compose_up_with_ca_bundle_adds_the_override_file_and_passes_the_path_in_env():
+    runner = Recorder()
+    adapters.RealCompose(runner, ca_bundle=CA).up(RELEASE, "book-finder", {"WEB_IMAGE": "x"})
+    argv, passed = runner.calls[0]
+    override = "/opt/book-finder/releases/abc/compose.ca-bundle.yaml"
+    assert argv == [
+        "docker",
+        "compose",
+        "-p",
+        "book-finder",
+        "-f",
+        RELEASE,
+        "-f",
+        override,
+        "up",
+        "-d",
+        "--remove-orphans",
+    ]
+    assert passed == {"WEB_IMAGE": "x", "DB_CA_BUNDLE": CA}
+
+
+def test_compose_down_uses_the_same_file_set_as_up():
+    runner = Recorder()
+    adapters.RealCompose(runner, ca_bundle=CA).down(RELEASE, "book-finder", {"WEB_IMAGE": "x"})
+    argv, passed = runner.calls[0]
+    assert argv == [
+        "docker",
+        "compose",
+        "-p",
+        "book-finder",
+        "-f",
+        RELEASE,
+        "-f",
+        "/opt/book-finder/releases/abc/compose.ca-bundle.yaml",
+        "down",
+    ]
+    assert passed == {"WEB_IMAGE": "x", "DB_CA_BUNDLE": CA}
+
+
+def test_compose_config_probe_renders_only_the_file_it_is_given():
+    # The capability probe renders its own one-service file; the web override names service web and does not belong there.
+    runner = Recorder(stdout="{}")
+    adapters.RealCompose(runner, ca_bundle=CA).config_json("/run/book-finder/.probe-x/compose.yaml")
+    assert runner.calls[0][0] == ["docker", "compose", "-f", "/run/book-finder/.probe-x/compose.yaml", "config", "--format", "json"]

@@ -63,6 +63,11 @@ _PATH_KEYS = (
 )
 # The psql container runs one fixed command; the SQL is passed as a single argv element and never interpolated.
 _PSQL_SCRIPT = 'psql -X -At -v ON_ERROR_STOP=1 "$DATABASE_URL" -c "$1"'
+# Optional, with no default: absent means the bundle is not mounted anywhere (the behaviour before DB_CA_BUNDLE existed).
+_OPTIONAL_UNSET = {"DB_CA_BUNDLE"}
+# The path goes into a --mount option and a compose variable, so only characters with no separator meaning are allowed.
+_CA_PATH_RE = re.compile(r"/[A-Za-z0-9._/-]{1,512}")
+CA_BUNDLE_MAX_BYTES = 1 << 20
 
 
 class ConfigError(Exception):
@@ -96,6 +101,8 @@ class Settings:
     cron_file: str
     # The AWS CLI used for SSM and RDS. The default keeps the existing argv-based tests unchanged.
     aws_cli: str = "aws"
+    # Public CA bundle for verify-full; mounted read-only at the same path in every container that connects to RDS.
+    db_ca_bundle: str | None = None
 
 
 def _positive_finite_seconds(values: dict[str, str], key: str) -> float:
@@ -124,7 +131,7 @@ def parse_settings(text: str) -> Settings:
         key, value = match.groups()
         if key in values:
             raise ConfigError(f"duplicate key in host.conf: {key}")
-        if key not in _REQUIRED and key not in _OPTIONAL:
+        if key not in _REQUIRED and key not in _OPTIONAL and key not in _OPTIONAL_UNSET:
             raise ConfigError(f"unknown key in host.conf: {key}")
         if _VALUE_RE.fullmatch(value) is None:
             raise ConfigError(f"value for {key} contains characters that are not allowed")
@@ -144,6 +151,8 @@ def parse_settings(text: str) -> Settings:
     for key in _PATH_KEYS:
         if not values[key].startswith("/"):
             raise ConfigError(f"{key} must be an absolute path")
+    if "DB_CA_BUNDLE" in values and _CA_PATH_RE.fullmatch(values["DB_CA_BUNDLE"]) is None:
+        raise ConfigError("DB_CA_BUNDLE must be an absolute path made of letters, digits, '.', '_', '-' and '/'")
     if not is_digest_ref(values["PSQL_IMAGE"]):
         raise ConfigError("PSQL_IMAGE must be pinned by digest (<repository>@sha256:<digest>)")
     timeout = _positive_finite_seconds(values, "LOCK_TIMEOUT_S")
@@ -173,6 +182,7 @@ def parse_settings(text: str) -> Settings:
         crawler_runner=values["CRAWLER_RUNNER"],
         cron_file=values["CRON_FILE"],
         aws_cli=values["AWS_CLI"],
+        db_ca_bundle=values.get("DB_CA_BUNDLE"),
     )
 
 
@@ -196,6 +206,35 @@ def check_root_owned(path: str) -> None:
         raise ConfigError(f"AWS_CLI must be root-owned and not writable by group or others: {path}")
 
 
+def check_ca_bundle(path: str) -> None:
+    """Refuses a CA bundle the host must not mount: it must be a plain, public file of at most one mebibyte.
+
+    Why lstat: a symlink is refused rather than followed, so the file that is mounted is the file that was checked.
+    Why o+r: the containers run as a non-root user (uid 1654 for web, 10001 for the crawler) and must read the file.
+    """
+    try:
+        info = os.lstat(path)
+    except FileNotFoundError as exc:
+        raise ConfigError(f"DB_CA_BUNDLE does not exist: {path}") from exc
+    except OSError as exc:
+        raise ConfigError(f"DB_CA_BUNDLE cannot be inspected: {exc}") from exc
+    if stat.S_ISLNK(info.st_mode):
+        raise ConfigError("DB_CA_BUNDLE must not be a symbolic link")
+    if not stat.S_ISREG(info.st_mode):
+        raise ConfigError("DB_CA_BUNDLE must be a regular file")
+    if not info.st_mode & stat.S_IROTH:
+        raise ConfigError("DB_CA_BUNDLE must be readable by others (mode 0644): the container user must read it")
+    if info.st_size > CA_BUNDLE_MAX_BYTES:
+        raise ConfigError(f"DB_CA_BUNDLE is larger than {CA_BUNDLE_MAX_BYTES} bytes")
+
+
+def ca_bundle_mount_args(path: str | None) -> list[str]:
+    """The docker --mount argument that places the bundle read-only at the same path; nothing when unset."""
+    if path is None:
+        return []
+    return ["--mount", f"type=bind,src={path},dst={path},readonly"]
+
+
 def load_settings(path: str | Path = DEFAULT_CONFIG_PATH) -> Settings:
     try:
         data = read_regular_file(path, 65536)
@@ -204,6 +243,8 @@ def load_settings(path: str | Path = DEFAULT_CONFIG_PATH) -> Settings:
     except UnsafeFileError as exc:
         raise ConfigError(str(exc)) from exc
     settings = parse_settings(data.decode("utf-8"))
+    if settings.db_ca_bundle is not None:
+        check_ca_bundle(settings.db_ca_bundle)
     if os.geteuid() == 0:
         try:
             check_root_owned(settings.aws_cli)
@@ -262,6 +303,7 @@ def make_psql_query(runner: Runner, settings: Settings) -> Callable[[str], str]:
                 "run",
                 "--rm",
                 "--pull=never",
+                *ca_bundle_mount_args(settings.db_ca_bundle),
                 "-e",
                 "DATABASE_URL",
                 "--entrypoint",

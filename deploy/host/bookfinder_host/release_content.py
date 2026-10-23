@@ -16,6 +16,9 @@ from bookfinder_host.safefile import UnsafeFileError, read_regular_file
 MAX_RELEASE_BYTES = 2 * 1024 * 1024
 MAX_COMPOSE_BYTES = 256 * 1024
 COMPOSE_FILE = "compose.prod.yaml"
+# Shipped by releases that can mount the CA bundle for verify-full (DB_CA_BUNDLE); a host that is configured with the
+# bundle refuses a release without it before anything changes.
+COMPOSE_CA_BUNDLE = "compose.ca-bundle.yaml"
 REQUIRED_FILES = (COMPOSE_FILE, "migrations.txt", "RELEASE_API")
 
 
@@ -26,6 +29,7 @@ class ReleaseRejected(Exception):
 @dataclass(frozen=True)
 class ReleaseContent:
     compose_sha256: str
+    ca_bundle_override: bool
 
 
 def validate_tree(root: Path) -> ReleaseContent:
@@ -52,7 +56,7 @@ def validate_tree(root: Path) -> ReleaseContent:
                 raise ReleaseRejected(f"{name} is not a regular file")
         except FileNotFoundError as exc:
             raise ReleaseRejected(f"{name} is missing") from exc
-    return ReleaseContent(compose_sha256=compose_sha256_of(root))
+    return ReleaseContent(compose_sha256=compose_sha256_of(root), ca_bundle_override=os.path.lexists(root / COMPOSE_CA_BUNDLE))
 
 
 def compose_sha256_of(release_dir: str | os.PathLike[str]) -> str:
