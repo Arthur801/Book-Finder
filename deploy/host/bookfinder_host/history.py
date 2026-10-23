@@ -5,6 +5,7 @@ Why: systemd forgets transient units and their journals, so the unit state canno
 these records, with the unit state used only where the records are silent.
 """
 
+import hashlib
 import json
 import os
 from dataclasses import dataclass
@@ -169,21 +170,45 @@ def unresolved_indeterminate(records: Records, unit_states: dict[str, str]) -> l
     return unresolved
 
 
-def repair_unterminated_tail(path: str | os.PathLike[str]) -> int:
-    """Drops an incomplete final line left by a crash during append; returns the number of bytes removed.
+def _fsync_dir(directory: str) -> None:
+    fd = os.open(directory, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
 
-    Why: the next append would otherwise join its record to the fragment and turn both into one damaged line. Only an
-    unterminated tail is removed; a damaged line that ends with a newline is left for a person to inspect.
+
+def preserve_and_truncate_tail(path: str | os.PathLike[str], run_id: str, stamp: str) -> dict[str, Any]:
+    """Keeps the exact bytes of an incomplete final line in a sidecar file, then removes them from history.
+
+    Why: history is the durable record, so dropped bytes must stay recoverable. The sidecar is created exclusively with
+    mode 0600, written and fsynced (file and directory) before history is truncated; if any step before the truncation
+    fails, history is unchanged. Returns the sidecar path, byte count and sha256 for the operator record.
     """
     name = os.fspath(path)
     data = read_regular_file(name, MAX_HISTORY_BYTES)
     cut = data.rfind(b"\n") + 1
-    removed = len(data) - cut
-    if removed:
-        os.truncate(name, cut)
-        fd = os.open(name, os.O_RDONLY)
+    fragment = data[cut:]
+    if not fragment:
+        return {"path": None, "bytes": 0, "sha256": None}
+    directory = os.path.dirname(os.path.abspath(name))
+    sidecar = f"{name}.tail-{stamp}-{run_id}"
+    fd = os.open(sidecar, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+    try:
         try:
+            view = memoryview(fragment)
+            while view:
+                view = view[os.write(fd, view) :]
             os.fsync(fd)
-        finally:
+        except BaseException:
             os.close(fd)
-    return removed
+            fd = -1
+            os.unlink(sidecar)
+            raise
+    finally:
+        if fd >= 0:
+            os.close(fd)
+    _fsync_dir(directory)
+    os.truncate(name, cut)
+    _fsync_dir(directory)
+    return {"path": sidecar, "bytes": len(fragment), "sha256": hashlib.sha256(fragment).hexdigest()}

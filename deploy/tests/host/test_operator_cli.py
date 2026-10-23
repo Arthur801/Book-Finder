@@ -5,8 +5,11 @@ and every success checks the state file, the history record and the exit code to
 """
 
 import dataclasses
+import hashlib
 import io
 import json
+import os
+import stat
 from pathlib import Path
 
 import pytest
@@ -584,3 +587,59 @@ def test_yes_i_verified_must_equal_the_value_shown(tmp_path):
     assert code == 2
     code, _, _ = run_admin(world, ["resolve-run", "1234-5", "--result", "drift", "--yes-i-verified", "1234-5", *REASON])
     assert code == 0
+
+
+FRAGMENT = b'{"run_id":"9999-1","pha'
+SIDECAR_STAMP = "20261023T000000Z"  # NOW with the separators removed, as operator_cli builds it
+
+
+def _tail_world(tmp_path):
+    world = make_world(tmp_path, state=DEFAULT_STATE)
+    start_run(world)
+    with open(world.settings.history_file, "ab") as handle:
+        handle.write(FRAGMENT)
+    return world
+
+
+def test_resolve_keeps_the_removed_bytes_in_a_sidecar(tmp_path):
+    world = _tail_world(tmp_path)
+    code, _, err = run_admin(world, ["resolve-run", "1234-5", "--result", "drift", *REASON], typed="1234-5")
+    assert code == 0, err
+    record = operator_records(world)[-1]
+    assert record["action"] == "resolve-run"
+    tail = record["tail_repair"]
+    assert tail["bytes"] == len(FRAGMENT)
+    assert tail["sha256"] == hashlib.sha256(FRAGMENT).hexdigest()
+    sidecar = Path(tail["path"])
+    assert sidecar.name == f"history.jsonl.tail-{SIDECAR_STAMP}-1234-5"
+    assert sidecar.read_bytes() == FRAGMENT
+    assert stat.S_IMODE(sidecar.stat().st_mode) == 0o600
+    assert hi.read(world.settings.history_file).tail_corrupt is False
+
+
+def test_truncation_happens_only_after_the_sidecar_is_durable(tmp_path, monkeypatch):
+    world = _tail_world(tmp_path)
+    real_truncate = os.truncate
+    seen = {}
+
+    def checked_truncate(path, length):
+        seen["sidecars"] = [p.read_bytes() for p in Path(path).parent.glob("history.jsonl.tail-*")]
+        real_truncate(path, length)
+
+    monkeypatch.setattr(os, "truncate", checked_truncate)
+    code, _, err = run_admin(world, ["resolve-run", "1234-5", "--result", "drift", *REASON], typed="1234-5")
+    assert code == 0, err
+    assert seen["sidecars"] == [FRAGMENT]
+
+
+def test_a_failed_sidecar_write_leaves_history_untouched(tmp_path):
+    world = _tail_world(tmp_path)
+    before = Path(world.settings.history_file).read_bytes()
+    # A directory where the sidecar must be created makes the exclusive create fail before anything is removed.
+    (Path(world.settings.history_file).parent / f"history.jsonl.tail-{SIDECAR_STAMP}-1234-5").mkdir()
+    code, _, err = run_admin(world, ["resolve-run", "1234-5", "--result", "drift", *REASON], typed="1234-5")
+    assert code == 3
+    assert "filesystem error" in err
+    assert Path(world.settings.history_file).read_bytes() == before
+    assert not [e for e in hi.read(world.settings.history_file).entries if e.get("phase") == "completed"]
+    assert operator_records(world) == []

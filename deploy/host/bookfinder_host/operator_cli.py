@@ -158,6 +158,10 @@ def main(
     except Refusal as refusal:
         err.write(f"refused: {refusal.reason}\n")
         return refusal.code
+    except OSError as exc:
+        # A filesystem failure leaves history or state as it was; report it instead of a traceback.
+        err.write(f"refused: filesystem error, nothing further was changed: {exc}\n")
+        return DRIFT
     except cfg.ConfigError as exc:
         err.write(f"configuration error: {exc}\n")
         return BAD_INPUT
@@ -203,19 +207,18 @@ def _confirm(ctx: Context, expected: str, prompt: str) -> None:
         raise Refusal(BAD_INPUT, "confirmation did not match; nothing was changed")
 
 
-def _record(ctx: Context, action: str, before, after) -> None:
-    hi.append(
-        ctx.deps.settings.history_file,
-        {
-            "phase": "operator",
-            "action": action,
-            "at": ctx.deps.clock.now(),
-            "operator": ctx.operator,
-            "reason": ctx.args.reason.strip(),
-            "before": before,
-            "after": after,
-        },
-    )
+def _record(ctx: Context, action: str, before, after, extra: dict | None = None) -> None:
+    record = {
+        "phase": "operator",
+        "action": action,
+        "at": ctx.deps.clock.now(),
+        "operator": ctx.operator,
+        "reason": ctx.args.reason.strip(),
+        "before": before,
+        "after": after,
+    }
+    record.update(extra or {})
+    hi.append(ctx.deps.settings.history_file, record)
 
 
 def _report(ctx: Context, action: str, **fields) -> int:
@@ -446,9 +449,11 @@ def _resolve(ctx: Context) -> int:
     except (st.StateMissing, st.StateCorrupt):
         pass
     _confirm(ctx, run_id, f"record run {run_id} as {args.result}")
-    removed = 0
+    tail = None
     if records.tail_corrupt:
-        removed = hi.repair_unterminated_tail(deps.settings.history_file)
+        # The fragment is kept in a sidecar and only then removed; a failure here leaves history untouched.
+        stamp = re.sub(r"[-:]", "", deps.clock.now())
+        tail = hi.preserve_and_truncate_tail(deps.settings.history_file, run_id, stamp)
     result = args.result
     hi.append(
         deps.settings.history_file,
@@ -463,10 +468,13 @@ def _resolve(ctx: Context) -> int:
             reason=args.reason.strip(),
         ),
     )
+    if tail is not None and tail["path"] is not None:
+        _record(ctx, "resolve-run", state_summary or None, {"run_id": run_id, "result": result}, {"tail_repair": tail})
     if state_summary.get("dirty"):
         ctx.err.write("reminder: the schema is still dirty; use reconcile-schema (N2)\n")
     if state_summary.get("crawler_paused"):
         ctx.err.write("reminder: the crawler is still paused; use resume-crawler (N3)\n")
+    removed = 0 if tail is None else tail["bytes"]
     return _report(ctx, "resolve-run", run_id=run_id, result=result, truncated_tail_bytes=removed)
 
 
