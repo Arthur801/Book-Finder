@@ -95,6 +95,12 @@ def test_timeout_uses_injected_clock_so_tests_do_not_sleep(tmp_path, monkeypatch
         os.close(blocker)
 
 
+@pytest.mark.parametrize("timeout_s", [float("nan"), float("inf"), float("-inf"), 0.0, -1.0])
+def test_rejects_non_finite_or_non_positive_timeout(tmp_path, timeout_s):
+    with pytest.raises(ValueError), locks.exclusive(tmp_path / "deploy.lock", timeout_s=timeout_s, clock=FakeClock()):
+        pass
+
+
 def test_lock_file_symlink_is_refused(tmp_path):
     real = tmp_path / "real.lock"
     real.write_text("")

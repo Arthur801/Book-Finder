@@ -3,7 +3,7 @@
 Why: this module is the only thing an SSH key can reach. The grammar accepts exactly three commands with fixed fields,
 the plan key may run only plan and status, and every deploy gate fails with a documented code before anything on the
 host changes. A deploy runs as a transient unit (N7): the SSH side only checks, launches and follows, while the unit
-body takes the lock, writes the started record and runs the state machine in machine.py.
+body refuses a reused run id, writes the started record, takes the lock and runs the state machine in machine.py.
 """
 
 import io
@@ -36,8 +36,8 @@ DEFAULT_CONFIG = Path(cfg.DEFAULT_CONFIG_PATH)
 DEFAULT_ENTRY = Path(__file__).resolve().parent.parent / "deploy-entry"
 # Passed by systemd-run to the entry script; only accepted when INVOCATION_ID shows systemd started the process.
 UNIT_BODY_FLAG = "--unit-body"
-# The SSH side polls every 2 s. A unit that is gone with no started record gets 30 s before "not-started" is final,
-# because a unit can exit before it ever writes its started record.
+# The SSH side polls every 2 s. A run that is not active and has no started record reads "not-started"; the SSH side
+# accepts that only after 30 s, because the unit may still be starting or may have exited before writing started.
 FOLLOW_INTERVAL_S = 2.0
 NOT_STARTED_GRACE_S = 30.0
 # The db-maintenance lock is held through a migration, which may include a long snapshot and a slow efbundle.
@@ -477,7 +477,8 @@ def _check_deploy_gates(command: DeployCommand, state: st.State, deps: Deps) -> 
 # deploy
 #
 # The SSH side (run_deploy_ssh) only checks, launches and follows; it changes nothing on the host itself. The unit
-# (run_deploy_unit) holds the deploy lock, writes started, runs the gates, and hands over to the state machine.
+# (run_deploy_unit) refuses a reused run id, writes started before any lock or state read, then takes the deploy lock,
+# runs the gates and hands over to the state machine. Every known outcome after started writes one completed record.
 
 
 def run_deploy_ssh(command: DeployCommand, deps: Deps, out: TextIO, err: TextIO) -> int:
@@ -559,31 +560,26 @@ def _report_final(out: TextIO, run_id: str, status: str, code: int) -> int:
 
 
 def run_deploy_unit(command: DeployCommand, deps: Deps, out: TextIO, err: TextIO) -> int:
-    try:
-        with locks.exclusive(deps.settings.deploy_lock_file, deps.settings.lock_timeout_s, deps.clock):
-            return _deploy_locked(command, deps, out, err)
-    except locks.LockTimeout as exc:
-        err.write(f"busy: {exc}\n")
-        return DRIFT
+    """The unit body (N7). Once started is appended, every known outcome writes exactly one completed record.
 
-
-def _deploy_locked(command: DeployCommand, deps: Deps, out: TextIO, err: TextIO) -> int:
-    state = _read_state(deps, err)
-    if state is None:
-        return DRIFT
-    try:
-        history = hi.read(deps.settings.history_file)
-    except hi.HistoryCorrupt:
-        history = None
-    if history is not None and any(entry.get("run_id") == command.run_id for entry in history.entries):
-        err.write(f"run id already used: {command.run_id}\n")
-        return DRIFT
-    blocked = runs.indeterminate_reasons(deps.settings, deps.runner)
-    if blocked:
-        err.write(f"indeterminate runs block deploy: {', '.join(blocked)}\n")
-        return INDETERMINATE
+    Order: refuse a run id that has any record (writes nothing); append started and fsync it before any lock or state
+    read; then take the deploy lock, read the state, check the other runs, run the gates and the state machine. Only an
+    unexpected exception leaves a started record without a completed one, and that run is then indeterminate.
+    """
     run_id = command.run_id
-    # started is fsynced before any change (N7); from here every known outcome writes exactly one completed record.
+    try:
+        records = hi.read(deps.settings.history_file)
+    except hi.HistoryCorrupt as exc:
+        err.write(f"history is unreadable; nothing was written: {exc}\n")
+        return INDETERMINATE
+    # A duplicate execution must not write: the outcome of this run id is whatever the first execution recorded.
+    if any(entry.get("run_id") == run_id for entry in records.entries):
+        err.write(f"run id already used: {run_id}\n")
+        return DRIFT
+    if records.tail_corrupt:
+        # Appending after an incomplete final line would make that line a damaged middle line, so nothing is written.
+        err.write("history final line is incomplete; nothing was written\n")
+        return INDETERMINATE
     hi.append(
         deps.settings.history_file,
         hi.started_record(
@@ -594,6 +590,38 @@ def _deploy_locked(command: DeployCommand, deps: Deps, out: TextIO, err: TextIO)
             expected_revision=command.expect_revision,
         ),
     )
+    entered = False
+    try:
+        with locks.exclusive(deps.settings.deploy_lock_file, deps.settings.lock_timeout_s, deps.clock):
+            entered = True
+            return _deploy_locked(command, deps, out, err)
+    except locks.LockTimeout as exc:
+        if entered:
+            raise  # not a lock-acquisition failure: the run may have changed something, so it stays indeterminate
+        return machine.finish_run(deps, out, err, run_id, None, DRIFT, "drift", f"busy: {exc}")
+
+
+def _deploy_locked(command: DeployCommand, deps: Deps, out: TextIO, err: TextIO) -> int:
+    """Runs under the deploy lock, after started was written. Every return here is a known outcome with completed."""
+    run_id = command.run_id
+    try:
+        state = st.load_state(deps.settings.state_file)
+    except st.StateMissing:
+        return machine.finish_run(deps, out, err, run_id, None, DRIFT, "drift", "state is missing: bootstrap required (N6); CD never creates state itself")
+    except st.StateCorrupt as exc:
+        return machine.finish_run(deps, out, err, run_id, None, BAD_INPUT, RESULT_BY_EXIT[BAD_INPUT], f"state is unreadable: {exc}")
+    blocked = runs.indeterminate_reasons(deps.settings, deps.runner, exclude_run_id=run_id)
+    if blocked:
+        return machine.finish_run(
+            deps,
+            out,
+            err,
+            run_id,
+            state,
+            INDETERMINATE,
+            RESULT_BY_EXIT[INDETERMINATE],
+            f"indeterminate runs block deploy: {', '.join(blocked)}",
+        )
     try:
         target = _check_deploy_gates(command, state, deps)
     except GateFailure as failure:

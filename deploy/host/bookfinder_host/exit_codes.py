@@ -14,6 +14,8 @@ PARTIAL_CRAWLER = 7
 INDETERMINATE = 8
 
 # History stores a result name next to the exit code; these names are part of the on-disk format.
+# "blocked-indeterminate" is written by a unit whose run was refused because another run is indeterminate (exit 8).
+RESULT_BLOCKED_INDETERMINATE = "blocked-indeterminate"
 RESULT_BY_EXIT = {
     OK: "success",
     ROLLED_BACK: "rolled-back",
@@ -23,5 +25,5 @@ RESULT_BY_EXIT = {
     FAILED_DOWN: "failed-down",
     DIRTY: "rejected",
     PARTIAL_CRAWLER: "partial-crawler",
-    INDETERMINATE: "rejected",
+    INDETERMINATE: RESULT_BLOCKED_INDETERMINATE,
 }

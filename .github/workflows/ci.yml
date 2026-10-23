@@ -114,7 +114,7 @@ jobs:
       - run: python -m pytest deploy/tests -q
 
       # These scripts run in the Docker job (release manifest, smoke tests and migration compat check); shellcheck catches shell mistakes earlier.
-      - run: shellcheck deploy/release/build-manifest.sh deploy/smoke/web-smoke.sh deploy/lib/manifest.sh deploy/lib/smoke.sh deploy/migration-test/compat.sh
+      - run: shellcheck deploy/release/build-manifest.sh deploy/smoke/web-smoke.sh deploy/lib/manifest.sh deploy/lib/smoke.sh deploy/lib/schema_dump.sh deploy/migration-test/compat.sh
 
   dotnet:
     name: .NET build and tests
@@ -165,22 +165,33 @@ jobs:
       # Without the shared key volume, antiforgery must be rejected after a container replacement.
       - run: bash deploy/smoke/web-smoke.sh book-finder-web:ci --control-no-keys
 
-      # Pushes to main have no pending migration change to check; only PRs that touch migrations run the compat check.
+      # Pushes to main have nothing to compare; PRs run the compat check when migrations or the code that checks them change.
+      # Checker-only changes compare equal manifests (in-sync), which still rebuilds, seeds, checks data and schema, and smokes,
+      # so a PR that breaks the checker cannot stay green. Dockerfile and .dockerignore change the images the check builds.
       - name: Detect migration changes
         id: migration-detect
         if: github.event_name == 'pull_request'
         run: |
           base_commit=$(git merge-base origin/main HEAD)
-          if git diff --quiet "$base_commit" HEAD -- Infrastructure/Persistence/Migrations; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
+          compat_paths=(
+            Infrastructure/Persistence/Migrations
+            deploy/migration-test
+            deploy/lib
+            deploy/smoke
+            deploy/release
+            Dockerfile
+            .dockerignore
+          )
+          if git diff --quiet "$base_commit" HEAD -- "${compat_paths[@]}"; then
+            echo "run_compat=false" >> "$GITHUB_OUTPUT"
           else
-            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "run_compat=true" >> "$GITHUB_OUTPUT"
           fi
 
       # The base image is built from the merge base, so the check upgrades what production runs today to this PR's schema.
       - name: Migration compat check
         id: compat
-        if: steps.migration-detect.outputs.changed == 'true'
+        if: steps.migration-detect.outputs.run_compat == 'true'
         run: |
           base_commit=$(git merge-base origin/main HEAD)
           git worktree add --detach "$RUNNER_TEMP/base" "$base_commit"
@@ -198,7 +209,7 @@ jobs:
 
       # Runs even when compat fails, so the reviewer sees which mandatory check broke.
       - name: Summarize migration compat report
-        if: always() && steps.migration-detect.outputs.changed == 'true'
+        if: always() && steps.migration-detect.outputs.run_compat == 'true'
         run: |
           python3 - "$RUNNER_TEMP/compat-report.json" >> "$GITHUB_STEP_SUMMARY" <<'PY'
           import json
@@ -224,7 +235,7 @@ jobs:
           PY
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: always() && steps.migration-detect.outputs.changed == 'true'
+        if: always() && steps.migration-detect.outputs.run_compat == 'true'
         with:
           name: compat-report
           path: ${{ runner.temp }}/compat-report.json

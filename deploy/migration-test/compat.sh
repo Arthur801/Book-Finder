@@ -37,6 +37,8 @@ repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 source "$repo_root/deploy/lib/manifest.sh"
 # shellcheck source=deploy/lib/smoke.sh
 source "$repo_root/deploy/lib/smoke.sh"
+# shellcheck source=deploy/lib/schema_dump.sh
+source "$repo_root/deploy/lib/schema_dump.sh"
 db_image=$(smoke_db_image "$repo_root")
 
 suffix=$(smoke_random_hex 6)
@@ -208,11 +210,11 @@ fingerprint_sql() {
   printf ';\n'
 }
 
-# Schema text for comparing two databases. pg_dump 17.6+ prints a random \restrict key per run, so those lines are dropped
-# with the comments and the session SET lines.
+# Schema text for comparing two databases. Normalization and failure rules live in deploy/lib/schema_dump.sh; on failure
+# the reason goes to stderr. pg_dump 17.6+ prints a random \restrict key per run, which the helper drops.
 dump_schema() {
-  docker exec -e PGPASSWORD "$db" pg_dump -h 127.0.0.1 -U book_finder_dev -d "$1" --schema-only --no-owner --no-privileges \
-    | grep -vE '^(--|\\restrict|\\unrestrict|SET |SELECT pg_catalog\.set_config|$)' || true
+  schema_dump_normalized "$1" docker exec -e PGPASSWORD "$db" pg_dump -h 127.0.0.1 -U book_finder_dev -d "$1" \
+    --schema-only --no-owner --no-privileges
 }
 
 # Step 1: manifests. Everything here runs without touching the database, so a divergent A stops before any DB work.
@@ -433,8 +435,15 @@ check_schema_matches_fresh() {
     record fail "schema matches a fresh install" "target efbundle failed on an empty database"
     return 0
   fi
-  dump_schema book_finder >"$upgraded"
-  dump_schema book_finder_fresh >"$fresh"
+  local dump_err
+  if ! dump_err=$(dump_schema book_finder 2>&1 >"$upgraded"); then
+    record fail "schema matches a fresh install" "$dump_err"
+    return 0
+  fi
+  if ! dump_err=$(dump_schema book_finder_fresh 2>&1 >"$fresh"); then
+    record fail "schema matches a fresh install" "$dump_err"
+    return 0
+  fi
   if diff -u "$upgraded" "$fresh" >"$diff_out"; then
     record pass "schema matches a fresh install" "$(wc -l <"$upgraded" | tr -d ' ') normalized schema line(s)"
   else

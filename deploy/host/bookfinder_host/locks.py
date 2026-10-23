@@ -5,6 +5,7 @@ Polling with LOCK_NB and an injected clock gives a deadline that tests can drive
 """
 
 import fcntl
+import math
 import os
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -20,6 +21,9 @@ class LockTimeout(Exception):
 
 @contextmanager
 def _flocked(path: str | os.PathLike[str], mode: int, timeout_s: float, clock: Clock) -> Iterator[None]:
+    # A NaN deadline never expires, so a non-finite or non-positive timeout must be refused before any wait starts.
+    if not math.isfinite(timeout_s) or timeout_s <= 0:
+        raise ValueError(f"timeout_s must be a finite number greater than zero, got {timeout_s!r}")
     # O_NOFOLLOW makes a symlink planted at the lock path fail the open instead of locking its target.
     fd = os.open(os.fspath(path), os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
     try:
