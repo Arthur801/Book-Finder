@@ -1,7 +1,7 @@
 """Shared fixtures: a throwaway pgvector PostgreSQL with the EF Core schema.
 
 - The container is managed by Testcontainers (``testcontainers[postgres]``, image
-  ``pgvector/pgvector:pg17``). It is removed when the session ends, and also when startup fails,
+  ``pgvector/pgvector:0.8.7-pg17``). It is removed when the session ends, and also when startup fails,
   because the context manager calls ``stop()`` on a failed ``start()``. Ryuk removes anything left
   behind if pytest is killed. Tests never use DATABASE_URL or any real/dev database.
 - The EF schema is generated BEFORE the container starts, so a dotnet/EF failure never leaves a
@@ -24,7 +24,7 @@ import pytest
 from testcontainers.community.postgres import PostgresContainer
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-PG_IMAGE = "pgvector/pgvector:pg17"
+PG_IMAGE = "pgvector/pgvector:0.8.7-pg17"
 PG_USER = "crawler_test"
 PG_PASSWORD = "crawler_test"
 PG_DATABASE = "crawler_test"

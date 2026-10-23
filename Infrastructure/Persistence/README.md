@@ -42,7 +42,7 @@ existing development account is used for migrations.
 ## Database tests
 
 `tests/DatabaseIntegration` is an xUnit project. It needs only a running Docker
-engine: Testcontainers starts a throwaway `pgvector/pgvector:pg17` container,
+engine: Testcontainers starts a throwaway `pgvector/pgvector:0.8.7-pg17` container,
 applies all migrations, and removes the container afterwards. No User Secrets or
 local database are used.
 
