@@ -76,9 +76,14 @@
 - 人工指令採用 deploy 的 started/completed 協定（S8）：先寫 `operator-started` 並 fsync，才改動任何東西，最後寫 `operator-completed`。
 - 只有能證明「完全沒改動」才可寫 failed（S10）。其他情況維持 indeterminate，直到 `resolve-run`。
 - `install-host`：版本目錄先完整寫入並 fsync，再以 rename 替換 symlink（S9）；舊版普通目錄以 `renameat2(RENAME_EXCHANGE)` 替換，不支援時拒絕。
+- `bootstrap-state` 會讀取 `crawler.conf`，要求恰好一行 `CRAWLER_IMAGE=<repository>@<digest>`，且 digest 與 `--crawler-digest` 相同；否則拒絕（N6）。
+- `plan` 在 crawler 為 paused 時回報 `blocked` 並以 exit 3 結束，讓 CD 在核准前就停下；unit 的 step 0 本來就會拒絕這種部署（見下方「刻意偏離」）。
+- 刻意偏離規格（詳見 `deploy/README.md` §7.1）：(a) in-sync 部署的 crawler 步驟失敗會設 paused，使 cron 不會執行半更新的 crawler；(b) `reconcile-schema` 與 `resume-crawler --adopt-release` 在 host 上無法驗證 image attestation，操作者必須先確認 digest 來源（已列入 L4 檢查清單）。
+- CLI 旗標 `--rebuild-web-digest` 與 `--crawler-digest` 是計畫之外新增的：host 上只有 tag 無法識別 image digest，因此需要明確傳入。
 
 ### CD workflow（M4）
 
+- M4 review 修正（另見 #98）：build 的 commit point 改為 staging tag → attest → verify → release tag；workflow 改為 `--detach` 啟動 deploy，之後只 follow。這些修正正在 M4 分支上實作，本報告不記錄其測試數。
 - Tag 與 dispatch 兩種觸發。guard 驗證 tag 格式，並確認 commit 在 `origin/main` 上；dispatch 額外要求 `ref == main` 且 release 已 published。
 - build：沿用既有 image 前必須通過 attestation（I7）；`publish-release` 採用 draft → upload → publish，已發布的 release 必須與本次 build 一致。
 - plan 與 compat 在核准前執行；`deploy` job 只在 `production` 核准後連到 host。
@@ -155,7 +160,44 @@
 - **整合測試尚未在 CI 執行**：`BOOKFINDER_IT=1` 需要本機 Docker，目前是人工執行。
 - **drift 專用的 reconcile 指令尚不存在**：程式只回報 drift 並拒絕部署。runtime drift 的人工修復程序已寫入 `deploy/README.md` §5.4（以 state 記錄的 release 與 compose 檔重新 `compose up`，並先驗證 compose 雜湊）；schema drift 一律停止並走 L4 調查。此程序是待辦的 reconcile 指令的替代方案，不是程式化的解法。
 - **snapshot 保留**：程式不刪除 snapshot；保留數量與清理由操作者手動處理。
+- **程式規模（Code Review 未處理的 smell）**：`operator_cli.py`（約 1060 行）與 `cd_release.py`（約 950 行）混合多個子命令，未拆分；拆分會搬移大量已測試的程式碼，本次不做，可於之後獨立處理。
+- **plan job 的 12 個字串 output**：未改為結構化傳遞，會改動 workflow 介面。
+- **plan 與 deploy job 重複的 SSH 設定**：未抽成共用步驟。
+- **刻意偏離規格（須在 EC2 驗證後才算定案）**：in-sync 的 crawler 失敗會 pause；`reconcile-schema` 與 `resume-crawler --adopt-release` 的 provenance 由操作者確認（`deploy/README.md` §7.1）。
 
 ## Code Review 與修正
 
-（兩軸 review 後補上）
+依 `code-review` 的兩軸（Standards、Spec）各自審查，發現與處理如下。
+
+### Standards 軸
+
+| 等級 | 發現 | 結果 |
+|---|---|---|
+| hard | 規格文件引用實作報告（`deploy/README.md` 兩處、ADR-006 一處），報告不是 authority | 已修正：把需要的事實直接寫進規格（Immutable releases 行為附 GitHub 官方文件 URL；`systemd-run` 只以 `--user` manager 驗證這件事直接寫明）；規格不再引用報告 |
+| hard-ish | 程式註解引用不在 repository 內的計畫（「plan section …」、「plan §…」）與里程碑標記（M3a/M3b/M3c） | 已修正：改為引用 `deploy/README.md` §1.1、§5 等在 repository 內的文件，或直接寫出理由 |
+| style | 不變式編號（N2、N3、N4、N6、N7、S4、S5 等）只有編號、沒有理由 | 已修正：註解改以一句話寫出理由，編號保留以便對照 |
+| smell | `run-crawler.sh` 以內嵌 Python 讀取 state 的欄位名稱，與 host 的 schema 是兩份 | 已處理：新增契約測試 `deploy/tests/host/test_run_crawler_contract.py`，用 host 套件寫出 paused、dirty、clean 三種 state 並實際執行 wrapper，欄位改名時會在測試失敗 |
+| smell | `operator_cli.py`（約 1060 行）與 `cd_release.py`（約 950 行）混合多個子命令（Divergent Change） | 未處理：與規模與風險有關，改拆分需要大範圍搬移；列入未解決事項，可於之後拆分 |
+| smell | plan job 有 12 個字串 output（Data Clumps） | 未處理：改為結構化傳遞會改動 workflow 介面；列入未解決事項 |
+| smell | plan 與 deploy job 各自重複 SSH 設定 | 未處理：抽成 composite action 的風險與收益未評估；列入未解決事項 |
+
+### Spec 軸
+
+| 發現 | 結果 |
+|---|---|
+| `plan` 沒有反映 crawler paused，CD 要到核准後才會在 unit 的 step 0 失敗 | 已修正：paused 時 plan 回報 `blocked`（含 release 與 since）並以 exit 3 結束；`cd_release.py` 在 `plan-outputs` 拒絕 `blocked` 非空的結果，summary 會列出原因 |
+| `bootstrap-state` 沒有讀取 `crawler.conf` | 已修正：要求恰好一行 `CRAWLER_IMAGE=<repository>@<digest>`，且 digest 等於 `--crawler-digest`，否則拒絕並列出兩個值 |
+| in-sync 部署的 crawler 步驟失敗會設 paused（規格 N3 寫的是只有 forward 設 paused） | 刻意偏離，已寫入 `deploy/README.md` §7.1 與本報告「實作思路」。schema-ahead 不執行 crawler 步驟（S7），不適用此偏離 |
+| `reconcile-schema` 與 `resume-crawler --adopt-release` 無法驗證 attestation | 記為操作者責任，已寫入 `deploy/README.md` §5.2、§5.3 的 L4 檢查清單 |
+| 計畫之外新增的 CLI 旗標（`--rebuild-web-digest`、`--crawler-digest`） | 保留。host 上只有 tag 無法識別 image digest |
+| 範圍新增（sudo `env_keep` 診斷、Compose raw probe、host-versions） | 來自 review 輪次，已記錄於本報告與 `deploy/README.md` |
+
+### 本輪修正後的驗證
+
+| 指令 | 結果 |
+|---|---|
+| `.venv/bin/python -m pytest .github/scripts/tests deploy/tests -q`（Python 3.14） | 629 passed, 6 skipped |
+| `uv run --no-project --python 3.12 --with pytest==9.1.1 python -m pytest deploy/tests -q` | 566 passed, 6 skipped |
+| `crawler/tests/test_deploy.py`（在 `crawler` 目錄執行） | 12 passed |
+| `ruff check --config deploy/ruff.toml deploy`、`ruff format --check` | 通過 |
+| `shellcheck` on `crawler/deploy/run-crawler.sh`、`deploy/lib/*.sh`、`deploy/migration-test/*.sh` | 無新增警告；`run-crawler.sh` 第 19 行 SC1090（非常數 `source`）在本次修改前即存在，未修改 |
