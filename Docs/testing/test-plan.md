@@ -70,7 +70,7 @@ CI 由 `.github/workflows/` 定義，PR 與 push 到 `main` 時執行；CD（`cd
 
 - `CI` workflow（同時以 `workflow_call` 被 CD 呼叫，於發布前測試同一個 tag）：
   - `.NET build and tests`：build 後執行所有 .NET 測試（整合測試以 Testcontainers 啟動 pgvector），trx 結果上傳為 artifact。
-  - `Crawler tests`：安裝 .NET SDK 以產生 EF schema（`tests/conftest.py`），安裝 Playwright Chromium 後執行 pytest，JUnit XML 上傳為 artifact。
+  - `Crawler tests`：安裝 .NET SDK 以產生 EF schema（`crawler/tests/conftest.py`），安裝 Playwright Chromium 後執行 pytest，JUnit XML 上傳為 artifact。
   - `Lint and format`：
     - `dotnet format --verify-no-changes`；
     - `check_version_sync.py`（dotnet-ef 與 EF Core、測試 pgvector image 與 `compose.yaml` 必須一致；`Dockerfile` 的 `DOTNET_SDK_VERSION` 必須等於 `global.json`）；
@@ -79,7 +79,7 @@ CI 由 `.github/workflows/` 定義，PR 與 push 到 `main` 時執行；CD（`cd
     - `pytest .github/scripts/tests deploy/tests -q`（Python 3.14）與 `python -m pytest deploy/tests -q`（Python 3.12，對應 Ubuntu 24.04 的 host 環境）；
     - `shellcheck` 覆蓋 `deploy/release`、`deploy/smoke`、`deploy/lib` 與 `deploy/migration-test/compat.sh`。
   - `Docker image`：以 `docker build` 建置 web image（不推送），執行 `deploy/smoke/web-smoke.sh`，並以 `--control-no-keys` 作為對照組（移除共用的 data protection keys 後，antiforgery 必須失敗）。
-  - `Migration compat check`（僅 PR）：`Migrations/`、`deploy/migration-test`、`deploy/lib`、`deploy/smoke`、`deploy/release`、`Dockerfile`、`.dockerignore` 有變動時才執行，見 §6.1。
+  - `Migration compat check`（僅 PR）：`Infrastructure/Persistence/Migrations/`、`deploy/migration-test`、`deploy/lib`、`deploy/smoke`、`deploy/release`、`Dockerfile`、`.dockerignore` 有變動時才執行，見 §6.1。
 - `CodeQL` workflow：對 csharp、python、actions 做程式碼掃描，於 PR、push 到 `main` 與每週一排程時執行。
 - `CD` workflow（`.github/workflows/cd.yml`）：
   - 觸發：`v*` tag push（commit 必須在 `origin/main` 上）建置並發布；`workflow_dispatch`（只能從 `main`，指定已發布的 `release_tag`，可加 `cutover`）只部署、不建置。

@@ -293,7 +293,7 @@ sudo python3 <checkout>/deploy/host/book-finder-admin install-host \
 
 1. §2 全部完成，`install-host` 成功。
 2. 爬蟲腳本與排程已安裝：`run-crawler.sh` 到 `CRAWLER_RUNNER`、`crawler.cron` 到 `CRON_FILE`（bootstrap 會讀取並計算兩者的雜湊，缺任一個就拒絕）。`crawler.conf` 的 `CRAWLER_IMAGE=` 應設為 `ghcr.io/arthur801/book-finder-crawler@sha256:<digest>`，並已 `docker pull`（爬蟲以 `--pull=never` 執行）。bootstrap 本身不檢查 `CRAWLER_IMAGE=`；之後的 `resume-crawler` 會檢查。
-3. 目標 release 的 tag 已發布（`bootstrap-state --release` 的值必須是這個 tag，它的 web image 會被讀取 metadata）。
+3. 目標 release 的 tag 已發布。`bootstrap-state --release` 與 `--web-digest` 必須指向同一個已發布 release：程式只檢查 tag 的格式，**不驗證 tag 與 digest 的對應**，由操作者確認（對照 GitHub Release 的 `release.json`）。
 4. `docker pull <PSQL_IMAGE>` 已完成。
 
 ### 3.2 `bootstrap-state`（N6，L4）
