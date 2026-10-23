@@ -1,0 +1,62 @@
+version: 2
+
+updates:
+  # Root solution and all test projects (tests/UnitTests, tests/DatabaseIntegration, tests/WebIntegration).
+  - package-ecosystem: nuget
+    directories:
+      - /
+      - /tests/*
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: deps
+    groups:
+      nuget-minor-patch:
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: pip
+    directory: /crawler
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: deps
+    groups:
+      pip-minor-patch:
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: ci
+    groups:
+      github-actions-minor-patch:
+        update-types:
+          - minor
+          - patch
+
+  # The only Dockerfile in the repository is crawler/Dockerfile.
+  - package-ecosystem: docker
+    directory: /crawler
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: deps
+    groups:
+      docker-minor-patch:
+        update-types:
+          - minor
+          - patch
