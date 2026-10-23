@@ -60,6 +60,19 @@ WebIntegration 以 `Embedding:BackfillEnabled=false` 關閉背景補齊，以 `F
 ```text
 dotnet test                 # 需本機 Docker（Testcontainers）
 cd crawler && pytest
+
+# 與 CI 的 Lint and format 相同
+dotnet format Book-Finder.slnx --verify-no-changes
+cd crawler && ruff check . && ruff format --check .
 ```
 
-MVP 無 CI；PR 前於本機執行。CI/CD 為延後項目。
+CI 由 `.github/workflows/` 定義，PR 與 push 到 `main` 時執行：
+
+- `CI` workflow：
+  - `.NET build and tests`：build 後執行所有 .NET 測試（整合測試以 Testcontainers 啟動 pgvector），trx 結果上傳為 artifact。
+  - `Crawler tests`：安裝 .NET SDK 以產生 EF schema（`tests/conftest.py`），安裝 Playwright Chromium 後執行 pytest，JUnit XML 上傳為 artifact。
+  - `Lint and format`：`dotnet format --verify-no-changes` 與 ruff（版本由 `crawler/requirements.txt` 釘定）。
+- `CodeQL` workflow：對 csharp、python、actions 做程式碼掃描，於 PR、push 到 `main` 與每週一排程時執行。
+- Dependabot 每週更新 nuget、pip、github-actions、docker 的依賴。
+- `main` 由 ruleset 保護：必須經 PR 合併，且 `.NET build and tests`、`Crawler tests`、`Lint and format` 通過、CodeQL 無 high 以上告警才能合併。
+- CI 不使用任何 secret。CD（部署）仍為延後項目。
