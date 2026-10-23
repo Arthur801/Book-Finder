@@ -113,7 +113,10 @@ jobs:
         run: test "$(git rev-parse HEAD)" = "$COMMIT"
 
       - name: Log in to GHCR
-        run: docker login ghcr.io -u ${{ github.actor }} --password-stdin <<< "${{ secrets.GITHUB_TOKEN }}"
+        env:
+          REGISTRY_USER: ${{ github.actor }}
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: printf '%s' "$REGISTRY_TOKEN" | docker login ghcr.io -u "$REGISTRY_USER" --password-stdin
 
       # I7: an existing tag is reused only after its provenance verifies. A registry error other than "not found" fails here.
       - name: Check the web image tag
@@ -220,6 +223,7 @@ jobs:
     permissions:
       contents: read
       attestations: read
+      packages: read
     outputs:
       web_digest: ${{ steps.release.outputs.web_digest }}
       crawler_digest: ${{ steps.release.outputs.crawler_digest }}
@@ -231,6 +235,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      - name: Log in to GHCR
+        env:
+          REGISTRY_USER: ${{ github.actor }}
+          REGISTRY_TOKEN: ${{ github.token }}
+        run: printf '%s' "$REGISTRY_TOKEN" | docker login ghcr.io -u "$REGISTRY_USER" --password-stdin
 
       - name: Download the release.json of the tag
         run: gh release download "$TAG" --pattern release.json --dir "$RUNNER_TEMP/release"
@@ -345,6 +355,7 @@ jobs:
     permissions:
       contents: read
       attestations: read
+      packages: read
     outputs:
       report_sha256: ${{ steps.report.outputs.report_sha256 }}
     env:
@@ -362,6 +373,12 @@ jobs:
           persist-credentials: false
 
       # N1: the schema was built by the rebuild release, so that release's images and attestation are checked first.
+      - name: Log in to GHCR
+        env:
+          REGISTRY_USER: ${{ github.actor }}
+          REGISTRY_TOKEN: ${{ github.token }}
+        run: printf '%s' "$REGISTRY_TOKEN" | docker login ghcr.io -u "$REGISTRY_USER" --password-stdin
+
       - name: Download and validate the rebuild release.json
         id: rebuild
         run: |
