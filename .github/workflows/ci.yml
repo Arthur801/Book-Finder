@@ -40,6 +40,9 @@ jobs:
         with:
           python-version: '3.14'
 
+      # Dependabot bumps EF Core packages but not the dotnet-ef tool manifest; keep them in lockstep.
+      - run: python .github/scripts/check_version_sync.py
+
       # The ruff version is pinned in crawler/requirements.txt, the single source of truth for this job.
       - run: |
           ruff_pin=$(grep -E '^ruff==' requirements.txt || true)
