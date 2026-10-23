@@ -15,6 +15,7 @@ import re
 import stat
 import subprocess
 import sys
+import tempfile
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
@@ -387,6 +388,36 @@ def release_state(tag: str, runner: Runner) -> str:
     raise CdError("gh returned an unexpected release state")
 
 
+def publish_release(tag: str, assets_dir: Path, runner: Runner) -> str:
+    """Immutable flow (N-plan section 6): draft, upload, publish. A draft is resumed; a published release must match.
+
+    Returns "published" when this call publishes, or "already-published" when the release was already public and identical.
+    """
+    expected = load_release(assets_dir / "release.json")
+    if expected.tag != tag:
+        raise CdError("release.json tag does not match the tag being published")
+    files = sorted(str(path) for path in assets_dir.iterdir())
+    state = release_state(tag, runner)
+    if state == "published":
+        with tempfile.TemporaryDirectory(prefix="cd-release-") as scratch:
+            if runner(["gh", "release", "download", tag, "--pattern", "release.json", "--dir", scratch]).returncode != 0:
+                raise CdError("cannot download the published release.json")
+            differing = compare_releases(expected, load_release(Path(scratch) / "release.json"))
+        if differing:
+            raise CdError(f"published release differs from this build in: {', '.join(differing)}")
+        return "already-published"
+    if state == "absent":
+        notes = f"Web image {expected.web_digest}. Crawler image {expected.crawler_digest}. Built from commit {expected.commit}."
+        created = runner(["gh", "release", "create", tag, "--draft", "--verify-tag", "--title", tag, "--notes", notes])
+        if created.returncode != 0:
+            raise CdError("gh release create failed")
+    if runner(["gh", "release", "upload", tag, *files, "--clobber"]).returncode != 0:
+        raise CdError("uploading the release assets failed")
+    if runner(["gh", "release", "edit", tag, "--draft=false"]).returncode != 0:
+        raise CdError("publishing the release failed")
+    return "published"
+
+
 # Host plan
 
 
@@ -560,6 +591,20 @@ def summarize_compat(report_path: Path) -> str:
     return "\n".join(lines) + "\n"
 
 
+def decision_summary(outputs: dict[str, str]) -> str:
+    lines = [
+        "## Decision",
+        "",
+        f"- chain: `{outputs['chain']}`",
+        f"- pending: {outputs['pending']}",
+        f"- cutover: `{outputs['cutover_ok']}`",
+        f"- crawler for deploy: `{outputs['crawler_for_deploy']}`",
+    ]
+    if outputs["chain"] == "schema-ahead":
+        lines.append("- schema-ahead: no migration runs, and the crawler stays on the current digest (S7).")
+    return "\n".join(lines) + "\n"
+
+
 def plan_summary(raw: str, host_exit: int) -> str:
     """Summary text written before any validation, so a failed plan still shows the host's JSON."""
     body = raw[:MAX_SUMMARY_PLAN_BYTES]
@@ -712,7 +757,11 @@ def _cmd_validate_release_json(args: argparse.Namespace) -> None:
 
 
 def _cmd_release_state(args: argparse.Namespace) -> None:
-    write_outputs(args.github_output, {"state": release_state(args.tag, system_runner)})
+    print(release_state(args.tag, system_runner))
+
+
+def _cmd_publish_release(args: argparse.Namespace) -> None:
+    print(publish_release(args.tag, Path(args.assets_dir), system_runner))
 
 
 def _cmd_image_state(args: argparse.Namespace) -> None:
@@ -736,7 +785,9 @@ def _cmd_plan_outputs(args: argparse.Namespace) -> None:
     except ValueError as exc:
         raise CdError("host plan output is not JSON") from exc
     release = load_release(Path(args.release_json))
-    write_outputs(args.github_output, plan_outputs(plan, args.host_exit, release, args.tag, args.web_digest, args.cutover == "true"))
+    outputs = plan_outputs(plan, args.host_exit, release, args.tag, args.web_digest, args.cutover == "true")
+    write_outputs(args.github_output, outputs)
+    append_text(args.summary, decision_summary(outputs))
 
 
 def _cmd_applied_manifest(args: argparse.Namespace) -> None:
@@ -811,8 +862,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("release-state")
     p.add_argument("--tag", required=True)
-    p.add_argument("--github-output", default=github_output)
     p.set_defaults(func=_cmd_release_state)
+
+    p = sub.add_parser("publish-release")
+    p.add_argument("--tag", required=True)
+    p.add_argument("--assets-dir", required=True)
+    p.set_defaults(func=_cmd_publish_release)
 
     p = sub.add_parser("image-state")
     p.add_argument("--ref", required=True)

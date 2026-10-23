@@ -661,3 +661,79 @@ def test_status_ssh_argv_uses_the_plan_key_options(tmp_path):
     assert argv[-1] == "status 55-2"
     assert "IdentitiesOnly=yes" in argv and "StrictHostKeyChecking=yes" in argv
     assert "UserKnownHostsFile=/kh" in argv
+
+
+class FakeGh:
+    """Stands in for gh: answers release view, and records every call in order."""
+
+    def __init__(self, view: Result, remote_text: str = "", create_rc: int = 0):
+        self.view = view
+        self.remote_text = remote_text
+        self.create_rc = create_rc
+        self.calls: list[list[str]] = []
+
+    def __call__(self, argv):
+        argv = list(argv)
+        self.calls.append(argv)
+        if argv[:3] == ["gh", "release", "view"]:
+            return self.view
+        if argv[:3] == ["gh", "release", "download"]:
+            Path(argv[argv.index("--dir") + 1], "release.json").write_text(self.remote_text, encoding="utf-8")
+            return Result(0, "", "")
+        if argv[:3] == ["gh", "release", "create"]:
+            return Result(self.create_rc, "", "")
+        return Result(0, "", "")
+
+    def verbs(self) -> list[str]:
+        return [argv[2] for argv in self.calls if argv[:2] == ["gh", "release"]]
+
+
+def test_publish_absent_creates_a_draft_uploads_then_publishes(tmp_path):
+    build(tmp_path)
+    gh = FakeGh(Result(1, "", "release not found"))
+    assert cd.publish_release(TAG, tmp_path / "assets", gh) == "published"
+    assert gh.verbs() == ["view", "create", "upload", "edit"]
+    create = next(argv for argv in gh.calls if argv[2] == "create")
+    assert "--draft" in create and "--verify-tag" in create
+    edit = next(argv for argv in gh.calls if argv[2] == "edit")
+    assert "--draft=false" in edit
+
+
+def test_publish_resumes_a_draft_without_creating_it(tmp_path):
+    build(tmp_path)
+    gh = FakeGh(Result(0, "true\n", ""))
+    assert cd.publish_release(TAG, tmp_path / "assets", gh) == "published"
+    assert gh.verbs() == ["view", "upload", "edit"]
+    upload = next(argv for argv in gh.calls if argv[2] == "upload")
+    assert "--clobber" in upload
+
+
+def test_publish_accepts_an_identical_published_release(tmp_path):
+    record = build(tmp_path)
+    gh = FakeGh(Result(0, "false\n", ""), remote_text=record.text())
+    assert cd.publish_release(TAG, tmp_path / "assets", gh) == "already-published"
+    assert gh.verbs() == ["view", "download"]
+
+
+def test_publish_refuses_a_published_release_that_differs(tmp_path):
+    build(tmp_path)
+    other = release_record()
+    other.commit = "9" * 40
+    gh = FakeGh(Result(0, "false\n", ""), remote_text=other.text())
+    with pytest.raises(CdError, match="commit"):
+        cd.publish_release(TAG, tmp_path / "assets", gh)
+    assert "upload" not in gh.verbs()
+
+
+def test_publish_stops_when_create_or_tag_mismatch(tmp_path):
+    build(tmp_path)
+    with pytest.raises(CdError, match="gh release create"):
+        cd.publish_release(TAG, tmp_path / "assets", FakeGh(Result(1, "", "release not found"), create_rc=1))
+    with pytest.raises(CdError, match="tag does not match"):
+        cd.publish_release("v9.9.9", tmp_path / "assets", FakeGh(Result(1, "", "release not found")))
+
+
+def test_release_state_command_prints_the_state(tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr(cd, "system_runner", lambda argv: Result(1, "", "release not found"))
+    assert cd.main(["release-state", "--tag", TAG]) == 0
+    assert capsys.readouterr().out.strip() == "absent"
