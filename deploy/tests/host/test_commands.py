@@ -33,6 +33,7 @@ TAG2 = "v1.1.0"
 SYSTEMD_UNIT = "book-finder.service"
 DIGEST_OK = "sha256:" + "d" * 64
 RUN_ID_TEXT = "1234-5"
+DEPLOY_RUN_ID = "5555-1"
 
 
 class World:
@@ -110,13 +111,36 @@ def test_plan_status_and_deploy_parse():
     assert cmd.parse_command(f"plan {TAG1} {DIGEST_OK}") == cmd.PlanCommand(TAG1, DIGEST_OK)
     assert cmd.parse_command(f"status {RUN_ID_TEXT}") == cmd.StatusCommand(RUN_ID_TEXT)
     deploy = cmd.parse_command(
-        f"deploy {TAG1} {DIGEST_OK} {CRAWLER} --expect-revision 4 --expect-runtime {WEB1} --expect-schema sha256:{'e' * 64} --chain forward --cutover"
+        f"deploy {TAG1} {DIGEST_OK} {CRAWLER} --run-id 4-1 --expect-revision 4 --expect-runtime {WEB1} --expect-schema sha256:{'e' * 64} --chain forward --cutover"
     )
     assert deploy.expect_revision == 4 and deploy.cutover is True and deploy.chain == "forward"
+    assert deploy.run_id == "4-1"
+
+
+def test_deploy_takes_the_run_id_from_cd():
+    deploy = cmd.parse_command(
+        f"deploy {TAG1} {DIGEST_OK} {CRAWLER} --run-id 777-2 --expect-revision 1 --expect-runtime systemd --expect-schema sha256:{'e' * 64} --chain in-sync"
+    )
+    assert deploy.run_id == "777-2"
+
+
+@pytest.mark.parametrize("run_id", ["123456789012345678901-1", "1-12345", "abc-1", "1234", "1-", "1-1;id"])
+def test_deploy_rejects_malformed_run_id(run_id):
+    with pytest.raises(cmd.UsageError):
+        cmd.parse_command(
+            f"deploy {TAG1} {DIGEST_OK} {CRAWLER} --run-id {run_id} --expect-revision 1 --expect-runtime systemd --expect-schema sha256:{'e' * 64} --chain in-sync"
+        )
+
+
+def test_deploy_without_run_id_is_rejected():
+    with pytest.raises(cmd.UsageError, match="--run-id"):
+        cmd.parse_command(f"deploy {TAG1} {DIGEST_OK} {CRAWLER} --expect-revision 1 --expect-runtime systemd --expect-schema sha256:{'e' * 64} --chain in-sync")
 
 
 def test_deploy_flags_may_come_in_any_order_without_cutover():
-    deploy = cmd.parse_command(f"deploy {TAG1} {DIGEST_OK} {CRAWLER} --chain in-sync --expect-schema sha256:{'e' * 64} --expect-runtime systemd --expect-revision 9")
+    deploy = cmd.parse_command(
+        f"deploy {TAG1} {DIGEST_OK} {CRAWLER} --run-id 1-1 --chain in-sync --expect-schema sha256:{'e' * 64} --expect-runtime systemd --expect-revision 9"
+    )
     assert deploy.expect_runtime == "systemd" and deploy.cutover is False
 
 
@@ -332,10 +356,10 @@ def test_status_prefers_history_over_a_conflicting_unit(tmp_path):
 # deploy gates
 
 
-def deploy_text(world, *, revision=None, runtime=None, schema=None, chain="in-sync", cutover=False, target=DIGEST_OK):
+def deploy_text(world, *, revision=None, runtime=None, schema=None, chain="in-sync", cutover=False, target=DIGEST_OK, run_id=DEPLOY_RUN_ID):
     state = world.state
     text = (
-        f"deploy {TAG1} {target} {CRAWLER} --expect-revision {state.revision if revision is None else revision} "
+        f"deploy {TAG1} {target} {CRAWLER} --run-id {run_id} --expect-revision {state.revision if revision is None else revision} "
         f"--expect-runtime {runtime or st.runtime_fingerprint(state.runtime)} "
         f"--expect-schema {schema or state.schema.digest} --chain {chain}"
     )
@@ -352,6 +376,24 @@ def deploy_outcome(world):
     report = world.stdout_json()
     record = [e for e in world.history().entries if e.get("phase") == "completed" and e["run_id"] == report["run_id"]]
     return report, record
+
+
+def test_deploy_refuses_a_run_id_with_any_history_and_writes_nothing(tmp_path):
+    world = in_sync_world(tmp_path)
+    assert world.run(deploy_text(world)) == BAD_INPUT  # first call: the stub records a completed run
+    before = Path(world.settings.history_file).read_text()
+    # A retried SSH call with the same run id must not start a second deployment.
+    assert world.run(deploy_text(world)) == DRIFT
+    assert "run id already used" in world.err.getvalue()
+    assert Path(world.settings.history_file).read_text() == before
+
+
+def test_deploy_refuses_a_run_id_whose_started_record_has_no_completed(tmp_path):
+    world = in_sync_world(tmp_path)
+    hi.append(world.settings.history_file, _started(DEPLOY_RUN_ID, f"book-finder-deploy-{DEPLOY_RUN_ID}"))
+    before = Path(world.settings.history_file).read_text()
+    assert world.run(deploy_text(world)) == DRIFT
+    assert Path(world.settings.history_file).read_text() == before
 
 
 def test_deploy_without_state_needs_bootstrap(tmp_path):

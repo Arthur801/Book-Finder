@@ -71,7 +71,7 @@ def test_plan_prints_one_json_object_and_exits_0(fakes):
 def test_deploy_is_refused_by_plan_key(fakes):
     done = run_entry(
         fakes,
-        f"deploy {TAG} {DIGEST} {DIGEST} --expect-revision 1 --expect-runtime {fakes['state'].runtime.web_digest} --expect-schema {fakes['state'].schema.digest} --chain in-sync",
+        f"deploy {TAG} {DIGEST} {DIGEST} --run-id {RUN_ID} --expect-revision 1 --expect-runtime {fakes['state'].runtime.web_digest} --expect-schema {fakes['state'].schema.digest} --chain in-sync",
         "--plan-only",
     )
     assert done.returncode == 2
@@ -91,10 +91,24 @@ def test_status_of_unknown_run_is_not_started(fakes):
     assert json.loads(done.stdout) == {"run_id": RUN_ID, "status": "not-started"}
 
 
+def test_retried_deploy_with_the_same_run_id_is_refused_through_the_entry(fakes):
+    state = fakes["state"]
+    command = (
+        f"deploy {TAG} {DIGEST} {DIGEST} --run-id {RUN_ID} --expect-revision {state.revision} "
+        f"--expect-runtime {st.runtime_fingerprint(state.runtime)} --expect-schema {state.schema.digest} --chain in-sync"
+    )
+    assert run_entry(fakes, command).returncode == 2
+    history_before = Path(fakes["paths"]["history_file"]).read_text()
+    second = run_entry(fakes, command)
+    assert second.returncode == 3
+    assert "run id already used" in second.stderr
+    assert Path(fakes["paths"]["history_file"]).read_text() == history_before
+
+
 def test_deploy_through_entry_records_the_run_and_stops_at_the_stub(fakes):
     state = fakes["state"]
     command = (
-        f"deploy {TAG} {DIGEST} {DIGEST} --expect-revision {state.revision} "
+        f"deploy {TAG} {DIGEST} {DIGEST} --run-id {RUN_ID} --expect-revision {state.revision} "
         f"--expect-runtime {st.runtime_fingerprint(state.runtime)} --expect-schema {state.schema.digest} --chain in-sync"
     )
     done = run_entry(fakes, command)

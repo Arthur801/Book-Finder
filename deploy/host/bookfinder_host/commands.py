@@ -8,7 +8,6 @@ host changes. The state machine itself (M3b) is a stub here.
 import json
 import os
 import re
-import secrets
 import shlex
 import tempfile
 from collections.abc import Callable, Mapping
@@ -36,7 +35,8 @@ DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}")
 RUN_ID_RE = re.compile(r"[0-9]{1,20}-[0-9]{1,4}")
 REVISION_RE = re.compile(r"[0-9]{1,9}")
 CHAINS = ("in-sync", "forward", "schema-ahead")
-DEPLOY_VALUE_FLAGS = ("--expect-revision", "--expect-runtime", "--expect-schema", "--chain")
+# --run-id is chosen by CD (${{ github.run_id }}-${{ github.run_attempt }}) so CD can poll status even if SSH drops.
+DEPLOY_VALUE_FLAGS = ("--run-id", "--expect-revision", "--expect-runtime", "--expect-schema", "--chain")
 NOT_IMPLEMENTED_RESULT = "not-implemented"
 
 
@@ -67,6 +67,7 @@ class DeployCommand:
     tag: str
     web_digest: str
     crawler_digest: str
+    run_id: str
     expect_revision: int
     expect_runtime: str
     expect_schema: str
@@ -151,6 +152,7 @@ def _parse_deploy(args: list[str]) -> DeployCommand:
         tag=tag,
         web_digest=web_digest,
         crawler_digest=crawler_digest,
+        run_id=_require(RUN_ID_RE, values["--run-id"], "run id"),
         expect_revision=int(_require(REVISION_RE, values["--expect-revision"], "expected revision")),
         expect_runtime=runtime,
         expect_schema=_require(DIGEST_RE, values["--expect-schema"], "expected schema digest"),
@@ -407,10 +409,6 @@ def run_status(command: StatusCommand, deps: Deps, out: TextIO) -> int:
 # deploy
 
 
-def _new_run_id(clock: Clock) -> str:
-    return f"{int(clock.epoch())}-{secrets.randbelow(9000) + 1000}"
-
-
 def _check_deploy_gates(command: DeployCommand, state: st.State, deps: Deps) -> None:
     """Every check that must pass before the state machine may change anything (plan section 5, step 0)."""
     if state.revision != command.expect_revision:
@@ -465,11 +463,19 @@ def _deploy_locked(command: DeployCommand, deps: Deps, out: TextIO, err: TextIO)
     state = _read_state(deps, err)
     if state is None:
         return DRIFT
+    # A run id is never reused: a retried SSH call must not start a second deployment for the same CD run.
+    try:
+        history = hi.read(deps.settings.history_file)
+    except hi.HistoryCorrupt:
+        history = None
+    if history is not None and any(entry.get("run_id") == command.run_id for entry in history.entries):
+        err.write(f"run id already used: {command.run_id}\n")
+        return DRIFT
     blocked = _indeterminate_reasons(deps)
     if blocked:
         err.write(f"indeterminate runs block deploy: {', '.join(blocked)}\n")
         return INDETERMINATE
-    run_id = _new_run_id(deps.clock)
+    run_id = command.run_id
     hi.append(
         deps.settings.history_file,
         hi.started_record(
