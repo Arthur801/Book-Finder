@@ -262,9 +262,7 @@ docker() {
 def run_with_ca_config(tmp_path, extra_config):
     """Runs the wrapper with a config that names DB_CA_BUNDLE and records the docker argv it would use."""
     root = tmp_path
-    (root / "crawler.conf").write_text(
-        "CRAWLER_IMAGE=crawler:test\nAWS_REGION=test-region\nDATABASE_URL_PARAMETER=/test/db\n" + extra_config
-    )
+    (root / "crawler.conf").write_text("CRAWLER_IMAGE=crawler:test\nAWS_REGION=test-region\nDATABASE_URL_PARAMETER=/test/db\n" + extra_config)
     stubs = root / "argv-stubs.sh"
     stubs.write_text(ARGV_STUB)
     env = {
