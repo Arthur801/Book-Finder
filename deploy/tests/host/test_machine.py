@@ -496,7 +496,7 @@ def test_forward_crawler_failure_is_partial_and_keeps_the_crawler_paused(tmp_pat
 
 def test_forward_lock_busy_is_drift_before_any_state_change(tmp_path):
     world = forward_world(tmp_path)
-    world.deps = dataclasses.replace(world.deps, maintenance_timeout_s=0.0)
+    world.deps = dataclasses.replace(world.deps, maintenance_timeout_s=0.01)
     fd = os.open(world.settings.db_maintenance_lock, os.O_RDWR | os.O_CREAT, 0o600)
     fcntl.flock(fd, fcntl.LOCK_SH)
     try:
