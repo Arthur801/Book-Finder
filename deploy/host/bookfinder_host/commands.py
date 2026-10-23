@@ -357,6 +357,13 @@ def _fetch_target(deps: Deps, web_digest: str) -> mf.ReleaseMetadata:
         return mf.extract_release_metadata(deps.runner, image_ref, Path(scratch))
 
 
+def _schema_ahead_crawler_problem(command: DeployCommand, current_digest: str) -> str | None:
+    """Contract: a schema-ahead deploy never changes the crawler, so its crawler_digest must be the current one (M3c)."""
+    if command.chain == "schema-ahead" and command.crawler_digest != current_digest:
+        return f"schema-ahead keeps the current crawler ({current_digest}); crawler_digest must be that digest"
+    return None
+
+
 def _api_in_range(release_api: int, deps: Deps) -> bool:
     low, high = deps.host_api_range
     return low <= release_api <= high
@@ -460,6 +467,9 @@ def _check_deploy_gates(command: DeployCommand, state: st.State, deps: Deps) -> 
         raise GateFailure(BAD_INPUT, "chain is divergent")
     if classification != command.chain:
         raise GateFailure(DRIFT, f"chain is {classification}, expected {command.chain}")
+    problem = _schema_ahead_crawler_problem(command, state.crawler.digest)
+    if problem is not None:
+        raise GateFailure(BAD_INPUT, problem)
     is_systemd = isinstance(state.runtime, st.SystemdRuntime)
     if command.cutover:
         if not is_systemd:
@@ -493,6 +503,16 @@ def run_deploy_ssh(command: DeployCommand, deps: Deps, out: TextIO, err: TextIO)
     if history is not None and any(entry.get("run_id") == run_id for entry in history.entries):
         err.write(f"run id already used: {run_id}\n")
         return DRIFT
+    # The SSH side can only refuse what the state already shows; the unit gate repeats the check (completed rejected).
+    try:
+        current = st.load_state(deps.settings.state_file)
+    except (st.StateMissing, st.StateCorrupt):
+        current = None
+    if current is not None:
+        problem = _schema_ahead_crawler_problem(command, current.crawler.digest)
+        if problem is not None:
+            err.write(f"rejected: {problem}\n")
+            return BAD_INPUT
     blocked = runs.indeterminate_reasons(deps.settings, deps.runner)
     if blocked:
         err.write(f"indeterminate runs block deploy: {', '.join(blocked)}\n")

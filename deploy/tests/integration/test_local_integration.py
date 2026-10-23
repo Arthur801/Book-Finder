@@ -604,7 +604,12 @@ def _wait_local(stack: Stack, timeout_s: float = 120) -> bool:
 
 def _current(stack: Stack) -> dict:
     state = read_state()
-    return {"revision": state["revision"], "runtime": state["runtime"]["web_digest"], "schema": state["schema"]["digest"]}
+    return {
+        "revision": state["revision"],
+        "runtime": state["runtime"]["web_digest"],
+        "schema": state["schema"]["digest"],
+        "crawler": state["crawler"]["digest"],
+    }
 
 
 def _web_digest_of_container(stack: Stack) -> str:
@@ -682,12 +687,46 @@ def test_a_forward_upgrade_with_snapshot_and_crawler_pause(stack: Stack):
     log("PASS a: forward upgrade to v2 with snapshot, crawler paused then resumed, web on v2 digest")
 
 
-def test_b_schema_ahead_deploy_keeps_rebuild_target(stack: Stack):
+def run_deploy_over_ssh(stack: Stack, text: str) -> tuple[int, str]:
+    """The SSH side alone: the forced command with SSH_ORIGINAL_COMMAND, as CD would call it."""
+    result = subprocess.run(
+        [sys.executable, str(ENTRY)],
+        env=host_env(stack, SSH_ORIGINAL_COMMAND=text),
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=600,
+    )
+    return result.returncode, result.stderr
+
+
+def test_b_schema_ahead_deploy_keeps_rebuild_target_and_the_crawler(stack: Stack):
     before = read_state()
     current = _current(stack)
+    other_crawler = "sha256:" + "e" * 64
+    # Negative first, on both sides: a schema-ahead deploy with another crawler digest is refused with exit 2, and
+    # nothing changes. The SSH side refuses before any unit exists; the unit gate records the run as rejected.
+    ssh_text = " ".join(
+        unit_tokens(TAG_V1, stack.digests["v1"], other_crawler, "9002-0", current["revision"], current["runtime"], current["schema"], "schema-ahead")
+    )
+    code, err = run_deploy_over_ssh(stack, ssh_text)
+    assert code == 2, err
+    assert "schema-ahead keeps the current crawler" in err
+    assert not [e for e in read_history() if e.get("run_id") == "9002-0"]
+    assert read_state() == before
     code, out, err = run_unit(
         stack,
-        unit_tokens(TAG_V1, stack.digests["v1"], stack.digests["crawler"], "9002-1", current["revision"], current["runtime"], current["schema"], "schema-ahead"),
+        unit_tokens(TAG_V1, stack.digests["v1"], other_crawler, "9002-1", current["revision"], current["runtime"], current["schema"], "schema-ahead"),
+        "b0",
+    )
+    assert code == 2, f"exit {code}\n{out}\n{err}"
+    assert completed_for("9002-1")["result"] == "rejected"
+    assert read_state() == before
+    log("PASS b: schema-ahead with another crawler digest refused (exit 2) on the SSH side and the unit gate; state unchanged")
+
+    code, out, err = run_unit(
+        stack,
+        unit_tokens(TAG_V1, stack.digests["v1"], current["crawler"], "9002-2", current["revision"], current["runtime"], current["schema"], "schema-ahead"),
         "b",
     )
     assert code == 0, f"exit {code}\n{out}\n{err}"
@@ -695,8 +734,10 @@ def test_b_schema_ahead_deploy_keeps_rebuild_target(stack: Stack):
     assert after["runtime"]["tag"] == TAG_V1 and after["previous_runtime"]["tag"] == TAG_V2
     assert after["schema"]["rebuild"] == before["schema"]["rebuild"] == {"tag": TAG_V2, "web_digest": stack.digests["v2"]}
     assert after["schema"]["applied"] == before["schema"]["applied"]
+    assert after["crawler"]["digest"] == before["crawler"]["digest"] == current["crawler"]
+    assert completed_for("9002-2")["crawler_substeps"] == "skipped (schema-ahead)"
     assert _web_digest_of_container(stack) == local_image_id(f"{stack.registry}/{WEB_NAME}@{stack.digests['v1']}")
-    log("PASS b: schema-ahead deploy to v1 succeeded, schema rebuild stayed at v2")
+    log("PASS b: schema-ahead deploy to v1 succeeded, schema rebuild stayed at v2, crawler untouched (skipped)")
 
 
 def test_c_broken_web_image_rolls_back(stack: Stack):

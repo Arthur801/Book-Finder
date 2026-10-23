@@ -284,10 +284,10 @@ def test_status_prefers_history_over_a_conflicting_unit(tmp_path):
 # deploy gates
 
 
-def deploy_text(world, *, revision=None, runtime=None, schema=None, chain="in-sync", cutover=False, target=DIGEST_OK, run_id=DEPLOY_RUN_ID):
+def deploy_text(world, *, revision=None, runtime=None, schema=None, chain="in-sync", cutover=False, target=DIGEST_OK, run_id=DEPLOY_RUN_ID, crawler=CRAWLER):
     state = world.state
     text = (
-        f"deploy {TAG1} {target} {CRAWLER} --run-id {run_id} --expect-revision {state.revision if revision is None else revision} "
+        f"deploy {TAG1} {target} {crawler} --run-id {run_id} --expect-revision {state.revision if revision is None else revision} "
         f"--expect-runtime {runtime or st.runtime_fingerprint(state.runtime)} "
         f"--expect-schema {schema or state.schema.digest} --chain {chain}"
     )
@@ -346,6 +346,17 @@ def test_deploy_cas_revision_mismatch_exits_3_and_records_the_run(tmp_path):
     report, completed = deploy_outcome(world)
     assert report["exit_code"] == DRIFT
     assert completed[0]["result"] == "rejected"
+
+
+def test_schema_ahead_with_another_crawler_is_refused_before_any_launch(tmp_path):
+    state = sample_state(applied=applied((ID1, H1), (ID2, H2)))
+    world = make_world(tmp_path, state, target=applied((ID1, H1)))
+    before = world.load_state()
+    assert world.run(deploy_text(world, chain="schema-ahead", crawler="sha256:" + "5" * 64)) == BAD_INPUT
+    assert f"schema-ahead keeps the current crawler ({CRAWLER})" in world.err.getvalue()
+    # Refused on the SSH side: no run id is used, no unit is started, and nothing is written.
+    assert world.history().entries == []
+    assert world.load_state() == before
 
 
 def test_deploy_runtime_expectation_mismatch_exits_3(tmp_path):

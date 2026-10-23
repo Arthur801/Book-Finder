@@ -93,7 +93,7 @@ def completed_record(
     operator: str | None = None,
     reason: str | None = None,
     snapshot_id: str | None = None,
-    crawler_substeps: dict[str, str] | None = None,
+    crawler_substeps: dict[str, str] | str | None = None,
 ) -> dict[str, Any]:
     record: dict[str, Any] = {
         "run_id": run_id,

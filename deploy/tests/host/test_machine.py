@@ -326,7 +326,42 @@ def test_schema_ahead_web_failure_also_rolls_back(tmp_path):
     world = make_world(tmp_path, state, target=applied((ID1, H1)))
     with_old_release(world)
     only_web_failures_on_target(world)
-    assert world.run_unit(deploy_text(world, chain="schema-ahead"))[0] == ROLLED_BACK
+    assert world.run_unit(deploy_text(world, chain="schema-ahead", crawler=CRAWLER))[0] == ROLLED_BACK
+
+
+# Schema-ahead keeps the crawler (M3c contract): no pull, install or conf rewrite, and the digest must be the current one
+
+
+def schema_ahead_world(tmp_path):
+    state = sample_state(applied=applied((ID1, H1), (ID2, H2)))
+    return make_world(tmp_path, state, target=applied((ID1, H1)))
+
+
+def test_schema_ahead_success_skips_the_crawler_and_keeps_its_digest(tmp_path):
+    world = schema_ahead_world(tmp_path)
+    conf_before = Path(world.settings.crawler_conf).read_text()
+    assert world.run_unit(deploy_text(world, chain="schema-ahead", crawler=CRAWLER))[0] == OK
+    record = completed_records(world)[-1]
+    assert (record["result"], record["exit_code"]) == ("success", OK)
+    assert record["crawler_substeps"] == "skipped (schema-ahead)"
+    assert world.load_state().crawler.digest == CRAWLER
+    assert world.load_state().runtime.crawler_digest == CRAWLER
+    assert world.load_state().schema.rebuild == world.state.schema.rebuild
+    crawler_paths = {world.settings.crawler_runner, world.settings.cron_file, world.settings.crawler_conf}
+    assert not [t for t in world.fx.trace if t.startswith("docker.pull") or t.split(" ", 1)[-1] in crawler_paths]
+    assert Path(world.settings.crawler_conf).read_text() == conf_before
+
+
+def test_schema_ahead_with_another_crawler_is_rejected_by_the_unit_gate(tmp_path):
+    world = schema_ahead_world(tmp_path)
+    before = world.load_state()
+    code, _, err = world.run_unit(deploy_text(world, chain="schema-ahead", crawler=CRAWLER2))
+    assert code == BAD_INPUT
+    assert f"schema-ahead keeps the current crawler ({CRAWLER})" in err
+    record = completed_records(world)[-1]
+    assert (record["result"], record["exit_code"]) == ("rejected", BAD_INPUT)
+    assert world.load_state() == before
+    assert not [t for t in world.fx.trace if t.startswith(("docker.pull", "docker.extract", "compose.up", "files.write", "aws."))]
 
 
 # Cutover: systemd to docker

@@ -42,6 +42,8 @@ HEALTH_INTERVAL_S = 2.0
 CRAWLER_KEY = "CRAWLER_IMAGE="
 # Outcome per sub-step, recorded in the completed record so resume-crawler can tell what already took effect (M3c).
 CRAWLER_SUBSTEPS = ("image", "smoke", "run_crawler", "crawler_cron", "crawler_conf")
+# A schema-ahead deploy never touches the crawler (contract, M3c); its sub-steps are recorded as one marker.
+SCHEMA_AHEAD_SUBSTEPS = "skipped (schema-ahead)"
 MAX_RUNNER_BYTES = 1 << 20
 
 
@@ -65,7 +67,7 @@ def finish_run(
     result: str,
     reason: str,
     snapshot_id: str | None = None,
-    crawler_substeps: dict[str, str] | None = None,
+    crawler_substeps: dict[str, str] | str | None = None,
 ) -> int:
     """Writes the single completed record for a run (N7); the history line never holds secrets or free text.
 
@@ -102,7 +104,7 @@ class _Run:
     compose_sha256: str = ""
     env_path: str = ""
     snapshot_id: str | None = None
-    crawler_substeps: dict[str, str] | None = None
+    crawler_substeps: dict[str, str] | str | None = None
 
     @property
     def effects(self) -> Effects:
@@ -490,11 +492,8 @@ def _rollback(r: _Run, reason: str) -> None:
 # Step 6
 
 
-def _finish_success_path(r: _Run) -> int:
-    problem, substeps = _update_crawler(r)
-    r.crawler_substeps = substeps
-    crawler_digest = r.command.crawler_digest if problem is None else r.state.crawler.digest
-    new_runtime = st.DockerRuntime(
+def _docker_runtime(r: _Run, crawler_digest: str) -> st.DockerRuntime:
+    return st.DockerRuntime(
         tag=r.tag,
         release_api=r.target.release_api,
         web_digest=r.command.web_digest,
@@ -502,6 +501,23 @@ def _finish_success_path(r: _Run) -> int:
         compose_sha256=r.compose_sha256,
         release_dir=str(r.release_dir),
     )
+
+
+def _finish_schema_ahead(r: _Run) -> int:
+    """Web only: the crawler keeps its current digest and gets no pull, install or conf rewrite (M3c contract)."""
+    crawler_digest = r.state.crawler.digest
+    r.save(st.promote_runtime(r.state, _docker_runtime(r, crawler_digest)))
+    r.crawler_substeps = SCHEMA_AHEAD_SUBSTEPS
+    return r.finish(OK, "success", f"web is on the target release; the crawler stays on {crawler_digest} (schema-ahead)")
+
+
+def _finish_success_path(r: _Run) -> int:
+    if r.command.chain == "schema-ahead":
+        return _finish_schema_ahead(r)
+    problem, substeps = _update_crawler(r)
+    r.crawler_substeps = substeps
+    crawler_digest = r.command.crawler_digest if problem is None else r.state.crawler.digest
+    new_runtime = _docker_runtime(r, crawler_digest)
     promoted = st.promote_runtime(r.state, new_runtime)
     if problem is None:
         r.save(replace(promoted, crawler=st.Crawler(digest=r.command.crawler_digest, paused=None)))
