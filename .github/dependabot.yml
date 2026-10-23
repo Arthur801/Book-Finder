@@ -46,7 +46,21 @@ updates:
           - minor
           - patch
 
-  # The only Dockerfile in the repository is crawler/Dockerfile.
+  # Root Dockerfile (web) and crawler/Dockerfile share one ecosystem entry per directory.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: deps
+    groups:
+      docker-minor-patch:
+        update-types:
+          - minor
+          - patch
+
   - package-ecosystem: docker
     directory: /crawler
     schedule:
@@ -56,7 +70,7 @@ updates:
     commit-message:
       prefix: deps
     groups:
-      docker-minor-patch:
+      docker-crawler-minor-patch:
         update-types:
           - minor
           - patch
