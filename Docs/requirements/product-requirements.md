@@ -29,7 +29,8 @@
 | Book 詳細頁與外部連結 | Email 驗證帳號 | 各書商比價 |
 | AI 書籍推薦與 AI 搜尋紀錄 | 書籍封面轉存（S3） | |
 | 註冊、登入、登出、目前使用者 | 書籍頁顯示 AI 摘要 | |
-| Library（加入、移除、Reading Status、1～5 星評分） | CD（自動部署） | |
+| Library（加入、移除、Reading Status、1～5 星評分） | | |
+| CD（tag 觸發、production 核准後部署到單台 EC2，見 `Docs/architecture/architecture-decisions.md` ADR-006） | | |
 | | 分類依來源層級順序顯示（`book_subjects` 順序欄位，見 `book-catalog.md` §8） | |
 
 ---

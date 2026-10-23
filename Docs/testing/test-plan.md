@@ -66,14 +66,86 @@ dotnet format Book-Finder.slnx --verify-no-changes
 cd crawler && ruff check . && ruff format --check .
 ```
 
-CI 由 `.github/workflows/` 定義，PR 與 push 到 `main` 時執行：
+CI 由 `.github/workflows/` 定義，PR 與 push 到 `main` 時執行；CD（`cd.yml`）只在 `v*` tag 與手動 dispatch 時執行：
 
-- `CI` workflow：
+- `CI` workflow（同時以 `workflow_call` 被 CD 呼叫，於發布前測試同一個 tag）：
   - `.NET build and tests`：build 後執行所有 .NET 測試（整合測試以 Testcontainers 啟動 pgvector），trx 結果上傳為 artifact。
   - `Crawler tests`：安裝 .NET SDK 以產生 EF schema（`tests/conftest.py`），安裝 Playwright Chromium 後執行 pytest，JUnit XML 上傳為 artifact。
-  - `Lint and format`：`dotnet format --verify-no-changes`、ruff（涵蓋 `crawler` 與 `.github/scripts`，版本由 `crawler/requirements.txt` 釘定），以及 `.github/scripts/check_version_sync.py`（dotnet-ef 與 EF Core、測試 pgvector image 與 `compose.yaml` 必須一致）。
+  - `Lint and format`：
+    - `dotnet format --verify-no-changes`；
+    - `check_version_sync.py`（dotnet-ef 與 EF Core、測試 pgvector image 與 `compose.yaml` 必須一致；`Dockerfile` 的 `DOTNET_SDK_VERSION` 必須等於 `global.json`）；
+    - `check_migrations.py --released-manifest`：已發布的 migration 原始檔不能修改（以最新 release 的 `migrations.txt` 比對，N5）；禁止 `suppressTransaction` 與 `CONCURRENTLY`；
+    - ruff：`crawler`；`.github/scripts`（與 crawler 共用 `crawler/ruff.toml`）；`deploy`（`deploy/ruff.toml`，目標 py312）；
+    - `pytest .github/scripts/tests deploy/tests -q`（Python 3.14）與 `python -m pytest deploy/tests -q`（Python 3.12，對應 Ubuntu 24.04 的 host 環境）；
+    - `shellcheck` 覆蓋 `deploy/release`、`deploy/smoke`、`deploy/lib` 與 `deploy/migration-test/compat.sh`。
+  - `Docker image`：以 `docker build` 建置 web image（不推送），執行 `deploy/smoke/web-smoke.sh`，並以 `--control-no-keys` 作為對照組（移除共用的 data protection keys 後，antiforgery 必須失敗）。
+  - `Migration compat check`（僅 PR）：`Migrations/`、`deploy/migration-test`、`deploy/lib`、`deploy/smoke`、`deploy/release`、`Dockerfile`、`.dockerignore` 有變動時才執行，見 §6.1。
 - `CodeQL` workflow：對 csharp、python、actions 做程式碼掃描，於 PR、push 到 `main` 與每週一排程時執行。
+- `CD` workflow（`.github/workflows/cd.yml`）：
+  - 觸發：`v*` tag push（commit 必須在 `origin/main` 上）建置並發布；`workflow_dispatch`（只能從 `main`，指定已發布的 `release_tag`，可加 `cutover`）只部署、不建置。
+  - Job：`guard` → `test`（呼叫 `ci.yml`）→ `build`（image、attestation、Immutable Release）或 `resolve`（驗證已發布的 `release.json` 與 attestation）→ `plan`（`production-plan` environment，唯讀）→ `compat` → `deploy`（`production` environment，required reviewer 核准後才連到 host）。
+  - 失敗的 job 不會被自動重試；`indeterminate` 結果需人工處理（`deploy/README.md` §5.1）。
 - .NET SDK 由根目錄 `global.json` 固定在 10.0.1xx feature band（`version: 10.0.113`、`rollForward: latestPatch`）：CI 的 setup-dotnet 安裝該 band 的最新 patch；本機須為 10.0.1xx 且不低於 10.0.113。升 band 需手動修改 `global.json`；Dependabot 不管理此檔，以免本機 apt 安裝的 SDK 落後而無法建置。
-- Dependabot 每週更新 nuget、pip、github-actions、docker、docker-compose 的依賴。
+- Dependabot 每週更新 nuget、pip、github-actions、docker、docker-compose 與根目錄 `Dockerfile` 的依賴。
 - `main` 由 ruleset 保護：必須經 PR 合併，且 `.NET build and tests`、`Crawler tests`、`Lint and format` 通過、CodeQL 無 high 以上告警才能合併。
-- CI 不使用任何 secret。CD（部署）仍為延後項目。
+- CI 不使用任何 secret。CD 使用 environment secret（SSH key 與 `SSH_KNOWN_HOSTS`）與 GitHub Token，設定見 `deploy/README.md` §2.8。
+
+### 6.1 Migration compat check
+
+目的：證明目標版本能在 production 目前已套用的資料庫上運作。實作：`deploy/migration-test/compat.sh`，分支規則：`deploy/lib/compat_plan.sh`。
+
+依 A（production 已套用的 migration）與目標 T 的關係分類（`manifest.sh` 的 chain 規則）：
+
+| 分類 | 條件 | 執行內容 | 不執行的內容（report 中標為 skip，附理由） |
+|---|---|---|---|
+| `in-sync` / `forward` | A 等於或是 T 的前綴 | 以 `schema.rebuild` 的 bundle 重建 A、載入 seed、用 T 的 bundle 升級 | — |
+| `schema-ahead` | T 是 A 的前綴（DB 比目標新） | 不執行 T 的 bundle（會降級）；確認 history 與 schema 不被 T 的 web 改動 | 「目標升級」、「升級後 history 等於 T」、「與全新安裝比對」 |
+| `divergent` | 其他情況 | 在任何資料庫操作前失敗 | — |
+
+forward / in-sync 的檢查：
+
+| 檢查名稱 | 驗證內容 |
+|---|---|
+| `applied manifest valid` / `rebuild image manifest valid` / `target image manifest valid` | 三份 manifest 格式正確 |
+| `applied vs target classification` | 分類結果 |
+| `applied is a prefix of the rebuild manifest` | A 是 rebuild release 的前綴（in-sync / forward） |
+| `rebuild reproduces applied history` | 重建後的 `__EFMigrationsHistory` 與 A 相同（A 為空時 skip） |
+| `seed loaded` | `deploy/migration-test/seeds/` 的測試資料載入成功 |
+| `target upgrade applied` | T 的 efbundle 完成；列出套用的 migration 數 |
+| `upgraded history equals target manifest` | 升級後的 history 與 T 相同 |
+| `data preserved` | 升級前的每個 table 與 column 在升級後仍存在，且 seed 資料未被改變 |
+| `schema matches a fresh install` | 升級後的 schema 與空資料庫用 T 安裝的 schema 相同（pg_dump 正規化後比對，失敗時不會因空輸出而相等） |
+
+schema-ahead 的檢查：`applied history unchanged by target`（T 的 web 啟動後，history 仍等於 A）、`data preserved`、`schema unchanged by target`（dump 前後相同）。
+
+所有分類共同的 smoke（mandatory，失敗會讓整次 compat 失敗）：
+
+| 檢查名稱 | 驗證內容 |
+|---|---|
+| `forward: container starts` | container 啟動 |
+| `forward: GET / with X-Forwarded-Proto: https -> 200` | 帶 `X-Forwarded-Proto: https` 回 200（不跟隨 HTTPS redirect） |
+| `forward: GET /account/login issued antiforgery cookie and form token` | 登入頁發出 antiforgery cookie 與表單 token |
+| `forward: POST /account/login with bad credentials -> 200` | 錯誤密碼回 200（表單 POST 與 antiforgery 正常） |
+| `forward: container logs have no unhandled exception or startup failure` | 容器 log 沒有未處理例外或 host 啟動失敗 |
+
+Runtime smoke（目前在 production 運行的版本，對升級後的 DB 執行）對所有分類都只是 INFO，不會讓 compat 失敗。它的結果寫入 report 的 `runtime_smoke`，供 reviewer 參考。
+
+Report：`compat-report.json`（`schema_version: 1`）包含 `classification`、`pending`、`checks`（每項的 `name`、`result`、`detail`）、`forward_ok` 與 `runtime_smoke`。CI 與 CD 都會在 job summary 顯示逐項結果，並上傳為 artifact。
+
+### 6.2 本機整合測試（`BOOKFINDER_IT=1`）
+
+- 位置：`deploy/tests/integration/test_local_integration.py`，執行：`bash deploy/integration/run-local.sh`（需要本機 Docker；使用 `uv` 時以 Python 3.12 執行）。
+- 預設跳過（`BOOKFINDER_IT` 未設為 `1` 時）；**不在 CI 執行**，屬於需要人工執行的檢查。
+- 真實的部分：unit body（`deploy-entry --unit-body`，帶 `INVOCATION_ID`）、plan 與 status 入口、`book-finder-admin`、docker、pgvector container、以 `127.0.0.1` 為 registry（image 以真實的 `repository@sha256:` digest 參照）、由本 checkout 建置的 image（加上兩個拋棄式的新增 migration）。
+- 替身的部分：AWS（一個回答 SSM 與記錄 RDS snapshot 的可執行檔）、nginx（`deploy/integration/edge_stub.py`）。
+- 不涵蓋：`systemd-run` 與 systemd runtime（只能在 EC2 上驗證，見 `deploy/README.md` §7）。
+- 所有 docker 物件命名為 `bf-it-*`，module fixture 結束後移除。
+
+| 情境 | 驗證內容 |
+|---|---|
+| a | forward 升級：snapshot、crawler pause、成功後 crawler 恢復 |
+| b | schema-ahead 部署：rebuild 與 target 保留，crawler digest 不變 |
+| c | 壞掉的 web image：切換後回滾（exit 1），runtime 恢復 |
+| d | migration 失敗：dirty 與 paused 保留，直到 reconcile 與 resume |
+| e | 中斷的 run：判定為 indeterminate（exit 8），直到 `resolve-run` |
+| probe | `docker compose config` 把 `format: raw` 的 env file 原樣輸出（含 `$`、引號、`#`），不啟動任何服務 |

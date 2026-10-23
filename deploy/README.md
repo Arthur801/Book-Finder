@@ -266,7 +266,7 @@ sudo python3 <checkout>/deploy/host/book-finder-admin install-host \
 **Immutable Releases**（Settings → Releases → Enable release immutability）
 
 - 必須在**第一個 release 之前**開啟。這個設定只對開啟後發布的 release 生效。
-- 開啟後：publish 之後 asset 不能修改或刪除，tag 鎖定在原 commit，也不能刪除。（以上行為的來源是計畫檔 `cheerful-finding-shell.md` §7 的查證，不是程式碼。）
+- 開啟後：publish 之後 asset 不能修改或刪除，tag 鎖定在原 commit，也不能刪除。（以上行為的來源是 `Docs/Implementation-Report/issue-92-cd.md` 的驗證結果，不是程式碼。）
 - 尚未確認此功能是否已 GA（**待確認**）。
 
 **`v*` tag ruleset**（建議，程式不強制）
@@ -561,18 +561,18 @@ Journal 是**輔助資訊**，不是結果的來源。結果以 history 為準�
 | # | 項目 | 狀態 | 驗證方式 |
 |---|---|---|---|
 | 1 | **sudo 是否保留 `SSH_ORIGINAL_COMMAND`**（§2.6） | **待確認，上線前必要** | 以 plan key 執行 `status`，確認不是 `rejected` |
-| 2 | `systemd-run` 以 root 執行 transient unit，`INVOCATION_ID` 是否由 systemd 設定 | 待確認。本機只以 `--user` manager 驗證（`cheerful-finding-shell.md` §7 第 5 項） | 第一次正式部署前，用 system manager 的一次性 unit 驗證 |
+| 2 | `systemd-run` 以 root 執行 transient unit，`INVOCATION_ID` 是否由 systemd 設定 | 待確認。本機只以 `--user` manager 驗證（`Docs/Implementation-Report/issue-92-cd.md` 驗證結果第 5 項） | 第一次正式部署前，用 system manager 的一次性 unit 驗證 |
 | 3 | SSH 斷線後 unit 是否仍會完成 | 本機以 `--user` 驗證；system manager 語意相同，**待確認** | 同上 |
 | 4 | psql 容器能否連到 RDS（docker 預設 bridge 網路到 RDS 端點） | 待確認 | 操作者在 EC2 上以 `docker run --rm --pull=never -e DATABASE_URL <PSQL_IMAGE> …` 做唯讀查詢。URL 從 shell 環境注入，不寫進命令列 |
 | 5 | Compose 的 `env_file: format: raw` 在 EC2 的 Docker Compose 版本是否支援 | 程式內有 probe，不支援會 exit 2。**版本號待記錄** | `docker compose version`，記錄於此處 |
-| 6 | `docker cp`（不帶 `-L`）遇到 symlink 只複製連結本身 | 本機實測成立（`cheerful-finding-shell.md` §7 第 3 項）。EC2 上的 Docker 版本未驗證 | 程式的 release 檢查會拒絕 symlink，不依賴此行為的正確性；**待確認** |
+| 6 | `docker cp`（不帶 `-L`）遇到 symlink 只複製連結本身 | 本機實測成立（`Docs/Implementation-Report/issue-92-cd.md` 驗證結果第 3 項）。EC2 上的 Docker 版本未驗證 | 程式的 release 檢查會拒絕 symlink，不依賴此行為的正確性；**待確認** |
 | 7 | host nginx 設定（不在本 repository）：是否把 `PUBLIC_URL` 的請求轉發到 `127.0.0.1:5000` 並加上 `X-Forwarded-Proto` | 待確認 | `curl -sI <PUBLIC_URL>` 回 200，且 web 能辨識為 HTTPS |
 | 8 | Web 的 `ForwardedHeaders__KnownNetworks__0`（`172.31.250.0/24`）是否涵蓋 host nginx 經 docker-proxy 的來源位址 | 待確認（compose 註解的推論） | 健康檢查與登入 cookie 的 `Secure` 行為 |
 | 9 | 爬蟲的 `docker run --pull=never`：image 是否已由 host 拉取 | 程式在 `_update_crawler` 會 pull；bootstrap 前需手動 pull | `docker image inspect <CRAWLER_IMAGE>` |
 | 10 | GHCR package 是否 public；若 private，host 的登入方式 | 待確認（§2.8） | `docker pull` 不需登入即可成功 |
 | 11 | Immutable Releases 是否已 GA | 待確認（查證結果：尚未確認） | GitHub 文件 |
 | 12 | 客戶管理 KMS key 是否使用（影響 `kms:Decrypt`） | 待確認 | SSM 參數的 key 設定 |
-| 13 | `S1`、`S2` 不變式 | 在 `cheerful-finding-shell.md` 中沒有定義（只有 S3～S11）。本文件沒有引用它們 | 需使用者確認是否遺漏 |
+| 13 | 不變式 `S1`、`S2` | 設計計畫中沒有定義（只有 S3～S11）。本文件沒有引用它們 | 需使用者確認是否遺漏 |
 | 14 | `deployment.md` 的 `GOOGLE_BOOKS` 相關 SSM 參數：程式碼中未找到讀取該設定的位置 | 待確認 | `grep -rn GoogleBooks` 只找到來源類型，沒有 API key 設定 |
 | 15 | `production-plan` 是否設 reviewer | 待決定（程式不依賴） | — |
 | 16 | 爬蟲與 host 的 `DB_MAINTENANCE_LOCK` 預設值相同（程式以預設值一致） | 若 host.conf 改了 `DB_MAINTENANCE_LOCK`，爬蟲的環境變數也要改，否則兩者不會互斥 | 比對兩處的設定 |
