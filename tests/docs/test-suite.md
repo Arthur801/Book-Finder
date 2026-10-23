@@ -108,13 +108,23 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter FullyQualifiedNa
 - Then：JUnit 分清 executed/failed/skipped；local browser 測試非網站 E2E；缺依賴 skip 不當成實際驗證通過。DB schema 由 EF 產生，不自行演化。
 - 位置：[conftest](../../crawler/tests/conftest.py)、[browser tests](../../crawler/tests/test_playwright_fetcher.py)、[CI](../../.github/workflows/ci.yml)。完整 crawler 業務案例由 crawler 文件承擔。
 
-### TEST-11：CI scripts、Docker 與結果證據
+### TEST-11：CI scripts、deploy families、Docker 與結果證據
 
-- 責任／規格：test-plan §6、deployment；L2（正式部署另為 L4）；已有入口但本次未執行；TEST-B01/B04。
-- Given：disposable CI、placeholder secrets、Docker internal network；有／無 migration-related PR diff。
-- When：按 ci.yml 跑 checker pytest、deploy pytest、web smoke 與 no-keys control，符合條件時跑 migration compat。
-- Then：checker／host 結果各自判定；key persistence 正向與負控制相符；compat JSON 記 mandatory checks，未觸發必須標未執行；TRX/JUnit/artifact 可定位，不能把缺檔 warn 當完整成功或推定 production。
-- 位置：[ci.yml](../../.github/workflows/ci.yml)、[deploy/tests](../../deploy/tests)、[compat.sh](../../deploy/migration-test/compat.sh)。
+- 責任／規格：test-plan §6、deployment；L2（正式部署另為 L4）；**Implemented test sources / Not executed in this audit**；TEST-B01/B04。新增 deploy family 的版本證據為 PR #100 merge target `main@ce7b4f46c0889db6b10216294cac658136796ad7`，不假設較早文件分支已含這些檔案。
+- Given：disposable CI、placeholder secrets、隔離 state/history/config、fake host ports；Docker 案例另備 internal network；有／無 migration-related PR diff；將 default pytest 與 opt-in integration 分開。
+- When：依 [target ci.yml](https://github.com/Arthur801/Book-Finder/blob/ce7b4f46c0889db6b10216294cac658136796ad7/.github/workflows/ci.yml) 執行 `pytest .github/scripts/tests deploy/tests -q`，CI 另在 Python 3.12 跑 `python -m pytest deploy/tests -q`。其中 local integration 與 imagetools pytest wrapper 只有 `BOOKFINDER_IT=1` 才啟用；不得因 default pytest 通過就宣稱它們已執行。Docker job 另直接執行 web smoke、no-keys control 與 `bash deploy/integration/imagetools-roundtrip.sh`；符合 migration-detect 條件才跑 compat。
+- Then：逐 family 保存 executed／failed／skipped 狀態與結果；release／operator／host state assertions 不冒充 production 證據；key persistence 正向與 no-keys control 相符；compat JSON 可定位 mandatory checks，未觸發標未執行；TRX/JUnit/artifact 缺檔 warn 不等於完整成功。
+
+| Target test family | 來源與證據邊界 |
+|---|---|
+| CI checker／release files | [target .github/scripts/tests](https://github.com/Arthur801/Book-Finder/tree/ce7b4f46c0889db6b10216294cac658136796ad7/.github/scripts/tests)、[test_release_files.py](https://github.com/Arthur801/Book-Finder/blob/ce7b4f46c0889db6b10216294cac658136796ad7/deploy/tests/test_release_files.py)；release 檔案的 network／secret／publish 邊界是靜態斷言，不需要真的發布。 |
+| Operator CLI／host installation | [test_operator_cli.py](https://github.com/Arthur801/Book-Finder/blob/ce7b4f46c0889db6b10216294cac658136796ad7/deploy/tests/host/test_operator_cli.py)、[test_install_host.py](https://github.com/Arthur801/Book-Finder/blob/ce7b4f46c0889db6b10216294cac658136796ad7/deploy/tests/host/test_install_host.py)；檢查拒絕條件、state/history/exit、安裝切換與注入 crash point，不是 EC2 已安裝證據。 |
+| Compose probe | [test_compose_probe.py](https://github.com/Arthur801/Book-Finder/blob/ce7b4f46c0889db6b10216294cac658136796ad7/deploy/tests/host/test_compose_probe.py)；替身模擬 raw env_file capability、錯誤與 cleanup，不代表現場 Compose 已驗證。 |
+| State／history／machine coordination | [test_state.py](https://github.com/Arthur801/Book-Finder/blob/ce7b4f46c0889db6b10216294cac658136796ad7/deploy/tests/host/test_state.py)、[test_history.py](https://github.com/Arthur801/Book-Finder/blob/ce7b4f46c0889db6b10216294cac658136796ad7/deploy/tests/host/test_history.py)、[test_machine.py](https://github.com/Arthur801/Book-Finder/blob/ce7b4f46c0889db6b10216294cac658136796ad7/deploy/tests/host/test_machine.py)；fakes／tmp 狀態與轉移斷言，區分實際 Docker integration。 |
+| Crawler maintenance coordination | [target crawler/test_deploy.py](https://github.com/Arthur801/Book-Finder/blob/ce7b4f46c0889db6b10216294cac658136796ad7/crawler/tests/test_deploy.py)、[test_run_crawler_contract.py](https://github.com/Arthur801/Book-Finder/blob/ce7b4f46c0889db6b10216294cac658136796ad7/deploy/tests/host/test_run_crawler_contract.py)；absent／paused／dirty／malformed state、shared-lock 先後與存續、timeout exits，詳見 [CR-T12](../../crawler/docs/test-suite.md)。 |
+| Local Docker integration／release digest | [test_local_integration.py](https://github.com/Arthur801/Book-Finder/blob/ce7b4f46c0889db6b10216294cac658136796ad7/deploy/tests/integration/test_local_integration.py)、[test_imagetools_roundtrip.py](https://github.com/Arthur801/Book-Finder/blob/ce7b4f46c0889db6b10216294cac658136796ad7/deploy/tests/integration/test_imagetools_roundtrip.py)；`integration` marker 與 `BOOKFINDER_IT=1` gate，需 Docker 與可用 local ports；pytest default 會 skip。Imagetools 同一腳本亦由 CI Docker job 直接執行，兩條入口結果分開。 |
+
+上述 target 檔案由 Git object 查核；本次未執行任何 pytest／Docker／host 操作。較早的 [ci.yml](../../.github/workflows/ci.yml)、[deploy/tests](../../deploy/tests)、[compat.sh](../../deploy/migration-test/compat.sh) 相對連結保留作 repository 導覽，target 新增行為以固定 SHA 來源為準。
 
 ### TEST-12：網站瀏覽器與靜態資產
 

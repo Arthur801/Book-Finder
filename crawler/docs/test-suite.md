@@ -1,6 +1,8 @@
 # Crawler 文字測試案例庫
 
-> 查核 2026-10-24；HEAD `91333c334148fa5bfe07055d0e799dc13bb0bb4e`。以下「已有測試」均表示程式存在但本次未執行，沒有本次通過結果。
+**版本範圍**：crawler 核心以 `91333c3` 為原始查核基準；host wrapper／deployment coordination 另查核 PR #100 merge target `main` 的 `ce7b4f46c0889db6b10216294cac658136796ad7`（2026-10-24 擷取）。下述 host 流程描述合併後的 target 行為，不表示文件分支內較早的 wrapper 已變更；target 證據使用固定 SHA 連結。未執行 build、測試、部署或真實抓取。
+
+> 查核 2026-10-24；核心基準 `91333c3`。以下「已有測試」均表示程式存在但本次未執行，沒有本次通過結果。
 
 ## 隔離、資料與命令
 
@@ -106,13 +108,28 @@ python -m pytest tests/test_fetcher.py tests/test_curl_fetcher.py tests/test_pla
 - Then：現況每次不同檔名、HTML 原樣、JSON 僅選定 headers 不存 cookie，browser 可加 PNG；個別寫失敗不遮蓋 FetchError；cleanup 依先決保留政策測試新舊與例外，不能把原始 HTML 稱為全面去識別。
 - 現有測試或擴充入口：[test_fetcher.py](../tests/test_fetcher.py)、test_playwright_fetcher.py；cleanup 測試待建。
 
-### CR-T12 — host wrapper 排程與 secret
+### CR-T12 — Host wrapper contracts
 
-- 責任／規格：deployment §8，CB-03；風險 L2；狀態：已有測試但本次未執行（替身）。
-- Given：tmp config／state、fake AWS／Docker／date；daily 與 pages 同 lock，pages 前次成功 epoch；失敗 exit。
-- When：以 test_deploy.py 的 execute helper 呼叫 daily、pages --scheduled。
-- Then：原 exit 傳遞、env 暫存結束刪除；未滿259200秒不跑，滿期執行，pages exit0更新啟動時間，失敗不前移；共享 lock 序列化；不證明真實 IAM／EC2 成功。
-- 現有測試或擴充入口：[test_deploy.py](../tests/test_deploy.py)。
+本案例分兩組，均為 **Implemented / Not executed in this audit**；deployment coordination 是 target 已有測試，非待實作。來源：[target test_deploy.py](https://github.com/Arthur801/Book-Finder/blob/ce7b4f46c0889db6b10216294cac658136796ad7/crawler/tests/test_deploy.py)；檔案在文件分支與 target 的版本不同，以下以固定 target SHA 為準。測試用 tmp config／state、BASH_ENV 的 AWS／Docker／chown 替身、獨立 maintenance lock 與 state.json 路徑，不連外部服務。
+
+#### CR-T12-A — scheduler／secret contract
+
+- 責任／規格：target deployment §8，CB-03；風險 L2。
+- Given：daily/pages 共用 crawler run.lock、pages 上次成功 epoch；Docker 替身可回傳失敗碼，env 暫存檔在 tmp runtime。
+- When：以 `execute` helper 呼叫 daily、pages --scheduled；連續兩個 process 測 72h 與 serialization。
+- Then：container exit 原樣傳遞、secret 不出 stdout/stderr、env file 權限 600 且結束刪除；未滿259200秒不跑，滿期執行；pages exit0 更新啟動時間、失敗不前移；daily/pages 不重疊。
+- 現有測試：`test_daily_keeps_exit_code_and_removes_secret_file`、`test_pages_schedule_survives_new_process_and_becomes_due`、`test_failed_pages_does_not_advance_schedule`、`test_daily_and_pages_share_a_lock`。這些是替身測試，不證明 IAM／EC2 已成功。
+
+#### CR-T12-B — deployment-coordination contract
+
+- 責任／規格：target deployment §8（N3）；風險 L3（正式部署驗證另 L4）。
+- Given：`DB_MAINTENANCE_LOCK`、`BOOKFINDER_STATE_FILE` 皆指向本案 tmp 路徑；state 分別缺少、clean、paused object、dirty=true、malformed JSON；另以 holder process 取得 exclusive maintenance lock，Docker 替身可延遲。
+- When：呼叫 daily／pages --scheduled；在 wrapper 等待 maintenance lock 時寫入 paused state；Docker 執行期間另用 nonblocking exclusive probe；另將 maintenance wait 設短以觸發 timeout。
+- Then：absent state 仍能跑（只略過 state gate，仍取 maintenance lock）；clean 可跑；paused／dirty exit6 且 Docker calls 檔不存在；malformed JSON exit2 fail closed、Docker 不跑。等鎖後讀到新 paused state 並 exit6，證明不能先讀 state；Docker 執行期間 exclusive probe 失敗，證明 shared lock 持續存在；wait timeout exit3、Docker 不跑。OS 讀取錯誤屬程式的同一 fail-closed 分支，現有 unreadable 案例實際注入 malformed JSON，不冒稱已測所有權限錯誤。
+- 現有測試：`test_absent_state_keeps_pre_cd_behaviour`、`test_clean_state_runs`、`test_paused_state_skips_before_docker`、`test_dirty_schema_skips_before_docker`、`test_unreadable_state_fails_closed`、`test_lock_is_taken_before_state_is_read`、`test_maintenance_lock_is_held_while_the_container_runs`、`test_maintenance_wait_timeout_exits_3`。
+- 跨模組補證：[target test_run_crawler_contract.py](https://github.com/Arthur801/Book-Finder/blob/ce7b4f46c0889db6b10216294cac658136796ad7/deploy/tests/host/test_run_crawler_contract.py) 用 host state writer 建立 paused／dirty／clean state，再呼叫真 wrapper 與替身 Docker，保護 crawler.paused／schema.dirty 欄位 contract；本次亦未執行。
+
+以上測試需以 target／合併後版本執行，較早文件分支的 test_deploy.py 不包含 N3 案例。現有 pytest 入口不等於本次已通過；不可套用正式 state／lock／AWS 設定。
 
 ### CR-T13 — 正式啟用前證據
 

@@ -62,6 +62,27 @@ git show 082cd80 -- crawler/deploy/run-crawler.sh
 - `082cd80`：wrapper 新增 flock、SSM 專用 DB secret、env 暫存 cleanup、Docker curl 執行、72 小時狀態與 exit 傳遞。該 diff 只證明程式存在，不證明部署。
 - `24ec7d7` 的 commit 與變更範圍顯示 curl、節流、連續錯誤與 first-book 的轉折；後續 ledger／outcome refactor 保留責任分離，不把歷史舊累計限制列為現存 bug。
 
+## Baseline 後 merge-target changes
+
+原始 `91333c3` 表格的 34 筆非 merge crawler source history 保留不變；下表另查核 `91333c3..ce7b4f46c0889db6b10216294cac658136796ad7` 在 `crawler` 路徑的全部 5 筆非 merge 變更，排除 crawler/docs。Target 於 2026-10-24 擷取，日期使用 author 的 Asia/Taipei offset；並非部署或本次測試通過日期。
+
+```bash
+git log --reverse --no-merges --format='%H %aI %s' 91333c3..ce7b4f46c0889db6b10216294cac658136796ad7 -- crawler ':(exclude)crawler/docs'
+git show d724d12 -- crawler/deploy/run-crawler.sh crawler/tests/test_deploy.py
+git show ce7b4f46c0889db6b10216294cac658136796ad7:crawler/deploy/run-crawler.sh
+git show ce7b4f46c0889db6b10216294cac658136796ad7:crawler/tests/test_deploy.py
+```
+
+| Author 日期／SHA | 目標內變更及查核結果 |
+|---|---|
+| 2026-10-23／`d724d1294c00ba9a807a6261b6bdb5a021d14100` | `feat(deploy): crawler waits for the maintenance lock and skips while paused or dirty (N3) (#92)`；已讀 wrapper 與 test_deploy diff。共用 crawler run.lock 後先取 maintenance shared lock、再讀 state；容器期間持鎖；timeout exit3，paused／dirty exit6，state 讀取失敗 exit2 fail closed，absent state 向後相容；新增對應來源測試。 |
+| 2026-10-23／`a17d415c6c158cc9616acff5a6eca364af3bccf8` | crawler/deploy/README 改為 GHCR、CD-managed digest，補 shared maintenance lock／state gate 的運行與部署政策；不是新增 crawler parser 行為。 |
+| 2026-10-24／`bda4ebdd053063445000c1d0a8b866dbedac149d` | crawler/deploy/README 釐清 staging tag → attestation → release tag commit point → digest confirmation 的發布順序。 |
+| 2026-10-24／`3dd0c137d9a9b51318776a3347278409f5a064a3` | crawler.conf.example 改用 `ghcr.io/...@sha256:<digest>`，明示 image 由 CD 改寫；不是部署完成證據。 |
+| 2026-10-24／`4a7c06024c9e78356be886395a7461b7e8ce651b` | crawler/deploy/README 說明 `<digest>` 是待替換的 placeholder；該 commit subject 的 status exit0 是目標外 host 語意，不誤歸 crawler wrapper。 |
+
+Workflow／architecture／CR-T12 的 host 現況引用 [target wrapper](https://github.com/Arthur801/Book-Finder/blob/ce7b4f46c0889db6b10216294cac658136796ad7/crawler/deploy/run-crawler.sh) 與 [target tests](https://github.com/Arthur801/Book-Finder/blob/ce7b4f46c0889db6b10216294cac658136796ad7/crawler/tests/test_deploy.py)；PR 分支未合併 target 程式，不以舊 wrapper 的相對連結冒稱 N3 已在該分支實作。合併後若 target 再演進，需重查這個固定 snapshot；以上兩段歷史都排除 PR #100 的文件 commits。
+
 ## 相關依賴與限制
 
 `dccad53`（2026-10-23，Arthur801）同時改 compose、EF integration 與 crawler conftest 的 pgvector image 字串為 0.8.7-pg17；crawler 自己不遷移 schema。資料契約／部署規格的外部歷史未做全量追蹤。完整 author／committer 時刻可由 git show --format=fuller SHA 查；沒有從日期推斷發布成功或測試通過。
