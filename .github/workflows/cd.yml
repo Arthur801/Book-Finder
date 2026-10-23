@@ -104,6 +104,8 @@ jobs:
     env:
       TAG: ${{ needs.guard.outputs.tag }}
       COMMIT: ${{ needs.guard.outputs.commit }}
+      # Unique per run attempt, so a rerun never collides with a staging push from an earlier attempt.
+      STAGING_TAG: build-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -118,7 +120,13 @@ jobs:
           REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: printf '%s' "$REGISTRY_TOKEN" | docker login ghcr.io -u "$REGISTRY_USER" --password-stdin
 
-      # I7: an existing tag is reused only after its provenance verifies. A registry error other than "not found" fails here.
+      # Transaction for each image (I7). An existing release tag is reused only after its attestation verifies, and a
+      # release tag is never written before its digest is attested. Otherwise the image goes to a per-attempt staging tag
+      # first. Creating the release tag (imagetools create) is the commit point; a crash before it leaves no release tag,
+      # so a rerun rebuilds. Staging tags build-<run_id>-<run_attempt> are harmless leftovers: delete them by hand when convenient.
+      - name: Validate the staging tag
+        run: python3 .github/scripts/cd_release.py validate-staging-tag --tag "$STAGING_TAG"
+
       - name: Check the web image tag
         id: web_state
         env:
@@ -132,16 +140,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: python3 .github/scripts/cd_release.py verify-attestation --ref "$REF" --tag "$TAG" --commit "$COMMIT"
 
-      - name: Build and push the web image
+      - name: Build and push the web staging image
         if: steps.web_state.outputs.exists == 'false'
         id: web_build
         env:
-          REF: ghcr.io/arthur801/book-finder-web:${{ needs.guard.outputs.tag }}
+          STAGING: ghcr.io/arthur801/book-finder-web:${{ env.STAGING_TAG }}
         run: |
           set -euo pipefail
-          docker build --build-arg "GIT_COMMIT=$COMMIT" -t "$REF" .
-          docker push "$REF"
-          echo "digest=$(docker inspect --format '{{index .RepoDigests 0}}' "$REF" | sed 's/^[^@]*@//')" >> "$GITHUB_OUTPUT"
+          docker build --build-arg "GIT_COMMIT=$COMMIT" -t "$STAGING" .
+          docker push "$STAGING"
+          echo "digest=$(docker inspect --format '{{index .RepoDigests 0}}' "$STAGING" | sed 's/^[^@]*@//')" >> "$GITHUB_OUTPUT"
 
       - name: Attest the web image
         if: steps.web_state.outputs.exists == 'false'
@@ -150,6 +158,29 @@ jobs:
           subject-name: ghcr.io/arthur801/book-finder-web
           subject-digest: ${{ steps.web_build.outputs.digest }}
           push-to-registry: true
+
+      - name: Verify the new web attestation
+        if: steps.web_state.outputs.exists == 'false'
+        env:
+          REF: ghcr.io/arthur801/book-finder-web@${{ steps.web_build.outputs.digest }}
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/cd_release.py verify-attestation --ref "$REF" --tag "$TAG" --commit "$COMMIT"
+
+      # Commit point: the release tag now names the attested digest. Nothing is written before the attestation verifies.
+      - name: Create the web release tag
+        if: steps.web_state.outputs.exists == 'false'
+        env:
+          SOURCE: ghcr.io/arthur801/book-finder-web@${{ steps.web_build.outputs.digest }}
+          RELEASE: ghcr.io/arthur801/book-finder-web:${{ needs.guard.outputs.tag }}
+        run: docker buildx imagetools create --tag "$RELEASE" "$SOURCE"
+
+      # The release tag must resolve to the attested digest; a different digest fails the job and is reported as such.
+      - name: Confirm the web release tag
+        if: steps.web_state.outputs.exists == 'false'
+        env:
+          REF: ghcr.io/arthur801/book-finder-web:${{ needs.guard.outputs.tag }}
+          DIGEST: ${{ steps.web_build.outputs.digest }}
+        run: python3 .github/scripts/cd_release.py confirm-release --ref "$REF" --digest "$DIGEST"
 
       - name: Check the crawler image tag
         id: crawler_state
@@ -164,16 +195,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: python3 .github/scripts/cd_release.py verify-attestation --ref "$REF" --tag "$TAG" --commit "$COMMIT"
 
-      - name: Build and push the crawler image
+      - name: Build and push the crawler staging image
         if: steps.crawler_state.outputs.exists == 'false'
         id: crawler_build
         env:
-          REF: ghcr.io/arthur801/book-finder-crawler:${{ needs.guard.outputs.tag }}
+          STAGING: ghcr.io/arthur801/book-finder-crawler:${{ env.STAGING_TAG }}
         run: |
           set -euo pipefail
-          docker build -t "$REF" crawler/
-          docker push "$REF"
-          echo "digest=$(docker inspect --format '{{index .RepoDigests 0}}' "$REF" | sed 's/^[^@]*@//')" >> "$GITHUB_OUTPUT"
+          docker build -t "$STAGING" crawler/
+          docker push "$STAGING"
+          echo "digest=$(docker inspect --format '{{index .RepoDigests 0}}' "$STAGING" | sed 's/^[^@]*@//')" >> "$GITHUB_OUTPUT"
 
       - name: Attest the crawler image
         if: steps.crawler_state.outputs.exists == 'false'
@@ -182,6 +213,28 @@ jobs:
           subject-name: ghcr.io/arthur801/book-finder-crawler
           subject-digest: ${{ steps.crawler_build.outputs.digest }}
           push-to-registry: true
+
+      - name: Verify the new crawler attestation
+        if: steps.crawler_state.outputs.exists == 'false'
+        env:
+          REF: ghcr.io/arthur801/book-finder-crawler@${{ steps.crawler_build.outputs.digest }}
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/cd_release.py verify-attestation --ref "$REF" --tag "$TAG" --commit "$COMMIT"
+
+      # Commit point for the crawler, as for the web image above.
+      - name: Create the crawler release tag
+        if: steps.crawler_state.outputs.exists == 'false'
+        env:
+          SOURCE: ghcr.io/arthur801/book-finder-crawler@${{ steps.crawler_build.outputs.digest }}
+          RELEASE: ghcr.io/arthur801/book-finder-crawler:${{ needs.guard.outputs.tag }}
+        run: docker buildx imagetools create --tag "$RELEASE" "$SOURCE"
+
+      - name: Confirm the crawler release tag
+        if: steps.crawler_state.outputs.exists == 'false'
+        env:
+          REF: ghcr.io/arthur801/book-finder-crawler:${{ needs.guard.outputs.tag }}
+          DIGEST: ${{ steps.crawler_build.outputs.digest }}
+        run: python3 .github/scripts/cd_release.py confirm-release --ref "$REF" --digest "$DIGEST"
 
       - name: Record the image digests
         id: digests

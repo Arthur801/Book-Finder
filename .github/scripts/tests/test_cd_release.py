@@ -297,6 +297,34 @@ def test_verify_attestation_passes_only_with_the_full_policy():
         cd.verify_attestation(f"{cd.WEB_REPO}@{WEB}", "v1; x", COMMIT, ok)
 
 
+def test_staging_tag_accepts_only_run_and_attempt_numbers():
+    assert cd.check_staging_tag("build-123456-2") == "build-123456-2"
+    for bad in ["build-1", "build-1-2-3", "v1.2.3", "build-1-2\n", "build-x-1", "build-1-12345", "build-1-1; rm"]:
+        with pytest.raises(CdError):
+            cd.check_staging_tag(bad)
+
+
+def test_confirm_release_digest_requires_the_attested_digest():
+    present = lambda argv: Result(0, json.dumps({"digest": WEB}), "")
+    assert cd.confirm_release_digest(f"{cd.WEB_REPO}:{TAG}", WEB, present) == WEB
+    other = lambda argv: Result(0, json.dumps({"digest": WEB_OLD}), "")
+    with pytest.raises(CdError, match="unattested digest"):
+        cd.confirm_release_digest(f"{cd.WEB_REPO}:{TAG}", WEB, other)
+    absent = lambda argv: Result(1, "", "not found")
+    with pytest.raises(CdError, match="missing after the commit"):
+        cd.confirm_release_digest(f"{cd.WEB_REPO}:{TAG}", WEB, absent)
+    with pytest.raises(CdError):
+        cd.confirm_release_digest(f"{cd.WEB_REPO}:{TAG}", "sha256:xyz", present)
+
+
+def test_cli_staging_tag_and_confirm_release(tmp_path, monkeypatch):
+    assert cd.main(["validate-staging-tag", "--tag", "build-9-1"]) == 0
+    assert cd.main(["validate-staging-tag", "--tag", TAG]) == 1
+    monkeypatch.setattr(cd, "system_runner", lambda argv: Result(0, json.dumps({"digest": WEB}), ""))
+    assert cd.main(["confirm-release", "--ref", f"{cd.WEB_REPO}:{TAG}", "--digest", WEB]) == 0
+    assert cd.main(["confirm-release", "--ref", f"{cd.WEB_REPO}:{TAG}", "--digest", WEB_OLD]) == 1
+
+
 def test_release_state_reads_absent_draft_and_published():
     assert cd.release_state(TAG, lambda argv: Result(1, "", "release not found")) == "absent"
     assert cd.release_state(TAG, lambda argv: Result(0, "true\n", "")) == "draft"

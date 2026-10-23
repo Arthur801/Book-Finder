@@ -50,6 +50,8 @@ CONTAINER_ID_RE = re.compile(r"[0-9a-f]{12,64}")
 WEB_REF_RE = re.compile(re.escape(WEB_REPO) + r"@sha256:[0-9a-f]{64}")
 IMAGE_REF_RE = re.compile(rf"(?:{re.escape(WEB_REPO)}|{re.escape(CRAWLER_REPO)})@sha256:[0-9a-f]{{64}}")
 IMAGE_TAG_REF_RE = re.compile(rf"(?:{re.escape(WEB_REPO)}|{re.escape(CRAWLER_REPO)}):{TAG_RE.pattern}")
+# A build pushes here first; the release tag is created only after the staging digest is attested and verified.
+STAGING_TAG_RE = re.compile(r"build-[0-9]{1,20}-[0-9]{1,4}")
 RELEASE_KEYS = {"schema_version", "tag", "commit", "web_digest", "crawler_digest", "release_api", "migrations", "sql_assets"}
 PLAN_KEYS = {"revision", "runtime", "drift", "schema", "crawler", "compose_version", "target", "classification", "pending"}
 TERMINAL_PREFIX = "completed:"
@@ -371,6 +373,26 @@ def verify_attestation(ref: str, tag: str, commit: str, runner: Runner) -> None:
     ]
     if runner(argv).returncode != 0:
         raise CdError(f"attestation verification failed for {ref.split('@', 1)[0]}; never rebuild over an existing tag")
+
+
+def check_staging_tag(value: object) -> str:
+    return check(STAGING_TAG_RE, value, "staging tag")
+
+
+def confirm_release_digest(ref: str, attested: str, runner: Runner) -> str:
+    """The commit check after `imagetools create`: the release tag must resolve to the digest that was attested.
+
+    A mismatch means the release tag now points at an unattested digest. This function cannot undo that; the message says so.
+    """
+    check(DIGEST_RE, attested, "attested digest")
+    state, digest = image_state(ref, runner)
+    if state != "present" or digest is None:
+        raise CdError("the release tag is missing after the commit")
+    if digest != attested:
+        raise CdError(
+            f"the release tag resolves to {digest}, not the attested {attested}; the tag is on an unattested digest and must be deleted by hand before any rerun"
+        )
+    return digest
 
 
 def release_state(tag: str, runner: Runner) -> str:
@@ -774,6 +796,16 @@ def _cmd_verify_attestation(args: argparse.Namespace) -> None:
     print("attestation verified")
 
 
+def _cmd_validate_staging_tag(args: argparse.Namespace) -> None:
+    check_staging_tag(args.tag)
+    print("staging tag is valid")
+
+
+def _cmd_confirm_release(args: argparse.Namespace) -> None:
+    digest = confirm_release_digest(args.ref, args.digest, system_runner)
+    print(f"release tag resolves to the attested digest {digest}")
+
+
 def _cmd_plan_outputs(args: argparse.Namespace) -> None:
     plan_path = Path(args.plan_file)
     # The whole file is parsed (capped at 1 MiB); only the summary copy is truncated.
@@ -880,6 +912,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--tag", required=True)
     p.add_argument("--commit", required=True)
     p.set_defaults(func=_cmd_verify_attestation)
+
+    p = sub.add_parser("validate-staging-tag")
+    p.add_argument("--tag", required=True)
+    p.set_defaults(func=_cmd_validate_staging_tag)
+
+    p = sub.add_parser("confirm-release")
+    p.add_argument("--ref", required=True)
+    p.add_argument("--digest", required=True)
+    p.set_defaults(func=_cmd_confirm_release)
 
     p = sub.add_parser("plan-outputs")
     p.add_argument("--plan-file", required=True)
