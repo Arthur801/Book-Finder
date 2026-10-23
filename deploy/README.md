@@ -330,6 +330,7 @@ sudo python3 <checkout>/deploy/host/book-finder-admin install-host \
 2. 爬蟲腳本與排程已安裝：`run-crawler.sh` 到 `CRAWLER_RUNNER`、`crawler.cron` 到 `CRON_FILE`（bootstrap 會讀取並計算兩者的雜湊，缺任一個就拒絕）。`crawler.conf` 的 `CRAWLER_IMAGE=` 必須已設定為 `<CRAWLER_IMAGE_REPOSITORY>@<crawler digest>`（例如 `ghcr.io/arthur801/book-finder-crawler@sha256:<digest>`），並已 `docker pull`（爬蟲以 `--pull=never` 執行）。bootstrap-state 會讀取並驗證此值，與 `--crawler-digest` 不一致時拒絕；`resume-crawler` 也會檢查。
 3. 目標 release 的 tag 已發布。`bootstrap-state --release` 與 `--web-digest` 必須指向同一個已發布 release：程式只檢查 tag 的格式，**不驗證 tag 與 digest 的對應**，由操作者確認（對照 GitHub Release 的 `release.json`）。
 4. `docker pull <PSQL_IMAGE>` 已完成。
+5. 若 EC2 無法從來源網站取得頁面（博客來封鎖 EC2 IP），在安裝 `crawler.cron` 之前於 `crawler.conf` 加上 `CRAWLER_ENABLED=false`。`bootstrap-state` 要求 `crawler.cron` 存在，因此不能略過安裝；設為 `false` 後 cron 仍會觸發，但每次都以 `skipped=disabled` 立即結束（`crawler/deploy/README.md` §5.1）。此開關跨部署保留；要恢復時改為 `true`。注意：`v0.0.1` 內的 `run-crawler.sh` 尚未支援此開關，需先發布新 release（例如 `v0.0.2`）並部署後，此設定才會生效。
 
 ### 3.2 `bootstrap-state`（N6，L4）
 
@@ -703,3 +704,4 @@ Journal 是**輔助資訊**，不是結果的來源。結果以 history 為準�
 | 16 | 爬蟲與 host 的 `DB_MAINTENANCE_LOCK` 預設值相同（程式以預設值一致） | 若 host.conf 改了 `DB_MAINTENANCE_LOCK`，爬蟲的環境變數也要改，否則兩者不會互斥 | 比對兩處的設定 |
 | 17 | **第一個正式 release 在 GHCR 上的 end-to-end 確認**（§1.6） | **第一次正式 release 前必要**。Docker 的 `imagetools create` 行為本身已不是未知：本機 registry 的 round trip 由 CI 的 `imagetools-roundtrip.sh` 驗證（見 §1.6） | 第一次 release 的 `Confirm the web release tag` 與 `Confirm the crawler release tag` 步驟必須通過（GHCR 上 release tag 解析到 attest 的 digest）。若失敗，release tag 指向未 attest 的 digest：先依 §1.6 在 GHCR 刪除該版本，確認後才 rerun（L4 等級） |
 | 18 | Build 留下的 staging tag（`build-<run_id>-<run_attempt>`）的 GHCR 清理 | 待確認（GHCR 網頁的確切路徑） | 依 §1.6：只刪除版本上所有 tag 都是 `build-*` 的版本；有 `v*` tag 的版本不得刪除 |
+| 19 | **EC2 被博客來擋下，crawler 停用**（2026-10-24 手動試跑失敗） | 已知限制。在修正之前，crawler 以 `CRAWLER_ENABLED=false` 停用（`crawler/deploy/README.md` §5.1）；需發布支援此開關的 release 後才會生效。恢復前須確認 EC2 可取得頁面，或採用替代資料管道（`Docs/deployment/deployment.md` §8） | 在 EC2 手動執行 `run-crawler.sh daily` 取得成功結果後，將 `CRAWLER_ENABLED` 改為 `true` 並觀察一次排程 |
