@@ -94,6 +94,7 @@ def plan(applied, classification, pending, runtime=None, drift=None, dirty=False
         "target": {"tag": target_tag, "web_digest": target_web, "release_api": 1},
         "classification": classification,
         "pending": pending,
+        "blocked": [],
     }
 
 
@@ -348,6 +349,24 @@ def test_divergent_dirty_and_drift_are_refused():
         run_plan(plan(applied, "forward", [ID2, ID3], dirty=True))
     with pytest.raises(CdError, match="drift"):
         run_plan(plan(applied, "forward", [ID2, ID3], drift=["runtime: changed"]))
+
+
+def test_blocked_plan_is_refused_and_the_summary_names_the_reason(tmp_path):
+    applied = applied_list(*MIGRATIONS)
+    blocked = plan(applied, "in-sync", [])
+    reason = "crawler paused by v1.0.0 at 2026-10-01T00:00:00Z: run resume-crawler first"
+    blocked["blocked"] = [reason]
+    with pytest.raises(CdError, match="blocked"):
+        run_plan(blocked)
+    # A host that exits 3 with the blocked list must still leave the reason in the CD summary.
+    raw = json.dumps(blocked)
+    summary = cd.plan_summary(raw, 3)
+    assert "- host exit code: `3`" in summary
+    assert f"  - {reason}" in summary
+    missing = plan(applied, "in-sync", [])
+    del missing["blocked"]
+    with pytest.raises(CdError, match="keys"):
+        run_plan(missing)
 
 
 def test_host_failure_is_refused_and_still_writes_the_summary(tmp_path):

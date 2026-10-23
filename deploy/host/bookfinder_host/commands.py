@@ -366,7 +366,7 @@ def _fetch_target(deps: Deps, web_digest: str) -> mf.ReleaseMetadata:
 
 
 def _schema_ahead_crawler_problem(command: DeployCommand, current_digest: str) -> str | None:
-    """Contract: a schema-ahead deploy never changes the crawler, so its crawler_digest must be the current one (M3c)."""
+    """Contract: a schema-ahead deploy never changes the crawler, so its crawler_digest must be the current one."""
     if command.chain == "schema-ahead" and command.crawler_digest != current_digest:
         return f"schema-ahead keeps the current crawler ({current_digest}); crawler_digest must be that digest"
     return None
@@ -414,6 +414,11 @@ def _plan_locked(command: PlanCommand, deps: Deps, out: TextIO, err: TextIO) -> 
         pending_ids = [m.id for m in mf.pending(applied, list(target.migrations))]
     observed, runtime_drift = _observe_runtime(state, deps)
     drift = runtime_drift + _observe_schema(state, deps)
+    # The unit refuses a paused crawler at step 0 (machine.py). Reporting it here keeps the human approval from
+    # being spent on a deploy that cannot start; the plan exits DRIFT for the same reason.
+    blocked = []
+    if state.crawler.paused is not None:
+        blocked.append(f"crawler paused by {state.crawler.paused.release} at {state.crawler.paused.since}: run resume-crawler first")
     report: dict[str, Any] = {
         "revision": state.revision,
         "runtime": {
@@ -434,13 +439,14 @@ def _plan_locked(command: PlanCommand, deps: Deps, out: TextIO, err: TextIO) -> 
         "target": {"tag": command.tag, "web_digest": command.web_digest, "release_api": target.release_api},
         "classification": classification,
         "pending": pending_ids,
+        "blocked": blocked,
     }
     out.write(json.dumps(report, sort_keys=True) + "\n")
     if classification == "divergent" or not _api_in_range(target.release_api, deps):
         return BAD_INPUT
     if state.schema.dirty:
         return DIRTY
-    if drift:
+    if drift or blocked:
         return DRIFT
     return OK
 
@@ -455,7 +461,7 @@ def run_status(command: StatusCommand, deps: Deps, out: TextIO) -> int:
 
 
 def _check_deploy_gates(command: DeployCommand, state: st.State, deps: Deps) -> mf.ReleaseMetadata:
-    """Every check that must pass before the state machine may change anything (plan section 5, step 0)."""
+    """Every check that must pass before the state machine may change anything (step 0 of the deploy flow, deploy/README.md §1.1)."""
     if state.revision != command.expect_revision:
         raise GateFailure(DRIFT, f"revision is {state.revision}, expected {command.expect_revision}")
     if st.runtime_fingerprint(state.runtime) != command.expect_runtime:
