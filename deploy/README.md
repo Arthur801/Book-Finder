@@ -228,7 +228,7 @@ deployer ALL=(root) NOPASSWD: /opt/book-finder/host/deploy-entry
 
 **Security Group**
 
-- 只開放 TCP 22（SSH）。HTTP、HTTPS 依 nginx 設定開放（nginx 不在本 repository 中，**待確認**）。
+- TCP 22（SSH）只開放給需要的來源；TCP 80 與 443 對外開放，供 host nginx 做 ACME 驗證與 HTTPS（nginx 設定不在本 repository 中，**待確認**）。PostgreSQL 的 5432 只允許 EC2 的 Security Group 存取 RDS，不需要對 EC2 外開放。
 - 風險與緩解：
   - SSH 來源：GitHub-hosted runner 的 IP 不固定，無法只用 IP 限制。主要防線是 key-only 登入、forced command 與 `restrict`。
   - 若要限制來源 IP，需自行評估 GitHub 的 Actions IP 範圍（**待確認**）。操作者自己的 IP 可保留獨立規則。
