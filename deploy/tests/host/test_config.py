@@ -58,6 +58,18 @@ def test_rejects_bad_configuration(tmp_path, mutation):
         cfg.load_settings(write(tmp_path, mutation(VALID)))
 
 
+@pytest.mark.parametrize("value", ["nan", "NaN", "inf", "-inf", "Infinity", "0", "-1", "soon"])
+def test_rejects_lock_timeout_that_is_not_a_finite_positive_number(tmp_path, value):
+    with pytest.raises(cfg.ConfigError, match="LOCK_TIMEOUT_S"):
+        cfg.load_settings(write(tmp_path, VALID + f"LOCK_TIMEOUT_S={value}\n"))
+
+
+@pytest.mark.parametrize(("value", "expected"), [("0.5", 0.5), ("10", 10.0)])
+def test_accepts_lock_timeout_that_is_a_finite_positive_number(tmp_path, value, expected):
+    settings = cfg.load_settings(write(tmp_path, VALID + f"LOCK_TIMEOUT_S={value}\n"))
+    assert settings.lock_timeout_s == expected
+
+
 def test_make_psql_query_passes_the_url_only_in_the_environment(tmp_path):
     url = "postgres://user:secret@db.internal/book_finder"
     runner = ScriptedRunner(

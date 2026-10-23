@@ -4,6 +4,7 @@ Why: the forced command runs as root and must not execute configuration. The fil
 set; values are limited to a character set with no shell meaning, so the file cannot smuggle a second command.
 """
 
+import math
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -50,6 +51,20 @@ class Settings:
     lock_timeout_s: float
 
 
+def _positive_finite_seconds(values: dict[str, str], key: str) -> float:
+    """A duration in seconds that a bounded wait can use: a finite number greater than zero.
+
+    Why: float() accepts "nan" and "inf", and a NaN deadline never expires, so a bounded wait would not be bounded.
+    """
+    try:
+        seconds = float(values[key])
+    except ValueError as exc:
+        raise ConfigError(f"{key} must be a number") from exc
+    if not math.isfinite(seconds) or seconds <= 0:
+        raise ConfigError(f"{key} must be a finite number greater than zero")
+    return seconds
+
+
 def parse_settings(text: str) -> Settings:
     values: dict[str, str] = {}
     for number, raw in enumerate(text.split("\n"), start=1):
@@ -75,10 +90,7 @@ def parse_settings(text: str) -> Settings:
         raise ConfigError("WEB_IMAGE_REPOSITORY must be a repository without a tag or digest")
     if not is_digest_ref(values["PSQL_IMAGE"]):
         raise ConfigError("PSQL_IMAGE must be pinned by digest (<repository>@sha256:<digest>)")
-    try:
-        timeout = float(values["LOCK_TIMEOUT_S"])
-    except ValueError as exc:
-        raise ConfigError("LOCK_TIMEOUT_S must be a number") from exc
+    timeout = _positive_finite_seconds(values, "LOCK_TIMEOUT_S")
     return Settings(
         state_file=values["STATE_FILE"],
         history_file=values["HISTORY_FILE"],
