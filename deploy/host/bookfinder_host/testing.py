@@ -6,6 +6,7 @@ assert which commands were (or were not) issued.
 
 from collections.abc import Callable, Mapping, Sequence
 
+from bookfinder_host.manifest import Migration
 from bookfinder_host.ports import CommandResult
 
 Handler = Callable[[Sequence[str]], CommandResult]
@@ -50,3 +51,33 @@ class FakeClock:
 
 def ok(stdout: str = "") -> CommandResult:
     return CommandResult(0, stdout, "")
+
+
+def sample_state(
+    applied: Sequence[Migration] = (),
+    revision: int = 1,
+    tag: str = "v1.0.0",
+    web_digest: str = "sha256:" + "1" * 64,
+):
+    """A valid docker-runtime state; tests and the demo hook build on it."""
+    from bookfinder_host import state as st
+
+    entries = tuple(st.AppliedMigration(m.id, m.source_hash, tag) for m in applied)
+    runtime = st.DockerRuntime(
+        tag=tag,
+        release_api=1,
+        web_digest=web_digest,
+        crawler_digest="sha256:" + "3" * 64,
+        compose_sha256="e" * 64,
+        release_dir=f"/opt/book-finder/releases/{tag}",
+    )
+    schema = st.Schema(
+        digest=st.schema_digest(list(applied)),
+        applied=entries,
+        rebuild=st.Rebuild(tag=tag, web_digest=web_digest),
+        dirty=False,
+        dirty_since=None,
+        dirty_release=None,
+    )
+    crawler = st.Crawler(digest="sha256:" + "3" * 64, paused=None)
+    return st.State(revision=revision, runtime=runtime, previous_runtime=None, schema=schema, crawler=crawler)
