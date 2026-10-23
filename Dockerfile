@@ -55,7 +55,7 @@ LABEL org.opencontainers.image.source=https://github.com/Arthur801/Book-Finder \
 WORKDIR /app
 COPY --from=build /out/app ./
 COPY --from=build /out/release /opt/release
-# Antiforgery and auth cookies must survive a container replacement; the named volume is mounted here at run time.
+# Antiforgery tokens are protected with these keys; they must survive a container replacement, so a named volume is mounted here at run time.
 RUN install -d -o app -g app /data-protection-keys
 
 ENV ASPNETCORE_HTTP_PORTS=8080

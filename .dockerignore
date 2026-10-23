@@ -14,3 +14,5 @@ TestResults
 *.user
 HANDOFF.md
 **/node_modules
+.ruff_cache
+**/.pytest_cache
