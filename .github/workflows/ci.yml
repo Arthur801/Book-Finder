@@ -41,7 +41,7 @@ jobs:
         with:
           python-version: '3.14'
 
-      # Dependabot bumps EF Core packages but not the dotnet-ef tool manifest; keep them in lockstep.
+      # Dependabot bumps EF Core packages and compose.yaml but not dotnet-tools.json or the test fixtures' pgvector image; fail when they drift.
       - run: python .github/scripts/check_version_sync.py
 
       # The ruff version is pinned in crawler/requirements.txt, the single source of truth for this job.

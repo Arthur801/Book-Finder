@@ -18,7 +18,7 @@ EXCLUDED_DIRS = {"bin", "obj", ".venv", "node_modules"}
 EF_DESIGN_PACKAGE = "Microsoft.EntityFrameworkCore.Design"
 DOTNET_EF_TOOL = "dotnet-ef"
 COMPOSE_FILE = "compose.yaml"
-PGVECTOR_IMAGE_IN_COMPOSE = re.compile(r"image:\s*(pgvector/pgvector:\S+)")
+PGVECTOR_IMAGE_IN_COMPOSE = re.compile(r"^\s*image:\s*[\"']?(pgvector/pgvector:[^\s\"'#]+)", re.MULTILINE)
 PGVECTOR_IMAGE_IN_CODE = re.compile(r"pgvector/pgvector:[\w.\-]+")
 TEST_IMAGE_FILES = [
     "tests/DatabaseIntegration/PostgresFixture.cs",
@@ -42,19 +42,26 @@ def check_dotnet_ef_matches_ef_core(root: Path) -> list[str]:
     if tool_version is None:
         return [f"{DOTNET_EF_TOOL} is not pinned in dotnet-tools.json; add it at the EF Core version"]
 
+    errors = []
     package_versions: dict[str, str] = {}
     for csproj in _csproj_files(root):
-        tree = ET.parse(csproj)
+        csproj_name = str(csproj.relative_to(root))
+        try:
+            tree = ET.parse(csproj)
+        except (ET.ParseError, OSError) as error:
+            errors.append(f"cannot parse {csproj_name}: {error}")
+            continue
         for reference in tree.iter("PackageReference"):
             if reference.get("Include") == EF_DESIGN_PACKAGE:
-                package_versions[str(csproj.relative_to(root))] = reference.get("Version", "")
+                package_versions[csproj_name] = reference.get("Version", "")
 
     if not package_versions:
-        return [f"{EF_DESIGN_PACKAGE} PackageReference not found in any .csproj; cannot verify {DOTNET_EF_TOOL}"]
+        return errors or [f"{EF_DESIGN_PACKAGE} PackageReference not found in any .csproj; cannot verify {DOTNET_EF_TOOL}"]
 
-    errors = []
     for csproj_name, package_version in sorted(package_versions.items()):
-        if package_version != tool_version:
+        if not package_version:
+            errors.append(f"{csproj_name}: {EF_DESIGN_PACKAGE} has no Version attribute; cannot verify {DOTNET_EF_TOOL}")
+        elif package_version != tool_version:
             errors.append(
                 f"update dotnet-tools.json {DOTNET_EF_TOOL} from {tool_version} to {package_version} to match {EF_DESIGN_PACKAGE} {package_version} in {csproj_name}"
             )
