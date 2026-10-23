@@ -105,6 +105,7 @@ def make_draft(url: str, title: str | None = None, **overrides) -> BookDraft:
 # Real fixtures and derived negative pages
 # ---------------------------------------------------------------------------
 
+
 def fixture_html(name: str) -> str:
     return (FIXTURES_DIR / name).read_text(encoding="utf-8")
 

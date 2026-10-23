@@ -1,7 +1,7 @@
 """Accounting for pages mode (``ledger.PagesLedger``, crawler.md §16, pages mode). Pure: no database, no fetcher."""
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from books_crawler.ledger import EXIT_FAILED, EXIT_SUCCESS, PagesLedger
@@ -16,7 +16,7 @@ from books_crawler.models import (
     SourceRef,
 )
 
-NOW = datetime(2026, 10, 11, 4, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 10, 11, 4, 0, tzinfo=UTC)
 PAGE_1 = "https://www.books.com.tw/web/sys_saletopb/books/01/?attribute=7&loc=P_0002_002"
 PAGE_2 = "https://www.books.com.tw/web/sys_saletopb/books/02/?attribute=7&loc=P_0002_003"
 
@@ -175,6 +175,4 @@ def test_a_skipped_row_is_logged_with_its_page_url_and_attempts(caplog):
 
     ledger.record(outcome)
 
-    assert caplog.messages == [
-        f"page rank 2 ({outcome.url}) skipped after 3 attempt(s) (fetch_error): simulated"
-    ]
+    assert caplog.messages == [f"page rank 2 ({outcome.url}) skipped after 3 attempt(s) (fetch_error): simulated"]

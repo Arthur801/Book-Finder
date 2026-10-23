@@ -32,17 +32,25 @@ public class SchemaTests(PostgresFixture fixture)
         var now = DateTime.UtcNow;
         var book = new Book
         {
-            Title = "EF mapping roundtrip", PublishedDate = new DateOnly(2026, 10, 11),
-            PublishedDatePrecision = PublishedDatePrecision.Day, CreatedAt = now, UpdatedAt = now
+            Title = "EF mapping roundtrip",
+            PublishedDate = new DateOnly(2026, 10, 11),
+            PublishedDatePrecision = PublishedDatePrecision.Day,
+            CreatedAt = now,
+            UpdatedAt = now
         };
         db.Books.Add(book);
         await db.SaveChangesAsync();
         using var framework = JsonDocument.Parse("{\"kind\":\"inferred overview\"}");
         db.BookAiProfiles.Add(new BookAiProfile
         {
-            BookId = book.Id, Framework = framework, KeyTopics = ["PostgreSQL", "測試"],
-            Difficulty = 3, SourceContentHash = new string('a', 64),
-            ModelName = "test-fixture", PromptVersion = "v1", UpdatedAt = now
+            BookId = book.Id,
+            Framework = framework,
+            KeyTopics = ["PostgreSQL", "測試"],
+            Difficulty = 3,
+            SourceContentHash = new string('a', 64),
+            ModelName = "test-fixture",
+            PromptVersion = "v1",
+            UpdatedAt = now
         });
         await db.SaveChangesAsync();
         db.ChangeTracker.Clear();
@@ -71,8 +79,11 @@ public class SchemaTests(PostgresFixture fixture)
         var values = Enumerable.Range(0, 1536).Select(i => i / 1536f).ToArray();
         db.BookEmbeddings.Add(new BookEmbedding
         {
-            BookId = book.Id, Embedding = new Vector(values), ModelName = "text-embedding-3-small",
-            SourceContentHash = new string('e', 64), UpdatedAt = now
+            BookId = book.Id,
+            Embedding = new Vector(values),
+            ModelName = "text-embedding-3-small",
+            SourceContentHash = new string('e', 64),
+            UpdatedAt = now
         });
         await db.SaveChangesAsync();
         db.ChangeTracker.Clear();

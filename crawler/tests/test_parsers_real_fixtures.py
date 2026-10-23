@@ -36,7 +36,6 @@ from tests.fakes import (
     ranking_without_last_item,
 )
 
-
 # ---------------------------------------------------------------------------
 # Ranking page
 # ---------------------------------------------------------------------------
@@ -136,83 +135,81 @@ def test_ranking_url_constant_is_the_user_confirmed_chart():
 # ---------------------------------------------------------------------------
 
 CASES = {
-    "0011062863": dict(
-        title="政。望：前線五十年，從國安決策到世界現場的國家思考",
-        publisher="聯經出版公司",
-        published=(date(2026, 9, 17), "DAY"),
-        language="zh-TW",
-        page_count=320,
-        identifiers=(Identifier("ISBN_13", "9789570881592"),),
-        contributors=(Contributor(1, "李翔宙", "AUTHOR"),),
-        subjects=("人文社科", "政治", "政治人物"),
-        toc_startswith="序 五十年軍政生涯的省思",
-        description_startswith="五十年軍政歷練，見證國家一路走來。",
-        thumbnail_contains="0011062863.jpg",
-    ),
-    "0010852315": dict(
-        title="臺灣漫遊錄",
-        publisher="春山出版",
-        published=(date(2020, 3, 31), "DAY"),
-        language="zh-TW",
-        page_count=368,
-        identifiers=(Identifier("ISBN_13", "9789869866262"),),
+    "0011062863": {
+        "title": "政。望：前線五十年，從國安決策到世界現場的國家思考",
+        "publisher": "聯經出版公司",
+        "published": (date(2026, 9, 17), "DAY"),
+        "language": "zh-TW",
+        "page_count": 320,
+        "identifiers": (Identifier("ISBN_13", "9789570881592"),),
+        "contributors": (Contributor(1, "李翔宙", "AUTHOR"),),
+        "subjects": ("人文社科", "政治", "政治人物"),
+        "toc_startswith": "序 五十年軍政生涯的省思",
+        "description_startswith": "五十年軍政歷練，見證國家一路走來。",
+        "thumbnail_contains": "0011062863.jpg",
+    },
+    "0010852315": {
+        "title": "臺灣漫遊錄",
+        "publisher": "春山出版",
+        "published": (date(2020, 3, 31), "DAY"),
+        "language": "zh-TW",
+        "page_count": 368,
+        "identifiers": (Identifier("ISBN_13", "9789869866262"),),
         # The page's TOC text mentions 譯者, but there is no translator row: only the author is a contributor.
-        contributors=(Contributor(1, "楊双子", "AUTHOR"),),
-        subjects=("文學小說", "華文創作", "小說"),
-        toc_startswith="推薦序 戛然而止的夢，異鄉的華麗島",
+        "contributors": (Contributor(1, "楊双子", "AUTHOR"),),
+        "subjects": ("文學小說", "華文創作", "小說"),
+        "toc_startswith": "推薦序 戛然而止的夢，異鄉的華麗島",
         # The section begins with award badges (國際布克獎得主 etc.); they are part of the source text.
-        description_startswith="臺灣文學第一本",
-        thumbnail_contains="0010852315.jpg",
-    ),
-    "0011062550": dict(
-        title="與妳相戀到生命盡頭 (首刷限定版) 9",
-        publisher="東立",
-        published=(date(2026, 10, 2), "DAY"),
-        language="zh-TW",
-        page_count=148,
-        identifiers=(Identifier("ISBN_13", "9786260284909"),),
-        contributors=(Contributor(1, "あおのなち", "AUTHOR"), Contributor(2, "蔡夢芳", "TRANSLATOR")),
-        subjects=("漫畫/圖文書", "GL"),
-        toc_startswith=None,  # no 目錄 section on this page
-        description_startswith="席娜等人升上了15班。",
-        thumbnail_contains="0011062550.jpg",
-    ),
-    "0011057581": dict(
-        title="花錢的藝術：打造富足人生的金錢心理學【博客來獨家附贈財富透析．互動金句透卡】",
-        publisher="平安文化",
-        published=(date(2026, 7, 27), "DAY"),
-        language="zh-TW",
-        page_count=352,
-        identifiers=(Identifier("ISBN_13", "9786267859506"),),
-        contributors=(Contributor(1, "摩根．豪瑟", "AUTHOR"), Contributor(2, "洪世民", "TRANSLATOR")),
-        subjects=("商業理財", "投資理財", "投資學"),
-        toc_startswith="【推薦序】了解錢的作用，賺錢才有意義／綠角",
-        description_startswith="這本書寫盡了你從出生到離世，",
-        thumbnail_contains="0011057581.jpg",
-    ),
+        "description_startswith": "臺灣文學第一本",
+        "thumbnail_contains": "0010852315.jpg",
+    },
+    "0011062550": {
+        "title": "與妳相戀到生命盡頭 (首刷限定版) 9",
+        "publisher": "東立",
+        "published": (date(2026, 10, 2), "DAY"),
+        "language": "zh-TW",
+        "page_count": 148,
+        "identifiers": (Identifier("ISBN_13", "9786260284909"),),
+        "contributors": (Contributor(1, "あおのなち", "AUTHOR"), Contributor(2, "蔡夢芳", "TRANSLATOR")),
+        "subjects": ("漫畫/圖文書", "GL"),
+        "toc_startswith": None,  # no 目錄 section on this page
+        "description_startswith": "席娜等人升上了15班。",
+        "thumbnail_contains": "0011062550.jpg",
+    },
+    "0011057581": {
+        "title": "花錢的藝術：打造富足人生的金錢心理學【博客來獨家附贈財富透析．互動金句透卡】",
+        "publisher": "平安文化",
+        "published": (date(2026, 7, 27), "DAY"),
+        "language": "zh-TW",
+        "page_count": 352,
+        "identifiers": (Identifier("ISBN_13", "9786267859506"),),
+        "contributors": (Contributor(1, "摩根．豪瑟", "AUTHOR"), Contributor(2, "洪世民", "TRANSLATOR")),
+        "subjects": ("商業理財", "投資理財", "投資學"),
+        "toc_startswith": "【推薦序】了解錢的作用，賺錢才有意義／綠角",
+        "description_startswith": "這本書寫盡了你從出生到離世，",
+        "thumbnail_contains": "0011057581.jpg",
+    },
     # Restricted book, saved by the user while logged in: the full page with a 限制級商品 badge.
-    "0011063006": dict(
-        title="舞臺下的單向愛戀 Re (首刷限定版) 全",
-        publisher="東立",
-        published=(date(2026, 10, 7), "DAY"),
-        language="zh-TW",
-        page_count=170,
-        identifiers=(Identifier("ISBN_13", "9786260279233"),),
-        contributors=(Contributor(1, "大島かもめ", "AUTHOR"), Contributor(2, "加奈", "TRANSLATOR")),
-        subjects=("漫畫/圖文書", "BL"),
-        toc_startswith=None,  # no 目錄 section on this page
-        description_startswith="知名偶像團體《ＩＮＣＩＴＥ》的成員",
-        thumbnail_contains="0011063006.jpg",
-    ),
+    "0011063006": {
+        "title": "舞臺下的單向愛戀 Re (首刷限定版) 全",
+        "publisher": "東立",
+        "published": (date(2026, 10, 7), "DAY"),
+        "language": "zh-TW",
+        "page_count": 170,
+        "identifiers": (Identifier("ISBN_13", "9786260279233"),),
+        "contributors": (Contributor(1, "大島かもめ", "AUTHOR"), Contributor(2, "加奈", "TRANSLATOR")),
+        "subjects": ("漫畫/圖文書", "BL"),
+        "toc_startswith": None,  # no 目錄 section on this page
+        "description_startswith": "知名偶像團體《ＩＮＣＩＴＥ》的成員",
+        "thumbnail_contains": "0011063006.jpg",
+    },
 }
 
 
 @pytest.mark.parametrize("product_id", sorted(CASES))
 def test_detail_fixture_extracts_expected_values(product_id):
     expected = CASES[product_id]
-    draft = parse_detail_html(
-        fixture_html(detail_fixture_name(product_id)), product_url(int(product_id))
-    )
+    draft = parse_detail_html(fixture_html(detail_fixture_name(product_id)), product_url(int(product_id)))
 
     assert draft.source_url == product_url(int(product_id))
     assert draft.title == expected["title"]
@@ -244,6 +241,7 @@ def test_detail_parser_accepts_tracking_url_and_canonicalizes_it():
 # ---------------------------------------------------------------------------
 # Restricted books (crawler.md §6): the logged-out member gate vs. the logged-in page
 # ---------------------------------------------------------------------------
+
 
 def test_real_restricted_member_gate_is_recognized():
     html = fixture_html(RESTRICTED_GATE_FIXTURE)
@@ -338,6 +336,7 @@ def test_missing_cover_image_is_null():
 # Scoping: nothing outside the product container is read (no whole-page fallback)
 # ---------------------------------------------------------------------------
 
+
 def test_missing_product_container_is_a_parse_error_not_a_whole_page_scan():
     html = detail_without_product_container(_base_html())
 
@@ -356,6 +355,7 @@ def test_title_comes_only_from_the_product_container():
 # Subjects: every level of every 本書分類 group (Q1)
 # ---------------------------------------------------------------------------
 
+
 def test_subjects_from_all_groups_are_kept_once_in_page_order():
     html = detail_with_second_subject_group(_base_html(), ["歷史", "政治", "台灣史"])
 
@@ -368,10 +368,9 @@ def test_subjects_from_all_groups_are_kept_once_in_page_order():
 # Description / TOC line breaks (Q3)
 # ---------------------------------------------------------------------------
 
+
 def test_inline_award_badges_stay_on_one_line_in_description():
-    draft = parse_detail_html(
-        fixture_html(detail_fixture_name("0010852315")), product_url(10852315)
-    )
+    draft = parse_detail_html(fixture_html(detail_fixture_name("0010852315")), product_url(10852315))
 
     lines = draft.description.split("\n")
     assert lines[0] == "臺灣文學第一本"

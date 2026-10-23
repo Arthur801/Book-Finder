@@ -45,8 +45,7 @@ def test_request_configuration_and_close():
     session = FakeCurlSession()
     fetcher = _fetcher(session=session)
     assert fetcher.get("https://example.test") == session.response.text
-    assert session.calls[0][1] == {"timeout": 30.0, "allow_redirects": False,
-                                  "headers": {"Accept-Language": "zh-TW,zh;q=0.9"}}
+    assert session.calls[0][1] == {"timeout": 30.0, "allow_redirects": False, "headers": {"Accept-Language": "zh-TW,zh;q=0.9"}}
     fetcher.close()
     assert session.closed
 
@@ -85,11 +84,15 @@ def test_random_delay_boundaries_include_first_request_and_failed_attempts(tmp_p
     assert sleeps == pytest.approx([3.0, 29.6, 1.0])
 
 
-@pytest.mark.parametrize(("status", "headers", "message"), [
-    (403, {"cf-mitigated": "challenge", "set-cookie": "secret"}, "Cloudflare challenge"),
-    (200, {"cf-mitigated": "challenge"}, "Cloudflare challenge"),
-    (484, {}, "HTTP 484"), (302, {"location": "/redirect"}, "HTTP 302"),
-])
+@pytest.mark.parametrize(
+    ("status", "headers", "message"),
+    [
+        (403, {"cf-mitigated": "challenge", "set-cookie": "secret"}, "Cloudflare challenge"),
+        (200, {"cf-mitigated": "challenge"}, "Cloudflare challenge"),
+        (484, {}, "HTTP 484"),
+        (302, {"location": "/redirect"}, "HTTP 302"),
+    ],
+)
 def test_failed_response_is_saved_and_wrapped(tmp_path, status, headers, message):
     fetcher = _fetcher(session=FakeCurlSession(FakeCurlResponse(status, headers)), diagnostic_dir=tmp_path)
     with pytest.raises(FetchError, match=message):

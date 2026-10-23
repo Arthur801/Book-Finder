@@ -11,8 +11,8 @@ from books_crawler.normalize import (
     parse_published_date,
 )
 
-
 # ISBN normalization and checksum (data-model §5.3)
+
 
 @pytest.mark.parametrize(
     "raw, expected",
@@ -51,6 +51,7 @@ def test_normalize_isbn_rejects_invalid_values(raw):
 
 # Language mapping (data-model §2.1)
 
+
 @pytest.mark.parametrize(
     "raw, expected",
     [
@@ -79,6 +80,7 @@ def test_unmapped_language_label_is_logged_and_stored_as_null(caplog):
 
 # Contributor role mapping (crawler.md §8)
 
+
 @pytest.mark.parametrize(
     "raw, expected",
     [
@@ -98,6 +100,7 @@ def test_map_contributor_role(raw, expected):
 
 
 # Published date precision (data-model §5.1; assumption: formats documented in normalize.py)
+
 
 @pytest.mark.parametrize(
     "raw, expected",

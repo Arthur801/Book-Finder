@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 import runpy
 from contextlib import nullcontext
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 import psycopg
@@ -19,7 +19,7 @@ import pytest
 from books_crawler import cli, db
 from books_crawler.cli import CrawlerMode
 from books_crawler.fetcher import BrowserUnavailableError, FetcherKind, FetchError
-from books_crawler.models import Identifier, IdentifierType, IsbnMatch, RankingRow, RunStatus, SkipReason, SourceRef
+from books_crawler.models import BookDraft, Identifier, IdentifierType, IsbnMatch, RankingRow, RunStatus, SkipReason, SourceRef
 from books_crawler.page_list import PAGES_FILE_ENV
 from books_crawler.parsers import RANKING_PAGE_URL, ParseError, RestrictedBookError
 from books_crawler.run import RunDependencies, run_once, run_pages
@@ -34,7 +34,7 @@ from tests.fakes import (
     ranking_rows,
 )
 
-NOW = datetime(2026, 10, 11, 4, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 10, 11, 4, 0, tzinfo=UTC)
 RETRY_SLEEPS = [1.0, 2.0]  # backoff before attempts 2 and 3 (crawler.md §6)
 CATEGORY_1 = "https://www.books.com.tw/web/sys_saletopb/books/01/?attribute=7&loc=P_0002_002"
 CATEGORY_2 = "https://www.books.com.tw/web/sys_saletopb/books/02/?attribute=7&loc=P_0002_003"
@@ -217,7 +217,7 @@ def test_new_source_whose_isbn_is_already_catalogued_attaches_to_that_book(store
     isbn = (Identifier(IdentifierType.ISBN_13, "9789570000001"),)
     drafts = {product_url(1): make_draft(product_url(1), title="Reprint listing", identifiers=isbn)}
 
-    report, deps = crawl(
+    report, _deps = crawl(
         monkeypatch,
         {CATEGORY_1: [RankingRow(rank=1, url=product_url(1))]},
         parse_detail=detail_parser(drafts),
@@ -239,9 +239,7 @@ def test_unparseable_category_page_is_skipped_without_retry_and_the_list_continu
     assert report.error is None
     assert report.exit_code == 0
     assert report.status is RunStatus.PARTIAL_SUCCESS
-    assert [(page.url, page.failure.error_type, page.failure.attempts) for page in report.skipped_pages] == [
-        (CATEGORY_2, SkipReason.PARSE_ERROR, 1)
-    ]
+    assert [(page.url, page.failure.error_type, page.failure.attempts) for page in report.skipped_pages] == [(CATEGORY_2, SkipReason.PARSE_ERROR, 1)]
 
 
 def test_category_page_fetch_is_retried_then_the_list_continues(store, monkeypatch):
@@ -267,9 +265,7 @@ def test_category_page_that_keeps_failing_is_skipped_after_three_attempts_and_th
     assert report.error is None
     assert report.exit_code == 0
     assert report.status is RunStatus.PARTIAL_SUCCESS
-    assert [(page.url, page.failure.error_type, page.failure.attempts) for page in report.skipped_pages] == [
-        (CATEGORY_2, SkipReason.FETCH_ERROR, 3)
-    ]
+    assert [(page.url, page.failure.error_type, page.failure.attempts) for page in report.skipped_pages] == [(CATEGORY_2, SkipReason.FETCH_ERROR, 3)]
     assert report.skipped_pages[0].failure.error_message == "category page failed after 3 attempts: HTTP 403"
 
 
@@ -303,9 +299,7 @@ def test_detail_that_keeps_failing_is_skipped_after_three_attempts_and_the_page_
     assert report.error is None
     assert report.exit_code == 0
     assert report.status is RunStatus.PARTIAL_SUCCESS
-    assert [(row.url, row.failure.error_type, row.failure.attempts) for row in report.skipped] == [
-        (product_url(2), SkipReason.FETCH_ERROR, 3)
-    ]
+    assert [(row.url, row.failure.error_type, row.failure.attempts) for row in report.skipped] == [(product_url(2), SkipReason.FETCH_ERROR, 3)]
 
 
 def test_detail_parse_error_is_retried_three_times_then_skipped_as_parse_error(store, monkeypatch):
@@ -319,9 +313,7 @@ def test_detail_parse_error_is_retried_three_times_then_skipped_as_parse_error(s
     assert store.persisted_urls() == [product_url(2)]
     assert report.error is None
     assert report.status is RunStatus.PARTIAL_SUCCESS
-    assert [(row.rank, row.failure.error_type, row.failure.attempts) for row in report.skipped] == [
-        (1, SkipReason.PARSE_ERROR, 3)
-    ]
+    assert [(row.rank, row.failure.error_type, row.failure.attempts) for row in report.skipped] == [(1, SkipReason.PARSE_ERROR, 3)]
 
 
 def test_restricted_member_page_is_skipped_without_retry_and_is_not_an_error(store, monkeypatch):
@@ -441,10 +433,12 @@ def test_run_logs_each_page_and_one_summary_line_with_the_run_id(store, monkeypa
     assert f"importing page: {CATEGORY_2}" in messages
     summary = [message for message in messages if message.startswith("mode=pages ")]
     assert summary == [
-        "mode=pages run_id=run-log-1 started_at=2026-10-11T04:00:00+00:00 "
-        "finished_at=2026-10-11T04:00:00+00:00 status=SUCCESS pages_total=2 pages_skipped=0 rows_seen=2 "
-        "existing_book_count=0 new_book_count=2 attached_source_count=0 skipped_count=0 "
-        "restricted_book_count=0 error_count=0 exit_code=0 skipped=[] skipped_pages=[]"
+        (
+            "mode=pages run_id=run-log-1 started_at=2026-10-11T04:00:00+00:00 "
+            "finished_at=2026-10-11T04:00:00+00:00 status=SUCCESS pages_total=2 pages_skipped=0 rows_seen=2 "
+            "existing_book_count=0 new_book_count=2 attached_source_count=0 skipped_count=0 "
+            "restricted_book_count=0 error_count=0 exit_code=0 skipped=[] skipped_pages=[]"
+        )
     ]
 
 
@@ -460,7 +454,7 @@ def test_failed_run_logs_exactly_one_error_line(store, monkeypatch, caplog):
 def test_every_configured_page_failing_fails_the_run_with_exit_one(store, monkeypatch):
     rows = {CATEGORY_1: ranking_rows(1), CATEGORY_2: ranking_rows(1, offset=1)}
 
-    report, deps = crawl(monkeypatch, rows, failures={CATEGORY_1: FetchError("HTTP 403"), CATEGORY_2: FetchError("HTTP 500")})
+    report, _deps = crawl(monkeypatch, rows, failures={CATEGORY_1: FetchError("HTTP 403"), CATEGORY_2: FetchError("HTTP 500")})
 
     assert report.status is RunStatus.FAILED
     assert report.exit_code == 1
@@ -565,7 +559,9 @@ def test_isbn_match_attaches_a_second_source_to_the_existing_book_and_keeps_its_
     crawl(monkeypatch, {CATEGORY_1: [RankingRow(rank=1, url=product_url(201))]}, parse_detail=fake_detail_parser(first), connect=lambda: db.connect(db_url))
     second = {product_url(202): make_draft(product_url(202), title="Reprint listing", identifiers=isbn)}
 
-    report, deps = crawl(monkeypatch, {CATEGORY_2: [RankingRow(rank=1, url=product_url(202))]}, parse_detail=fake_detail_parser(second), connect=lambda: db.connect(db_url))
+    report, deps = crawl(
+        monkeypatch, {CATEGORY_2: [RankingRow(rank=1, url=product_url(202))]}, parse_detail=fake_detail_parser(second), connect=lambda: db.connect(db_url)
+    )
 
     assert report.error is None
     assert deps.fetcher.detail_calls() == [product_url(202)]
@@ -690,11 +686,14 @@ def test_pages_mode_passes_the_browser_settings_to_the_fetcher_factory(monkeypat
     assert settings == {"kind": FetcherKind.BROWSER, "navigation_timeout_ms": 45000}
 
 
-@pytest.mark.parametrize("entry_module, runner_name", [
-    ("books_crawler.__main__", "daily"),
-    ("books_crawler.first_book", "first-book"),
-    ("books_crawler.pages", "pages"),
-])
+@pytest.mark.parametrize(
+    "entry_module, runner_name",
+    [
+        ("books_crawler.__main__", "daily"),
+        ("books_crawler.first_book", "first-book"),
+        ("books_crawler.pages", "pages"),
+    ],
+)
 def test_each_entry_point_runs_its_own_mode(monkeypatch, entry_module, runner_name):
     seen = stub_runs(monkeypatch)
     monkeypatch.setenv("DATABASE_URL", "postgresql://unused")

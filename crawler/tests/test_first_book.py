@@ -54,7 +54,7 @@ def test_import_only_first_book_and_retry_database_without_refetch(monkeypatch):
 
 
 def test_known_first_book_does_not_fetch_detail_or_write(monkeypatch):
-    deps, first = dependencies(lambda: nullcontext(object()))
+    deps, _first = dependencies(lambda: nullcontext(object()))
     monkeypatch.setattr(db, "find_source", lambda *args: SourceRef(uuid4(), uuid4()))
     monkeypatch.setattr(db, "persist_new_source", lambda *args, **kwargs: pytest.fail("must reuse existing book"))
     report = run_first_book(deps)
@@ -75,9 +75,7 @@ def test_first_book_challenge_exhausts_retries_and_fails(monkeypatch, caplog):
     assert (report.aborted_at_rank, report.consecutive_error_count) == (1, 1)
     assert report.skipped[0].failure.attempts == 3
     assert report.error == "run aborted at rank 1 after 1 consecutive error(s) (limit 0): fetch_error: Cloudflare challenge"
-    assert [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR] == [
-        f"first-book import failed: {report.error}"
-    ]
+    assert [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR] == [f"first-book import failed: {report.error}"]
     assert deps.fetcher.calls == [RANKING_PAGE_URL, first, first, first]
     assert deps.sleep.calls == [1.0, 2.0]
 

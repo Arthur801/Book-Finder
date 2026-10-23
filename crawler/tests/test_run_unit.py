@@ -1,13 +1,13 @@
 """Run orchestration without a database: failures before any write never open a connection."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
 from books_crawler.cli import main
 from books_crawler.fetcher import BrowserUnavailableError, FetchError
 from books_crawler.ledger import RunReport
-from books_crawler.models import Failure, RankingRow, RunStatus, SkipReason, SkippedRow
+from books_crawler.models import Failure, RankingRow, RunStatus, SkippedRow, SkipReason
 from books_crawler.parsers import RANKING_PAGE_URL, parse_detail_html, parse_ranking_html
 from books_crawler.redact import redact
 from books_crawler.run import RunDependencies, backoff_seconds, format_report, run_once
@@ -21,7 +21,7 @@ from tests.fakes import (
     ranking_rows,
 )
 
-NOW = datetime(2026, 10, 11, 4, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 10, 11, 4, 0, tzinfo=UTC)
 
 
 class RecordingConnect:

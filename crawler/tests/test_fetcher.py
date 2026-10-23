@@ -19,9 +19,7 @@ from books_crawler.fetcher import (
 CRAWLER_DIR = Path(__file__).resolve().parents[1]
 CONTENT = '<html><head><title>博客來-中文書</title></head><body><div class="main_column"><h1>書</h1></div></body></html>'
 CHALLENGE = "<html><head><title>歡迎光臨博客來</title></head><body><p>正在進行安全性檢查</p></body></html>"
-CHALLENGE_TITLE_WITH_CONTENT = (
-    '<html><head><title>歡迎光臨博客來</title></head><body><div class="main_column"><h1>書</h1></div></body></html>'
-)
+CHALLENGE_TITLE_WITH_CONTENT = '<html><head><title>歡迎光臨博客來</title></head><body><div class="main_column"><h1>書</h1></div></body></html>'
 CONNECTION_ERROR = "<html><body><h2>您的連線暫時異常 請稍後再嘗試 謝謝！</h2></body></html>"
 CONNECTION_ERROR_EN = "<html><body><p>Connection is temporarily unavailable</p></body></html>"
 CONNECTION_PHRASE_IN_CONTENT = '<html><body><div class="main_column">Connection is temporarily unavailable</div></body></html>'
@@ -57,7 +55,7 @@ def test_the_curl_path_does_not_import_playwright():
         "create_fetcher(FetcherKind.CURL).close()\n"
         "assert 'playwright' not in sys.modules, sorted(m for m in sys.modules if m.startswith('playwright'))\n"
     )
-    result = subprocess.run([sys.executable, "-c", code], cwd=CRAWLER_DIR, capture_output=True, text=True)
+    result = subprocess.run([sys.executable, "-c", code], cwd=CRAWLER_DIR, capture_output=True, text=True, check=False)
 
     assert result.returncode == 0, result.stderr
 

@@ -7,7 +7,7 @@ detail pages. The test asserts that the only detail requests are the 4 fixture p
 
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
 import psycopg
 import pytest
@@ -32,7 +32,7 @@ from tests.fakes import (
     ranking_without_last_item,
 )
 
-NOW = datetime(2026, 10, 11, 4, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 10, 11, 4, 0, tzinfo=UTC)
 REAL_PRODUCTS = {
     "0011062863": 12,
     "0010852315": 8,
@@ -95,7 +95,7 @@ def seeded_db(db_url):
 @pytest.fixture
 def successful_baseline(seeded_db):
     """Run once with the real ranking and the 4 real detail pages: the bestseller list to protect."""
-    report, fetcher = run_with(seeded_db, fixture_html(RANKING_FIXTURE), real_detail_pages())
+    report, _fetcher = run_with(seeded_db, fixture_html(RANKING_FIXTURE), real_detail_pages())
     assert report.status is RunStatus.SUCCESS, report.error
     return seeded_db
 
@@ -244,9 +244,7 @@ def _assert_derived_source_skipped(db_url, report, fetcher, previous, error_frag
     assert fetcher.detail_calls() == [DERIVED_NEW_SOURCE_URL] * 3
     snapshot = bestsellers(db_url)
     assert [row[0] for row in snapshot] == [rank for rank in range(1, 101) if rank != DERIVED_RANK]
-    assert [row[1:3] for row in snapshot if row[0] < DERIVED_RANK] == [
-        row[1:3] for row in previous if row[0] < DERIVED_RANK
-    ]
+    assert [row[1:3] for row in snapshot if row[0] < DERIVED_RANK] == [row[1:3] for row in previous if row[0] < DERIVED_RANK]
     assert query(db_url, "SELECT count(*) FROM book_sources WHERE source_url = %s", (DERIVED_NEW_SOURCE_URL,)) == [(0,)]
 
 
