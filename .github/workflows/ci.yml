@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  dotnet:
+    name: .NET build and tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      # No packages.lock.json is checked in, so setup-dotnet's built-in cache cannot be keyed; cache the NuGet store directly.
+      - uses: actions/cache@v6
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', 'dotnet-tools.json') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      - run: dotnet restore Book-Finder.slnx
+
+      - run: dotnet build Book-Finder.slnx --no-restore -c Release
+
+      # Integration projects start pgvector through Testcontainers; ubuntu-latest provides Docker.
+      - run: dotnet test Book-Finder.slnx --no-build -c Release --logger trx --results-directory TestResults
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: dotnet-test-results
+          path: TestResults
+          if-no-files-found: warn
+
+  crawler:
+    name: Crawler tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # tests/conftest.py runs `dotnet tool restore`, `dotnet build` and `dotnet ef` to generate the schema for the
+      # DB tests; without the SDK those tests would be skipped.
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      - run: dotnet tool restore
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+          cache: pip
+          cache-dependency-path: crawler/requirements*.txt
+
+      - run: pip install -r requirements.txt
+        working-directory: crawler
+
+      # Browser tests launch real headless Chromium against local pages; without it they are skipped.
+      - run: python -m playwright install --with-deps chromium
+        working-directory: crawler
+
+      - run: pytest --junitxml=test-results/junit.xml
+        working-directory: crawler
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: crawler-test-results
+          path: crawler/test-results
+          if-no-files-found: warn
