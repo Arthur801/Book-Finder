@@ -382,6 +382,10 @@ def _plan_locked(command: PlanCommand, deps: Deps, out: TextIO, err: TextIO) -> 
     if blocked:
         out.write(json.dumps({"revision": state.revision, "indeterminate": blocked}, sort_keys=True) + "\n")
         return INDETERMINATE
+    problem = machine.compose_problem(deps.effects.compose)
+    if problem is not None:
+        err.write(f"{problem}\n")
+        return BAD_INPUT
     try:
         target = _fetch_target(deps, command.web_digest)
     except mf.ManifestError as exc:

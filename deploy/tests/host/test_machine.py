@@ -711,3 +711,63 @@ def test_status_of_a_finished_run_comes_from_history_even_when_the_unit_is_gone(
     assert world.run(f"status {cmd.parse_command(deploy_text(world)).run_id}") == OK
     assert "completed:success" in world.out.getvalue()
     assert hi.read(world.settings.history_file).entries[-1]["phase"] == "completed"
+
+
+# Compose minimum (raw env_file needs it) and verbatim secrets
+
+
+def test_compose_below_the_minimum_is_refused_before_anything_changes(tmp_path):
+    world = in_sync_world(tmp_path)
+    world.fx.compose_version = "2.29.9"
+    code, _out, err = world.run_unit(deploy_text(world))
+    assert code == BAD_INPUT
+    assert "docker compose >= 2.30.0 required; found 2.29.9" in err
+    assert not [t for t in world.fx.trace if t.startswith(("compose.", "ssm."))]
+    assert not env_path(world).exists()
+    assert world.load_state() == world.state
+    assert completed_records(world)[-1]["result"] == "rejected"
+
+
+def test_unreadable_compose_version_is_refused(tmp_path):
+    world = in_sync_world(tmp_path)
+    world.fx.compose_version = "not a version"
+    code, _out, err = world.run_unit(deploy_text(world))
+    assert code == BAD_INPUT
+    assert "not recognised" in err
+
+
+@pytest.mark.parametrize("version", ["2.30.0", "v2.31.4", "2.40.0\n"])
+def test_compose_at_or_above_the_minimum_is_accepted(tmp_path, version):
+    world = in_sync_world(tmp_path)
+    world.fx.compose_version = version
+    assert world.run_unit(deploy_text(world))[0] == OK
+
+
+def test_plan_refuses_an_old_compose_with_the_same_message(tmp_path):
+    world = in_sync_world(tmp_path)
+    world.fx.compose_version = "2.10.0"
+    assert world.run(f"plan {TAG2} {DIGEST_OK}", plan_only=True) == BAD_INPUT
+    assert "docker compose >= 2.30.0 required; found 2.10.0" in world.err.getvalue()
+
+
+def test_secret_values_reach_the_env_file_verbatim(tmp_path):
+    world = in_sync_world(tmp_path)
+    jwt = "a$ABC${HOME}#'\"\\ =" + "0" * 32
+    db = "Host=db;Password=p$W\"d'\\ = #x"
+    openai = "sk-$ABC${HOME}\"'\\ ="
+    world.fx.ssm.values.update({world.settings.ssm_db_connection: db, world.settings.ssm_openai_key: openai, world.settings.ssm_jwt_key: jwt})
+    seen = {}
+    world.fx.compose.on_up = lambda: seen.setdefault("env", env_path(world).read_bytes())
+    assert world.run_unit(deploy_text(world))[0] == OK
+    # No escaping and no quoting: the file holds exactly the bytes SSM returned, one value per line.
+    assert seen["env"] == f"ConnectionStrings__DefaultConnection={db}\nOPENAIAPI_KEY={openai}\nJwt__SigningKey={jwt}\n".encode()
+
+
+def test_carriage_return_in_a_secret_is_refused(tmp_path):
+    world = in_sync_world(tmp_path)
+    world.fx.ssm.values[world.settings.ssm_jwt_key] = "value\rwith-cr"
+    code, out, err = world.run_unit(deploy_text(world))
+    assert code == BAD_INPUT
+    assert "Jwt__SigningKey must be a non-empty single-line value" in err
+    assert "with-cr" not in err and "with-cr" not in out
+    assert not env_path(world).exists()

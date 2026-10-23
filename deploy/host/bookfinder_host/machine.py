@@ -40,6 +40,10 @@ PROBE_INTERVAL_S = 1.0
 HEALTH_BUDGET_S = 90.0  # step 5: the new runtime gets 90 s to answer
 HEALTH_INTERVAL_S = 2.0
 CRAWLER_KEY = "CRAWLER_IMAGE="
+# The release's compose file uses env_file format: raw, which needs this Compose or newer. The floor is not confirmed
+# against a primary source (the docs page does not give a version); see the M3c report before relying on it.
+COMPOSE_MIN_VERSION = (2, 30, 0)
+_COMPOSE_VERSION_RE = re.compile(r"v?([0-9]+)\.([0-9]+)\.([0-9]+)")
 # Outcome per sub-step, recorded in the completed record so resume-crawler can tell what already took effect (M3c).
 CRAWLER_SUBSTEPS = ("image", "smoke", "run_crawler", "crawler_cron", "crawler_conf")
 MAX_RUNNER_BYTES = 1 << 20
@@ -159,10 +163,33 @@ def run_state_machine(
         _discard_env(run)
 
 
+def compose_problem(compose) -> str | None:
+    """Why the installed Compose cannot run the release's compose file, or None when it can.
+
+    Why: an old Compose would ignore format: raw and interpolate secrets, so the host refuses before changing anything.
+    """
+    try:
+        text = compose.version().strip()
+    except EffectFailed as exc:
+        return f"docker compose version cannot be read: {exc}"
+    match = _COMPOSE_VERSION_RE.match(text)
+    if match is None:
+        return f"docker compose version is not recognised: {text[:40]!r}"
+    found = tuple(int(part) for part in match.groups())
+    if found < COMPOSE_MIN_VERSION:
+        wanted = ".".join(str(part) for part in COMPOSE_MIN_VERSION)
+        return f"docker compose >= {wanted} required; found {'.'.join(str(part) for part in found)}"
+    return None
+
+
 def _execute(r: _Run) -> int:
     # Step 0 (the gates ran in commands.py): a crawler left paused by an earlier failure needs a human first.
     if r.state.crawler.paused is not None:
         raise _Stop(DRIFT, "drift", "crawler is paused by an earlier run; resume-crawler must run first")
+    # Before any change: an old Compose must not get as far as the migration.
+    problem = compose_problem(r.effects.compose)
+    if problem is not None:
+        raise _Stop(BAD_INPUT, "rejected", problem)
     # Step 1: the current runtime must be healthy before anything changes.
     if not _probe_tries(r):
         raise _Stop(DRIFT, "drift", "current runtime failed its health check; nothing was changed")

@@ -78,6 +78,11 @@ class RealCompose:
     def __init__(self, runner: Runner) -> None:
         self._runner = runner
 
+    def version(self) -> str:
+        result = self._runner.run(["docker", "compose", "version", "--short"])
+        _checked(result, "docker compose version")
+        return result.stdout
+
     def up(self, compose_file: str, project: str, env: Mapping[str, str]) -> None:
         _checked(
             self._runner.run(["docker", "compose", "-p", project, "-f", compose_file, "up", "-d", "--remove-orphans"], env=env),

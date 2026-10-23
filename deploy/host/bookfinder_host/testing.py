@@ -196,6 +196,8 @@ class FakeEffects:
         self.trace: list[str] = []
         self.docker = FakeDocker(self, host, release_tree if release_tree is not None else host.release_dir)
         self.compose = FakeCompose(self)
+        # What `docker compose version --short` reports to the host; tests change it to exercise the minimum check.
+        self.compose_version = "2.40.0"
         self.aws = FakeAws(self)
         self.ssm = FakeSsm(self)
         self.systemd = FakeSystemd(self)
@@ -267,6 +269,10 @@ class FakeCompose:
         self.up_calls: list[tuple[str, dict[str, str]]] = []
         self.down_calls: list[tuple[str, dict[str, str]]] = []
         self.on_up: Callable[[], None] | None = None
+
+    def version(self) -> str:
+        # Not traced: the version is read by the plan and the unit before any change, and tests assert on compose calls.
+        return self.fx.compose_version + "\n"
 
     def up(self, compose_file: str, project: str, env: Mapping[str, str]) -> None:
         self.fx.trace.append(f"compose.up {compose_file}")
