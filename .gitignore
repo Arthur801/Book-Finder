@@ -72,3 +72,6 @@ nunit-*.xml
 
 # Agent handoff notes (local only)
 HANDOFF.md
+
+# Crawler pytest JUnit output (CI artifact)
+/crawler/test-results/
