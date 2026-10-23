@@ -11,6 +11,8 @@
 [Dd]ebug/
 [Dd]ebugPublic/
 [Rr]elease/
+# deploy/release holds the release manifest scripts, not .NET build output.
+!deploy/release/
 [Rr]eleases/
 x64/
 x86/

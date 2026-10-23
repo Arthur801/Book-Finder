@@ -4,6 +4,8 @@ Why: Dependabot bumps Microsoft.EntityFrameworkCore.* PackageReferences in the
 .csproj files but never touches the dotnet-ef tool manifest (dotnet-tools.json),
 so the two drift apart. Dependabot also bumps the pgvector image in compose.yaml
 but never the image strings hard-coded in the test fixtures, so those drift too.
+The Dockerfile's SDK ARG has the same problem: the image installs the SDK from a
+pinned tarball, so it must match global.json or the build uses another SDK.
 Each check returns error strings; main() prints them as GitHub annotations and
 exits 1 when any check fails.
 """
@@ -18,6 +20,9 @@ EXCLUDED_DIRS = {"bin", "obj", ".venv", "node_modules"}
 EF_DESIGN_PACKAGE = "Microsoft.EntityFrameworkCore.Design"
 DOTNET_EF_TOOL = "dotnet-ef"
 COMPOSE_FILE = "compose.yaml"
+DOCKERFILE = "Dockerfile"
+GLOBAL_JSON = "global.json"
+DOCKERFILE_SDK_ARG = re.compile(r"^ARG DOTNET_SDK_VERSION=(\S+)\s*$", re.MULTILINE)
 PGVECTOR_IMAGE_IN_COMPOSE = re.compile(r"^\s*image:\s*[\"']?(pgvector/pgvector:[^\s\"'#]+)", re.MULTILINE)
 PGVECTOR_IMAGE_IN_CODE = re.compile(r"pgvector/pgvector:[\w.\-]+")
 TEST_IMAGE_FILES = [
@@ -100,9 +105,42 @@ def check_test_images_match_compose(root: Path) -> list[str]:
     return errors
 
 
+def check_dockerfile_sdk_matches_global_json(root: Path) -> list[str]:
+    global_json_path = root / GLOBAL_JSON
+    try:
+        global_json = json.loads(global_json_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        return [f"cannot read {GLOBAL_JSON}: {error}"]
+
+    sdk_version = global_json.get("sdk", {}).get("version")
+    if not sdk_version:
+        return [f"sdk.version not found in {GLOBAL_JSON}; cannot verify {DOCKERFILE}"]
+
+    dockerfile_path = root / DOCKERFILE
+    try:
+        dockerfile_text = dockerfile_path.read_text(encoding="utf-8")
+    except OSError as error:
+        return [f"cannot read {DOCKERFILE}: {error}; it must pin ARG DOTNET_SDK_VERSION={sdk_version} from {GLOBAL_JSON}"]
+
+    match = DOCKERFILE_SDK_ARG.search(dockerfile_text)
+    if match is None:
+        return [f"ARG DOTNET_SDK_VERSION not found in {DOCKERFILE}; add ARG DOTNET_SDK_VERSION={sdk_version} to match {GLOBAL_JSON}"]
+
+    dockerfile_version = match.group(1)
+    if dockerfile_version != sdk_version:
+        return [
+            (
+                f"change ARG DOTNET_SDK_VERSION in {DOCKERFILE} from {dockerfile_version} to {sdk_version} to match {GLOBAL_JSON}; "
+                "update the ADD --checksum sha256 for that SDK tarball in the same change"
+            )
+        ]
+    return []
+
+
 CHECKS = [
     check_dotnet_ef_matches_ef_core,
     check_test_images_match_compose,
+    check_dockerfile_sdk_matches_global_json,
 ]
 
 

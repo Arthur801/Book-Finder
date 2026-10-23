@@ -1,0 +1,18 @@
+# The build context is the repository; keep secrets, VCS data, build output and non-web projects out of it.
+.git
+**/bin
+**/obj
+.env
+.env.*
+.vscode
+.venv
+tests/
+crawler/
+Docs/
+TestResults
+.github
+*.user
+HANDOFF.md
+**/node_modules
+.ruff_cache
+**/.pytest_cache
