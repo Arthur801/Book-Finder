@@ -66,7 +66,7 @@ flowchart LR
 
 ### 1.5 退出碼對照
 
-同一組代碼用於 `plan`、`deploy`、`status` 與人工指令。`history result` 是寫入 history 的 `result` 欄位。
+`plan`、`deploy` 與人工指令使用下列退出碼。`status` 指令只要查詢本身成功，固定回傳 exit 0；部署狀態看 JSON 的 `status` 欄位，例如 `completed:success`、`running`、`indeterminate` 或 `not-started`，**不要用 `status` 的 exit code 判斷部署是否成功**。`history result` 是寫入 history 的 `result` 欄位，只適用於有 `completed` 紀錄的部署或人工操作；`plan` 不寫 history，回 exit 0 時也沒有 `result`。
 
 | 碼 | 名稱 | 常見原因 | history result | 操作者要做什麼 |
 |---|---|---|---|---|

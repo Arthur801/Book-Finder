@@ -74,7 +74,7 @@ sudoedit /etc/book-finder/crawler.conf
 
 | 鍵 | 說明 |
 |---|---|
-| `CRAWLER_IMAGE` | `ghcr.io/arthur801/book-finder-crawler@sha256:<digest>`（digest 由 release.json 取得；範例檔中的 tag 只是格式示意） |
+| `CRAWLER_IMAGE` | `ghcr.io/arthur801/book-finder-crawler@sha256:<digest>`（digest 由 release.json 取得；範例檔中的 `<digest>` 必須替換為實際 digest） |
 | `AWS_REGION` | SSM 所在 region |
 | `DATABASE_URL_PARAMETER` | 上節的 SSM parameter name |
 
