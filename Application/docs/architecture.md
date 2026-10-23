@@ -6,7 +6,11 @@
 
 名詞依 [CONTEXT](../../CONTEXT.md)；拓樸依 [system architecture](../../Docs/architecture/system-architecture.md)、既定取捨依 [ADRs](../../Docs/architecture/architecture-decisions.md)。[API](../../Docs/api/api-spec.md) 管輸入/錯誤，[data-model](../../Docs/data/data-model.md) 管 schema；模組規則見流程入口表。本文件不取代 authority。
 
-Application 負責 use cases、純規則與 ports。它依賴 Domain enum/entity 與 logging/options/time abstractions，不使用 HttpContext、DbContext、SQL 或 OpenAI client。部分 read port 由 controller 直接呼叫，沒有無規則的 service wrapper。
+Application 負責 use case orchestration、application-level policy / validation、ports，並定義 use case 的 atomic / transaction boundary；Infrastructure 負責 EF、SQL 與 transaction mechanics。Domain 負責核心 entity 與 domain invariants；具體規則的現行落點仍須依實作查核。Application 依賴 Domain enum/entity 與 logging/options/time abstractions，不直接操作 HttpContext、DbContext、SQL 或外部 API client。部分 read port 由 controller 直接呼叫，沒有無規則的 service wrapper。
+
+Application-level policy 包含 [LibraryService.AddPendingAsync](../Library/LibraryService.cs) 的 best-effort 行為（一般失敗只記 Warning、登入流程繼續，caller 取消仍傳遞）、[EmbeddingBackfillService](../Recommendation/EmbeddingBackfillService.cs) 的連續失敗五次停止，以及推薦的 quota ordering、timeout boundary 與錯誤政策，並非只有純規則。
+
+依 [system architecture §4](../../Docs/architecture/system-architecture.md) 的分層責任，[IRecommendationStore.SaveAsync](../Recommendation/IRecommendationStore.cs) 在 Application 層定義「成功 Search 與全部 Results 一起保存，零結果仍保存 Search」的 atomic persistence contract；[EfRecommendationStore](../../Infrastructure/Persistence/EfRecommendationStore.cs) 以單次 SaveChanges 與 DB transaction 落實。這個 use case 邊界不涵蓋先前的 Catalog ingestion 或保存後的 profile enrichment。
 
 | 責任 | 主要介面/輸出 | Caller與callee |
 |---|---|---|
@@ -33,7 +37,7 @@ Application 負責 use cases、純規則與 ports。它依賴 Domain enum/entity
 | Candidate | 結構化filters與向量交ICandidateSearch | LLM產SQL違反invariant | sanitizer不能證明條件真為使用者明示；parser也須受測 |
 | 時間 | TimeProvider與[台北時間helper](../Common/TaipeiTimeZone.cs) | DateTime.Now難以測試日界線 | UTC保存；date precision缺失不猜 |
 | 配額 | count後save無鎖，規格§11接受少量並行超額 | 嚴格reservation需改規則與交易 | 不當作已確認race bug |
-| 交易 | store單次SaveChanges保存search/results | 分開保存會留下半成品 | Application未開分散式交易；保存後enrichment不回滾 |
+| 交易邊界與機制 | Application 的 IRecommendationStore 定義 Search 與全部 Results 原子保存；Infrastructure 用單次 EF SaveChanges／DB transaction 實現 | 將 Search／Results 分開保存會違反 port contract，留下半成品 | Application 定義 policy/boundary，不直接操作 EF transaction；零結果仍保存，保存後 enrichment 不回滾 |
 | Timeout | 固定60秒linked token，保存後profile在預算外 | 每步獨立timeout不能保證總預算 | adapters須合作取消；commit邊界待補證據 |
 | Cache | reader decorator在Infrastructure，依ADR-005 | use case內cache增加耦合 | Bestseller正常1小時、空榜5分鐘；Book cache不含個人Library |
 | Profile | 保存後先讀difficulty再入process queue | 同步生成增加延遲，broker屬新架構 | process重啟可丟工作；下次出現可重排 |

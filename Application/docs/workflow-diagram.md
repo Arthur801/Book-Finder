@@ -16,16 +16,16 @@
 
 ```mermaid
 flowchart TD
-  C[Controllers 或 Infrastructure worker] --> A[Application use case]
+  C[Controllers 或 Infrastructure worker] --> A[Application use case orchestration 與 policy]
   A --> R[純規則與 TimeProvider]
-  A --> P[Application ports]
+  A --> P[Application ports 與 atomic persistence contract]
   P --> EF[Infrastructure EF adapter 或 cache decorator]
   EF --> DB[(PostgreSQL 與 pgvector)]
   P --> AI[Infrastructure OpenAI adapter]
   A --> OUT[Typed outcome 或 exception 回 caller]
 ```
 
-HTTP auth、antiforgery、binding、狀態碼與畫面在 Web 邊界。Application 接收 caller 的 userId；SQL、交易、cache 與 queue worker 是 Infrastructure 責任，不由 Application 直接開啟。
+HTTP auth、antiforgery、binding、狀態碼與畫面在 Web 邊界。Application 接收 caller 的 userId，定義 use case 的 atomic / transaction boundary；SQL、DbContext、transaction mechanics、cache implementation 與 queue worker 屬於 Infrastructure。Application 不直接操作 EF transaction。
 
 ## Catalog 與 Bestseller
 
@@ -119,7 +119,7 @@ flowchart TD
   HAS -->|是| NUM[候選編號1到n；截短description]
   NUM --> RANK[ranker用原需求；不讀AI profile]
   RANK --> VALIDATE[候選編號與非空理由驗證；去重；最多10]
-  VALIDATE --> SAVE[store.SaveAsync]
+  VALIDATE --> SAVE[Application store port；Search 與全部 Results 原子保存]
   EMPTY --> SAVE
   SAVE --> DB[(EF單次SaveChanges；search與results一起提交)]
   DB --> LOG[成功log；目前fallback false written0]
@@ -134,7 +134,7 @@ flowchart TD
   RANK -. AI unavailable .-> ERROR
 ```
 
-parser/embedding/search/ranker 失敗不進保存。store 保存失敗的原子性依 [EfRecommendationStore](../../Infrastructure/Persistence/EfRecommendationStore.cs) 與 DB；Application 自己沒有交易。所有 ports 須配合 cancellation，傳 token 不等於強制中斷。timer 的60秒不包含 quota query，也不包含保存後 enrichment。
+parser/embedding/search/ranker 失敗不進保存。Application 透過 [IRecommendationStore.SaveAsync](../Recommendation/IRecommendationStore.cs) 定義 Search 與全部 Results 必須一起保存的 atomic boundary，零結果也保存 Search；[EfRecommendationStore](../../Infrastructure/Persistence/EfRecommendationStore.cs) 用單次 EF SaveChanges／DB transaction 實現此 contract，保存失敗不留半成品。Application 不直接操作 DbContext 或 EF transaction mechanics。所有 ports 須配合 cancellation，傳 token 不等於強制中斷。timer 的60秒不包含 quota query，也不包含保存後 enrichment。
 
 **保存後與保存前必須分開**：difficulty一般讀取失敗回空字典，scheduler一般失敗只記 warning；兩者使用 caller token，若 caller 在此取消，OperationCanceledException 仍可傳遞，但 search 已保存。不得概括為「所有失敗不保存」。保存後 timer 觸發不將已保存搜尋改為 timeout。見 APP-T10、T11、T17。
 
@@ -146,14 +146,14 @@ parser/embedding/search/ranker 失敗不進保存。store 保存失敗的原子�
 flowchart TD
   LOCAL[本地Candidate Set] --> FEW{少於5本}
   FEW -->|否| RANK[既有ranking]
-  FEW -->|是| GOOGLE[Google Books查詢：未接入]
-  GOOGLE --> NORMALIZE[去重正規化寫Book：未接入]
-  NORMALIZE --> EMB[補embedding後相同filter與門檻重查]
+  FEW -->|是| GOOGLE[Recommendation 呼叫 Catalog ingestion port：未接入]
+  GOOGLE --> NORMALIZE[Catalog 正規化與跨來源 identity 寫入 Book：未接入]
+  NORMALIZE --> EMB[Recommendation 補 embedding 後相同 filter 與門檻重查]
   EMB --> RANK
   GOOGLE -->|失敗或逾時| RANK
 ```
 
-[recommendation §6](../../Docs/modules/recommendation.md) 是 authority；ParsedRequirement.GoogleQueries 未被 orchestration 使用，無 Google adapter port，log 固定 false/0。這是 APP-B01 未實作規格差距，不是已核准取消 fallback。
+[recommendation §6](../../Docs/modules/recommendation.md) 是 authority；ParsedRequirement.GoogleQueries 未被 orchestration 使用，無 Google adapter port，log 固定 false/0。這是 APP-B01 未實作規格差距，不是已核准取消 fallback。Recommendation 擁有觸發條件與 orchestration；Google Books normalization、cross-source identity resolution、Book persistence 規則由 [Book Catalog §6](../../Docs/modules/book-catalog.md) 擁有，Catalog 完成後由 Recommendation 補 embedding、重新 retrieval，再進 ranking。Catalog ingestion 與 Search／Results 保存是不同 atomic boundary；已寫入 Book 不隨後續推薦失敗回滾。
 
 ## 背景補齊與 profile
 

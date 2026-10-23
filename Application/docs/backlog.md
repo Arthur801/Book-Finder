@@ -9,14 +9,14 @@
 - **P1 / L3 / 確認缺口，未實作**。
 - 證據：[RecommendationService](../Recommendation/RecommendationService.cs) FindAsync後直接ranking；[ParsedRequirement](../Recommendation/ParsedRequirement.cs)的GoogleQueries未用；[EF store](../../Infrastructure/Persistence/EfRecommendationStore.cs)註解說明#14尚待接入，FallbackUsed=false。影響：本地候選0～4本不會補充。
 - Authority：[recommendation §6](../../Docs/modules/recommendation.md)、[產品 REC-03](../../Docs/requirements/product-requirements.md)、[book-catalog §6](../../Docs/modules/book-catalog.md)。
-- 方向：新增normalization/dedup port與fake，僅候選少於5時查Google；寫本地Book、補embedding，再以同filters/threshold重查；保存真實fallback flag與telemetry。Google失敗降級本地候選，已寫Book不隨推薦失敗回滾。
+- 方向與 ownership：Recommendation 新增對 Catalog-owned Google Books ingestion / normalization capability 的 orchestration port 與 fake，決定僅 Candidate Set < 5 時觸發。Google Books normalization、cross-source identity resolution 與 Book persistence 規則仍由 Book Catalog 擁有，不把 Google DTO parsing、ISBN merge 或 Book 寫入規則放進 Application/Recommendation。Recommendation 等待 Catalog 完成後補 embedding，以相同 filters/threshold 重新 retrieval，再進 ranking，保存真實 fallback flag 與 telemetry。Google 失敗降級本地候選；Catalog 已寫 Book 不隨後續推薦失敗回滾。
 - 前置：依既有規格對照ISBN reuse、無ISBN與Book Source identity/data-model，不另改fallback門檻；不得把raw Google volume直接交ranker。
 - 驗收：5本零Google呼叫；4本觸發；新增候選均已正規化寫DB且有embedding並通過門檻；遠端失敗仍可本地成功；quota拒絕不碰外部；log與保存欄位符合實際。
-- 測試入口：[RecommendationServiceTests](../../tests/UnitTests/RecommendationServiceTests.cs)、[RecommendationApiTests](../../tests/WebIntegration/RecommendationApiTests.cs)、[EfCandidateSearchTests](../../tests/DatabaseIntegration/EfCandidateSearchTests.cs)。Google fake/normalizer測試待建。案例 **APP-T15、APP-T16**，回歸APP-T07～T10。
+- 測試入口：[RecommendationServiceTests](../../tests/UnitTests/RecommendationServiceTests.cs)、[RecommendationApiTests](../../tests/WebIntegration/RecommendationApiTests.cs)、[EfCandidateSearchTests](../../tests/DatabaseIntegration/EfCandidateSearchTests.cs)。Recommendation 的 Catalog capability fake／編排測試，以及 Catalog-owned normalizer／identity／persistence 測試待建（Missing / Blocked by APP-B01）；不是本次已驗證結果。案例 **APP-T15、APP-T16**，回歸APP-T07～T10。
 
 ## APP-B02 — 補證保存交界與取消
 
-- **P2 / L3 / 待驗證**；非已重現bug。
+- **P2 / L3 / 待驗證（Needs stronger evidence；案例 Pending）**；非已重現bug。
 - 證據：service在SaveAsync內傳timer token；EF單次SaveChanges。既有unit檢查ranker/parser等待到60秒，但不證明commit與取消競態。保存後difficulty/scheduler使用caller token且允許caller取消傳遞，search已存在。
 - 重現/觀測：disposable PostgreSQL、可控store/EF interceptor；在提交前、提交中、提交後設call gate，推進fake time或取消caller，記錄去識別searchId、commit觀測點、outcome與rows。不得連正式DB或以sleep猜測commit。
 - 判定：提交前失敗不留半成品；提交後enrichment取消不被描述為「未保存」。若觀測到已commit但timeout，先釐清[recommendation §8/§13](../../Docs/modules/recommendation.md)可保證語意，不自行刪除已提交資料。
