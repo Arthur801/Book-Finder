@@ -203,7 +203,7 @@ def _integer(value: Any, where: str, minimum: int = 0) -> int:
     return value
 
 
-def _runtime_to_json(runtime: Runtime) -> dict[str, Any]:
+def runtime_to_json(runtime: Runtime) -> dict[str, Any]:
     if isinstance(runtime, DockerRuntime):
         return {
             "kind": "docker",
@@ -239,7 +239,7 @@ def _runtime_from_json(obj: Any, where: str) -> Runtime:
     raise StateCorrupt(f"{where}.kind must be docker or systemd")
 
 
-def _pause_to_json(pause: Pause | None) -> dict[str, Any] | None:
+def pause_to_json(pause: Pause | None) -> dict[str, Any] | None:
     if pause is None:
         return None
     return {"since": pause.since, "release": pause.release, "reason": pause.reason}
@@ -260,8 +260,8 @@ def state_to_json(state: State) -> dict[str, Any]:
     schema = state.schema
     return {
         "revision": state.revision,
-        "runtime": _runtime_to_json(state.runtime),
-        "previous_runtime": None if state.previous_runtime is None else _runtime_to_json(state.previous_runtime),
+        "runtime": runtime_to_json(state.runtime),
+        "previous_runtime": None if state.previous_runtime is None else runtime_to_json(state.previous_runtime),
         "schema": {
             "digest": schema.digest,
             "applied": [{"id": entry.id, "source_hash": entry.source_hash, "by_release": entry.by_release} for entry in schema.applied],
@@ -270,7 +270,7 @@ def state_to_json(state: State) -> dict[str, Any]:
             "dirty_since": schema.dirty_since,
             "dirty_release": schema.dirty_release,
         },
-        "crawler": {"digest": state.crawler.digest, "paused": _pause_to_json(state.crawler.paused)},
+        "crawler": {"digest": state.crawler.digest, "paused": pause_to_json(state.crawler.paused)},
     }
 
 

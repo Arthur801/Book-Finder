@@ -1,0 +1,14 @@
+#!/usr/bin/env python3
+"""Forced-command entry point for the host program; see bookfinder_host.commands for the grammar and exit codes."""
+
+import os
+import sys
+from pathlib import Path
+
+# The package sits next to this script; put its directory first so no other bookfinder_host can shadow it.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from bookfinder_host.commands import main  # noqa: E402
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:], os.environ, sys.stdout, sys.stderr))
