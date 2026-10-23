@@ -83,6 +83,11 @@ class RealCompose:
         _checked(result, "docker compose version")
         return result.stdout
 
+    def config_json(self, compose_file: str) -> str:
+        result = self._runner.run(["docker", "compose", "-f", compose_file, "config", "--format", "json"])
+        _checked(result, "docker compose config")
+        return result.stdout
+
     def up(self, compose_file: str, project: str, env: Mapping[str, str]) -> None:
         _checked(
             self._runner.run(["docker", "compose", "-p", project, "-f", compose_file, "up", "-d", "--remove-orphans"], env=env),

@@ -40,10 +40,6 @@ PROBE_INTERVAL_S = 1.0
 HEALTH_BUDGET_S = 90.0  # step 5: the new runtime gets 90 s to answer
 HEALTH_INTERVAL_S = 2.0
 CRAWLER_KEY = "CRAWLER_IMAGE="
-# The release's compose file uses env_file format: raw, which needs this Compose or newer. The floor is not confirmed
-# against a primary source (the docs page does not give a version); see the M3c report before relying on it.
-COMPOSE_MIN_VERSION = (2, 30, 0)
-_COMPOSE_VERSION_RE = re.compile(r"v?([0-9]+)\.([0-9]+)\.([0-9]+)")
 # Outcome per sub-step, recorded in the completed record so resume-crawler can tell what already took effect (M3c).
 CRAWLER_SUBSTEPS = ("image", "smoke", "run_crawler", "crawler_cron", "crawler_conf")
 MAX_RUNNER_BYTES = 1 << 20
@@ -167,23 +163,52 @@ def run_state_machine(
         _discard_env(run)
 
 
-def compose_problem(compose) -> str | None:
-    """Why the installed Compose cannot run the release's compose file, or None when it can.
+# The capability probe: a one-service compose file whose env_file uses format: raw, and a value that interpolation,
+# quoting or comment handling would change. Only `config` runs, so nothing is started.
+PROBE_SERVICE = "probe"
+PROBE_NAME = "PROBE"
+PROBE_VALUE = "a$B${HOME}'\"#x"
+PROBE_COMPOSE = """services:
+  probe:
+    image: alpine:3
+    env_file:
+      - path: ./probe.env
+        format: raw
+"""
 
-    Why: an old Compose would ignore format: raw and interpolate secrets, so the host refuses before changing anything.
+
+def compose_raw_env_check(compose, run_dir: Path) -> tuple[str, str | None]:
+    """Returns (docker compose version --short or a reason, refusal message or None).
+
+    Why: a Compose without raw env_file support would interpolate the secrets, so the host asks the installed Compose
+    to render the probe and checks the value it returns. Any failure, missing key or changed value is a refusal.
     """
     try:
-        text = compose.version().strip()
+        version = compose.version().strip() or "unknown"
     except EffectFailed as exc:
-        return f"docker compose version cannot be read: {exc}"
-    match = _COMPOSE_VERSION_RE.match(text)
-    if match is None:
-        return f"docker compose version is not recognised: {text[:40]!r}"
-    found = tuple(int(part) for part in match.groups())
-    if found < COMPOSE_MIN_VERSION:
-        wanted = ".".join(str(part) for part in COMPOSE_MIN_VERSION)
-        return f"docker compose >= {wanted} required; found {'.'.join(str(part) for part in found)}"
-    return None
+        version = f"unknown ({exc})"
+    if not compose_supports_raw_env_file(compose, run_dir):
+        return version, f"docker compose does not support env_file format: raw (found {version})"
+    return version, None
+
+
+def compose_supports_raw_env_file(compose, run_dir: Path) -> bool:
+    os.makedirs(run_dir, mode=0o700, exist_ok=True)
+    # mkdtemp creates the directory with mode 0700; the probe never outlives this call.
+    probe_dir = Path(tempfile.mkdtemp(prefix=".probe-", dir=run_dir))
+    try:
+        (probe_dir / "compose.yaml").write_text(PROBE_COMPOSE, encoding="utf-8")
+        (probe_dir / "probe.env").write_text(f"{PROBE_NAME}={PROBE_VALUE}\n", encoding="utf-8")
+        try:
+            rendered = json.loads(compose.config_json(str(probe_dir / "compose.yaml")))
+            value = rendered["services"][PROBE_SERVICE]["environment"][PROBE_NAME]
+        except (EffectFailed, ValueError, KeyError, TypeError):
+            return False
+        # `config --format json` writes each literal $ as $$ (verified with Compose 5.6.0). An interpolated value cannot
+        # equal either form, because $B is blanked and ${HOME} expanded before the comparison.
+        return value in (PROBE_VALUE, PROBE_VALUE.replace("$", "$$"))
+    finally:
+        shutil.rmtree(probe_dir, ignore_errors=True)
 
 
 def _execute(r: _Run) -> int:
@@ -191,7 +216,7 @@ def _execute(r: _Run) -> int:
     if r.state.crawler.paused is not None:
         raise _Stop(DRIFT, "drift", "crawler is paused by an earlier run; resume-crawler must run first")
     # Before any change: an old Compose must not get as far as the migration.
-    problem = compose_problem(r.effects.compose)
+    _version, problem = compose_raw_env_check(r.effects.compose, Path(r.settings.run_dir))
     if problem is not None:
         raise _Stop(BAD_INPUT, "rejected", problem)
     # Step 1: the current runtime must be healthy before anything changes.

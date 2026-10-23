@@ -382,8 +382,9 @@ def _plan_locked(command: PlanCommand, deps: Deps, out: TextIO, err: TextIO) -> 
     if blocked:
         out.write(json.dumps({"revision": state.revision, "indeterminate": blocked}, sort_keys=True) + "\n")
         return INDETERMINATE
-    problem = machine.compose_problem(deps.effects.compose)
+    compose_version, problem = machine.compose_raw_env_check(deps.effects.compose, Path(deps.settings.run_dir))
     if problem is not None:
+        out.write(json.dumps({"revision": state.revision, "compose_version": compose_version, "refused": problem}, sort_keys=True) + "\n")
         err.write(f"{problem}\n")
         return BAD_INPUT
     try:
@@ -414,6 +415,7 @@ def _plan_locked(command: PlanCommand, deps: Deps, out: TextIO, err: TextIO) -> 
             "rebuild": {"tag": state.schema.rebuild.tag, "web_digest": state.schema.rebuild.web_digest},
         },
         "crawler": {"paused": st.pause_to_json(state.crawler.paused)},
+        "compose_version": compose_version,
         "target": {"tag": command.tag, "web_digest": command.web_digest, "release_api": target.release_api},
         "classification": classification,
         "pending": pending_ids,

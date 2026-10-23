@@ -793,3 +793,13 @@ def test_e_killed_run_is_indeterminate_until_the_operator_resolves_it(stack: Sta
     code, plan = run_plan(stack, TAG_V3, stack.digests["v3"])
     assert code == 6, plan  # the schema is still dirty; resolve-run does not touch state (N7)
     log("PASS e: killed run reported indeterminate (plan exit 8), resolve-run recorded the outcome, dirty stays until reconciled")
+
+
+def test_local_compose_renders_raw_env_file_literally(tmp_path):
+    # No stack needed: the probe only runs `docker compose config`, so nothing is started.
+    from bookfinder_host import adapters, machine
+
+    version, problem = machine.compose_raw_env_check(adapters.RealCompose(SubprocessRunner()), tmp_path)
+    assert problem is None, problem
+    assert list(tmp_path.iterdir()) == []
+    log(f"PASS probe: docker compose {version} renders env_file format: raw without interpolation or quote handling")

@@ -59,6 +59,9 @@ class Compose(Protocol):
     def version(self) -> str:
         """The output of `docker compose version --short`."""
 
+    def config_json(self, compose_file: str) -> str:
+        """The output of `docker compose -f <file> config --format json`; nothing is started."""
+
     def up(self, compose_file: str, project: str, env: Mapping[str, str]) -> None: ...
 
     def down(self, compose_file: str, project: str, env: Mapping[str, str]) -> None: ...

@@ -6,7 +6,7 @@ services:
   web:
     image: ${WEB_IMAGE:?WEB_IMAGE must be a digest-pinned web image}
     # Raw format: Compose must not interpolate $VAR or parse quotes in the secrets the host renders, or a database credential
-    # containing $ would reach the container changed. Needs Compose with env_file format support (COMPOSE_MIN_VERSION).
+    # containing $ would reach the container changed. The host checks this with a capability probe before deploying (machine.compose_raw_env_check).
     env_file:
       - path: ${WEB_ENV_FILE:?WEB_ENV_FILE must name the rendered environment file}
         format: raw

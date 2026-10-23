@@ -716,38 +716,42 @@ def test_status_of_a_finished_run_comes_from_history_even_when_the_unit_is_gone(
 # Compose minimum (raw env_file needs it) and verbatim secrets
 
 
-def test_compose_below_the_minimum_is_refused_before_anything_changes(tmp_path):
+def test_probe_that_is_interpolated_refuses_before_anything_changes(tmp_path):
     world = in_sync_world(tmp_path)
-    world.fx.compose_version = "2.29.9"
+    world.fx.compose.config_mode = "interpolated"
     code, _out, err = world.run_unit(deploy_text(world))
     assert code == BAD_INPUT
-    assert "docker compose >= 2.30.0 required; found 2.29.9" in err
+    assert "docker compose does not support env_file format: raw (found 2.40.0)" in err
     assert not [t for t in world.fx.trace if t.startswith(("compose.", "ssm."))]
     assert not env_path(world).exists()
     assert world.load_state() == world.state
     assert completed_records(world)[-1]["result"] == "rejected"
+    assert completed_records(world)[-1]["exit_code"] == BAD_INPUT
 
 
-def test_unreadable_compose_version_is_refused(tmp_path):
+def test_probe_error_refuses(tmp_path):
     world = in_sync_world(tmp_path)
-    world.fx.compose_version = "not a version"
+    world.fx.compose.config_mode = "error"
     code, _out, err = world.run_unit(deploy_text(world))
     assert code == BAD_INPUT
-    assert "not recognised" in err
+    assert "does not support env_file format: raw" in err
 
 
-@pytest.mark.parametrize("version", ["2.30.0", "v2.31.4", "2.40.0\n"])
-def test_compose_at_or_above_the_minimum_is_accepted(tmp_path, version):
+@pytest.mark.parametrize("version", ["2.30.0", "v2.31.4", "2.40.0\n", "garbage"])
+def test_a_capable_compose_is_accepted_whatever_its_version_text(tmp_path, version):
     world = in_sync_world(tmp_path)
     world.fx.compose_version = version
     assert world.run_unit(deploy_text(world))[0] == OK
 
 
-def test_plan_refuses_an_old_compose_with_the_same_message(tmp_path):
+def test_plan_refuses_a_compose_that_fails_the_probe_and_reports_its_version(tmp_path):
     world = in_sync_world(tmp_path)
+    world.fx.compose.config_mode = "missing-key"
     world.fx.compose_version = "2.10.0"
     assert world.run(f"plan {TAG2} {DIGEST_OK}", plan_only=True) == BAD_INPUT
-    assert "docker compose >= 2.30.0 required; found 2.10.0" in world.err.getvalue()
+    assert "docker compose does not support env_file format: raw (found 2.10.0)" in world.err.getvalue()
+    assert world.stdout_json()["compose_version"] == "2.10.0"
+    assert world.stdout_json()["refused"].startswith("docker compose does not support")
 
 
 def test_secret_values_reach_the_env_file_verbatim(tmp_path):
