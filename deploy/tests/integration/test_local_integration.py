@@ -67,6 +67,10 @@ REGISTRY_IMAGE = "registry:2.8.3@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6
 DB_USER = "book_finder_dev"
 DB_NAME = "book_finder"
 GENERIC_WAIT_S = 120
+# Placeholder test secrets chosen to break any layer that interpolates, quotes or escapes: $VAR, ${VAR}, #, quotes,
+# backslash, space and =. The signing key is padded past 32 bytes.
+JWT_SECRET = "a$ABC${HOME}#'\"\\ =" + "0123456789abcdef" * 2
+OPENAI_SECRET = "sk-bf-it-$ABC${HOME}-placeholder"
 
 
 def log(message: str) -> None:
@@ -165,6 +169,14 @@ class Stack:
     def aws_log(self) -> Path:
         return self.work / "aws-calls.log"
 
+    def secrets(self) -> dict[str, str]:
+        """What the container must see, byte for byte, under the names the web app reads."""
+        return {
+            "ConnectionStrings__DefaultConnection": self.db_ado,
+            "OPENAIAPI_KEY": OPENAI_SECRET,
+            "Jwt__SigningKey": JWT_SECRET,
+        }
+
     @property
     def db_ado(self) -> str:
         return f"Host={self.gateway};Port={self.db_gateway_port};Database={DB_NAME};Username={DB_USER};Password={self.db_password}"
@@ -189,8 +201,8 @@ def _write_aws_stub(stack: Stack, ado_password: str) -> None:
     parameters = {
         "/bf-it/database-url": stack.db_url,
         "/bf-it/db-connection": stack.db_ado.replace(f"Password={stack.db_password}", f"Password={ado_password}"),
-        "/bf-it/openai-key": "sk-bf-it-placeholder-not-a-real-key",
-        "/bf-it/jwt-key": "0123456789abcdef" * 4,
+        "/bf-it/openai-key": OPENAI_SECRET,
+        "/bf-it/jwt-key": JWT_SECRET,
     }
     (stack.aws_stub.parent / "aws-config.json").write_text(json.dumps({"parameters": parameters}), encoding="utf-8")
     stub = f"""#!/usr/bin/env python3
@@ -356,6 +368,12 @@ def completed_for(run_id: str) -> dict:
     return [entry for entry in read_history() if entry.get("run_id") == run_id and entry.get("phase") == "completed"][-1]
 
 
+def web_container_id() -> str:
+    listed = docker("ps", "-q", "--filter", f"label=com.docker.compose.project={PROJECT}", "--filter", "label=com.docker.compose.service=web").stdout.split()
+    assert len(listed) == 1, f"expected one web container, found {len(listed)}"
+    return listed[0]
+
+
 def web_container_image_ids() -> list[str]:
     listed = docker("ps", "-q", "--filter", f"label=com.docker.compose.project={PROJECT}", "--filter", "label=com.docker.compose.service=web").stdout.split()
     return [docker("inspect", "-f", "{{.Image}}", container).stdout.strip() for container in listed]
@@ -468,7 +486,9 @@ def stack(tmp_path_factory):
     started: list[str] = []
     try:
         # Database and registry first: the images are pushed to the registry and the schema is applied in the database.
-        stack.db_password = os.urandom(12).hex()
+        # The "$Q" makes the database credential exercise interpolation too: it appears in the URL, the connection
+        # string and the POSTGRES_PASSWORD of the database container.
+        stack.db_password = os.urandom(12).hex() + "$Q"
         stack.gateway = docker("network", "inspect", "bridge", "-f", "{{(index .IPAM.Config 0).Gateway}}").stdout.strip()
         stack.db_gateway_port = free_port(stack.gateway)
         local_db_port = free_port()
@@ -602,10 +622,8 @@ def test_a_forward_upgrade_with_snapshot_and_crawler_pause(stack: Stack):
     v1_dir = _release_extract(stack, "v1", stack.digests["v1"])
     v1_manifest = manifest_of(v1_dir)
     run_env = stack.run_dir / "web-seed.env"
-    run_env.write_text(
-        f"ConnectionStrings__DefaultConnection={stack.db_ado}\nOPENAIAPI_KEY=sk-bf-it-placeholder-not-a-real-key\nJwt__SigningKey={'0123456789abcdef' * 4}\n",
-        encoding="utf-8",
-    )
+    # Same raw format the host renders: one KEY=VALUE per line, no quoting, no escaping.
+    run_env.write_text("".join(f"{name}={value}\n" for name, value in stack.secrets().items()), encoding="utf-8")
     _compose_up(stack, v1_dir / release_content.COMPOSE_FILE, v1_ref, run_env)
     assert _wait_local(stack), "v1 did not answer"
     compose_sha = release_content.compose_sha256_of(v1_dir)
@@ -655,6 +673,12 @@ def test_a_forward_upgrade_with_snapshot_and_crawler_pause(stack: Stack):
     record = completed_for("9001-1")
     assert record["result"] == "success" and record.get("snapshot_id")
     assert _web_digest_of_container(stack) == local_image_id(f"{stack.registry}/{WEB_NAME}@{stack.digests['v2']}")
+    # Secret fidelity: what the running container sees equals what SSM returned, with no interpolation or quoting.
+    container = web_container_id()
+    for name, expected in stack.secrets().items():
+        seen = docker("exec", container, "printenv", name).stdout
+        assert seen == expected + "\n", f"{name} differs inside the container"
+    log("PASS a: secrets in the web container are byte-identical to the SSM values (printenv)")
     log("PASS a: forward upgrade to v2 with snapshot, crawler paused then resumed, web on v2 digest")
 
 
