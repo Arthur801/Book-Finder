@@ -845,6 +845,79 @@ def test_a_known_failure_is_recorded_as_failed(tmp_path, monkeypatch, name):
     assert run_admin(world, OTHER_OPERATOR_ARGV, typed="x")[0] != 8
 
 
+def linked_host(tmp_path):
+    """An installed host that is already a versioned link (the normal state after the first install)."""
+    version = tmp_path / "host-versions" / ("0" * 16)
+    (version / "bookfinder_host").mkdir(parents=True)
+    (version / "bookfinder_host" / "HOST_API_RANGE").write_text("1 1\n", encoding="utf-8")
+    host = tmp_path / "host"
+    os.symlink(version, host)
+    return host
+
+
+@pytest.mark.parametrize("name", ["bootstrap-state", "reconcile-schema", "resume-crawler"])
+def test_a_failure_after_the_state_was_replaced_stays_indeterminate(tmp_path, monkeypatch, name):
+    # The rename happens and then the directory fsync fails: the new state is on disk, so the outcome is unknown.
+    case = protocol_case(name, tmp_path)
+    world = case["world"]
+    before_revision = revision_of(world)
+    real_write = st.write_state
+
+    def replaced_then_failed(path, state, expected_revision):
+        real_write(path, state, expected_revision)
+        raise OSError("directory fsync failed after the rename")
+
+    monkeypatch.setattr(st, "write_state", replaced_then_failed)
+    code, _, err = run_admin(world, case["argv"], typed=case["typed"], host_dir=case["host_dir"])
+    assert code == 3, err
+    assert "outcome is unknown" in err and "resolve-run" in err
+    assert revision_of(world) == before_revision + 1
+    started, completed = op_pair(world)
+    assert completed is None
+    assert started["op_id"] in err
+    if name != "bootstrap-state":
+        assert world.run(f"plan {TAG1} {WEB1}", plan_only=True) == 8
+        assert started["op_id"] in world.out.getvalue()
+    code, _, err = run_admin(world, OTHER_OPERATOR_ARGV, typed="x")
+    assert code == 8 and started["op_id"] in err
+    code, _, err = run_admin(world, ["resolve-run", started["op_id"], "--result", "success", *REASON], typed=started["op_id"])
+    assert code == 0, err
+    _, completed = op_pair(world)
+    assert completed["result"] == "success" and completed["resolved_by_operator"] is True
+    assert run_admin(world, OTHER_OPERATOR_ARGV, typed="x")[0] != 8
+
+
+@pytest.mark.parametrize("layout", ["legacy-directory", "versioned-link"])
+def test_install_failure_after_the_pointer_moved_stays_indeterminate(tmp_path, monkeypatch, layout):
+    # The directory fsync after the host pointer changed fails. The new tree is live, so the op must stay open.
+    world = make_world(tmp_path, state=runtime_state())
+    source = make_source(tmp_path, "1 2\n")
+    host = installed(tmp_path) if layout == "legacy-directory" else linked_host(tmp_path)
+    before_target = os.readlink(host) if os.path.islink(host) else None
+    real_fsync = op._fsync_dir
+
+    def fsync_then_fail_on_root(directory):
+        real_fsync(directory)
+        if Path(directory) == host.parent and os.path.islink(host):
+            raise OSError("directory fsync failed after the link swap")
+
+    monkeypatch.setattr(op, "_fsync_dir", fsync_then_fail_on_root)
+    code, _, err = run_admin(world, ["install-host", "--source", str(source), *REASON], typed="1-2", host_dir=host)
+    assert code == 3, err
+    assert "outcome is unknown" in err and "resolve-run" in err
+    assert os.path.islink(host) and os.readlink(host) != before_target
+    assert (host / "bookfinder_host" / "HOST_API_RANGE").read_text() == "1 2\n"
+    started, completed = op_pair(world)
+    assert completed is None and started["op_id"] in err
+    assert world.run(f"plan {TAG1} {WEB1}", plan_only=True) == 8
+    assert started["op_id"] in world.out.getvalue()
+    code, _, err = run_admin(world, OTHER_OPERATOR_ARGV, typed="x", host_dir=host)
+    assert code == 8 and started["op_id"] in err
+    code, _, err = run_admin(world, ["resolve-run", started["op_id"], "--result", "success", *REASON], typed=started["op_id"])
+    assert code == 0, err
+    assert run_admin(world, OTHER_OPERATOR_ARGV, typed="x", host_dir=host)[0] != 8
+
+
 def test_open_operation_refuses_every_operator_command_but_resolve(tmp_path):
     world = make_world(tmp_path, state=DEFAULT_STATE)
     start_run(world)

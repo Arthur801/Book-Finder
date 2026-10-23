@@ -299,8 +299,9 @@ def _perform(
 ):
     """The operator protocol (M3c): operator-started is durable before apply() changes anything.
 
-    apply() returns (after_summary, value, extra). A known failure appends operator-completed with result "failed" and
-    says what is known; an unexpected exception or BaseException appends nothing, which leaves the op indeterminate.
+    apply() returns (after_summary, value, extra). operator-completed is written only for a success, or for a failure
+    that verifiably changed nothing (unchanged is True). Every other failure, including an exception that leaves the
+    host or state in an unknown position, writes no completed record: the op stays indeterminate until resolve-run.
     start_cut, when given, means the started record replaces a damaged history tail (see rewrite_with_record).
     """
     deps = ctx.deps
@@ -337,8 +338,16 @@ def _perform(
                 f"unknown and op {op_id} stays indeterminate; inspect state and history before doing anything else",
             ) from exc
         return value
-    note = unchanged_note if unchanged else f"outcome unknown - see op {op_id}"
-    full = f"{message}; {note}"
+    if not unchanged:
+        # Only a verified "nothing changed" may be terminalised. Anything else keeps the op open, so plan, deploy and
+        # the other operator commands refuse (exit 8) until an operator resolves it.
+        raise Refusal(
+            DRIFT,
+            f"{message}; the outcome is unknown and nothing was recorded as failed. Operator operation "
+            f"{op_id} stays open; inspect state, history and the host, then run resolve-run {op_id} --result <success|failed> "
+            "--reason ... (it is required before anything else runs)",
+        )
+    full = f"{message}; {unchanged_note}"
     try:
         _complete(ctx, op_id, action, before, "failed", None, {"error": full[:MAX_ERROR_CHARS]})
     except OSError as exc:
