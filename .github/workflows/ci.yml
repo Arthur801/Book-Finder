@@ -83,9 +83,9 @@ jobs:
         working-directory: crawler
 
       # The CI scripts share the crawler's ruff settings; the ruff installed above runs from the repository root.
-      - run: ruff check --output-format github --config crawler/ruff.toml .github/scripts
+      - run: ruff check --output-format github --config crawler/ruff.toml .github/scripts deploy/tests
 
-      - run: ruff format --check --config crawler/ruff.toml .github/scripts
+      - run: ruff format --check --config crawler/ruff.toml .github/scripts deploy/tests
 
       # The pytest version is pinned in crawler/requirements.txt, like ruff, so both tools move together.
       - run: |
@@ -94,10 +94,10 @@ jobs:
           pip install "$pytest_pin"
         working-directory: crawler
 
-      - run: pytest .github/scripts/tests -q
+      - run: pytest .github/scripts/tests deploy/tests -q
 
-      # These scripts run in the Docker job (release manifest and smoke test); shellcheck catches shell mistakes earlier.
-      - run: shellcheck deploy/release/build-manifest.sh deploy/smoke/web-smoke.sh
+      # These scripts run in the Docker job (release manifest, smoke tests and migration compat check); shellcheck catches shell mistakes earlier.
+      - run: shellcheck deploy/release/build-manifest.sh deploy/smoke/web-smoke.sh deploy/lib/manifest.sh deploy/lib/smoke.sh deploy/migration-test/compat.sh
 
   dotnet:
     name: .NET build and tests
@@ -135,7 +135,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
+      # Full history: the migration check needs the merge base with origin/main.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
 
       # Built locally and never pushed; the smoke test runs with placeholder secrets on an internal network.
       - run: docker build --build-arg GIT_COMMIT=${{ github.sha }} -t book-finder-web:ci .
@@ -144,6 +147,71 @@ jobs:
 
       # Without the shared key volume, antiforgery must be rejected after a container replacement.
       - run: bash deploy/smoke/web-smoke.sh book-finder-web:ci --control-no-keys
+
+      # Pushes to main have no pending migration change to check; only PRs that touch migrations run the compat check.
+      - name: Detect migration changes
+        id: migration-detect
+        if: github.event_name == 'pull_request'
+        run: |
+          base_commit=$(git merge-base origin/main HEAD)
+          if git diff --quiet "$base_commit" HEAD -- Infrastructure/Persistence/Migrations; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # The base image is built from the merge base, so the check upgrades what production runs today to this PR's schema.
+      - name: Migration compat check
+        id: compat
+        if: steps.migration-detect.outputs.changed == 'true'
+        run: |
+          base_commit=$(git merge-base origin/main HEAD)
+          git worktree add --detach "$RUNNER_TEMP/base" "$base_commit"
+          docker build --build-arg GIT_COMMIT="$base_commit" -t bf-ci-base:main "$RUNNER_TEMP/base"
+          base_cid=$(docker create bf-ci-base:main)
+          docker cp "$base_cid:/opt/release/migrations.txt" "$RUNNER_TEMP/applied.txt"
+          docker rm "$base_cid" >/dev/null
+          bash deploy/migration-test/compat.sh \
+            --rebuild-image bf-ci-base:main \
+            --target-image book-finder-web:ci \
+            --runtime-image bf-ci-base:main \
+            --applied "$RUNNER_TEMP/applied.txt" \
+            --seeds-dir deploy/migration-test/seeds \
+            --report "$RUNNER_TEMP/compat-report.json"
+
+      # Runs even when compat fails, so the reviewer sees which mandatory check broke.
+      - name: Summarize migration compat report
+        if: always() && steps.migration-detect.outputs.changed == 'true'
+        run: |
+          python3 - "$RUNNER_TEMP/compat-report.json" >> "$GITHUB_STEP_SUMMARY" <<'PY'
+          import json
+          import sys
+
+          try:
+              with open(sys.argv[1], encoding="utf-8") as fh:
+                  report = json.load(fh)
+          except OSError:
+              print("## Migration compat check\n\nNo report was written; the check failed before it started.")
+              sys.exit(0)
+          print("## Migration compat check")
+          print()
+          print(f"- forward_ok: `{str(report['forward_ok']).lower()}`")
+          print(f"- classification: `{report['classification']}`")
+          print(f"- pending: {', '.join(report['pending']) or 'none'}")
+          print(f"- runtime smoke (informational): `{report['runtime_smoke']['result']}`")
+          print()
+          print("| check | result | detail |")
+          print("| --- | --- | --- |")
+          for check in report["checks"]:
+              print(f"| {check['name']} | {check['result']} | {check['detail']} |")
+          PY
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.migration-detect.outputs.changed == 'true'
+        with:
+          name: compat-report
+          path: ${{ runner.temp }}/compat-report.json
+          if-no-files-found: warn
 
   crawler:
     name: Crawler tests
