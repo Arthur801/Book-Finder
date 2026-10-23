@@ -167,12 +167,15 @@ jobs:
         run: python3 .github/scripts/cd_release.py verify-attestation --ref "$REF" --tag "$TAG" --commit "$COMMIT"
 
       # Commit point: the release tag now names the attested digest. Nothing is written before the attestation verifies.
+      # Invariant: the release tag must resolve to exactly the attested digest. --prefer-index=false keeps a single
+      # manifest source as a manifest; the default wraps it in a new image index with a different digest, which the
+      # confirm step below would then reject after the tag was already written. An index source is copied unchanged either way.
       - name: Create the web release tag
         if: steps.web_state.outputs.exists == 'false'
         env:
           SOURCE: ghcr.io/arthur801/book-finder-web@${{ steps.web_build.outputs.digest }}
           RELEASE: ghcr.io/arthur801/book-finder-web:${{ needs.guard.outputs.tag }}
-        run: docker buildx imagetools create --tag "$RELEASE" "$SOURCE"
+        run: docker buildx imagetools create --prefer-index=false --tag "$RELEASE" "$SOURCE"
 
       # The release tag must resolve to the attested digest; a different digest fails the job and is reported as such.
       - name: Confirm the web release tag
@@ -221,13 +224,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: python3 .github/scripts/cd_release.py verify-attestation --ref "$REF" --tag "$TAG" --commit "$COMMIT"
 
-      # Commit point for the crawler, as for the web image above.
+      # Commit point for the crawler, as for the web image above. The same invariant holds: the release tag must resolve
+      # to exactly the attested digest, so --prefer-index=false is required (see the web release tag step).
       - name: Create the crawler release tag
         if: steps.crawler_state.outputs.exists == 'false'
         env:
           SOURCE: ghcr.io/arthur801/book-finder-crawler@${{ steps.crawler_build.outputs.digest }}
           RELEASE: ghcr.io/arthur801/book-finder-crawler:${{ needs.guard.outputs.tag }}
-        run: docker buildx imagetools create --tag "$RELEASE" "$SOURCE"
+        run: docker buildx imagetools create --prefer-index=false --tag "$RELEASE" "$SOURCE"
 
       - name: Confirm the crawler release tag
         if: steps.crawler_state.outputs.exists == 'false'
