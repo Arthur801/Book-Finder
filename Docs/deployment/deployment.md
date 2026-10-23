@@ -3,6 +3,7 @@
 > Path: `Docs/deployment/deployment.md`
 > Authority: Runtime 環境、AWS 資源、Docker、secrets、TLS、migration、排程、備份
 > 系統拓樸見 `Docs/architecture/system-architecture.md`。
+> CD 流程、host 狀態機、退出碼與人工程序見 `deploy/README.md`；決策理由見 `Docs/architecture/architecture-decisions.md` ADR-006。
 > 本文件涉及的 production 操作屬 `AGENTS.md` L4：需明確授權，agent 不得自行執行。
 
 ## 1. 環境
@@ -26,19 +27,25 @@ MVP 沒有 staging；L4 變更以本機或拋棄式資料庫 dry run 取代。
 
 不使用 S3、ALB、ElastiCache（延後 / 不需要）。
 
-## 3. Containers（EC2 上的 compose）
+## 3. Containers（EC2）
 
-| Service | Image | 說明 |
+CD 部署後的配置（`deploy/README.md` §1）：
+
+| 元件 | 執行方式 | 說明 |
 |---|---|---|
-| `nginx` | nginx | 對外 80 / 443；TLS 終止；80 只做 ACME 驗證與轉址 HTTPS；轉發至 `web` |
-| `web` | 自建 ASP.NET Core | 只在 compose 內部網路曝露，不直接對外 |
-| `crawler` | `crawler/Dockerfile` 自建 Python 3.14，含 curl_cffi（`crawler.md` §15） | 不常駐；經 Docker Hub 發布，由 host cron 呼叫 `run-crawler.sh`，以 `docker run --rm` 執行。正式 image 只支援 curl；browser 診斷另需 Playwright／Chromium |
+| `nginx` | host 上的 systemd 服務，**不在 compose 中** | 對外 80 / 443；TLS 終止；80 只做 ACME 驗證與轉址 HTTPS；轉發至 `127.0.0.1:5000` |
+| `web` | compose（`deploy/release/compose.prod.yaml`，project `book-finder`），image 由 CD 以 digest 指定（GHCR） | 只綁定 `127.0.0.1:5000`，容器內 8080；compose 檔隨 web image 的 `/opt/release/` 發布 |
+| `crawler` | 非常駐，由 host cron 呼叫 `run-crawler.sh`，以 `docker run --rm` 執行 | image 來自 GHCR，digest 由 CD 寫入 `crawler.conf`。正式 image 只支援 curl；browser 診斷另需 Playwright／Chromium |
+
+切換前（舊版）web 是 systemd 服務，見 §3.1。
 
 `web` 必須設定 Forwarded Headers，只信任 `nginx` 的位址（`identity-auth.md` §7 rate limiting 依賴正確的 client IP）。
 
 `web` image 必須包含 tzdata（`/usr/share/zoneinfo`），並保留 ICU（除非以 invariant globalization 執行），以便以 `Asia/Taipei` 顯示 `captured_at`（`bestseller.md` §4）。若執行環境找不到該時區，程式會退回固定 UTC+08:00（台灣無夏令時間，顯示結果相同），不會因此回 500。
 
-### 3.1 原生發布（暫時使用dotnet publish + systemd）
+### 3.1 原生發布（暫時使用dotnet publish + systemd）— 已由 §3 的 CD 部署取代
+
+> 狀態：首次切換（`deploy/README.md` §3）成功後，本節不再適用。切換前仍是現行狀態。systemd unit 切換後應停用（`deploy/README.md` §3.7）。
 
 使用者已核准先以原生發布取代 EC2 containers（2026-10-11）：本機發布 `linux-x64`、framework-dependent 的 .NET 10 應用；EC2 安裝 ASP.NET Core Runtime 10，以 systemd 執行 `dotnet Book-Finder.dll`，監聽 `127.0.0.1:5000`，host nginx 負責 HTTPS 與反向代理。RDS、SSM secrets 與獨立 migration 步驟維持原規則。
 
@@ -49,7 +56,7 @@ MVP 沒有 staging；L4 變更以本機或拋棄式資料庫 dry run 取代。
 ## 4. TLS（nginx + ZeroSSL）
 
 - 憑證由 host 上的 `acme.sh` 向 ZeroSSL 簽發（需先以 email 註冊 ZeroSSL 帳號），使用 webroot 驗證（nginx 提供 `/.well-known/acme-challenge/`）。
-- `acme.sh` 自帶的 cron 自動續期；續期後執行 `docker compose exec nginx nginx -s reload`。
+- `acme.sh` 自帶的 cron 自動續期；續期後在 host 上執行 `sudo nginx -s reload`（nginx 在 host 上，不在 compose 中）。
 - nginx：只開 TLS 1.2 / 1.3；HTTP 一律 301 至 HTTPS；`web` 端另有 HSTS。
 - 網域名稱以 `<your-domain>` 表示，不寫入 repository。
 
@@ -59,11 +66,12 @@ MVP 沒有 staging；L4 變更以本機或拋棄式資料庫 dry run 取代。
 |---|---|
 | `/book-finder/prod/db-connection` | RDS 連線字串 |
 | `/book-finder/prod/openai-api-key` | OpenAI（注入環境變數 `OPENAIAPI_KEY`） |
-| `/book-finder/prod/google-books-api-key` | Google Books |
+| `/book-finder/prod/google-books-api-key` | Google Books（**待確認**：host 不注入此參數；程式中未找到讀取此設定的位置） |
 | `/book-finder/prod/jwt-signing-key` | JWT HS256 key（至少 32 bytes 隨機值） |
 
-- 部署 / 啟動時由 host script 以 EC2 IAM role 讀取 SSM，寫入 `/run/book-finder/env`（tmpfs，`chmod 600`），compose 以 `env_file` 注入。
-- 獨立 crawler 的 host script 每次執行讀取專用 PostgreSQL URL 參數（例如 `/book-finder/prod/crawler-database-url`），寫入 `/run/book-finder/crawler-env.*`（600），透過 Docker `--env-file` 注入，結束後刪除；不共用包含 Web secrets 的 env file。
+- CD 的 deploy 由 host 程式以 EC2 IAM role 讀取 SSM，寫入 `/run/book-finder/web-<run_id>.env`（`chmod 600`），compose 以 `env_file`（`format: raw`）注入；每次部署結束（成功或失敗）都會刪除此檔（`machine.py` 的 `_discard_env`）。secret 值不寫入 history、journal 或 log。
+- host.conf 以鍵名指定 SSM 參數：`SSM_DB_CONNECTION`、`SSM_OPENAI_KEY`、`SSM_JWT_KEY`，以及 host 的 psql 用參數 `DATABASE_URL_PARAMETER`（唯讀查詢 migration 歷史）。格式與權限見 `deploy/README.md` §2.3。
+- 獨立 crawler 的 `run-crawler.sh` 每次執行讀取專用 PostgreSQL URL 參數（例如 `/book-finder/prod/crawler-database-url`），寫入 `/run/book-finder/crawler-env.*`（600），透過 Docker `--env-file` 注入，結束後刪除；不共用包含 Web secrets 的 env file。
 - Crawler 只拿 DB 連線字串（secret，經 SSM 注入）與下列非機密的 crawler 設定，不拿 OpenAI / Google Books / JWT key。
 - Web 以設定鍵 `Jwt:SigningKey` 讀取 JWT key（環境變數 `Jwt__SigningKey`）；缺少或短於 32 bytes 時啟動失敗。本機放在 `.env`，啟動前以 `set -a; . ./.env; set +a` 載入 shell（程式本身不讀 `.env`）。
 - Web 以環境變數 `OPENAIAPI_KEY` 讀取 OpenAI key，host script 寫入 env file 時使用此變數名稱；缺少時 web 啟動失敗（與 `Jwt:SigningKey` 相同，啟動時驗證）。本機放在 `.env`，同樣需要 `OPENAIAPI_KEY=<your-openai-api-key>`，只放格式示意，不放真實值。
@@ -82,24 +90,34 @@ Crawler 非機密環境變數（`crawler/README.md`）：
 
 ## 6. Migration
 
-- 使用 `dotnet ef migrations bundle` 產生 `efbundle` 可執行檔，隨版本一起建置。
-- 部署時作為**獨立步驟**手動執行，成功後才啟動新版 `web`；`web` 啟動時**不**自動 migrate。
-- 對 production RDS 執行前需明確授權（`AGENTS.md` §2.3）。
-- 執行前先在拋棄式資料庫（本機 compose 或 Testcontainers）以相同 bundle dry run。
-- Migration 應向後相容（先擴充、後收縮），讓舊版 `web` 在 migration 後仍可運作，以便回滾 image。
+- `dotnet ef migrations bundle` 產生的 `efbundle` 放在 web image 內（`/app/efbundle`），每個 release 都隨 image 發布。
+- web 啟動時**不**執行 migration。
+- CD 的 deploy 在核准後，由 host 狀態機執行 forward migration（`deploy/README.md` §1、§4）。流程：
+  1. 取得 `db-maintenance` lock（exclusive），並把 crawler 設為 paused（爬蟲在 shared lock 下檢查 state，見 §8）；
+  2. 建立 RDS snapshot 作為 recovery point（還原屬 L4，一律人工）；
+  3. 設定 schema dirty；
+  4. 執行 efbundle；只有結束碼為 0 **且** DB 的 migration id 與目標 manifest 相同，才清除 dirty。
+- 失敗時 schema 保持 dirty、crawler 保持 paused，只能用人工的 `reconcile-schema --mark-clean` 與 `resume-crawler` 解除（`deploy/README.md` §5）。
+- 已套用的 migration 不自動回滾（I5）。舊版 web 可能不認識新 schema。
+- 每個 migration 在自己的 transaction 中執行。本專案禁止 `suppressTransaction` 與 `CONCURRENTLY`（`.github/scripts/check_migrations.py`），這個前提才成立。
+- Migration 應向後相容（先擴充、後收縮）。這是規則，不是程式強制；它的理由是 schema-ahead 部署時舊版 web 會在較新的 schema 上運行（S6）。
+- 部署前的驗證由 **compat check** 負責（CI 的 `Docker image` job 與 CD 的 `compat` job），在拋棄式 DB 上執行：以 `schema.rebuild` 的 bundle 重建目前的 schema、載入 seed、用目標 bundle 升級、驗證資料與 schema，並跑 forward smoke。細節見 `Docs/testing/test-plan.md` §6。
+- 只有 DB 的 migration 歷史與 state 不一致（drift 或 divergent）時，CD 才會拒絕，不會自動修正。
 
 ## 7. 部署步驟
 
 ```text
-1. 本機：dotnet test、pytest 通過
-2. 建置 web / crawler image（帶版本 tag）與 efbundle
-3. 推送 image 至 EC2（registry 或 docker save / load）
-4. 若有 migration：dry run → 取得授權 → 對 RDS 執行 efbundle
-5. 更新 compose 的 image tag，docker compose up -d web nginx
-6. 檢查：首頁 200、登入、暢銷榜、log 無錯誤
+1. 在 main 上的 commit 推送 tag（vX.Y.Z）
+2. CI（與 PR 相同的測試）→ 建置 web / crawler image（GHCR）→ attestation → 發布 Immutable Release（含 release.json、migrations.txt、各 migration 的 SQL）
+3. plan（host 唯讀）與 compat（runner 上）→ 人工檢查 CD summary
+4. 在 production 環境核准
+5. host 執行 deploy：forward 時 pause crawler、snapshot、migration；切換 web；健康檢查；更新 crawler
+6. 驗證：首頁 200、登入、暢銷榜、log 無錯誤
 ```
 
-回滾：compose 改回上一個 image tag 重啟。Migration 已套用且不相容時，依該 migration 的 rollback 計畫處理（L4，需授權）。
+完整流程、退出碼與人工程序見 `deploy/README.md`。
+
+回滾：dispatch 較舊的已發布 release。若 DB 比它新，會以 schema-ahead 部署：web 換成舊版，不跑 migration，crawler 不變（S7）。已套用的 migration 不自動回滾（I5），需人工處理（L4）。
 
 ## 8. 排程
 
@@ -114,10 +132,12 @@ Crawler 每日 **04:00 (GMT+8)** 執行完整榜單，分類補書每三天執�
 - Exit 0 為 SUCCESS 或 PARTIAL_SUCCESS，1 為 FAILED，2 為設定錯誤；Docker／AWS 等啟動錯誤另依其 exit code 記錄。不能只靠 exit 0 判斷所有書都成功，需檢查 summary。
 - 分類補書每天台灣時間 05:00 檢查：距上次 exit 0 的 run 啟動時間至少 72 小時才執行，第一次沒有紀錄即執行；非 0 在下一個每日檢查時再試。手動成功執行 pages 也更新紀錄。紀錄保存於 `/var/lib/book-finder/crawler/pages-last-success`，跨月與重啟保留；關機期間不補跑，等待下一次 cron 檢查。
 - 兩種模式共用 host `flock`，等待前一次完成才開始。若等待鎖或 EC2 停機，實際開始時間可延後。cron day-of-month `*/3` 不作為三天間隔。
+- **與 CD 的協調（N3）**：`run-crawler.sh` 先取得 `db-maintenance.lock`（shared，等待上限 `DB_MAINTENANCE_WAIT_S`，預設 7200 秒），才讀取 state。state 的 `crawler.paused` 或 `schema.dirty` 為真時，以 exit 6 跳過並記錄 `skipped=paused` 或 `skipped=dirty`。state 不存在（尚未 bootstrap）時照舊執行；state 無法讀取時 exit 2（fail closed）。forward migration 期間持有 exclusive lock 的 deploy 會讓爬蟲等待，不會與 migration 交錯。
+- **Image 與設定由 CD 管理**：CD 的部署會把 `crawler.conf` 的 `CRAWLER_IMAGE=` 改寫為 GHCR 的 digest，並安裝該 release 的 `run-crawler.sh` 與 `crawler.cron`（release 未附上時跳過）。不要手動改 image tag；手動修改後需以 `resume-crawler` 檢查（`deploy/README.md` §5.3）。
 - **啟用排程前須在 EC2 上實測**：手動執行一次 crawler，確認預設 curl fetcher 從 EC2 能取得排行榜頁與商品頁，沒有停在 Cloudflare challenge（`crawler.md` §15）。若被擋下，不啟用排程，評估授權資料管道等替代方案。
 - **分類頁清單需隨 crawler runtime 存在**：分類榜補書模式需要 `crawler/category-pages.txt`（預設路徑），或以 `CRAWLER_PAGES_FILE` 指向的檔案存在於執行環境中。
 - `crawler/Dockerfile` 打包清單到 `/app/crawler/category-pages.txt`；更新清單需重新發布 image。
-- 建置、Docker Hub 推送、EC2 設定、手動驗證與啟用排程的指令見 [crawler 部署說明](../../crawler/deploy/README.md)。啟用前先確認 Docker、AWS CLI、cron service 與 logrotate 可用，且 RDS schema 已由 EF migration 建立。
+- 建置、GHCR 的 digest 管理、EC2 設定、手動驗證與啟用排程的指令見 [crawler 部署說明](../../crawler/deploy/README.md)。啟用前先確認 Docker、AWS CLI、cron service 與 logrotate 可用，且 RDS schema 已由 EF migration 建立。
 
 ## 9. Log 與備份
 
