@@ -36,6 +36,10 @@ DEFAULT_CONFIG = Path(cfg.DEFAULT_CONFIG_PATH)
 DEFAULT_ENTRY = Path(__file__).resolve().parent.parent / "deploy-entry"
 # Passed by systemd-run to the entry script; only accepted when INVOCATION_ID shows systemd started the process.
 UNIT_BODY_FLAG = "--unit-body"
+# sudo's env_reset drops SSH_ORIGINAL_COMMAND unless sudoers keeps it for deploy-entry (deploy/README.md §2.6).
+SUDO_EMPTY_COMMAND_MESSAGE = (
+    "SSH_ORIGINAL_COMMAND is empty under sudo; add 'Defaults!/opt/book-finder/host/deploy-entry env_keep += \"SSH_ORIGINAL_COMMAND\"' to sudoers (deploy/README.md)"
+)
 # The SSH side polls every 2 s. A run that is not active and has no started record reads "not-started"; the SSH side
 # accepts that only after 30 s, because the unit may still be starting or may have exited before writing started.
 FOLLOW_INTERVAL_S = 2.0
@@ -281,8 +285,12 @@ def main(argv: list[str], environ: Mapping[str, str], out: TextIO, err: TextIO, 
             err.write("usage: deploy-entry [--plan-only]\n")
             return BAD_INPUT
         plan_only = bool(argv)
+        original = environ.get("SSH_ORIGINAL_COMMAND", "")
+        if not original and "SUDO_USER" in environ:
+            err.write(f"rejected: {SUDO_EMPTY_COMMAND_MESSAGE}\n")
+            return BAD_INPUT
         try:
-            command = parse_command(environ.get("SSH_ORIGINAL_COMMAND", ""))
+            command = parse_command(original)
         except UsageError as exc:
             err.write(f"rejected: {exc}\n")
             return BAD_INPUT

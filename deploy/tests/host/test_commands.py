@@ -469,3 +469,38 @@ def test_missing_production_configuration_exits_2(tmp_path, monkeypatch):
     monkeypatch.setattr(cmd, "DEFAULT_CONFIG", tmp_path / "absent.conf")
     out, err = io.StringIO(), io.StringIO()
     assert cmd.main([], {"SSH_ORIGINAL_COMMAND": f"status {RUN_ID_TEXT}"}, out, err) == BAD_INPUT
+
+
+def test_empty_command_under_sudo_names_the_sudoers_fix(tmp_path):
+    # sudo strips SSH_ORIGINAL_COMMAND; the message must say how to keep it instead of a generic usage error.
+    world = make_world(tmp_path)
+    out, err = io.StringIO(), io.StringIO()
+    code = cmd.main([], {"SUDO_USER": "deployer"}, out, err, deps=world.deps)
+    assert code == BAD_INPUT
+    assert cmd.SUDO_EMPTY_COMMAND_MESSAGE in err.getvalue()
+    assert "env_keep" in err.getvalue()
+    assert world.host.calls == []
+
+
+def test_empty_command_under_sudo_with_plan_only_names_the_sudoers_fix(tmp_path):
+    world = make_world(tmp_path)
+    out, err = io.StringIO(), io.StringIO()
+    code = cmd.main(["--plan-only"], {"SUDO_USER": "deployer", "SSH_ORIGINAL_COMMAND": ""}, out, err, deps=world.deps)
+    assert code == BAD_INPUT
+    assert cmd.SUDO_EMPTY_COMMAND_MESSAGE in err.getvalue()
+
+
+def test_empty_command_without_sudo_keeps_the_generic_usage_error(tmp_path):
+    world = make_world(tmp_path)
+    out, err = io.StringIO(), io.StringIO()
+    assert cmd.main([], {}, out, err, deps=world.deps) == BAD_INPUT
+    assert "empty command" in err.getvalue()
+    assert cmd.SUDO_EMPTY_COMMAND_MESSAGE not in err.getvalue()
+
+
+def test_sudo_with_a_command_is_unaffected(tmp_path):
+    world = make_world(tmp_path)
+    out, err = io.StringIO(), io.StringIO()
+    code = cmd.main([], {"SUDO_USER": "deployer", "SSH_ORIGINAL_COMMAND": f"status {RUN_ID_TEXT}"}, out, err, deps=world.deps)
+    assert code == OK
+    assert cmd.SUDO_EMPTY_COMMAND_MESSAGE not in err.getvalue()
