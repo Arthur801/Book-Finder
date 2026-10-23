@@ -100,8 +100,11 @@ cd crawler
 ```bash
 cd crawler
 pytest
+ruff check .
+ruff format --check .
 ```
 
+- `ruff check .` 與 `ruff format --check .` 與 CI 的 `Lint and format` 相同（ruff 版本由 `requirements.txt` 釘定）。
 - 測試不連線博客來；瀏覽器測試只開啟本機測試伺服器的頁面。
 - 資料庫測試需要 Docker（Testcontainers）與 dotnet SDK。
 - 若 Chromium 無法啟動，瀏覽器測試會 skip 並顯示安裝指令，其餘測試照常執行。
