@@ -120,7 +120,7 @@ CD 的 `build` job 對每個 image（web、crawler）依序執行。`<TAG>` 是 
 | python3 | ≥ 3.12（Ubuntu 24.04 預設即可）。`deploy-entry` 與 `book-finder-admin` 都以 `#!/usr/bin/env python3` 執行 | `deploy/ruff.toml` 的 `target-version = "py312"`；CI 在 3.12 跑 `deploy/tests` |
 | AWS CLI v2 | 位於 `/usr/local/bin/aws`（預設 `AWS_CLI`）。以 root 執行時，此檔必須為 root 擁有、group 與 other 不可寫，否則設定載入失敗 | `config.check_root_owned` |
 | util-linux `flock` | 已安裝（`run-crawler.sh` 使用 `flock`） | `crawler/deploy/run-crawler.sh` |
-| cron | 已安裝並啟動（Ubuntu：`cron`） | `crawler/deploy/README.md` §5 |
+| cron | 已安裝並啟動（Ubuntu：`cron`） | `crawler/deploy/README.md` §3 |
 | logrotate | 已安裝 | `crawler/deploy/crawler.logrotate` |
 | systemd | `systemd-run`、`systemctl` 可用（deploy 以 transient unit 執行） | `commands.py`、`runs.py` |
 | 目錄 | 見 §2.5 | 程式不會建立 lock 檔所在的目錄 |
@@ -415,7 +415,7 @@ sudo systemctl disable <SYSTEMD_UNIT>
 4. 人工檢查 summary：
    - `chain` 與 `pending`（待套用的 migration id）是否符合預期；
    - `pending` 的 SQL 內容（summary 來自 target release 的 asset，不是重新產生，N8）；
-   - `compat` 的結果（§6.2）；
+   - `compat` 的結果（`Docs/testing/test-plan.md` §6.1）；
    - 若 `classification` 是 `forward`，注意 snapshot 會被建立，且 host 會等待它變成 available。
 5. 在 `production` 環境核准，`deploy` job 才會連到 host。
 6. `deploy` job 先執行 `deploy … --detach`，host 確認 run 已被接手（最多 60 秒）後即返回 `launched`。接著 `deploy-follow` 每 30 秒呼叫 `status <run_id>`，直到 history 出現結果；job timeout 為 180 分鐘。觀察該 job 的輸出，直到它回報結果。成功後檢查 §3.5 的項目（首頁、登入、暢銷榜）。
@@ -497,7 +497,7 @@ sudo /opt/book-finder/host/book-finder-admin resolve-run <op_id> --result succes
 
 1. 從 history 找到失敗的 run、其 completed 的 `exit_code` 與 `state_summary`。
 2. 以 `psql`（操作者的權限）查詢 `SELECT "MigrationId" FROM "__EFMigrationsHistory" ORDER BY "MigrationId";`，記下已套用的 id。
-3. 對照失敗的 migration：`<id>.sql`（release 的 asset）與 `Infrastructure/Persistence/Migrations/<id>.cs`。確認 DDL 與資料變更是否完整、是否有手動補救。每個 migration 在自己的 transaction 中執行（計畫檔 §7 第 4 項的實測），因此失敗時 DB 停在 migration 的邊界。本專案的 CI 禁止 `suppressTransaction` 與 `CONCURRENTLY`（`check_migrations.py`），這個前提才成立。
+3. 對照失敗的 migration：`<id>.sql`（release 的 asset）與 `Infrastructure/Persistence/Migrations/<id>.cs`。確認 DDL 與資料變更是否完整、是否有手動補救。本專案已實測 efbundle 每個 migration 各自在 transaction 中執行；此外 CI（`.github/scripts/check_migrations.py`）禁止 `suppressTransaction` 與 `CONCURRENTLY`，因此這個復原前提成立。失敗時 DB 停在 migration 的邊界。
 4. 確認資料庫的 schema 與預期相符（例如相關的 table、column、index）。
 5. 確認 RDS 的 pre-migration snapshot 仍存在（id 記在 completed 紀錄的 `snapshot_id`）。
 6. **Provenance（程式無法驗證）**：`--rebuild-web-digest` 必須來自已發布的 `release.json`（host 上沒有 `gh` 與 sigstore，不會驗證 attestation）。
@@ -661,7 +661,7 @@ sudo /opt/book-finder/host/book-finder-admin resume-crawler --crawler-digest sha
 | history 的最後幾筆 | `sudo tail -n 5 /var/lib/book-finder/history.jsonl` |
 | state | `sudo cat /var/lib/book-finder/state.json` |
 | web container | `docker ps --filter label=com.docker.compose.project=book-finder` |
-| 爬蟲 log | `/var/log/book-finder/crawler-*.log`（見 `crawler/deploy/README.md` §6） |
+| 爬蟲 log | `/var/log/book-finder/crawler-*.log`（見 `crawler/deploy/README.md` §7） |
 
 Journal 是**輔助資訊**，不是結果的來源。結果以 history 為準（N7）。
 
