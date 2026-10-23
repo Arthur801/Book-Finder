@@ -44,6 +44,19 @@ jobs:
       # Dependabot bumps EF Core packages and compose.yaml but not dotnet-tools.json or the test fixtures' pgvector image; fail when they drift.
       - run: python .github/scripts/check_version_sync.py
 
+      # Published migrations are immutable. The latest release's migrations.txt is attached by the release workflow; until a
+      # release exists the download finds nothing and the immutability check is skipped.
+      - name: Check migrations against the latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          released_dir="$RUNNER_TEMP/released"
+          released_args=()
+          if gh release download --pattern migrations.txt --dir "$released_dir" 2>/dev/null && [ -f "$released_dir/migrations.txt" ]; then
+            released_args=(--released-manifest "$released_dir/migrations.txt")
+          fi
+          python .github/scripts/check_migrations.py "${released_args[@]}"
+
       # The ruff version is pinned in crawler/requirements.txt, the single source of truth for this job.
       - run: |
           ruff_pin=$(grep -E '^ruff==' requirements.txt || true)
@@ -61,6 +74,18 @@ jobs:
       - run: ruff check --output-format github --config crawler/ruff.toml .github/scripts
 
       - run: ruff format --check --config crawler/ruff.toml .github/scripts
+
+      # The pytest version is pinned in crawler/requirements.txt, like ruff, so both tools move together.
+      - run: |
+          pytest_pin=$(grep -E '^pytest==' requirements.txt || true)
+          test -n "$pytest_pin" || { echo "::error::pytest==<version> pin not found in crawler/requirements.txt"; exit 1; }
+          pip install "$pytest_pin"
+        working-directory: crawler
+
+      - run: pytest .github/scripts/tests -q
+
+      # These scripts run in the Docker job (release manifest and smoke test); shellcheck catches shell mistakes earlier.
+      - run: shellcheck deploy/release/build-manifest.sh deploy/smoke/web-smoke.sh
 
   dotnet:
     name: .NET build and tests
@@ -92,6 +117,21 @@ jobs:
           name: dotnet-test-results
           path: TestResults
           if-no-files-found: warn
+
+  docker:
+    name: Docker image
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Built locally and never pushed; the smoke test runs with placeholder secrets on an internal network.
+      - run: docker build --build-arg GIT_COMMIT=${{ github.sha }} -t book-finder-web:ci .
+
+      - run: bash deploy/smoke/web-smoke.sh book-finder-web:ci
+
+      # Without the shared key volume, antiforgery must be rejected after a container replacement.
+      - run: bash deploy/smoke/web-smoke.sh book-finder-web:ci --control-no-keys
 
   crawler:
     name: Crawler tests
