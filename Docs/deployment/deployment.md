@@ -108,10 +108,10 @@ Crawler 非機密環境變數（`crawler/README.md`）：
 
 ```text
 1. 在 main 上的 commit 推送 tag（vX.Y.Z）
-2. CI（與 PR 相同的測試）→ 建置 web / crawler image（GHCR）→ attestation → 發布 Immutable Release（含 release.json、migrations.txt、各 migration 的 SQL）
+2. CI（與 PR 相同的測試）→ 建置 web / crawler image，先推送 staging tag → attestation 與驗證 → 建立 release tag（commit point）→ 發布 Immutable Release（含 release.json、migrations.txt、各 migration 的 SQL）。細節見 `deploy/README.md` §1.6
 3. plan（host 唯讀）與 compat（runner 上）→ 人工檢查 CD summary
 4. 在 production 環境核准
-5. host 執行 deploy：forward 時 pause crawler、snapshot、migration；切換 web；健康檢查；更新 crawler
+5. CD 以 `deploy --detach` 啟動 host 的 deploy，確認接手後由 `deploy-follow` 每 30 秒輪詢 status；host 執行：forward 時 pause crawler、snapshot、migration；切換 web；健康檢查；更新 crawler
 6. 驗證：首頁 200、登入、暢銷榜、log 無錯誤
 ```
 

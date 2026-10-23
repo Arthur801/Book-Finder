@@ -14,13 +14,13 @@
 ```mermaid
 flowchart LR
   T["push tag v*"] --> G["guard：tag 格式正確，且 commit 在 origin/main 上"]
-  G --> B["build：CI 測試、建置 web/crawler image、attest、發布 Immutable Release"]
+  G --> B["build：CI 測試、staging tag、attest、verify，建立 release tag（commit point）、發布 Immutable Release"]
   B --> P["plan：plan key 經 SSH 執行 host 的 plan（唯讀）"]
   B --> C["compat：在 runner 上用 rebuild / target / runtime image 驗證 migration"]
   P --> C
   C --> D{"production 環境核准"}
-  D --> E["deploy：deploy key 經 SSH 啟動 transient unit，host 狀態機執行"]
-  E --> S["status 輪詢，直到 history 出現 completed"]
+  D --> E["deploy --detach：deploy key 經 SSH 啟動 transient unit，host 確認接手後即返回 launched"]
+  E --> S["deploy-follow：每 30 秒 status 輪詢，直到 history 出現結果"]
 ```
 
 - 手動重新部署或回滾：`workflow_dispatch`，只能從 `main` 發起，指定已發布的 `release_tag`，不 build。
@@ -73,14 +73,40 @@ flowchart LR
 | 0 | OK | plan 可以部署；或 deploy 成功（web 與 crawler 都在目標版本） | `success` | 無 |
 | 1 | ROLLED_BACK | in-sync 或 schema-ahead 的 web 切換失敗，已回到舊 runtime | `rolled-back` | 看 journal 的健康檢查失敗原因，修正後再 dispatch。不需要 reconcile |
 | 2 | BAD_INPUT | 參數或 SSH 指令格式錯誤；release metadata 或內容不合格；`divergent`；`release_api` 超出 host 支援範圍；schema-ahead 的 `crawler_digest` 不是目前的；cutover 條件不符；compose 不支援 `format: raw`；設定檔錯誤；人工指令的確認值不符 | `rejected` | 不要重試同一組參數；依 stderr 的原因修正 |
-| 3 | DRIFT | state 不存在（需 bootstrap）；runtime 或 schema 與 state 不符；CAS 失敗（revision 過期）；deploy 或 db-maintenance lock 逾時；目前 runtime 健康檢查失敗（未改動）；snapshot 失敗（未 migrate，crawler 已恢復）；run id 已使用；unit 已存在；crawler 仍 paused；SSH 等待逾時（回報 `running`） | `drift` | 依原因處理。未改動時修正後重新 plan，再 dispatch |
+| 3 | DRIFT | state 不存在（需 bootstrap）；runtime 或 schema 與 state 不符；CAS 失敗（revision 過期）；deploy 或 db-maintenance lock 逾時；目前 runtime 健康檢查失敗（未改動）；snapshot 失敗（未 migrate，crawler 已恢復）；run id 已使用；unit 已存在；crawler 仍 paused；互動式 deploy 的跟隨逾時（回報 `running`；CD 使用 `--detach`，不會遇到此項） | `drift` | 依原因處理。未改動時修正後重新 plan，再 dispatch |
 | 4 | FAILED_MIGRATION | efbundle 結束碼非 0，或 DB 的 migration id 與目標不符 | `failed-migration` | schema 保持 dirty、crawler 保持 paused。走 §5.2 與 §5.3 |
 | 5 | FAILED_DOWN | forward 之後 web 失敗（I5：不自動回滾）；或回滾本身失敗 | `failed-down` | 人工恢復（L4）。crawler 保持 paused |
 | 6 | DIRTY | schema 為 dirty，plan 與 deploy 都拒絕。`run-crawler.sh` 也會以 exit 6 跳過（`skipped=dirty`） | `rejected` | 走 §5.2 `reconcile-schema --mark-clean` |
 | 7 | PARTIAL_CRAWLER | web 已是目標版本，但 crawler 更新失敗；crawler 保持（或變成）paused | `partial-crawler` | 查 history 的 `crawler_substeps` 與 journal，再走 §5.3 `resume-crawler` |
 | 8 | INDETERMINATE | 有未解決的 indeterminate run 或 operator operation；本次結果無法證明（例如 started 之後發生未預期例外） | `blocked-indeterminate`（被擋下時）或無 completed | **不要重新 dispatch**。走 §5.1 `resolve-run` |
 
-CD 端的判定（`.github/scripts/cd_release.py`）：plan 的退出碼非 0 直接失敗；deploy 的 `completed:success` 才算成功；`indeterminate` 與其他失敗結果都要人工處理；`not-started` 在 120 秒寬限後才判定為「未動，可重新 dispatch」；CD 最多輪詢 150 分鐘。
+CD 端的判定（`.github/scripts/cd_release.py`）：plan 的退出碼非 0 直接失敗；deploy 的 `completed:success` 才算成功；`indeterminate` 與其他失敗結果都要人工處理；`not-started` 在 120 秒寬限後才判定為「未動，可重新 dispatch」。CD 的 deploy job 以 `--detach` 啟動（見下），之後由 `deploy-follow` 每 30 秒呼叫 `status`，最多跟隨 160 分鐘（`FOLLOW_TIMEOUT_S`，job timeout 180 分鐘）。ssh 退出碼 255（連線失敗或中斷）視為沒有回應，繼續輪詢；其他非零退出碼的 `status` 失敗會讓 job 失敗，結果寫為 `unknown`，操作者需以 `status <run_id>` 手動查詢。
+
+**`deploy --detach` 與 `launched`**：`--detach` 只等 host 確認 run 已被 unit 接手（已寫入 `started`、或已有結果）就返回，最多 60 秒。接手後回報的 `{"status": "launched"}` 配合退出碼 0，**不是結果**，只表示 unit 會繼續執行，結果仍以 history 為準。60 秒內仍未確認時，同樣回報 `launched`（退出碼 0），並在 stderr 寫出 `poll status <run_id>`。若 unit 從未寫入 `started` 且超過 30 秒寬限，`--detach` 回報 `not-started` 並以退出碼 3 結束，表示未動，可以重新 dispatch。不帶 `--detach` 的 `deploy` 會在同一連線內跟隨到結果，`FOLLOW_TIMEOUT_S` 到期時回報 `running`（退出碼 3）。
+
+### 1.6 Build 的 commit point（release tag）
+
+CD 的 `build` job 對每個 image（web、crawler）依序執行。`<TAG>` 是 release tag，staging tag 是 `build-<run_id>-<run_attempt>`：
+
+1. 推送到 staging tag（每次 attempt 的名稱不同，rerun 不會撞到先前的 staging push）；
+2. `actions/attest-build-provenance` 為該 digest 產生 attestation；
+3. `cd_release.py verify-attestation` 驗證 attestation：signer workflow 是 `cd.yml`、source ref 是 `refs/tags/<TAG>`、source digest 是 tag 的 commit；
+4. 只有驗證通過後，才以 `docker buildx imagetools create --tag <TAG>` 建立 release tag。**這一步是 commit point**；
+5. `confirm-release` 確認 release tag 解析到剛才 attest 的 digest。
+
+**不變式**：存在的 release tag 一定有符合規定的 provenance。commit point 之前崩潰（build、push、attest 或 verify 失敗，runner 中斷）不會留下 release tag，rerun 會重新 build。已存在的 release tag 會被 `verify-attestation` 驗證後才重用；驗證失敗則拒絕重建，不會覆寫既有 tag。
+
+**staging tag 的清理（手動）**：staging tag 不會被程式刪除，會留在 GHCR（`ghcr.io/arthur801/book-finder-web`、`…-crawler`）。清理方式：
+
+- 位置：GitHub 網頁上該 package 的版本列表（GHCR 的 owner 為 `arthur801`，入口為 GitHub 的 Packages）。確切的選單名稱與路徑**待確認**，以實際頁面為準。
+- GHCR 以 digest 管理版本，tag 只是附加在版本上的名稱。`imagetools create` 不改 digest，所以 staging tag 與 release tag 常指向同一個版本。**刪除一個版本會同時移除它上面的所有 tag。**
+- 只刪除版本上所有 tag 都是 `build-*` 的版本。版本上只要有 `v*` tag，就不得刪除。
+
+**`confirm-release` 失敗時（L4 等級）**：release tag 已指向一個 digest，但該 digest 不是剛才 attest 的那個。此時 release tag 指向未 attest 的 image，任何人拉取該 tag 都會取得它。處理步驟：
+
+1. 不要 rerun。rerun 會看到既有的 release tag，`verify-attestation` 失敗，拒絕重建。
+2. 在 GHCR 找出該 release tag 所在的版本（不是 attest 的那個 digest），確認它上面沒有其他 release 會用到的 tag，然後刪除該版本。
+3. 確認 GHCR 上該 tag 已不存在，再 rerun 整個 workflow。
 
 ---
 
@@ -156,7 +182,7 @@ CD 端的判定（`.github/scripts/cd_release.py`）：plan 的退出碼非 0 �
 |---|---|---|
 | `COMPOSE_PROJECT` | `book-finder` | compose project 名稱；runtime 以此 label 找 web container |
 | `LOCK_TIMEOUT_S` | `10` | 取得 deploy lock 的最長等待（秒，必須為有限正數） |
-| `FOLLOW_TIMEOUT_S` | `6000` | SSH 端跟隨 status 的上限（秒）。超過後回傳 `running`（exit 3），CD 繼續以 run id 輪詢 |
+| `FOLLOW_TIMEOUT_S` | `6000` | 不帶 `--detach` 的 `deploy` 跟隨 status 的上限（秒）。超過後回傳 `running`（exit 3）。CD 使用 `--detach`，不受此值限制；CD 的跟隨上限是 `cd_release.py` 的 `FOLLOW_TIMEOUT_S`（160 分鐘） |
 | `CRAWLER_CONF` | `/etc/book-finder/crawler.conf` | 爬蟲的 shell 設定檔；CD 會改寫其中的 `CRAWLER_IMAGE=` 行 |
 | `DB_MAINTENANCE_LOCK` | `/var/lib/book-finder/db-maintenance.lock` | 與爬蟲的 lock 必須是同一個檔（爬蟲的預設值相同） |
 | `RELEASES_DIR` | `/opt/book-finder/releases` | 已 materialize 的 release 目錄，以 web digest 的 hex 命名 |
@@ -382,7 +408,7 @@ sudo systemctl disable <SYSTEMD_UNIT>
 ### 4.1 推送 tag → 核准 → 觀察
 
 1. 在 `main` 上的 commit 打 tag：`git tag v1.2.3 <commit> && git push origin v1.2.3`。
-2. CD 執行 `guard`、`test`（即 `ci.yml` 的 `workflow_call`）、`build`（建置、attest、發布 Immutable Release）。
+2. CD 執行 `guard`、`test`（即 `ci.yml` 的 `workflow_call`）、`build`（staging tag、attest、verify、建立 release tag 作為 commit point，再發布 Immutable Release；見 §1.6）。
 3. `plan`：SSH 呼叫 host 的 `plan`，job summary 顯示 host 的 JSON 與 decision（chain、pending、cutover、crawler）。
 4. 人工檢查 summary：
    - `chain` 與 `pending`（待套用的 migration id）是否符合預期；
@@ -390,7 +416,7 @@ sudo systemctl disable <SYSTEMD_UNIT>
    - `compat` 的結果（§6.2）；
    - 若 `classification` 是 `forward`，注意 snapshot 會被建立，且 host 會等待它變成 available。
 5. 在 `production` 環境核准，`deploy` job 才會連到 host。
-6. 觀察 deploy job 的輸出，直到 `status` 回報結果。成功後檢查 §3.5 的項目（首頁、登入、暢銷榜）。
+6. `deploy` job 先執行 `deploy … --detach`，host 確認 run 已被接手（最多 60 秒）後即返回 `launched`。接著 `deploy-follow` 每 30 秒呼叫 `status <run_id>`，直到 history 出現結果；job timeout 為 180 分鐘。觀察該 job 的輸出，直到它回報結果。成功後檢查 §3.5 的項目（首頁、登入、暢銷榜）。
 
 結果判讀：
 
@@ -402,6 +428,9 @@ sudo systemctl disable <SYSTEMD_UNIT>
 | `completed:failed-migration` / `failed-down` / `partial-crawler` | 需人工 | §5 |
 | `indeterminate` | 結果無法證明 | **不要重新 dispatch**，走 §5.1 |
 | `not-started` | 未改動 | 可以重新 dispatch（會得到新的 run id） |
+| `launched`（只出現在 `deploy --detach` 的輸出） | 不是結果，unit 仍在執行 | 由 CD 的 `deploy-follow` 繼續輪詢；人工時以 `status <run_id>` 查詢 |
+
+操作者若在 SSH 上直接執行 `deploy …`（不帶 `--detach`），會在同一連線內跟隨到結果，與 `--detach` 加入前的行為相同。連線中斷時 unit 不會停止，以 `status <run_id>` 查詢即可。正常部署由 CD 發起，操作者一般不需要手動執行 `deploy`。
 
 ### 4.2 重新部署或回滾（dispatch）
 
@@ -670,3 +699,5 @@ Journal 是**輔助資訊**，不是結果的來源。結果以 history 為準�
 | 14 | `google-books-api-key`（`deployment.md` §5） | 在 #14（Google Books fallback）實作時才使用；目前程式未讀取，host 也不注入 | 不屬於本次部署；實作 #14 時再納入 host.conf 與 SSM 設定 |
 | 15 | `production-plan` 是否設 reviewer | 待決定（程式不依賴） | — |
 | 16 | 爬蟲與 host 的 `DB_MAINTENANCE_LOCK` 預設值相同（程式以預設值一致） | 若 host.conf 改了 `DB_MAINTENANCE_LOCK`，爬蟲的環境變數也要改，否則兩者不會互斥 | 比對兩處的設定 |
+| 17 | **第一個正式 release 的 `imagetools create` 是否保留 digest**（§1.6） | **待確認，第一次正式 release 前必要** | 第一次 release 的 `Confirm the web release tag` 與 `Confirm the crawler release tag` 步驟必須通過。若失敗，release tag 指向未 attest 的 digest：先依 §1.6 在 GHCR 刪除該版本，確認後才 rerun（L4 等級） |
+| 18 | Build 留下的 staging tag（`build-<run_id>-<run_attempt>`）的 GHCR 清理 | 待確認（GHCR 網頁的確切路徑） | 依 §1.6：只刪除版本上所有 tag 都是 `build-*` 的版本；有 `v*` tag 的版本不得刪除 |
