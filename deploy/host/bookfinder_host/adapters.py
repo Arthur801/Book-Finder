@@ -89,15 +89,16 @@ class RealCompose:
 
 
 class RealAws:
-    def __init__(self, runner: Runner, region: str) -> None:
+    def __init__(self, runner: Runner, region: str, aws_cli: str = "aws") -> None:
         self._runner = runner
         self._region = region
+        self._aws = aws_cli
 
     def create_snapshot(self, instance_id: str, snapshot_id: str) -> None:
         _checked(
             self._runner.run(
                 [
-                    "aws",
+                    self._aws,
                     "rds",
                     "create-db-snapshot",
                     "--region",
@@ -114,21 +115,22 @@ class RealAws:
     def wait_snapshot_available(self, snapshot_id: str) -> None:
         # The waiter polls for up to about an hour; the production runner's timeout is set above that.
         _checked(
-            self._runner.run(["aws", "rds", "wait", "db-snapshot-available", "--region", self._region, "--db-snapshot-identifier", snapshot_id]),
+            self._runner.run([self._aws, "rds", "wait", "db-snapshot-available", "--region", self._region, "--db-snapshot-identifier", snapshot_id]),
             "wait db-snapshot-available",
         )
 
 
 class RealSsm:
-    def __init__(self, runner: Runner, region: str) -> None:
+    def __init__(self, runner: Runner, region: str, aws_cli: str = "aws") -> None:
         self._runner = runner
         self._region = region
+        self._aws = aws_cli
 
     def get_parameter(self, name: str) -> str:
         # The value comes back on stdout only; it is never echoed into an error message.
         result = self._runner.run(
             [
-                "aws",
+                self._aws,
                 "ssm",
                 "get-parameter",
                 "--region",
@@ -227,8 +229,8 @@ def build_effects(runner: Runner, settings: cfg.Settings) -> Effects:
     return Effects(
         docker=RealDocker(runner),
         compose=RealCompose(runner),
-        aws=RealAws(runner, settings.aws_region),
-        ssm=RealSsm(runner, settings.aws_region),
+        aws=RealAws(runner, settings.aws_region, settings.aws_cli),
+        ssm=RealSsm(runner, settings.aws_region, settings.aws_cli),
         systemd=RealSystemd(runner),
         http=RealHttp(),
         files=RealFiles(),

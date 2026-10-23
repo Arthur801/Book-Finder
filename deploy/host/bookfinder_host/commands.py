@@ -30,6 +30,8 @@ from bookfinder_host.ports import Clock, CommandResult, Effects, Runner, Subproc
 # Test-only hook: when set, the fakes file replaces docker, systemd, aws, psql and the clock. It is refused for root,
 # and the SSH forced command never sets it, so production cannot reach it by accident.
 TEST_HOOK_ENV = "BOOKFINDER_HOST_TEST_FAKES"
+# A local integration run points the host at a temporary host.conf; root never honours it, so the forced command cannot be redirected.
+CONFIG_ENV = "BOOKFINDER_HOST_CONF"
 DEFAULT_CONFIG = Path(cfg.DEFAULT_CONFIG_PATH)
 DEFAULT_ENTRY = Path(__file__).resolve().parent.parent / "deploy-entry"
 # Passed by systemd-run to the entry script; only accepted when INVOCATION_ID shows systemd started the process.
@@ -203,8 +205,16 @@ def render_deploy_tokens(command: DeployCommand) -> list[str]:
     return tokens
 
 
-def load_production_deps() -> Deps:
-    settings = cfg.load_settings(DEFAULT_CONFIG)
+def config_path_from(environ: Mapping[str, str]) -> Path:
+    if CONFIG_ENV not in environ:
+        return DEFAULT_CONFIG
+    if os.geteuid() == 0:
+        raise cfg.ConfigError(f"{CONFIG_ENV} is refused for root")
+    return Path(environ[CONFIG_ENV])
+
+
+def load_production_deps(config_path: Path = DEFAULT_CONFIG) -> Deps:
+    settings = cfg.load_settings(config_path)
     # Above the aws waiter's own limit, so a slow snapshot is not cut short by this process.
     runner = SubprocessRunner(timeout_s=3600.0)
     return Deps(
@@ -288,7 +298,7 @@ def main(argv: list[str], environ: Mapping[str, str], out: TextIO, err: TextIO, 
                     return BAD_INPUT
                 deps = load_fake_deps(environ[TEST_HOOK_ENV])
             else:
-                deps = load_production_deps()
+                deps = load_production_deps(config_path_from(environ))
     except cfg.ConfigError as exc:
         err.write(f"configuration error: {exc}\n")
         return BAD_INPUT

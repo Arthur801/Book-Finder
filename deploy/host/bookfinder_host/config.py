@@ -4,7 +4,9 @@ Why: the forced command runs as root and must not execute configuration. The fil
 set; values are limited to a character set with no shell meaning, so the file cannot smuggle a second command.
 """
 
+import os
 import re
+import stat
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -44,6 +46,8 @@ _OPTIONAL = {
     "RUN_DIR": "/run/book-finder",
     "CRAWLER_RUNNER": "/opt/book-finder/run-crawler.sh",
     "CRON_FILE": "/etc/cron.d/book-finder-crawler",
+    # Absolute path to the AWS CLI; in production it must be a root-owned file that others cannot write (checked below).
+    "AWS_CLI": "/usr/local/bin/aws",
 }
 _PATH_KEYS = (
     "STATE_FILE",
@@ -89,6 +93,8 @@ class Settings:
     run_dir: str
     crawler_runner: str
     cron_file: str
+    # The AWS CLI used for SSM and RDS. The default keeps the existing argv-based tests unchanged.
+    aws_cli: str = "aws"
 
 
 def parse_settings(text: str) -> Settings:
@@ -116,8 +122,10 @@ def parse_settings(text: str) -> Settings:
         raise ConfigError("WEB_IMAGE_REPOSITORY must be a repository without a tag or digest")
     if not is_repository(values["CRAWLER_IMAGE_REPOSITORY"]):
         raise ConfigError("CRAWLER_IMAGE_REPOSITORY must be a repository without a tag or digest")
-    if not values["PUBLIC_URL"].startswith("https://") or len(values["PUBLIC_URL"]) <= len("https://"):
-        raise ConfigError("PUBLIC_URL must be an https:// URL")
+    if not _is_public_url(values["PUBLIC_URL"]):
+        raise ConfigError("PUBLIC_URL must be an https:// URL (or http://127.0.0.1 for a local stand-in edge)")
+    if not values["AWS_CLI"].startswith("/"):
+        raise ConfigError("AWS_CLI must be an absolute path")
     for key in _PATH_KEYS:
         if not values[key].startswith("/"):
             raise ConfigError(f"{key} must be an absolute path")
@@ -157,7 +165,28 @@ def parse_settings(text: str) -> Settings:
         run_dir=values["RUN_DIR"],
         crawler_runner=values["CRAWLER_RUNNER"],
         cron_file=values["CRON_FILE"],
+        aws_cli=values["AWS_CLI"],
     )
+
+
+def _is_public_url(value: str) -> bool:
+    # Plain HTTP is accepted only for loopback: the local integration run has no TLS edge, and a loopback address
+    # never leaves the host.
+    if value.startswith("https://") and len(value) > len("https://"):
+        return True
+    return _LOOPBACK_URL_RE.fullmatch(value) is not None
+
+
+_LOOPBACK_URL_RE = re.compile(r"http://127\.0\.0\.1(:[0-9]{1,5})?(/.*)?")
+
+
+def check_root_owned(path: str) -> None:
+    """Production only: the AWS CLI runs as root, so a file another user could rewrite would be root code execution."""
+    info = os.stat(path)
+    if not stat.S_ISREG(info.st_mode):
+        raise ConfigError(f"AWS_CLI is not a regular file: {path}")
+    if info.st_uid != 0 or info.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+        raise ConfigError(f"AWS_CLI must be root-owned and not writable by group or others: {path}")
 
 
 def load_settings(path: str | Path = DEFAULT_CONFIG_PATH) -> Settings:
@@ -167,7 +196,13 @@ def load_settings(path: str | Path = DEFAULT_CONFIG_PATH) -> Settings:
         raise ConfigError(f"host configuration is missing: {path}") from exc
     except UnsafeFileError as exc:
         raise ConfigError(str(exc)) from exc
-    return parse_settings(data.decode("utf-8"))
+    settings = parse_settings(data.decode("utf-8"))
+    if os.geteuid() == 0:
+        try:
+            check_root_owned(settings.aws_cli)
+        except OSError as exc:
+            raise ConfigError(f"AWS_CLI cannot be inspected: {exc}") from exc
+    return settings
 
 
 def read_host_api_range(path: str | Path = HOST_API_RANGE_PATH) -> tuple[int, int]:
@@ -195,7 +230,7 @@ def make_psql_query(runner: Runner, settings: Settings) -> Callable[[str], str]:
     def query(sql: str) -> str:
         fetched = runner.run(
             [
-                "aws",
+                settings.aws_cli,
                 "ssm",
                 "get-parameter",
                 "--region",
