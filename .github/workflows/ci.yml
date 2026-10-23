@@ -110,7 +110,7 @@ jobs:
       - run: python -m pytest deploy/tests -q
 
       # These scripts run in the Docker job (release manifest, smoke tests and migration compat check); shellcheck catches shell mistakes earlier.
-      - run: shellcheck deploy/release/build-manifest.sh deploy/smoke/web-smoke.sh deploy/lib/manifest.sh deploy/lib/smoke.sh deploy/lib/schema_dump.sh deploy/migration-test/compat.sh
+      - run: shellcheck deploy/release/build-manifest.sh deploy/smoke/web-smoke.sh deploy/lib/manifest.sh deploy/lib/smoke.sh deploy/lib/schema_dump.sh deploy/lib/compat_plan.sh deploy/migration-test/compat.sh
 
   dotnet:
     name: .NET build and tests

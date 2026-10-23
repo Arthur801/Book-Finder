@@ -1,8 +1,17 @@
 #!/usr/bin/env bash
-# Checks that the target release can upgrade a database in the state production has applied (A).
-# Why: a deploy is only safe if the rebuild image recreates exactly A, the target upgrades A without dropping or
-# rewriting data or drifting from a fresh install, and the target web app still answers. The runtime image is only
-# informational: it shows whether the current release can still run on the upgraded database, but never blocks a deploy.
+# Checks that the target release can run on the database production has applied (A). The branch depends on how A and the
+# target manifest relate (deploy/lib/manifest.sh); deploy/lib/compat_plan.sh lists the checks each branch records.
+#   forward:      rebuild A, seed it, upgrade with the target bundle. The history must equal the target manifest, every
+#                 pre-existing row and column must survive, the schema must match a fresh install of the target, and the
+#                 target forward smoke (mandatory) must pass.
+#   in-sync:      as forward; the upgrade is a no-op, so the history stays at A, which is also the target manifest.
+#   schema-ahead: production has migrations the target does not know. The target bundle is never run (it would downgrade).
+#                 The history must still equal A after the target web app has started, the data and schema must not change
+#                 while it runs, and the target forward smoke (mandatory) must pass on the newer schema. The fresh-install and
+#                 target-manifest checks are skipped, with the reason in the report.
+#   divergent:    fails before any database work.
+# The runtime image is only informational: it shows whether the release currently running can still run on the database,
+# but never blocks a deploy.
 # Usage: compat.sh --rebuild-image IMG --target-image IMG [--runtime-image IMG|none] --applied FILE --seeds-dir DIR --report OUT.json
 set -euo pipefail
 
@@ -39,6 +48,8 @@ source "$repo_root/deploy/lib/manifest.sh"
 source "$repo_root/deploy/lib/smoke.sh"
 # shellcheck source=deploy/lib/schema_dump.sh
 source "$repo_root/deploy/lib/schema_dump.sh"
+# shellcheck source=deploy/lib/compat_plan.sh
+source "$repo_root/deploy/lib/compat_plan.sh"
 db_image=$(smoke_db_image "$repo_root")
 
 suffix=$(smoke_random_hex 6)
@@ -136,6 +147,7 @@ record() {
   case $result in
     pass) echo "PASS $name${detail:+: $detail}" ;;
     fail) echo "FAIL $name${detail:+: $detail}" ;;
+    skip) echo "SKIP $name${detail:+: $detail}" ;;
     *) echo "INFO $name${detail:+: $detail}" ;;
   esac
   return 0
@@ -237,7 +249,7 @@ check_manifests() {
     fatal "applied vs target classification" "divergent: applied and target disagree on a shared migration id or hash, or a migration was inserted before applied ones"
   fi
   if [[ $classification == schema-ahead ]]; then
-    record pass "applied vs target classification" "schema-ahead: the target has fewer migrations than production; the forward smoke still runs"
+    record pass "applied vs target classification" "schema-ahead: production has migrations the target does not know; the target is smoke-tested on that schema and never run against it"
   else
     record pass "applied vs target classification" "$classification"
   fi
@@ -452,6 +464,54 @@ check_schema_matches_fresh() {
   fi
 }
 
+# Schema-ahead only: the normalized schema before the target web app starts, so check_schema_unchanged can compare after it.
+dump_schema_before() {
+  local dump_err
+  if ! dump_err=$(dump_schema book_finder 2>&1 >"$workdir/schema-before.sql"); then
+    fatal "schema before target runs readable" "$dump_err"
+  fi
+}
+
+# Schema-ahead only: the history must still equal A once the target has run. Non-fatal, like the other data checks.
+check_history_unchanged() {
+  local applied_ids history
+  applied_ids=$(cut -d' ' -f1 "$applied")
+  if ! history=$(db_query book_finder 'select "MigrationId" from "__EFMigrationsHistory" order by "MigrationId" COLLATE "C"'); then
+    record fail "applied history unchanged by target" "could not read __EFMigrationsHistory after the target ran"
+    return 0
+  fi
+  if [[ $history == "$applied_ids" ]]; then
+    record pass "applied history unchanged by target" "$(wc -l <<<"$applied_ids" | tr -d ' ') migration(s)"
+  else
+    record fail "applied history unchanged by target" "history changed while the target ran; expected $(paste -sd, <<<"$applied_ids") got $(paste -sd, <<<"$history")"
+  fi
+}
+
+# Schema-ahead only: the target must not change the schema. Compares the dump taken before the target ran with one after.
+check_schema_unchanged() {
+  local before="$workdir/schema-before.sql" after="$workdir/schema-after.sql" diff_out="$workdir/schema-unchanged.diff" dump_err
+  if ! dump_err=$(dump_schema book_finder 2>&1 >"$after"); then
+    record fail "schema unchanged by target" "$dump_err"
+    return 0
+  fi
+  if diff -u "$before" "$after" >"$diff_out"; then
+    record pass "schema unchanged by target" "$(wc -l <"$after" | tr -d ' ') normalized schema line(s)"
+  else
+    record fail "schema unchanged by target" "the target changed the schema while it ran (diff below)"
+    head -n 200 "$diff_out"
+  fi
+}
+
+# Records the classification's skipped checks, so the report and the CI summary show which checks did not apply.
+record_plan_skips() {
+  local action name reason
+  while IFS=$'\t' read -r action name reason; do
+    if [[ $action == skip ]]; then
+      record skip "$name" "$reason"
+    fi
+  done < <(compat_plan_for "$classification")
+}
+
 # Forward smoke. Same contract as web-smoke.sh, but against the upgraded database. Prints each step as a check when
 # mandatory and as INFO otherwise, so the runtime result never counts as a failure.
 WEB_SMOKE_MODE=mandatory
@@ -565,10 +625,20 @@ main() {
   rebuild_applied
   load_seed
   fingerprint_before
-  upgrade_to_target
-  check_data_preserved || true
-  check_schema_matches_fresh || true
-  check_forward_smoke
+  record_plan_skips
+  if [[ $classification == schema-ahead ]]; then
+    # The target never touches the schema: it has to start on the newer database and leave the data and schema alone.
+    dump_schema_before
+    check_forward_smoke
+    check_history_unchanged
+    check_data_preserved || true
+    check_schema_unchanged || true
+  else
+    upgrade_to_target
+    check_data_preserved || true
+    check_schema_matches_fresh || true
+    check_forward_smoke
+  fi
   check_runtime_smoke || true
   # Any failed mandatory check (forward smoke, data, schema or history) makes the whole run fail, not just the smoke.
   if [[ $mandatory_failures -eq 0 ]]; then
