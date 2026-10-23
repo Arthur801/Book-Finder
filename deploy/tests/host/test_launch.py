@@ -172,6 +172,16 @@ def test_indeterminate_run_blocks_the_launch_with_exit_8(tmp_path):
     assert launcher.calls == []
 
 
+def test_follow_gives_up_after_the_timeout_and_the_unit_keeps_running(tmp_path):
+    world = in_sync(tmp_path)
+    world.host.on_systemd_run = RecordingLauncher(world, mark_active=True)
+    world.deps = replace(world.deps, settings=replace(world.deps.settings, follow_timeout_s=10.0))
+    assert world.run(deploy_text(world)) == DRIFT
+    assert world.stdout_json() == {"run_id": DEPLOY_RUN_ID, "status": "running", "exit_code": DRIFT}
+    assert world.err.getvalue().strip().endswith("follow timeout; poll status 5555-1")
+    assert world.history().entries == []  # the SSH side wrote nothing; the unit owns the outcome
+
+
 def test_systemd_run_failure_is_drift_and_writes_nothing(tmp_path):
     world = in_sync(tmp_path)
     world.host.on_systemd_run = RecordingLauncher(world, returncode=1)

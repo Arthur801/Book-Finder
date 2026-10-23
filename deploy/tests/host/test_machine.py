@@ -118,6 +118,14 @@ def with_old_release(world, *, sha_matches: bool = True) -> Path:
     return release
 
 
+def set_setting(world, **changes) -> None:
+    world.deps = dataclasses.replace(world.deps, settings=dataclasses.replace(world.deps.settings, **changes))
+
+
+def crawler_substeps(world) -> dict:
+    return completed_records(world)[-1]["crawler_substeps"]
+
+
 def only_web_failures_on_target(world, up_failures: int = 1) -> None:
     """The target's compose up fails before any health check, so the rollback's compose up and its health pass."""
     world.fx.compose.up_failures = up_failures
@@ -534,9 +542,106 @@ def test_crawler_files_are_installed_with_their_modes_when_the_release_has_them(
     (release / "crawler.cron").write_text("0 3 * * * root /opt/book-finder/run-crawler.sh\n")
     world.fx.docker.release_tree = release
     assert world.run_unit(deploy_text(world))[0] == OK
+    # Order: run-crawler.sh first (it is the guard), then the cron file, then crawler.conf last.
+    trace = world.fx.trace
+    run_write = index_of(trace, f"files.write {world.settings.crawler_runner}")
+    cron_write = index_of(trace, f"files.write {world.settings.cron_file}")
+    conf_write = index_of(trace, f"files.write {world.settings.crawler_conf}")
+    assert run_write < cron_write < conf_write
+    assert crawler_substeps(world) == {
+        "image": "ok",
+        "smoke": "ok",
+        "run_crawler": "ok",
+        "crawler_cron": "ok",
+        "crawler_conf": "ok",
+    }
     assert stat.S_IMODE(os.stat(world.settings.crawler_runner).st_mode) == 0o755
     assert stat.S_IMODE(os.stat(world.settings.cron_file).st_mode) == 0o644
     assert Path(world.settings.crawler_runner).read_text() == "#!/bin/sh\necho crawl\n"
+
+
+def test_crawler_steps_not_shipped_by_the_release_are_skipped_and_recorded(tmp_path):
+    world = in_sync_world(tmp_path)
+    assert world.run_unit(deploy_text(world))[0] == OK
+    assert crawler_substeps(world) == {
+        "image": "ok",
+        "smoke": "ok",
+        "run_crawler": "skipped",
+        "crawler_cron": "skipped",
+        "crawler_conf": "ok",
+    }
+
+
+def test_run_crawler_install_failure_stops_the_sequence_and_records_it(tmp_path):
+    world = in_sync_world(tmp_path)
+    set_setting(world, crawler_runner=str(tmp_path / "missing-dir" / "run-crawler.sh"))
+    release = tmp_path / "release-with-crawler"
+    write_release(release, [Migration(ID1, H1)])
+    (release / "run-crawler.sh").write_text("#!/bin/sh\n")
+    (release / "crawler.cron").write_text("0 3 * * * root x\n")
+    world.fx.docker.release_tree = release
+    conf_before = Path(world.settings.crawler_conf).read_text()
+    code, _, err = world.run_unit(deploy_text(world))
+    assert code == PARTIAL_CRAWLER and "run_crawler failed" in err
+    assert crawler_substeps(world) == {
+        "image": "ok",
+        "smoke": "ok",
+        "run_crawler": "failed",
+        "crawler_cron": "not-run",
+        "crawler_conf": "not-run",
+    }
+    assert Path(world.settings.crawler_conf).read_text() == conf_before
+    assert not any(t.startswith("files.write") and t.endswith("crawler.conf") for t in world.fx.trace)
+    final = world.load_state()
+    assert final.crawler.digest == CRAWLER and final.crawler.paused is not None
+
+
+def test_cron_install_failure_keeps_the_old_conf_and_records_the_earlier_sub_steps(tmp_path):
+    world = in_sync_world(tmp_path)
+    set_setting(world, cron_file=str(tmp_path / "missing-dir" / "cron"))
+    release = tmp_path / "release-with-cron"
+    write_release(release, [Migration(ID1, H1)])
+    (release / "run-crawler.sh").write_text("#!/bin/sh\n")
+    (release / "crawler.cron").write_text("0 3 * * * root x\n")
+    world.fx.docker.release_tree = release
+    conf_before = Path(world.settings.crawler_conf).read_text()
+    assert world.run_unit(deploy_text(world))[0] == PARTIAL_CRAWLER
+    substeps = crawler_substeps(world)
+    assert substeps["run_crawler"] == "ok" and substeps["crawler_cron"] == "failed" and substeps["crawler_conf"] == "not-run"
+    assert Path(world.settings.crawler_conf).read_text() == conf_before
+    assert world.load_state().crawler.paused is not None
+
+
+def test_conf_failure_after_both_installs_is_recorded_last(tmp_path):
+    world = in_sync_world(tmp_path)
+    Path(world.settings.crawler_conf).unlink()
+    release = tmp_path / "release-with-both"
+    write_release(release, [Migration(ID1, H1)])
+    (release / "run-crawler.sh").write_text("#!/bin/sh\n")
+    (release / "crawler.cron").write_text("0 3 * * * root x\n")
+    world.fx.docker.release_tree = release
+    assert world.run_unit(deploy_text(world))[0] == PARTIAL_CRAWLER
+    assert crawler_substeps(world) == {
+        "image": "ok",
+        "smoke": "ok",
+        "run_crawler": "ok",
+        "crawler_cron": "ok",
+        "crawler_conf": "failed",
+    }
+    assert world.load_state().crawler.digest == CRAWLER
+
+
+def test_smoke_failure_stops_before_any_install(tmp_path):
+    world = in_sync_world(tmp_path)
+    world.fx.docker.smoke_rc = 1
+    assert world.run_unit(deploy_text(world))[0] == PARTIAL_CRAWLER
+    assert crawler_substeps(world) == {
+        "image": "ok",
+        "smoke": "failed",
+        "run_crawler": "not-run",
+        "crawler_cron": "not-run",
+        "crawler_conf": "not-run",
+    }
 
 
 def test_crawler_conf_rewrite_keeps_other_lines_and_mode(tmp_path):

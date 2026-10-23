@@ -56,6 +56,7 @@ def build_settings(tmp: Path, lock_timeout_s: float = 0.2) -> Settings:
         systemd_unit=SYSTEMD_UNIT,
         compose_project="book-finder",
         lock_timeout_s=lock_timeout_s,
+        follow_timeout_s=6000.0,
         public_url=PUBLIC_URL,
         rds_instance_id="book-finder-prod",
         ssm_db_connection="/book-finder/prod/db-connection",

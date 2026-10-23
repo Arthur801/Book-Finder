@@ -40,9 +40,9 @@ PROBE_INTERVAL_S = 1.0
 HEALTH_BUDGET_S = 90.0  # step 5: the new runtime gets 90 s to answer
 HEALTH_INTERVAL_S = 2.0
 CRAWLER_KEY = "CRAWLER_IMAGE="
+# Outcome per sub-step, recorded in the completed record so resume-crawler can tell what already took effect (M3c).
+CRAWLER_SUBSTEPS = ("image", "smoke", "run_crawler", "crawler_cron", "crawler_conf")
 MAX_RUNNER_BYTES = 1 << 20
-# Named tuple: ruff's py314 target would rewrite an inline parenthesised tuple into syntax that Python 3.12 rejects.
-_OBSERVATION_ERRORS = (rt.ObservationError, cfg.ConfigError)
 
 
 class _Stop(Exception):
@@ -65,6 +65,7 @@ def finish_run(
     result: str,
     reason: str,
     snapshot_id: str | None = None,
+    crawler_substeps: dict[str, str] | None = None,
 ) -> int:
     """Writes the single completed record for a run (N7); the history line never holds secrets or free text."""
     hi.append(
@@ -76,6 +77,7 @@ def finish_run(
             at=deps.clock.now(),
             state_summary=st.state_summary(state),
             snapshot_id=snapshot_id,
+            crawler_substeps=crawler_substeps,
         ),
     )
     out.write(json.dumps({"run_id": run_id, "result": result, "exit_code": code}, sort_keys=True) + "\n")
@@ -96,6 +98,7 @@ class _Run:
     compose_sha256: str = ""
     env_path: str = ""
     snapshot_id: str | None = None
+    crawler_substeps: dict[str, str] | None = None
 
     @property
     def effects(self) -> Effects:
@@ -122,7 +125,18 @@ class _Run:
         self.state = st.write_state(self.settings.state_file, new, expected_revision=self.state.revision)
 
     def finish(self, code: int, result: str, reason: str) -> int:
-        return finish_run(self.deps, self.out, self.err, self.run_id, self.state, code, result, reason, self.snapshot_id)
+        return finish_run(
+            self.deps,
+            self.out,
+            self.err,
+            self.run_id,
+            self.state,
+            code,
+            result,
+            reason,
+            self.snapshot_id,
+            self.crawler_substeps,
+        )
 
 
 def run_state_machine(
@@ -334,7 +348,7 @@ def _migrate_locked(r: _Run) -> None:
 def _applied_ids_or_none(r: _Run) -> list[str] | None:
     try:
         return rt.observe_schema(r.deps.db_query)
-    except _OBSERVATION_ERRORS:
+    except (rt.ObservationError, cfg.ConfigError):
         return None
 
 
@@ -421,7 +435,8 @@ def _rollback(r: _Run, reason: str) -> None:
 
 
 def _finish_success_path(r: _Run) -> int:
-    problem = _update_crawler(r)
+    problem, substeps = _update_crawler(r)
+    r.crawler_substeps = substeps
     crawler_digest = r.command.crawler_digest if problem is None else r.state.crawler.digest
     new_runtime = st.DockerRuntime(
         tag=r.tag,
@@ -458,22 +473,47 @@ def rewrite_crawler_image(data: bytes, reference: str) -> bytes:
     return "\n".join(lines).encode("utf-8")
 
 
-def _update_crawler(r: _Run) -> str | None:
-    """Returns None on success, or the reason the crawler could not be updated."""
+def _update_crawler(r: _Run) -> tuple[str | None, dict[str, str]]:
+    """Runs the crawler sub-steps in their fixed order and returns (problem or None, outcome of every sub-step).
+
+    Why this order: run-crawler.sh is the file that checks paused and dirty before a run, so it must be in place before
+    cron can start a new crawler. crawler.conf names the image, so it is rewritten last, after the other two succeed.
+    """
+    steps = {name: "not-run" for name in CRAWLER_SUBSTEPS}
+    release = r.release_dir
+    assert release is not None  # step 2 always sets it
+    problem = (
+        _attempt(steps, "image", lambda: r.effects.docker.pull(r.crawler_ref))
+        or _attempt(steps, "smoke", lambda: _smoke_or_raise(r))
+        or _optional_install(r, steps, "run_crawler", release / "run-crawler.sh", r.settings.crawler_runner, 0o755)
+        or _optional_install(r, steps, "crawler_cron", release / "crawler.cron", r.settings.cron_file, 0o644)
+        or _attempt(steps, "crawler_conf", lambda: _rewrite_conf(r))
+    )
+    return problem, steps
+
+
+def _attempt(steps: dict[str, str], name: str, action) -> str | None:
     try:
-        r.effects.docker.pull(r.crawler_ref)
-        if r.effects.docker.smoke_crawler(r.crawler_ref) != 0:
-            return "crawler smoke test failed"
-        conf = r.settings.crawler_conf
-        r.effects.files.write_atomic(conf, rewrite_crawler_image(r.effects.files.read_bytes(conf), r.crawler_ref), None)
-        release = r.release_dir
-        assert release is not None
-        for source, dest, mode in (
-            (release / "run-crawler.sh", r.settings.crawler_runner, 0o755),
-            (release / "crawler.cron", r.settings.cron_file, 0o644),
-        ):
-            if os.path.lexists(source):
-                r.effects.files.write_atomic(dest, read_regular_file(source, MAX_RUNNER_BYTES), mode)
+        action()
     except (EffectFailed, OSError, UnsafeFileError, ValueError) as exc:
-        return str(exc)
+        steps[name] = "failed"
+        return f"{name} failed: {exc}"
+    steps[name] = "ok"
     return None
+
+
+def _smoke_or_raise(r: _Run) -> None:
+    if r.effects.docker.smoke_crawler(r.crawler_ref) != 0:
+        raise EffectFailed("crawler smoke test exited non-zero")
+
+
+def _optional_install(r: _Run, steps: dict[str, str], name: str, source: Path, dest: str, mode: int) -> str | None:
+    if not os.path.lexists(source):
+        steps[name] = "skipped"  # the release does not ship this file
+        return None
+    return _attempt(steps, name, lambda: r.effects.files.write_atomic(dest, read_regular_file(source, MAX_RUNNER_BYTES), mode))
+
+
+def _rewrite_conf(r: _Run) -> None:
+    conf = r.settings.crawler_conf
+    r.effects.files.write_atomic(conf, rewrite_crawler_image(r.effects.files.read_bytes(conf), r.crawler_ref), None)

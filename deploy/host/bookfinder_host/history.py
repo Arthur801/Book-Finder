@@ -56,6 +56,7 @@ def completed_record(
     operator: str | None = None,
     reason: str | None = None,
     snapshot_id: str | None = None,
+    crawler_substeps: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     record: dict[str, Any] = {
         "run_id": run_id,
@@ -67,6 +68,9 @@ def completed_record(
     }
     if snapshot_id is not None:
         record["snapshot_id"] = snapshot_id
+    if crawler_substeps is not None:
+        # Lets resume-crawler (M3c) see which crawler sub-steps already took effect.
+        record["crawler_substeps"] = crawler_substeps
     if resolved_by_operator:
         record.update({"resolved_by_operator": True, "operator": operator, "reason": reason})
     return record

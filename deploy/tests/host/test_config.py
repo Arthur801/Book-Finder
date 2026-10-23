@@ -42,6 +42,7 @@ def test_loads_valid_configuration(tmp_path):
     assert settings.state_file == "/var/lib/book-finder/state.json"
     assert settings.aws_region == "ap-northeast-1"
     assert settings.compose_project == "book-finder"
+    assert settings.follow_timeout_s == 6000.0
 
 
 @pytest.mark.parametrize(
@@ -60,6 +61,8 @@ def test_loads_valid_configuration(tmp_path):
         lambda text: text.replace("PUBLIC_URL=https://book-finder.example", "PUBLIC_URL=http://book-finder.example"),  # TLS only
         lambda text: text.replace("CRAWLER_IMAGE_REPOSITORY=ghcr.io/example/book-finder-crawler", "CRAWLER_IMAGE_REPOSITORY=ghcr.io/x:1"),
         lambda text: text + "CRON_FILE=relative/cron\n",  # paths must be absolute
+        lambda text: text + "FOLLOW_TIMEOUT_S=0\n",  # must be positive
+        lambda text: text + "FOLLOW_TIMEOUT_S=soon\n",  # must be a number
     ],
 )
 def test_rejects_bad_configuration(tmp_path, mutation):

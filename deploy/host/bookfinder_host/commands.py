@@ -522,6 +522,10 @@ def _follow(command: DeployCommand, deps: Deps, out: TextIO, err: TextIO, launch
             return _report_final(out, command.run_id, status, INDETERMINATE)
         if status == "not-started" and deps.clock.monotonic() - launched_at >= NOT_STARTED_GRACE_S:
             return _report_final(out, command.run_id, status, DRIFT)
+        if deps.clock.monotonic() - launched_at >= deps.settings.follow_timeout_s:
+            # Bounded wait: the unit keeps running, and CD carries on by polling status for this run id.
+            err.write(f"follow timeout; poll status {command.run_id}\n")
+            return _report_final(out, command.run_id, "running", DRIFT)
         deps.clock.sleep(FOLLOW_INTERVAL_S)
 
 

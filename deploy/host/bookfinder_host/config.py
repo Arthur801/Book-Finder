@@ -36,6 +36,8 @@ _REQUIRED = {
 _OPTIONAL = {
     "COMPOSE_PROJECT": "book-finder",
     "LOCK_TIMEOUT_S": "10",
+    # Covers the 30 min deploy-lock wait, the 45 min db-maintenance wait and the snapshot before the SSH side gives up.
+    "FOLLOW_TIMEOUT_S": "6000",
     "CRAWLER_CONF": "/etc/book-finder/crawler.conf",
     "DB_MAINTENANCE_LOCK": "/var/lib/book-finder/db-maintenance.lock",
     "RELEASES_DIR": "/opt/book-finder/releases",
@@ -74,6 +76,7 @@ class Settings:
     systemd_unit: str
     compose_project: str
     lock_timeout_s: float
+    follow_timeout_s: float
     public_url: str
     rds_instance_id: str
     ssm_db_connection: str
@@ -124,6 +127,12 @@ def parse_settings(text: str) -> Settings:
         timeout = float(values["LOCK_TIMEOUT_S"])
     except ValueError as exc:
         raise ConfigError("LOCK_TIMEOUT_S must be a number") from exc
+    try:
+        follow_timeout = float(values["FOLLOW_TIMEOUT_S"])
+    except ValueError as exc:
+        raise ConfigError("FOLLOW_TIMEOUT_S must be a number") from exc
+    if follow_timeout <= 0:
+        raise ConfigError("FOLLOW_TIMEOUT_S must be positive")
     return Settings(
         state_file=values["STATE_FILE"],
         history_file=values["HISTORY_FILE"],
@@ -135,6 +144,7 @@ def parse_settings(text: str) -> Settings:
         systemd_unit=values["SYSTEMD_UNIT"],
         compose_project=values["COMPOSE_PROJECT"],
         lock_timeout_s=timeout,
+        follow_timeout_s=follow_timeout,
         public_url=values["PUBLIC_URL"],
         rds_instance_id=values["RDS_INSTANCE_ID"],
         ssm_db_connection=values["SSM_DB_CONNECTION"],
