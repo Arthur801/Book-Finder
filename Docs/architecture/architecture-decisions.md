@@ -108,6 +108,8 @@ MVP 只有單一 Web instance。Cache 只存可由 PostgreSQL 重建的唯讀資
 | I6 | 回滾使用舊 release 的 image 加上 compose，先驗證 compose 雜湊；清理時保留被 state 引用的 image 與目錄 | 回滾必須是當初發布的那一套 |
 | I7 | 沿用既有 image 前必須通過 `gh attestation verify` | label 不能當作來源證明 |
 | I8 | plan 只讀 allowlist 的 metadata，用 `docker create` 加不帶 `-L` 的 `docker cp`，只接受一般檔案，絕不執行 release 的程式 | plan 不能讓 release 內容在 host 上執行 |
+| S1 | 併入 N7：transient unit 不使用 `--pipe`（v5 合併，編號保留） | 避免 SSH 斷線時 unit 被中止 |
+| S2 | 併入 I6：GC 保留被 state 引用的 image 與目錄（v5 合併，編號保留） | 回滾與 schema rebuild 需要的 image 不能被清除 |
 | S3 | 同 I8（metadata 讀取規則） | 同上 |
 | S4 | state 一律 atomic write，每次寫入遞增 revision | 寫入中斷不能留下半個 state |
 | S5 | 完成 cutover 後，任何模式遇到 systemd 都視為 drift | 避免兩個 web 搶同一個埠 |

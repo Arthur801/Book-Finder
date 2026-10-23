@@ -217,14 +217,23 @@ restrict,command="sudo /opt/book-finder/host/deploy-entry" ssh-ed25519 AAAA…�
 
 ```text
 # /etc/sudoers.d/book-finder-deploy（以 visudo -cf 檢查後放置）
+Defaults!/opt/book-finder/host/deploy-entry env_keep += "SSH_ORIGINAL_COMMAND"
 deployer ALL=(root) NOPASSWD: /opt/book-finder/host/deploy-entry
 ```
 
-> **待確認（在 EC2 上驗證，上線前必須通過）**：預設的 `sudo` 會清除 `SSH_ORIGINAL_COMMAND`（env_reset），deploy-entry 會看到空指令而拒絕所有呼叫。程式內的測試直接設定環境變數，**沒有經過 sudo**，因此這個問題不會被測試發現。
-> 在 EC2 上確認：用 plan key 執行 `status <某 run id>`，若回傳 `rejected`（空指令），就要修正 sudoers。候選做法（待驗證，不是程式保證）：
-> 1. `Defaults!/opt/book-finder/host/deploy-entry env_keep += "SSH_ORIGINAL_COMMAND"`；或
-> 2. 以 `SETENV:` 標記允許 `sudo --preserve-env=SSH_ORIGINAL_COMMAND`，並把 forced command 改為 `sudo --preserve-env=SSH_ORIGINAL_COMMAND /opt/book-finder/host/deploy-entry`。
-> 修正後以 `sudo -l -U deployer` 確認權限沒有擴大。
+- 預設的 `sudo` 會清除 `SSH_ORIGINAL_COMMAND`（env_reset）。`deploy-entry` 靠這個變數讀取 forced command，清除後每次呼叫都會失敗。
+- 第一行只對 `deploy-entry` 這個指令保留該變數（`Defaults!<command>` 的範圍只限於該指令）。其他 `sudo` 指令的 env_reset 不變；operator 的 `book-finder-admin` 也不受影響。
+- 第二行只允許 `deployer` 以 root 執行這個入口。
+- 若忘記第一行，`deploy-entry` 會在 `SUDO_USER` 存在而指令為空時，以 exit 2 回報此行的確切內容（`commands.SUDO_EMPTY_COMMAND_MESSAGE`），不會以一般的 usage 錯誤代替。
+- 修正後以 `sudo -l -U deployer` 確認權限沒有擴大。
+
+> **待確認（在 EC2 上驗證，上線前必須通過）**：在放上 sudoers 後，以 plan key 執行：
+>
+> ```bash
+> ssh -i <plan key> -o IdentitiesOnly=yes deployer@<EC2_HOST> "status 1-1"
+> ```
+>
+> 必須回傳 `{"run_id": "1-1", "status": "not-started"}` 且退出碼為 0。從未使用過的 run id 只會讀取 history 與 unit 狀態，不會改動任何東西。若回傳 `rejected: SSH_ORIGINAL_COMMAND is empty under sudo…`，表示第一行未生效，不要啟用 CD。
 
 **Security Group**
 
@@ -502,11 +511,83 @@ sudo /opt/book-finder/host/book-finder-admin resume-crawler --crawler-digest sha
 
 `--adopt-*` 會讀取 `RELEASES_DIR/<web digest hex>/` 的 `run-crawler.sh` 與 `crawler.cron`（須通過 release 內容檢查），並要求已安裝的檔案與它們完全相同，然後把 provenance 記為該 release。`--adopt-release` 的 tag 無法從目錄本身驗證，程式只記錄操作者的宣告。
 
-### 5.4 Drift
+### 5.4 Drift：人工修復程序（L4）
 
-- 程式會把 runtime 或 schema 與 state 的差異列在 plan 的 `drift` 欄位，CD 會拒絕部署（exit 3）。
-- **程式沒有 drift 的修復指令**。修復方式（例如手動 `docker compose up` 回到 state 記錄的 release）需要人工判斷，屬 L4，且**待確認**。
-- 處理完成後，應重新 plan，確認 `drift` 為空，才能 dispatch。不要直接編輯 state.json。
+**程式目前沒有 drift 的修復指令**（待辦）。以下是人工程序，每一步都需要使用者明確授權。不要手動編輯 state.json。
+
+**第一步：判斷是哪一種 drift。** 看 `plan` 的輸出（CD summary 或 `plan` 的 JSON）：
+
+| 來源 | 意義 | 處理 |
+|---|---|---|
+| `drift` 陣列中以 `runtime:` 或 `runtime kind:` 開頭 | runtime 與 state 不符：web container 沒在運行、映像不是 state 的 digest、container 數量不是一個、kind 不一致（systemd／docker） | 走第二步 |
+| `drift` 陣列中以 `schema:` 開頭 | DB 的 migration id 序列與 state 不同 | 走第三步（停止） |
+| `runtime: observation failed` 或 `schema: observation failed` | 無法觀察（docker、systemctl 或 DB 查詢失敗） | 先修復觀察的失敗（例如 docker 未啟動），再重新 plan |
+| revision 不符（deploy 的 `expect-revision`，exit 3 `revision is N, expected M`） | state 在 plan 之後改變 | 不是 drift：重新 plan，再 dispatch |
+
+**第二步：runtime drift（state 的 kind 為 docker）。**
+
+1. 讀出 state 記錄的 runtime（不要改動檔案）：
+
+   ```bash
+   sudo python3 -m json.tool /var/lib/book-finder/state.json | sed -n '/"runtime"/,/}/p'
+   ```
+
+   記下 `tag`、`web_digest`、`release_dir`、`compose_sha256`。
+
+2. 確認 release 的 compose 檔沒有被改動（`machine.py` 在 rollback 時也做同樣的檢查）：
+
+   ```bash
+   sha256sum <release_dir>/compose.prod.yaml
+   ```
+
+   輸出的雜湊必須等於 state 的 `compose_sha256`。不符，或 `release_dir` 不存在：**停止**，走第四步。
+
+3. 確認映像在本機：
+
+   ```bash
+   docker image inspect <WEB_IMAGE_REPOSITORY>@<web_digest> >/dev/null || docker pull <WEB_IMAGE_REPOSITORY>@<web_digest>
+   ```
+
+   `<WEB_IMAGE_REPOSITORY>` 是 host.conf 的值，`<web_digest>` 是 state 的 `web_digest`。
+
+4. 準備 env file，內容與 `machine._render_env` 相同，三個值從 SSM 讀取。寫入時不要把值印到畫面或 shell history：
+
+   ```bash
+   sudo install -m 0600 /dev/null /run/book-finder/web-manual.env
+   # 對 ConnectionStrings__DefaultConnection、OPENAIAPI_KEY、Jwt__SigningKey 各寫一行 NAME=VALUE，
+   # 值來自 host.conf 中的 SSM_DB_CONNECTION、SSM_OPENAI_KEY、SSM_JWT_KEY 參數（aws ssm get-parameter --with-decryption）。
+   ```
+
+   值必須是單行，且不含換行。
+
+5. 以 `adapters.RealCompose.up` 相同的參數啟動（`machine._compose_env` 只設定兩個變數）：
+
+   ```bash
+   sudo env WEB_IMAGE=<WEB_IMAGE_REPOSITORY>@<web_digest> WEB_ENV_FILE=/run/book-finder/web-manual.env \
+     docker compose -p <COMPOSE_PROJECT> -f <release_dir>/compose.prod.yaml up -d --remove-orphans
+   ```
+
+   `<COMPOSE_PROJECT>` 是 host.conf 的值（預設 `book-finder`）。
+
+6. 健康檢查（與 host 相同）：
+
+   ```bash
+   curl -s -o /dev/null -w '%{http_code}\n' -H 'X-Forwarded-Proto: https' http://127.0.0.1:5000/   # 必須是 200
+   curl -s -o /dev/null -w '%{http_code}\n' <PUBLIC_URL>                                        # 必須是 200，且不跟隨 redirect
+   ```
+
+7. 刪除 env file：`sudo rm -f /run/book-finder/web-manual.env`。
+8. 重新 plan。`drift` 必須為空，才可以 dispatch。
+
+注意：手動操作**不會寫入 history**，程式也沒有對應的 operator 指令。說明寫在 issue 或部署紀錄中。
+
+**kind 為 systemd 的 runtime drift**：unit 不是 active 時，人工 `sudo systemctl start <SYSTEMD_UNIT>`（L4），再用同樣的健康檢查確認。不要在 cutover 後回到 systemd（見 §3.6）。
+
+**多於一個 web container**：停止，不自行刪除。以 L4 調查哪一個是 state 指向的 release。
+
+**第三步：schema drift。** 停止。不要執行 efbundle，也不要用 `reconcile-schema` 處理未 dirty 的 schema（`reconcile-schema` 只清除 dirty）。比對 `__EFMigrationsHistory` 與 state 的 applied 清單，找出多出或缺少的 id，並把結果交給使用者決定（L4）。目前沒有程式化的解法。
+
+**第四步：無法判斷或無法修復。** 保留目前狀態，不改 state、不重試 deploy。把 plan 輸出、`docker ps`、`history.jsonl` 的最後幾行一併保存。
 
 ### 5.5 Host 升級（`install-host`，N4、S9）
 
@@ -560,7 +641,7 @@ Journal 是**輔助資訊**，不是結果的來源。結果以 history 為準�
 
 | # | 項目 | 狀態 | 驗證方式 |
 |---|---|---|---|
-| 1 | **sudo 是否保留 `SSH_ORIGINAL_COMMAND`**（§2.6） | **待確認，上線前必要** | 以 plan key 執行 `status`，確認不是 `rejected` |
+| 1 | **sudoers 的 `env_keep` 行是否生效**（§2.6） | **待確認，上線前必要** | 以 plan key 執行 `status 1-1`，必須回傳 `not-started`（見 §2.6） |
 | 2 | `systemd-run` 以 root 執行 transient unit，`INVOCATION_ID` 是否由 systemd 設定 | 待確認。本機只以 `--user` manager 驗證（`Docs/Implementation-Report/issue-92-cd.md` 驗證結果第 5 項） | 第一次正式部署前，用 system manager 的一次性 unit 驗證 |
 | 3 | SSH 斷線後 unit 是否仍會完成 | 本機以 `--user` 驗證；system manager 語意相同，**待確認** | 同上 |
 | 4 | psql 容器能否連到 RDS（docker 預設 bridge 網路到 RDS 端點） | 待確認 | 操作者在 EC2 上以 `docker run --rm --pull=never -e DATABASE_URL <PSQL_IMAGE> …` 做唯讀查詢。URL 從 shell 環境注入，不寫進命令列 |
@@ -572,7 +653,7 @@ Journal 是**輔助資訊**，不是結果的來源。結果以 history 為準�
 | 10 | GHCR package 是否 public；若 private，host 的登入方式 | 待確認（§2.8） | `docker pull` 不需登入即可成功 |
 | 11 | Immutable Releases 是否已 GA | 待確認（查證結果：尚未確認） | GitHub 文件 |
 | 12 | 客戶管理 KMS key 是否使用（影響 `kms:Decrypt`） | 待確認 | SSM 參數的 key 設定 |
-| 13 | 不變式 `S1`、`S2` | 設計計畫中沒有定義（只有 S3～S11）。本文件沒有引用它們 | 需使用者確認是否遺漏 |
-| 14 | `deployment.md` 的 `GOOGLE_BOOKS` 相關 SSM 參數：程式碼中未找到讀取該設定的位置 | 待確認 | `grep -rn GoogleBooks` 只找到來源類型，沒有 API key 設定 |
+| 13 | 不變式編號 `S1`、`S2` | 已在 v5 併入其他不變式：S1 → N7（transient unit 不用 `--pipe`），S2 → I6（GC 保留被引用的 image 與目錄）。ADR-006 保留編號說明 | 無須額外處理 |
+| 14 | `google-books-api-key`（`deployment.md` §5） | 在 #14（Google Books fallback）實作時才使用；目前程式未讀取，host 也不注入 | 不屬於本次部署；實作 #14 時再納入 host.conf 與 SSM 設定 |
 | 15 | `production-plan` 是否設 reviewer | 待決定（程式不依賴） | — |
 | 16 | 爬蟲與 host 的 `DB_MAINTENANCE_LOCK` 預設值相同（程式以預設值一致） | 若 host.conf 改了 `DB_MAINTENANCE_LOCK`，爬蟲的環境變數也要改，否則兩者不會互斥 | 比對兩處的設定 |

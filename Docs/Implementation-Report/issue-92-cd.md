@@ -105,6 +105,9 @@
 - **M4**：
   - `cd.yml` 的 `deploy` 只在核准後連線；`plan` 與 `compat` 在核准前完成。
   - 各 action 以完整 SHA pin，權限依 job 最小化（`permissions: {}` 為預設）。
+- **commit message 不準確（未改寫歷史）**：`8e1001d`（文件 commit）的 message 寫「修正 runbook 與 test plan 的兩個過時路徑」，但 runbook 那部分修正的是 bootstrap 的 tag 與 digest 說明，不是路徑。依要求不改寫歷史，這裡記錄以供追溯。
+- **sudo env_keep 與 forced command（後續修正，`6106d82`）**：發現 sudo 清除 `SSH_ORIGINAL_COMMAND` 後，程式在空指令且 `SUDO_USER` 存在時，改為指出 sudoers 的確切修正行；runbook §2.6 改為已選定的修正方式與 EC2 驗證步驟。
+- **S1、S2 與 drift 的文件補充**：ADR-006 的不變式列表補上 S1 → N7 與 S2 → I6；runbook §5.4 補上人工 drift 修復程序。
 - **本報告 PR**：
   - runbook（`deploy/README.md`）、ADR-006、`deployment.md` §3、§5～§8、需求與測試計畫、爬蟲 README。
   - 文件中的指令、設定鍵、退出碼與 check 名稱都對照程式碼核對。
@@ -138,7 +141,7 @@
 
 ## 未解決事項
 
-- **sudo 與 `SSH_ORIGINAL_COMMAND`（上線前必須確認）**：`deploy-entry` 讀取 `SSH_ORIGINAL_COMMAND`，但 `sudo` 預設清除它。程式內的測試直接設定環境變數，不經過 sudo，因此不會被測試發現。runbook §2.6 列出候選修正，待 EC2 上以 plan key 執行 `status` 驗證。
+- **sudo 與 `SSH_ORIGINAL_COMMAND`（上線前必須在 EC2 確認）**：`sudo` 預設清除 `SSH_ORIGINAL_COMMAND`。修正方式已選定：sudoers 加上 `Defaults!/opt/book-finder/host/deploy-entry env_keep += "SSH_ORIGINAL_COMMAND"`（只對該指令保留）。程式另外在 `SUDO_USER` 存在且指令為空時，以 exit 2 回報此行的確切內容。EC2 驗證：以 plan key 執行 `status 1-1`，必須回傳 `not-started`（runbook §2.6）。程式內的測試直接設定環境變數，不經過 sudo，因此 EC2 驗證不可省略。
 - **systemd-run 以 root 執行**、`INVOCATION_ID` 是否由 systemd 設定、SSH 斷線後 unit 是否存活：本機只以 `--user` 驗證（上節第 5 項）。
 - **psql 容器能否連到 RDS**：未在 EC2 上驗證。
 - **Compose 版本**：raw env_file 由 probe 在執行時驗證；EC2 上的版本號待記錄。
@@ -147,10 +150,10 @@
 - **GHCR visibility**：public 或 private 尚未決定；private 時 host 需要登入。
 - **Immutable Releases GA**：尚未確認。
 - **`production-plan` 的 reviewer**：未決定（程式不依賴）。
-- **Google Books SSM 參數**：`deployment.md` 的範例參數，程式中未找到讀取位置（待確認）。
-- **不變式 S1、S2**：設計計畫中沒有定義（只有 S3～S11）。本報告與文件都沒有引用它們，是否遺漏需使用者確認。
+- **Google Books SSM 參數**：`deployment.md` §5 保留該參數，並標示為 #14（Google Books fallback）實作時才使用；目前程式未讀取，host 也不注入。
+- **不變式編號 S1、S2**：已在 v5 併入其他不變式（S1 → N7，transient unit 不用 `--pipe`；S2 → I6，GC 保留被引用的 image 與目錄）。ADR-006 保留編號說明，無須額外處理。
 - **整合測試尚未在 CI 執行**：`BOOKFINDER_IT=1` 需要本機 Docker，目前是人工執行。
-- **drift 修復**：程式只回報 drift 並拒絕部署，沒有修復指令。修復流程需人工判斷（`deploy/README.md` §5.4）。
+- **drift 專用的 reconcile 指令尚不存在**：程式只回報 drift 並拒絕部署。runtime drift 的人工修復程序已寫入 `deploy/README.md` §5.4（以 state 記錄的 release 與 compose 檔重新 `compose up`，並先驗證 compose 雜湊）；schema drift 一律停止並走 L4 調查。此程序是待辦的 reconcile 指令的替代方案，不是程式化的解法。
 - **snapshot 保留**：程式不刪除 snapshot；保留數量與清理由操作者手動處理。
 
 ## Code Review 與修正

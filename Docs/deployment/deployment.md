@@ -66,7 +66,7 @@ CD 部署後的配置（`deploy/README.md` §1）：
 |---|---|
 | `/book-finder/prod/db-connection` | RDS 連線字串 |
 | `/book-finder/prod/openai-api-key` | OpenAI（注入環境變數 `OPENAIAPI_KEY`） |
-| `/book-finder/prod/google-books-api-key` | Google Books（**待確認**：host 不注入此參數；程式中未找到讀取此設定的位置） |
+| `/book-finder/prod/google-books-api-key` | Google Books（#14 Google Books fallback 實作時才使用；目前程式未讀取，host 也不注入） |
 | `/book-finder/prod/jwt-signing-key` | JWT HS256 key（至少 32 bytes 隨機值） |
 
 - CD 的 deploy 由 host 程式以 EC2 IAM role 讀取 SSM，寫入 `/run/book-finder/web-<run_id>.env`（`chmod 600`），compose 以 `env_file`（`format: raw`）注入；每次部署結束（成功或失敗）都會刪除此檔（`machine.py` 的 `_discard_env`）。secret 值不寫入 history、journal 或 log。
