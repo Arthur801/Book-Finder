@@ -18,7 +18,7 @@ namespace WebIntegration;
 // connection string from here, so it never touches the development or production database.
 public sealed class WebFixture : IAsyncLifetime
 {
-    private readonly PostgreSqlContainer container = new PostgreSqlBuilder("pgvector/pgvector:pg17").Build();
+    private readonly PostgreSqlContainer container = new PostgreSqlBuilder("pgvector/pgvector:0.8.7-pg17").Build();
 
     // Every test starts its own host, and each host would watch appsettings*.json for changes. With dozens of hosts
     // in one test process that exhausts Linux's per-user inotify instances (default 128), so config reload is off.

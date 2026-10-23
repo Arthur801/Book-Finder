@@ -15,7 +15,7 @@
 | 層 | 工具 | 範圍 | 位置 |
 |---|---|---|---|
 | Unit | xUnit | 純規則：ISBN 判定與正規化、filter JSON → 查詢條件、排序結果驗證、評分 / 狀態驗證、returnUrl 檢查 | `tests/UnitTests` |
-| Integration | xUnit + Testcontainers（`pgvector/pgvector:pg17`） | Schema / constraint、Repository、一般搜尋 SQL、向量檢索與門檻、Bestseller 讀取、Library CRUD、Recommendation 全流程（搭配 fake adapter） | `tests/DatabaseIntegration`（已存在）及後續整合測試 project |
+| Integration | xUnit + Testcontainers（`pgvector/pgvector:0.8.7-pg17`） | Schema / constraint、Repository、一般搜尋 SQL、向量檢索與門檻、Bestseller 讀取、Library CRUD、Recommendation 全流程（搭配 fake adapter） | `tests/DatabaseIntegration`（已存在）及後續整合測試 project |
 | Web | xUnit + `WebApplicationFactory` + Testcontainers | 認證 cookie、antiforgery、401 / 404 / 429、ProblemDetails 格式、PRG 重導；目前已覆蓋首頁、暢銷榜頁與共用版面 | `tests/WebIntegration`（骨架已建立，其餘項目後續補上） |
 | Crawler | pytest + 存下來的博客來 HTML fixtures + 拋棄式 PostgreSQL | 排行榜與詳細頁解析、重試 / 跳過 / 上限、Bestseller 替換 transaction | `crawler/tests/` |
 | E2E 瀏覽器 | — | MVP 不做 | |
@@ -71,8 +71,8 @@ CI 由 `.github/workflows/` 定義，PR 與 push 到 `main` 時執行：
 - `CI` workflow：
   - `.NET build and tests`：build 後執行所有 .NET 測試（整合測試以 Testcontainers 啟動 pgvector），trx 結果上傳為 artifact。
   - `Crawler tests`：安裝 .NET SDK 以產生 EF schema（`tests/conftest.py`），安裝 Playwright Chromium 後執行 pytest，JUnit XML 上傳為 artifact。
-  - `Lint and format`：`dotnet format --verify-no-changes` 與 ruff（版本由 `crawler/requirements.txt` 釘定）。
+  - `Lint and format`：`dotnet format --verify-no-changes`、ruff（涵蓋 `crawler` 與 `.github/scripts`，版本由 `crawler/requirements.txt` 釘定），以及 `.github/scripts/check_version_sync.py`（dotnet-ef 與 EF Core、測試 pgvector image 與 `compose.yaml` 必須一致）。
 - `CodeQL` workflow：對 csharp、python、actions 做程式碼掃描，於 PR、push 到 `main` 與每週一排程時執行。
-- Dependabot 每週更新 nuget、pip、github-actions、docker 的依賴。
+- Dependabot 每週更新 nuget、pip、github-actions、docker、docker-compose 的依賴。
 - `main` 由 ruleset 保護：必須經 PR 合併，且 `.NET build and tests`、`Crawler tests`、`Lint and format` 通過、CodeQL 無 high 以上告警才能合併。
 - CI 不使用任何 secret。CD（部署）仍為延後項目。

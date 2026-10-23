@@ -9,7 +9,7 @@ namespace DatabaseIntegration;
 // One disposable pgvector container per test run; it never touches the development or production database.
 public sealed class PostgresFixture : IAsyncLifetime
 {
-    private readonly PostgreSqlContainer container = new PostgreSqlBuilder("pgvector/pgvector:pg17").Build();
+    private readonly PostgreSqlContainer container = new PostgreSqlBuilder("pgvector/pgvector:0.8.7-pg17").Build();
 
     // Interceptors are optional: only tests that count the SQL a query sends pass one.
     public AppDbContext CreateContext(params IInterceptor[] interceptors) => new(new DbContextOptionsBuilder<AppDbContext>()

@@ -9,7 +9,7 @@
 
 | 環境 | Database | Secrets |
 |---|---|---|
-| Local | `compose.yaml` 的 `pgvector/pgvector:pg17`（只綁 `127.0.0.1`） | `.env`（不進 repository）、`dotnet user-secrets`；JWT key 與 `OPENAIAPI_KEY` 見 §5 |
+| Local | `compose.yaml` 的 `pgvector/pgvector:0.8.7-pg17`（只綁 `127.0.0.1`） | `.env`（不進 repository）、`dotnet user-secrets`；JWT key 與 `OPENAIAPI_KEY` 見 §5 |
 | Test | Testcontainers 拋棄式資料庫 | 不需要 |
 | Production | AWS RDS PostgreSQL + pgvector | AWS SSM Parameter Store |
 
