@@ -31,21 +31,21 @@ def test_comments_blank_lines_and_surrounding_whitespace_are_ignored_and_order_i
 def test_a_line_that_is_not_a_category_ranking_url_is_an_error_naming_the_file_and_line(tmp_path):
     path = write_list(tmp_path, f"# comment\n{CATEGORY_1}\nhttps://example.com/not-books\n{CATEGORY_2}\n")
 
-    with pytest.raises(PageListError, match=rf"{str(path)}.*line 3"):
+    with pytest.raises(PageListError, match=rf"{path!s}.*line 3"):
         load_page_urls(path)
 
 
 def test_a_file_without_any_url_is_an_error_naming_the_file(tmp_path):
     path = write_list(tmp_path, "# only comments\n\n   \n")
 
-    with pytest.raises(PageListError, match=rf"{str(path)}: no category page URLs"):
+    with pytest.raises(PageListError, match=rf"{path!s}: no category page URLs"):
         load_page_urls(path)
 
 
 def test_a_missing_file_is_an_error_naming_the_file(tmp_path):
     path = tmp_path / "no-such-list.txt"
 
-    with pytest.raises(PageListError, match=rf"cannot read category pages file {str(path)}"):
+    with pytest.raises(PageListError, match=rf"cannot read category pages file {path!s}"):
         load_page_urls(path)
 
 

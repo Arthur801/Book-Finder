@@ -4,3 +4,5 @@
 playwright==1.63.0
 pytest==9.1.1
 testcontainers[postgres]==4.15.0
+# Lint and format (configuration in ruff.toml); CI reads this pin for the lint job.
+ruff==0.17.2

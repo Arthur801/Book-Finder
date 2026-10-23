@@ -6,6 +6,5 @@ Uses the same DATABASE_URL and CRAWLER_FETCHER settings as the daily crawler (de
 
 from books_crawler.cli import CrawlerMode, main
 
-
 if __name__ == "__main__":
     raise SystemExit(main(mode=CrawlerMode.FIRST_BOOK))

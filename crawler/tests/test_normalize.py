@@ -11,7 +11,6 @@ from books_crawler.normalize import (
     parse_published_date,
 )
 
-
 # ISBN normalization and checksum (data-model §5.3)
 
 @pytest.mark.parametrize(

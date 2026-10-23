@@ -1,12 +1,11 @@
 """Exercise the host wrapper without AWS, Docker, root, or website requests."""
 
 import os
-from pathlib import Path
 import subprocess
 import time
+from pathlib import Path
 
 import pytest
-
 
 SCRIPT = Path(__file__).resolve().parents[1] / "deploy" / "run-crawler.sh"
 
@@ -49,7 +48,7 @@ docker() {
 
 
 def execute(env, *args):
-    return subprocess.run(["bash", str(SCRIPT), *args], env=env, capture_output=True, text=True)
+    return subprocess.run(["bash", str(SCRIPT), *args], env=env, capture_output=True, text=True, check=False)
 
 
 def test_daily_keeps_exit_code_and_removes_secret_file(host):

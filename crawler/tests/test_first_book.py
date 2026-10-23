@@ -54,7 +54,7 @@ def test_import_only_first_book_and_retry_database_without_refetch(monkeypatch):
 
 
 def test_known_first_book_does_not_fetch_detail_or_write(monkeypatch):
-    deps, first = dependencies(lambda: nullcontext(object()))
+    deps, _first = dependencies(lambda: nullcontext(object()))
     monkeypatch.setattr(db, "find_source", lambda *args: SourceRef(uuid4(), uuid4()))
     monkeypatch.setattr(db, "persist_new_source", lambda *args, **kwargs: pytest.fail("must reuse existing book"))
     report = run_first_book(deps)

@@ -1,16 +1,16 @@
 """Real parsers + disposable PostgreSQL; no requests to books.com.tw."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from books_crawler import db
 from books_crawler.models import RunStatus, SnapshotRow
 from books_crawler.parsers import RANKING_PAGE_URL, parse_detail_html, parse_ranking_html
 from books_crawler.run import RunDependencies, run_first_book
-from tests.fakes import FakeFetcher, FakeSleep, RANKING_FIXTURE, fixture_html, make_draft, product_url
+from tests.fakes import RANKING_FIXTURE, FakeFetcher, FakeSleep, fixture_html, make_draft, product_url
 
 
 def test_first_book_real_fixture_is_persisted_idempotently_without_changing_snapshot(db_url):
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     with db.connect(db_url) as conn:
         previous = [db.persist_new_source(conn, make_draft(product_url(9000000000 + rank)), now)
                     for rank in range(1, 101)]

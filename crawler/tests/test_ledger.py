@@ -7,15 +7,15 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
 from books_crawler.ledger import RunLedger, RunReport
-from books_crawler.models import Failure, Resolution, ResolvedRow, RunStatus, SkipReason, SkippedRow, SourceRef
+from books_crawler.models import Failure, Resolution, ResolvedRow, RunStatus, SkippedRow, SkipReason, SourceRef
 from tests.fakes import product_url
 
-NOW = datetime(2026, 10, 11, 4, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 10, 11, 4, 0, tzinfo=UTC)
 
 
 def resolved(rank: int, resolution: Resolution = Resolution.NEW_BOOK, book_id: uuid.UUID | None = None) -> ResolvedRow:

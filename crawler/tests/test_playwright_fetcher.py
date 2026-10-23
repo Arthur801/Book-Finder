@@ -114,7 +114,7 @@ def chromium_ready() -> None:
     try:
         with sync_playwright() as playwright:
             playwright.chromium.launch(headless=True).close()
-    except Exception as exc:  # any launch failure means the browser tests cannot run here
+    except Exception as exc:  # noqa: BLE001 - any launch failure means the browser tests cannot run here
         first_line = (str(exc).strip().splitlines() or [type(exc).__name__])[0]
         pytest.skip(
             f"Chromium cannot be launched for Playwright ({first_line}). Install it with "
@@ -157,24 +157,21 @@ def test_browser_uses_desktop_user_agent_and_zh_tw_locale(chromium_ready, local_
 
 @pytest.mark.parametrize(("path", "message"), [("/missing", "HTTP 404"), ("/unavailable", "HTTP 503")])
 def test_non_200_response_raises_fetch_error_and_saves_diagnostics(chromium_ready, local_site, path, message, tmp_path):
-    with PlaywrightFetcher(delay_seconds=0, diagnostic_dir=tmp_path) as fetcher:
-        with pytest.raises(FetchError, match=message):
-            fetcher.get(local_site.url(path))
+    with PlaywrightFetcher(delay_seconds=0, diagnostic_dir=tmp_path) as fetcher, pytest.raises(FetchError, match=message):
+        fetcher.get(local_site.url(path))
     assert len(list(tmp_path.glob("*.html"))) == 1
     assert len(list(tmp_path.glob("*.json"))) == 1
 
 
 def test_navigation_timeout_raises_fetch_error(chromium_ready, local_site):
-    with PlaywrightFetcher(navigation_timeout_ms=500, delay_seconds=0) as fetcher:
-        with pytest.raises(FetchError, match="TimeoutError"):
-            fetcher.get(local_site.url("/slow"))
+    with PlaywrightFetcher(navigation_timeout_ms=500, delay_seconds=0) as fetcher, pytest.raises(FetchError, match="TimeoutError"):
+        fetcher.get(local_site.url("/slow"))
 
 
 @pytest.mark.parametrize("path", ["/challenge-title", "/challenge-header", "/challenge-header-403"])
 def test_cloudflare_challenge_raises_fetch_error(chromium_ready, local_site, path, tmp_path):
-    with PlaywrightFetcher(delay_seconds=0, diagnostic_dir=tmp_path) as fetcher:
-        with pytest.raises(FetchError, match="challenge"):
-            fetcher.get(local_site.url(path))
+    with PlaywrightFetcher(delay_seconds=0, diagnostic_dir=tmp_path) as fetcher, pytest.raises(FetchError, match="challenge"):
+        fetcher.get(local_site.url(path))
     assert len(list(tmp_path.glob("*.png"))) == 1
     assert len(list(tmp_path.glob("*.html"))) == 1
     assert len(list(tmp_path.glob("*.json"))) == 1
@@ -191,9 +188,8 @@ def test_unreachable_server_raises_fetch_error(chromium_ready):
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
         port = probe.getsockname()[1]  # nothing listens on this port once the socket is closed
-    with PlaywrightFetcher(delay_seconds=0, navigation_timeout_ms=5000) as fetcher:
-        with pytest.raises(FetchError, match="failed"):
-            fetcher.get(f"http://127.0.0.1:{port}/")
+    with PlaywrightFetcher(delay_seconds=0, navigation_timeout_ms=5000) as fetcher, pytest.raises(FetchError, match="failed"):
+        fetcher.get(f"http://127.0.0.1:{port}/")
 
 
 def test_browser_that_disappears_mid_run_raises_fetch_error_and_close_still_works(chromium_ready, local_site):
@@ -240,12 +236,11 @@ def test_one_browser_is_reused_across_gets(chromium_ready, local_site):
 
 def test_browser_is_closed_when_a_get_raises(chromium_ready, local_site, tmp_path):
     fetcher = PlaywrightFetcher(delay_seconds=0, diagnostic_dir=tmp_path)
-    with pytest.raises(FetchError):
-        with fetcher:
-            fetcher.get(local_site.url("/normal"))
-            browser = fetcher.browser
-            assert browser is not None and browser.is_connected()
-            fetcher.get(local_site.url("/missing"))
+    with pytest.raises(FetchError), fetcher:
+        fetcher.get(local_site.url("/normal"))
+        browser = fetcher.browser
+        assert browser is not None and browser.is_connected()
+        fetcher.get(local_site.url("/missing"))
 
     assert fetcher.browser is None
     assert not browser.is_connected()
@@ -253,11 +248,10 @@ def test_browser_is_closed_when_a_get_raises(chromium_ready, local_site, tmp_pat
 
 def test_browser_is_closed_when_an_unrelated_exception_escapes(chromium_ready, local_site):
     fetcher = PlaywrightFetcher(delay_seconds=0)
-    with pytest.raises(RuntimeError, match="run failed"):
-        with fetcher:
-            fetcher.get(local_site.url("/normal"))
-            browser = fetcher.browser
-            raise RuntimeError("run failed")
+    with pytest.raises(RuntimeError, match="run failed"), fetcher:
+        fetcher.get(local_site.url("/normal"))
+        browser = fetcher.browser
+        raise RuntimeError("run failed")
 
     assert not browser.is_connected()
 

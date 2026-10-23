@@ -49,10 +49,10 @@ def ef_schema_sql(tmp_path_factory) -> str:
     dotnet = shutil.which("dotnet")
     if dotnet is None:
         pytest.skip("dotnet SDK not available; cannot generate the EF Core schema")
-    restore = subprocess.run([dotnet, "tool", "restore"], cwd=REPO_ROOT, capture_output=True, text=True)
+    restore = subprocess.run([dotnet, "tool", "restore"], cwd=REPO_ROOT, capture_output=True, text=True, check=False)
     if restore.returncode != 0:
         pytest.fail(f"dotnet tool restore failed: {restore.stderr or restore.stdout}")
-    build = subprocess.run([dotnet, "build", "Book-Finder.csproj"], cwd=REPO_ROOT, capture_output=True, text=True)
+    build = subprocess.run([dotnet, "build", "Book-Finder.csproj"], cwd=REPO_ROOT, capture_output=True, text=True, check=False)
     if build.returncode != 0:
         pytest.fail(f"dotnet build failed: {build.stdout[-2000:]}")
     script = tmp_path_factory.mktemp("ef-schema") / "schema.sql"
@@ -61,6 +61,7 @@ def ef_schema_sql(tmp_path_factory) -> str:
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
+        check=False,
     )
     if generated.returncode != 0:
         pytest.fail(f"dotnet ef migrations script failed: {generated.stderr or generated.stdout}")

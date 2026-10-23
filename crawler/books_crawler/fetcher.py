@@ -23,7 +23,7 @@ import logging
 import random
 import time
 from collections.abc import Callable, Mapping
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum, StrEnum, auto
 from pathlib import Path
 from typing import Any, Protocol
@@ -190,7 +190,7 @@ def _title(soup: BeautifulSoup) -> str:
 def _new_diagnostic_base(directory: Path) -> Path:
     """Create ``directory`` and return a unique file stem in it, so retries never overwrite each other."""
     directory.mkdir(parents=True, exist_ok=True)
-    return directory / (datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ") + "-" + uuid4().hex[:8])
+    return directory / (datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ") + "-" + uuid4().hex[:8])
 
 
 def _sample_page_delay() -> float:

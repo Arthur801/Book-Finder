@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
 import psycopg
 import pytest
@@ -31,8 +31,8 @@ from tests.fakes import (
     ranking_rows,
 )
 
-NOW = datetime(2026, 10, 11, 4, 0, tzinfo=timezone.utc)
-LATER = datetime(2026, 10, 12, 4, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 10, 11, 4, 0, tzinfo=UTC)
+LATER = datetime(2026, 10, 12, 4, 0, tzinfo=UTC)
 RETRY_SLEEPS = [1.0, 2.0]  # the backoff between the three attempts of one row (crawler.md §6)
 
 
@@ -679,9 +679,8 @@ def test_failed_snapshot_replacement_keeps_previous_list_and_last_seen(db_url):
     # bestsellers.book_id makes the INSERT fail after 49 rows were written.
     snapshot[49] = SnapshotRow(rank=50, book_id=books[49], source_id=sources[48][1])
 
-    with psycopg.connect(db_url, autocommit=True) as conn:
-        with pytest.raises(psycopg.errors.UniqueViolation):
-            db.replace_bestsellers(conn, snapshot, captured_at=LATER)
+    with psycopg.connect(db_url, autocommit=True) as conn, pytest.raises(psycopg.errors.UniqueViolation):
+        db.replace_bestsellers(conn, snapshot, captured_at=LATER)
 
     assert bestsellers(db_url) == previous
     assert query(db_url, "SELECT id, last_seen_at FROM book_sources ORDER BY id") == sources_before
@@ -711,12 +710,11 @@ def test_replacement_rejects_a_source_that_is_not_the_books_own_books_com_tw_sou
     sources_before = query(db_url, "SELECT id, last_seen_at FROM book_sources ORDER BY id")
     snapshot[4] = SnapshotRow(rank=5, book_id=target.book_id, source_id=bad_source)
 
-    with db.connect(db_url) as conn:
-        with pytest.raises(
-            db.SnapshotValidationError,
-            match=f"rank 5: source {bad_source} is not a BOOKS_COM_TW source of Book {target.book_id}",
-        ):
-            db.replace_bestsellers(conn, snapshot, captured_at=LATER)
+    with db.connect(db_url) as conn, pytest.raises(
+        db.SnapshotValidationError,
+        match=f"rank 5: source {bad_source} is not a BOOKS_COM_TW source of Book {target.book_id}",
+    ):
+        db.replace_bestsellers(conn, snapshot, captured_at=LATER)
 
     assert bestsellers(db_url) == previous
     assert query(db_url, "SELECT id, last_seen_at FROM book_sources ORDER BY id") == sources_before

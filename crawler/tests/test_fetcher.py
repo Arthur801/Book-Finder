@@ -57,7 +57,7 @@ def test_the_curl_path_does_not_import_playwright():
         "create_fetcher(FetcherKind.CURL).close()\n"
         "assert 'playwright' not in sys.modules, sorted(m for m in sys.modules if m.startswith('playwright'))\n"
     )
-    result = subprocess.run([sys.executable, "-c", code], cwd=CRAWLER_DIR, capture_output=True, text=True)
+    result = subprocess.run([sys.executable, "-c", code], cwd=CRAWLER_DIR, capture_output=True, text=True, check=False)
 
     assert result.returncode == 0, result.stderr
 

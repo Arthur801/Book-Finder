@@ -41,7 +41,7 @@ import time
 import uuid
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
@@ -100,7 +100,7 @@ class _DuplicateBook:
 
 
 def utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def backoff_seconds(attempt: int) -> float:
@@ -358,7 +358,7 @@ def run_first_book(deps: RunDependencies, run_id: str | None = None) -> RunRepor
         if isinstance(outcome, ResolvedRow):
             ref = outcome.source_ref
             log.info("rank=1 url=%s book_id=%s source_id=%s", row.url, ref.book_id, ref.source_id)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - a run failure is recorded in the report, not raised
         error = redact(f"{type(exc).__name__}: {exc}")
     report = ledger.report(
         run_id=run_id or str(uuid.uuid4()),
@@ -391,7 +391,7 @@ def run_once(deps: RunDependencies, run_id: str | None = None) -> RunReport:
                     break
             if not ledger.aborted:
                 db.replace_bestsellers(conn, ledger.snapshot, captured_at=deps.clock())
-    except Exception as exc:  # any failure fails the run; the previous bestsellers are untouched
+    except Exception as exc:  # noqa: BLE001 - any failure fails the run; the previous bestsellers are untouched
         error = redact(f"{type(exc).__name__}: {exc}")
 
     report = ledger.report(
@@ -439,7 +439,7 @@ def run_pages(deps: RunDependencies, page_urls: Sequence[str], run_id: str | Non
                 for row in rows:
                     # No ranked map: the same Book may appear on several pages (the database deduplicates by URL).
                     ledger.record(_resolve_row(conn, row, deps, ranked={}))
-    except Exception as exc:  # the run cannot continue; the Catalog keeps what was already committed
+    except Exception as exc:  # noqa: BLE001 - the run cannot continue; the Catalog keeps what was already committed
         error = redact(f"{type(exc).__name__}: {exc}")
 
     report = ledger.report(
