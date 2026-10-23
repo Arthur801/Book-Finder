@@ -47,7 +47,11 @@ docker run --rm --entrypoint python book-finder-crawler:local -c \
 postgresql://CRAWLER_USER:URL_ENCODED_PASSWORD@RDS_ENDPOINT:5432/book_finder?sslmode=require
 ```
 
-密碼的特殊字元需 URL encode；不要把 .NET 的 `Host=...;Username=...` 字串原樣給 crawler。使用資料庫 host name，container 裡的 `localhost` 是 container 自己。此範例要求 TLS；若環境採 `verify-full`，需另外掛載 RDS CA 檔並設定 `sslrootcert`，不要關閉憑證驗證繞過錯誤。
+密碼的特殊字元需 URL encode；不要把 .NET 的 `Host=...;Username=...` 字串原樣給 crawler。使用資料庫 host name，container 裡的 `localhost` 是 container 自己。此範例要求 TLS；若環境採 `verify-full`，改用下列 URL，並在 `crawler.conf` 設定 `DB_CA_BUNDLE`（§4）。`run-crawler.sh` 會以唯讀方式把該檔掛到容器內的同一路徑，所以 `sslrootcert` 指的是容器內也存在的路徑。不要關閉憑證驗證繞過錯誤（`sslmode=require` 不驗證憑證，安全性較低）：
+
+```text
+postgresql://CRAWLER_USER:URL_ENCODED_PASSWORD@RDS_ENDPOINT:5432/book_finder?sslmode=verify-full&sslrootcert=/etc/book-finder/global-bundle.pem
+```
 
 `run-crawler.sh` 每次執行以 host IAM role 讀取此參數，寫入 `/run/book-finder` 的臨時 env file（權限 600），用 `--env-file` 注入 container，結束後刪除。重開機後下次執行會重新產生，cron 不依賴 SSH session 的 `export`。參考 [SSM IAM 設定](https://docs.aws.amazon.com/systems-manager/latest/userguide/parameter-store-setting-up.html) 與 [get-parameter](https://docs.aws.amazon.com/cli/latest/reference/ssm/get-parameter.html)。
 
@@ -61,10 +65,13 @@ scp -r crawler/deploy EC2_USER@EC2_HOST:~/crawler-deploy
 
 若 SSH 需要 key，依環境加入 `-i /path/to/key.pem`。以下在 EC2 執行：
 
+只建立不存在的目錄。已存在的目錄不要再執行 `install -d -m`，因為它會改寫權限（2026-10-24 production 因此出現 500，見 `deploy/README.md` §2.5）。`/etc/book-finder` 必須是 `0755`，讓 web 能讀取 CA bundle：
+
 ```bash
-sudo install -d -m 0755 /opt/book-finder
-sudo install -d -m 0700 /etc/book-finder /var/lib/book-finder/crawler
-sudo install -d -m 0750 /var/log/book-finder
+[ -d /opt/book-finder ] || sudo install -d -m 0755 /opt/book-finder
+[ -d /etc/book-finder ] || sudo install -d -m 0755 /etc/book-finder
+[ -d /var/lib/book-finder/crawler ] || sudo install -d -m 0700 /var/lib/book-finder/crawler
+[ -d /var/log/book-finder ] || sudo install -d -m 0750 /var/log/book-finder
 sudo install -m 0755 ~/crawler-deploy/run-crawler.sh /opt/book-finder/run-crawler.sh
 sudo install -m 0600 ~/crawler-deploy/crawler.conf.example /etc/book-finder/crawler.conf
 sudoedit /etc/book-finder/crawler.conf
@@ -78,6 +85,7 @@ sudoedit /etc/book-finder/crawler.conf
 | `AWS_REGION` | SSM 所在 region |
 | `DATABASE_URL_PARAMETER` | 上節的 SSM parameter name |
 | `CRAWLER_ENABLED` | 選填。`true`（預設，未寫入時即為 true）或 `false`；見下節「暫停排程」。空字串或其他值會以 exit 2 拒絕 |
+| `DB_CA_BUNDLE` | 選填。RDS CA bundle 的絕對路徑（例如 `/etc/book-finder/global-bundle.pem`）。有設定時，須為一般檔案、不能是 symlink、權限 `0644`（容器的非 root 使用者要能讀）；不符合即 exit 2，且在任何變更之前拒絕。通過後以唯讀方式掛到容器內的同一路徑。未設定時不掛載，行為與之前相同 |
 
 `crawler.conf` 由 root 擁有，只讓 root 編輯，因為 script 會 source 此檔。
 
