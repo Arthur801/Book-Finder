@@ -1,7 +1,7 @@
 # Pinned dependencies for the 博客來 crawler (verified to install on Python 3.14).
 # Install from the crawler directory: pip install -r requirements.txt
 -r requirements-runtime.txt
-playwright==1.63.0
+playwright==1.64.0
 pytest==9.1.1
 testcontainers[postgres]==4.15.0
 # Lint and format (configuration in ruff.toml); CI reads this pin for the lint job.
