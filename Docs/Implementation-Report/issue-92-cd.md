@@ -84,8 +84,9 @@
 ### CD workflow（M4）
 
 - **M4 review 修正（#98）**：
-  - **Build commit point**：每個 image 先推送到 staging tag `build-<run_id>-<run_attempt>`，attest 後 `verify-attestation` 驗證通過，才以 `docker buildx imagetools create` 建立 release tag（commit point），再以 `confirm-release` 確認 release tag 解析到 attest 的 digest。不變式：存在的 release tag 必定有符合規定的 provenance；commit point 前崩潰不留下 release tag，rerun 重新 build。staging tag 留待手動清理（`deploy/README.md` §1.6）。
-  - **已知風險**：`imagetools create` 若未保留 digest，release tag 會指向未 attest 的 digest。首次正式 release 前必須確認（`deploy/README.md` §7.2 第 17 項）；失敗時依 §1.6 手動刪除該 GHCR 版本後才能 rerun（L4 等級）。
+  - **Build commit point**：每個 image 先推送到 staging tag `build-<run_id>-<run_attempt>`，attest 後 `verify-attestation` 驗證通過，才以 `docker buildx imagetools create --prefer-index=false` 建立 release tag（commit point），再以 `confirm-release` 確認 release tag 解析到 attest 的 digest。不變式：存在的 release tag 必定有符合規定的 provenance；commit point 前崩潰不留下 release tag，rerun 重新 build。staging tag 留待手動清理（`deploy/README.md` §1.6）。
+  - **imagetools 與 digest（PR #98 review 修正）**：`docker buildx imagetools create` 的預設 `--prefer-index=true` 會把單一 manifest 的來源包成新的 image index，digest 改變（依 [Docker 文件](https://docs.docker.com/reference/cli/docker/buildx/imagetools/create/)）。若照預設執行，`confirm-release` 必定失敗，而且是在 release tag 已寫入之後才發現。修正：`cd.yml` 的 web 與 crawler release tag 步驟改用 `--prefer-index=false`；`deploy/integration/imagetools-roundtrip.sh`（CI `docker` job 執行）以本機 registry 做真實 round trip，並含對照組（同一命令不加旗標時，單一 manifest 來源應被包成新 index；若 Docker 未包裝則只印 WARN），且印出 `INFO source shape: index|manifest` 讓 CI log 顯示 GitHub runner 產生的來源形式。
+  - **已知風險**：本機 round trip 已驗證行為，但 GHCR 端尚未實際觀察。首次正式 release 前必須確認 `Confirm` 步驟通過（`deploy/README.md` §7.2 第 17 項）；失敗時依 §1.6 手動刪除該 GHCR 版本後才能 rerun（L4 等級）。
   - **`deploy --detach`**：CD 的 SSH 呼叫只等 host 回覆 `launched`（最多 60 秒，`commands.py` 的 `DETACH_ACK_TIMEOUT_S`），之後唯一的跟隨者 `deploy-follow` 每 30 秒呼叫 `status`，最多 160 分鐘（`cd_release.py` 的 `FOLLOW_TIMEOUT_S`），job timeout 180 分鐘。ssh 退出碼 255 視為沒有回應並重試，其他非零退出碼的 status 失敗使 job 失敗。互動式 `deploy`（不帶 `--detach`）行為不變。
   - 以上細節與操作步驟見 `deploy/README.md` §1.5、§1.6、§4。
 - Tag 與 dispatch 兩種觸發。guard 驗證 tag 格式，並確認 commit 在 `origin/main` 上；dispatch 額外要求 `ref == main` 且 release 已 published。
@@ -127,8 +128,8 @@
 
 | 指令 | 結果 |
 |---|---|
-| `.venv/bin/python -m pytest .github/scripts/tests deploy/tests -q`（Python 3.14.4） | 644 passed, 6 skipped（skip 為 `BOOKFINDER_IT` 未設定的整合測試） |
-| `uv run --no-project --python 3.12 --with pytest==9.1.1 python -m pytest deploy/tests -q` | 575 passed, 6 skipped（同上） |
+| `.venv/bin/python -m pytest .github/scripts/tests deploy/tests -q`（Python 3.14.4） | 644 passed, 7 skipped（skip 為 `BOOKFINDER_IT` 未設定的整合測試，含 imagetools round trip 的 pytest 包裝） |
+| `uv run --no-project --python 3.12 --with pytest==9.1.1 python -m pytest deploy/tests -q` | 575 passed, 7 skipped（同上） |
 | `dotnet test tests/UnitTests/UnitTests.csproj` | 707 passed, 0 failed（前次 PR 的執行結果，本 commit 未重跑；本 commit 未改動 .NET 程式） |
 
 - 本 commit 只改文件與報告，未重跑 `ruff`、`dotnet test` 與 crawler 測試。
@@ -170,7 +171,7 @@
 - **plan job 的 12 個字串 output**：未改為結構化傳遞，會改動 workflow 介面。
 - **plan 與 deploy job 重複的 SSH 設定**：未抽成共用步驟。
 - **刻意偏離規格（須在 EC2 驗證後才算定案）**：in-sync 的 crawler 失敗會 pause；`reconcile-schema` 與 `resume-crawler --adopt-release` 的 provenance 由操作者確認（`deploy/README.md` §7.1）。
-- **Build commit point 的首次驗證（第一個正式 release 前必須）**：確認 `imagetools create` 保留 digest，即 `Confirm the web release tag` 與 `Confirm the crawler release tag` 步驟通過（`deploy/README.md` §7.2 第 17 項）。失敗時 release tag 指向未 attest 的 digest，須依 §1.6 手動刪除該 GHCR 版本後才能 rerun。
+- **Build commit point 的 GHCR 端確認（第一個正式 release 前必須）**：本機 round trip 已由 CI 的 `imagetools-roundtrip.sh` 驗證（見「實作思路」的 imagetools 條目）。尚未實際觀察的是 GHCR 上的結果：第一次 release 的 `Confirm the web release tag` 與 `Confirm the crawler release tag` 步驟必須通過（`deploy/README.md` §7.2 第 17 項）。失敗時 release tag 指向未 attest 的 digest，須依 §1.6 手動刪除該 GHCR 版本後才能 rerun。
 - **Staging tag 清理**：`build-<run_id>-<run_attempt>` 不會自動刪除，GHCR 的確切操作路徑待確認（`deploy/README.md` §1.6、§7.2 第 18 項）。刪除版本會同時移除其上的所有 tag，因此只刪除沒有 `v*` tag 的版本。
 
 ## Code Review 與修正

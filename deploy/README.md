@@ -91,7 +91,7 @@ CD 的 `build` job 對每個 image（web、crawler）依序執行。`<TAG>` 是 
 1. 推送到 staging tag（每次 attempt 的名稱不同，rerun 不會撞到先前的 staging push）；
 2. `actions/attest-build-provenance` 為該 digest 產生 attestation；
 3. `cd_release.py verify-attestation` 驗證 attestation：signer workflow 是 `cd.yml`、source ref 是 `refs/tags/<TAG>`、source digest 是 tag 的 commit；
-4. 只有驗證通過後，才以 `docker buildx imagetools create --tag <TAG>` 建立 release tag。**這一步是 commit point**；
+4. 只有驗證通過後，才以 `docker buildx imagetools create --prefer-index=false --tag <TAG>` 建立 release tag。**這一步是 commit point**；缺少 `--prefer-index=false` 時，單一 manifest 的來源會被包成新的 image index，digest 改變，`confirm-release` 會拒絕；
 5. `confirm-release` 確認 release tag 解析到剛才 attest 的 digest。
 
 **不變式**：存在的 release tag 一定有符合規定的 provenance。commit point 之前崩潰（build、push、attest 或 verify 失敗，runner 中斷）不會留下 release tag，rerun 會重新 build。已存在的 release tag 會被 `verify-attestation` 驗證後才重用；驗證失敗則拒絕重建，不會覆寫既有 tag。
@@ -99,7 +99,7 @@ CD 的 `build` job 對每個 image（web、crawler）依序執行。`<TAG>` 是 
 **staging tag 的清理（手動）**：staging tag 不會被程式刪除，會留在 GHCR（`ghcr.io/arthur801/book-finder-web`、`…-crawler`）。清理方式：
 
 - 位置：GitHub 網頁上該 package 的版本列表（GHCR 的 owner 為 `arthur801`，入口為 GitHub 的 Packages）。確切的選單名稱與路徑**待確認**，以實際頁面為準。
-- GHCR 以 digest 管理版本，tag 只是附加在版本上的名稱。`imagetools create` 不改 digest，所以 staging tag 與 release tag 常指向同一個版本。**刪除一個版本會同時移除它上面的所有 tag。**
+- GHCR 以 digest 管理版本，tag 只是附加在版本上的名稱。`docker buildx imagetools create` 的預設行為（`--prefer-index=true`）對單一 manifest 的來源會建立新的 image index，digest 改變（來源：[Docker 文件 `docker buildx imagetools create`](https://docs.docker.com/reference/cli/docker/buildx/imagetools/create/)）；CD 因此固定使用 `--prefer-index=false`。加上此旗標後，release tag 解析到與 staging tag 相同的 digest（CI 的 `deploy/integration/imagetools-roundtrip.sh` 在本機 registry 驗證此行為），所以 staging tag 與 release tag 通常指向同一個 GHCR 版本。**刪除一個版本會同時移除它上面的所有 tag。**
 - 只刪除版本上所有 tag 都是 `build-*` 的版本。版本上只要有 `v*` tag，就不得刪除。
 
 **`confirm-release` 失敗時（L4 等級）**：release tag 已指向一個 digest，但該 digest 不是剛才 attest 的那個。此時 release tag 指向未 attest 的 image，任何人拉取該 tag 都會取得它。處理步驟：
@@ -699,5 +699,5 @@ Journal 是**輔助資訊**，不是結果的來源。結果以 history 為準�
 | 14 | `google-books-api-key`（`deployment.md` §5） | 在 #14（Google Books fallback）實作時才使用；目前程式未讀取，host 也不注入 | 不屬於本次部署；實作 #14 時再納入 host.conf 與 SSM 設定 |
 | 15 | `production-plan` 是否設 reviewer | 待決定（程式不依賴） | — |
 | 16 | 爬蟲與 host 的 `DB_MAINTENANCE_LOCK` 預設值相同（程式以預設值一致） | 若 host.conf 改了 `DB_MAINTENANCE_LOCK`，爬蟲的環境變數也要改，否則兩者不會互斥 | 比對兩處的設定 |
-| 17 | **第一個正式 release 的 `imagetools create` 是否保留 digest**（§1.6） | **待確認，第一次正式 release 前必要** | 第一次 release 的 `Confirm the web release tag` 與 `Confirm the crawler release tag` 步驟必須通過。若失敗，release tag 指向未 attest 的 digest：先依 §1.6 在 GHCR 刪除該版本，確認後才 rerun（L4 等級） |
+| 17 | **第一個正式 release 在 GHCR 上的 end-to-end 確認**（§1.6） | **第一次正式 release 前必要**。Docker 的 `imagetools create` 行為本身已不是未知：本機 registry 的 round trip 由 CI 的 `imagetools-roundtrip.sh` 驗證（見 §1.6） | 第一次 release 的 `Confirm the web release tag` 與 `Confirm the crawler release tag` 步驟必須通過（GHCR 上 release tag 解析到 attest 的 digest）。若失敗，release tag 指向未 attest 的 digest：先依 §1.6 在 GHCR 刪除該版本，確認後才 rerun（L4 等級） |
 | 18 | Build 留下的 staging tag（`build-<run_id>-<run_attempt>`）的 GHCR 清理 | 待確認（GHCR 網頁的確切路徑） | 依 §1.6：只刪除版本上所有 tag 都是 `build-*` 的版本；有 `v*` tag 的版本不得刪除 |

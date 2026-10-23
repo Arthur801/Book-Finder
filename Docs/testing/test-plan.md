@@ -78,7 +78,7 @@ CI 由 `.github/workflows/` 定義，PR 與 push 到 `main` 時執行；CD（`cd
     - ruff：`crawler`；`.github/scripts`（與 crawler 共用 `crawler/ruff.toml`）；`deploy`（`deploy/ruff.toml`，目標 py312）；
     - `pytest .github/scripts/tests deploy/tests -q`（Python 3.14）與 `python -m pytest deploy/tests -q`（Python 3.12，對應 Ubuntu 24.04 的 host 環境）；
     - `shellcheck` 覆蓋 `deploy/release`、`deploy/smoke`、`deploy/lib` 與 `deploy/migration-test/compat.sh`。
-  - `Docker image`：以 `docker build` 建置 web image（不推送），執行 `deploy/smoke/web-smoke.sh`，並以 `--control-no-keys` 作為對照組（移除共用的 data protection keys 後，antiforgery 必須失敗）。
+  - `Docker image`：以 `docker build` 建置 web image（不推送），執行 `deploy/smoke/web-smoke.sh`，並以 `--control-no-keys` 作為對照組（移除共用的 data protection keys 後，antiforgery 必須失敗）。同一 job 再執行 `deploy/integration/imagetools-roundtrip.sh`：以本機 registry（`127.0.0.1`，無 mock）驗證 CD 的 release tag 步驟（`docker buildx imagetools create --prefer-index=false`）保留 digest，並含對照組（不加旗標時單一 manifest 來源會被包成新 index）；log 的 `INFO source shape` 顯示 GitHub runner 產生的 image 形式（index 或 manifest）。
   - `Migration compat check`（僅 PR）：`Infrastructure/Persistence/Migrations/`、`deploy/migration-test`、`deploy/lib`、`deploy/smoke`、`deploy/release`、`Dockerfile`、`.dockerignore` 有變動時才執行，見 §6.1。
 - `CodeQL` workflow：對 csharp、python、actions 做程式碼掃描，於 PR、push 到 `main` 與每週一排程時執行。
 - `CD` workflow（`.github/workflows/cd.yml`）：
