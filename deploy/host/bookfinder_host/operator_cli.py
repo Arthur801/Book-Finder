@@ -34,13 +34,14 @@ from typing import TextIO
 from bookfinder_host import commands as cmd
 from bookfinder_host import config as cfg
 from bookfinder_host import history as hi
-from bookfinder_host import locks, runs
+from bookfinder_host import locks, release_content, runs
 from bookfinder_host import manifest as mf
 from bookfinder_host import runtime as rt
 from bookfinder_host import state as st
 from bookfinder_host.exit_codes import BAD_INPUT, DIRTY, DRIFT, INDETERMINATE, OK
 from bookfinder_host.safefile import UnsafeFileError, read_regular_file
 
+CRAWLER_FILE_MAX_BYTES = 1 << 20  # run-crawler.sh and crawler.cron are small text files; the same bound as the machine
 MAX_REASON_CHARS = 400  # keeps an operator record well under the history line limit
 MAX_ERROR_CHARS = 500  # keeps a failed operator-completed record under the history line limit
 OPERATION_RESULTS = ("success", "failed")  # what resolve-run may record for an operator operation
@@ -128,6 +129,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     resume = sub.add_parser("resume-crawler", help="resume a paused crawler after its update is verified (N3)")
     resume.add_argument("--crawler-digest", required=True)
+    resume.add_argument("--adopt-release", help="after a partial crawler update: the release whose copies are installed (M3c-2)")
+    resume.add_argument("--adopt-web-digest", help="the web digest of --adopt-release; names its directory under RELEASES_DIR")
     common(resume)
 
     resolve = sub.add_parser("resolve-run", help="record the outcome of an indeterminate run (N7) or operator operation (M3c)")
@@ -436,6 +439,7 @@ def _bootstrap(ctx: Context) -> int:
             DRIFT,
             f"database migrations ({len(database_ids)}) are not exactly the release manifest ({len(manifest_ids)}); bootstrap needs an in-sync database",
         )
+    runner_bytes, cron_bytes = _read_crawler_files(deps.settings, "bootstrap-state needs both crawler files installed")
     ctx.err.write(
         "trust assumption: the existing database was created by exactly the migration sources of "
         f"{tag} (ids match the manifest; hashes are taken from the manifest)\n"
@@ -453,7 +457,13 @@ def _bootstrap(ctx: Context) -> int:
             dirty_since=None,
             dirty_release=None,
         ),
-        crawler=st.Crawler(digest=crawler_digest, paused=None),
+        crawler=st.Crawler(
+            digest=crawler_digest,
+            runner_sha256=_sha256_hex(runner_bytes),
+            cron_sha256=_sha256_hex(cron_bytes),
+            source_release=None,
+            paused=None,
+        ),
     )
     intended = {
         "release": tag,
@@ -553,6 +563,43 @@ def _crawler_image_line(text: str) -> str:
     return lines[0][len("CRAWLER_IMAGE=") :]
 
 
+def _sha256_hex(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def _read_crawler_files(settings: cfg.Settings, hint: str) -> tuple[bytes, bytes]:
+    """The installed run-crawler.sh and crawler.cron, as bytes; the crawler provenance is computed from these."""
+    try:
+        return (
+            read_regular_file(settings.crawler_runner, CRAWLER_FILE_MAX_BYTES),
+            read_regular_file(settings.cron_file, CRAWLER_FILE_MAX_BYTES),
+        )
+    except (OSError, UnsafeFileError) as exc:
+        raise Refusal(DRIFT, f"crawler files cannot be read ({hint}): {exc}") from exc
+
+
+def _adopt_release_files(ctx: Context, adopt_tag: str, adopt_web: str) -> tuple[bytes, bytes]:
+    """The release that a partial update is adopted from: complete, valid, and its crawler copies.
+
+    The release directory is named by the web digest, as the unit body names it (RELEASES_DIR/<hex>). Its tag cannot be
+    checked here (the directory does not carry it), so the operator's --adopt-release is recorded as asserted.
+    """
+    release = Path(ctx.deps.settings.releases_dir) / adopt_web.split(":", 1)[1]
+    if os.path.islink(release) or not release.is_dir():
+        raise Refusal(DRIFT, f"release directory {release} for {adopt_tag} is missing")
+    try:
+        release_content.validate_tree(release)
+    except release_content.ReleaseRejected as exc:
+        raise Refusal(DRIFT, f"release directory {release} is rejected: {exc}") from exc
+    try:
+        return (
+            read_regular_file(release / "run-crawler.sh", CRAWLER_FILE_MAX_BYTES),
+            read_regular_file(release / "crawler.cron", CRAWLER_FILE_MAX_BYTES),
+        )
+    except (OSError, UnsafeFileError) as exc:
+        raise Refusal(DRIFT, f"release {adopt_tag} does not ship both crawler files: {exc}") from exc
+
+
 def _resume(ctx: Context) -> int:
     args, deps = ctx.args, ctx.deps
     state = _load_state_or_refuse(ctx)
@@ -561,8 +608,14 @@ def _resume(ctx: Context) -> int:
     if state.schema.dirty:
         raise Refusal(DIRTY, "schema is dirty; reconcile-schema must run before the crawler resumes")
     digest = _check_digest(args.crawler_digest, "crawler digest")
-    if not isinstance(state.runtime, st.DockerRuntime):
-        raise Refusal(DRIFT, "the runtime is not a release directory; the crawler cannot be verified against it")
+    adopting = args.adopt_release is not None or args.adopt_web_digest is not None
+    if adopting and (args.adopt_release is None or args.adopt_web_digest is None):
+        raise Refusal(BAD_INPUT, "--adopt-release and --adopt-web-digest must be given together")
+    if not adopting and digest != state.crawler.digest:
+        raise Refusal(
+            DRIFT,
+            f"state records crawler {state.crawler.digest}; --crawler-digest must be that digest (a different crawler needs --adopt-release and --adopt-web-digest)",
+        )
     expected_image = f"{deps.settings.crawler_image_repository}@{digest}"
     try:
         conf = read_regular_file(deps.settings.crawler_conf, 65536).decode("utf-8")
@@ -570,16 +623,33 @@ def _resume(ctx: Context) -> int:
         raise Refusal(DRIFT, f"crawler.conf cannot be read: {exc}") from exc
     if _crawler_image_line(conf) != expected_image:
         raise Refusal(DRIFT, f"fix CRAWLER_IMAGE in {deps.settings.crawler_conf} to {expected_image} first")
-    release_copy = Path(state.runtime.release_dir) / "run-crawler.sh"
-    try:
-        shipped = read_regular_file(release_copy, 1 << 20)
-        installed = read_regular_file(deps.settings.crawler_runner, 1 << 20)
-    except (OSError, UnsafeFileError) as exc:
-        raise Refusal(DRIFT, f"run-crawler.sh cannot be compared with the release copy: {exc}") from exc
-    if hashlib.sha256(shipped).digest() != hashlib.sha256(installed).digest():
-        raise Refusal(DRIFT, f"installed {deps.settings.crawler_runner} differs from {release_copy}; reinstall it from the release")
+    installed_runner, installed_cron = _read_crawler_files(deps.settings, "run-crawler.sh and crawler.cron must be installed")
+    if adopting:
+        adopt_tag = _check_tag(args.adopt_release)
+        adopt_web = _check_digest(args.adopt_web_digest, "adopt web digest")
+        shipped_runner, shipped_cron = _adopt_release_files(ctx, adopt_tag, adopt_web)
+        differing = [
+            name for name, have, want in (("run-crawler.sh", installed_runner, shipped_runner), ("crawler.cron", installed_cron, shipped_cron)) if have != want
+        ]
+        if differing:
+            raise Refusal(DRIFT, f"installed {', '.join(differing)} differs from release {adopt_tag}; install that release's copies first")
+        new_crawler = st.Crawler(
+            digest=digest,
+            runner_sha256=_sha256_hex(shipped_runner),
+            cron_sha256=_sha256_hex(shipped_cron),
+            source_release=st.SourceRelease(tag=adopt_tag, web_digest=adopt_web),
+            paused=None,
+        )
+        intended = {"crawler_digest": digest, "paused": False, "adopted_release": adopt_tag, "adopted_web_digest": adopt_web}
+    else:
+        if _sha256_hex(installed_runner) != state.crawler.runner_sha256:
+            raise Refusal(DRIFT, f"installed {deps.settings.crawler_runner} differs from the crawler recorded in state; see --adopt-release")
+        if _sha256_hex(installed_cron) != state.crawler.cron_sha256:
+            raise Refusal(DRIFT, f"installed {deps.settings.cron_file} differs from the crawler recorded in state; see --adopt-release")
+        new_crawler = replace(state.crawler, paused=None)
+        intended = {"crawler_digest": digest, "paused": False}
     _confirm(ctx, digest, f"resume the crawler on {expected_image}")
-    new_state = replace(state, crawler=st.Crawler(digest=digest, paused=None))
+    new_state = replace(state, crawler=new_crawler)
 
     def apply():
         stored = _write_cas(deps, new_state, expected_revision=state.revision)
@@ -588,7 +658,7 @@ def _resume(ctx: Context) -> int:
     stored = _perform(
         ctx,
         "resume-crawler",
-        intended={"crawler_digest": digest, "paused": False},
+        intended=intended,
         before=st.state_summary(state),
         apply=apply,
         verify_unchanged=lambda: _state_revision_on_disk(ctx) == state.revision,

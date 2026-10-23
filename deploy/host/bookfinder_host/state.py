@@ -89,8 +89,25 @@ class Pause:
 
 
 @dataclass(frozen=True)
+class SourceRelease:
+    """The release whose run-crawler.sh and crawler.cron were installed last (crawler provenance)."""
+
+    tag: str
+    web_digest: str
+
+
+@dataclass(frozen=True)
 class Crawler:
+    """What the host believes the crawler runs. Its provenance is recorded here, not derived from the web runtime.
+
+    runner_sha256 and cron_sha256 are hashes of the installed files; resume-crawler compares them with the disk.
+    source_release is None only before the first systemd bootstrap.
+    """
+
     digest: str
+    runner_sha256: str
+    cron_sha256: str
+    source_release: SourceRelease | None
     paused: Pause | None
 
 
@@ -239,6 +256,22 @@ def _runtime_from_json(obj: Any, where: str) -> Runtime:
     raise StateCorrupt(f"{where}.kind must be docker or systemd")
 
 
+def source_release_to_json(source: SourceRelease | None) -> dict[str, Any] | None:
+    if source is None:
+        return None
+    return {"tag": source.tag, "web_digest": source.web_digest}
+
+
+def _source_release_from_json(obj: Any) -> SourceRelease | None:
+    if obj is None:
+        return None
+    data = _exact(obj, {"tag", "web_digest"}, "crawler.source_release")
+    return SourceRelease(
+        tag=_text(data["tag"], _TAG_RE, "crawler.source_release.tag"),
+        web_digest=_text(data["web_digest"], _DIGEST_RE, "crawler.source_release.web_digest"),
+    )
+
+
 def pause_to_json(pause: Pause | None) -> dict[str, Any] | None:
     if pause is None:
         return None
@@ -270,7 +303,13 @@ def state_to_json(state: State) -> dict[str, Any]:
             "dirty_since": schema.dirty_since,
             "dirty_release": schema.dirty_release,
         },
-        "crawler": {"digest": state.crawler.digest, "paused": pause_to_json(state.crawler.paused)},
+        "crawler": {
+            "digest": state.crawler.digest,
+            "runner_sha256": state.crawler.runner_sha256,
+            "cron_sha256": state.crawler.cron_sha256,
+            "source_release": source_release_to_json(state.crawler.source_release),
+            "paused": pause_to_json(state.crawler.paused),
+        },
     }
 
 
@@ -306,7 +345,7 @@ def state_from_json(obj: Any) -> State:
             raise StateCorrupt("dirty schema must record dirty_since and dirty_release")
     elif dirty_since is not None or dirty_release is not None:
         raise StateCorrupt("clean schema must not record dirty metadata")
-    crawler_obj = _exact(data["crawler"], {"digest", "paused"}, "crawler")
+    crawler_obj = _exact(data["crawler"], {"digest", "runner_sha256", "cron_sha256", "source_release", "paused"}, "crawler")
     previous = data["previous_runtime"]
     return State(
         revision=_integer(data["revision"], "revision"),
@@ -325,6 +364,9 @@ def state_from_json(obj: Any) -> State:
         ),
         crawler=Crawler(
             digest=_text(crawler_obj["digest"], _DIGEST_RE, "crawler.digest"),
+            runner_sha256=_text(crawler_obj["runner_sha256"], _SHA256_HEX_RE, "crawler.runner_sha256"),
+            cron_sha256=_text(crawler_obj["cron_sha256"], _SHA256_HEX_RE, "crawler.cron_sha256"),
+            source_release=_source_release_from_json(crawler_obj["source_release"]),
             paused=_pause_from_json(crawler_obj["paused"]),
         ),
     )

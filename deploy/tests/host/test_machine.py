@@ -345,6 +345,7 @@ def test_schema_ahead_success_skips_the_crawler_and_keeps_its_digest(tmp_path):
     assert (record["result"], record["exit_code"]) == ("success", OK)
     assert record["crawler_substeps"] == "skipped (schema-ahead)"
     assert world.load_state().crawler.digest == CRAWLER
+    assert world.load_state().crawler == world.state.crawler
     assert world.load_state().runtime.crawler_digest == CRAWLER
     assert world.load_state().schema.rebuild == world.state.schema.rebuild
     crawler_paths = {world.settings.crawler_runner, world.settings.cron_file, world.settings.crawler_conf}
@@ -677,6 +678,65 @@ def test_smoke_failure_stops_before_any_install(tmp_path):
         "crawler_cron": "not-run",
         "crawler_conf": "not-run",
     }
+
+
+def shipped_crawler_release(tmp_path, runner: str | None, cron: str | None, name: str = "release-crawler"):
+    release = tmp_path / name
+    write_release(release, [Migration(ID1, H1)])
+    if runner is not None:
+        (release / "run-crawler.sh").write_text(runner)
+    if cron is not None:
+        (release / "crawler.cron").write_text(cron)
+    return release
+
+
+def test_success_records_the_hashes_of_the_installed_files_and_the_source_release(tmp_path):
+    world = in_sync_world(tmp_path)
+    runner, cron = "#!/bin/sh\necho crawl\n", "0 3 * * * root /opt/book-finder/run-crawler.sh\n"
+    world.fx.docker.release_tree = shipped_crawler_release(tmp_path, runner, cron)
+    assert world.run_unit(deploy_text(world))[0] == OK
+    crawler = world.load_state().crawler
+    assert crawler.digest == CRAWLER2 and crawler.paused is None
+    assert crawler.runner_sha256 == hashlib.sha256(Path(world.settings.crawler_runner).read_bytes()).hexdigest()
+    assert crawler.cron_sha256 == hashlib.sha256(Path(world.settings.cron_file).read_bytes()).hexdigest()
+    assert crawler.source_release == st.SourceRelease(tag=TAG2, web_digest=DIGEST_OK)
+
+
+def test_a_file_the_release_does_not_ship_keeps_its_recorded_hash(tmp_path):
+    world = in_sync_world(tmp_path)
+    before = world.state.crawler
+    world.fx.docker.release_tree = shipped_crawler_release(tmp_path, "#!/bin/sh\necho new\n", None)
+    assert world.run_unit(deploy_text(world))[0] == OK
+    crawler = world.load_state().crawler
+    assert crawler.runner_sha256 == hashlib.sha256(b"#!/bin/sh\necho new\n").hexdigest()
+    assert crawler.cron_sha256 == before.cron_sha256
+    assert crawler.source_release == st.SourceRelease(tag=TAG2, web_digest=DIGEST_OK)
+
+
+def test_a_runner_larger_than_the_config_cap_is_still_recorded(tmp_path):
+    # The config reader caps reads at 64 KiB; the runner may be 1 MiB, so its provenance must not depend on that cap.
+    world = in_sync_world(tmp_path)
+    runner = "#!/bin/sh\n" + "# padding\n" * 10_000
+    assert len(runner) > 65536
+    world.fx.docker.release_tree = shipped_crawler_release(tmp_path, runner, None)
+    assert world.run_unit(deploy_text(world))[0] == OK
+    assert world.load_state().crawler.runner_sha256 == hashlib.sha256(runner.encode()).hexdigest()
+
+
+def test_a_partial_crawler_update_keeps_the_old_provenance(tmp_path):
+    world = in_sync_world(tmp_path)
+    before = world.state.crawler
+    set_setting(world, cron_file=str(tmp_path / "missing-dir" / "cron"))
+    world.fx.docker.release_tree = shipped_crawler_release(tmp_path, "#!/bin/sh\necho new\n", "0 3 * * * root x\n")
+    assert world.run_unit(deploy_text(world))[0] == PARTIAL_CRAWLER
+    crawler = world.load_state().crawler
+    assert (crawler.digest, crawler.runner_sha256, crawler.cron_sha256, crawler.source_release) == (
+        before.digest,
+        before.runner_sha256,
+        before.cron_sha256,
+        before.source_release,
+    )
+    assert crawler.paused is not None
 
 
 def test_crawler_conf_rewrite_keeps_other_lines_and_mode(tmp_path):

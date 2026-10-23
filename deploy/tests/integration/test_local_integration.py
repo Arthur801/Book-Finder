@@ -13,6 +13,7 @@ containers, volumes, .env or .vscode.
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import json
 import os
 import re
@@ -525,7 +526,13 @@ def stack(tmp_path_factory):
         # Images: the current tree, two scratch copies (each adds migrations), a derived broken image and the crawler.
         logs = stack.work / "logs"
         logs.mkdir()
-        build_image(f"{WEB_NAME}:v1", REPO, logs / "web-v1.log")
+        # v1 ships a different run-crawler.sh from v2 (one comment line), so a resume that compares the installed runner
+        # with the web runtime's release copy cannot pass by accident (M3c-2 regression).
+        v1_src = stack.work / "src-v1"
+        scratch_tree(v1_src, [])
+        runner_v1 = v1_src / "crawler" / "deploy" / "run-crawler.sh"
+        runner_v1.write_text(runner_v1.read_text(encoding="utf-8") + "# integration: v1 runner\n", encoding="utf-8")
+        build_image(f"{WEB_NAME}:v1", v1_src, logs / "web-v1.log")
         stack.images.append(f"{WEB_NAME}:v1")
         v2_src = stack.work / "src-v2"
         scratch_tree(v2_src, [(SCRATCH_MIGRATION_2, "scratch_note")])
@@ -634,6 +641,11 @@ def test_a_forward_upgrade_with_snapshot_and_crawler_pause(stack: Stack):
     compose_sha = release_content.compose_sha256_of(v1_dir)
     crawler_digest = stack.digests["crawler"]
     (stack.install / "crawler.conf").write_text(f"CRAWLER_IMAGE={stack.registry}/{CRAWLER_NAME}@{crawler_digest}\n", encoding="utf-8")
+    # The installed crawler files are what bootstrap-state would hash (N6): the v1 release's copies, no source release.
+    runner_v1 = (v1_dir / "run-crawler.sh").read_bytes()
+    cron_v1 = (v1_dir / "crawler.cron").read_bytes()
+    (stack.install / "run-crawler.sh").write_bytes(runner_v1)
+    (stack.install / "crawler.cron").write_bytes(cron_v1)
     state = st.State(
         revision=0,
         runtime=st.DockerRuntime(
@@ -653,7 +665,13 @@ def test_a_forward_upgrade_with_snapshot_and_crawler_pause(stack: Stack):
             dirty_since=None,
             dirty_release=None,
         ),
-        crawler=st.Crawler(digest=crawler_digest, paused=None),
+        crawler=st.Crawler(
+            digest=crawler_digest,
+            runner_sha256=hashlib.sha256(runner_v1).hexdigest(),
+            cron_sha256=hashlib.sha256(cron_v1).hexdigest(),
+            source_release=None,
+            paused=None,
+        ),
     )
     st.write_state(stack.state_file, state, expected_revision=0)
 
@@ -674,6 +692,12 @@ def test_a_forward_upgrade_with_snapshot_and_crawler_pause(stack: Stack):
     assert state_after["runtime"]["tag"] == TAG_V2 and state_after["runtime"]["web_digest"] == stack.digests["v2"]
     assert state_after["schema"]["rebuild"] == {"tag": TAG_V2, "web_digest": stack.digests["v2"]}
     assert state_after["schema"]["dirty"] is False and state_after["crawler"]["paused"] is None
+    # The forward deploy installed v2's runner and cron, so the record names v2 and hashes those installed bytes.
+    v2_dir = _release_extract(stack, "v2", stack.digests["v2"])
+    assert (stack.install / "run-crawler.sh").read_bytes() == (v2_dir / "run-crawler.sh").read_bytes() != runner_v1
+    assert state_after["crawler"]["runner_sha256"] == hashlib.sha256((v2_dir / "run-crawler.sh").read_bytes()).hexdigest()
+    assert state_after["crawler"]["cron_sha256"] == hashlib.sha256((v2_dir / "crawler.cron").read_bytes()).hexdigest()
+    assert state_after["crawler"]["source_release"] == {"tag": TAG_V2, "web_digest": stack.digests["v2"]}
     assert len(state_after["schema"]["applied"]) == len(v1_manifest) + 1
     record = completed_for("9001-1")
     assert record["result"] == "success" and record.get("snapshot_id")
@@ -735,6 +759,7 @@ def test_b_schema_ahead_deploy_keeps_rebuild_target_and_the_crawler(stack: Stack
     assert after["schema"]["rebuild"] == before["schema"]["rebuild"] == {"tag": TAG_V2, "web_digest": stack.digests["v2"]}
     assert after["schema"]["applied"] == before["schema"]["applied"]
     assert after["crawler"]["digest"] == before["crawler"]["digest"] == current["crawler"]
+    assert after["crawler"] == before["crawler"]  # schema-ahead never touches the crawler record (S7)
     assert completed_for("9002-2")["crawler_substeps"] == "skipped (schema-ahead)"
     assert _web_digest_of_container(stack) == local_image_id(f"{stack.registry}/{WEB_NAME}@{stack.digests['v1']}")
     log("PASS b: schema-ahead deploy to v1 succeeded, schema rebuild stayed at v2, crawler untouched (skipped)")
@@ -807,7 +832,14 @@ def test_d_failed_migration_keeps_dirty_and_paused_until_reconciled(stack: Stack
     )
     assert code == 0, err
     assert read_state()["crawler"]["paused"] is None
-    log("PASS d: failed migration left dirty and paused (exit 4), next deploy refused (exit 6), reconcile-schema and resume-crawler cleared both")
+    # The resume was checked against the crawler's own record, not the web runtime (now v1, whose runner differs).
+    v2_dir = stack.releases / stack.digests["v2"].split(":", 1)[1]
+    v1_dir = stack.releases / stack.digests["v1"].split(":", 1)[1]
+    installed = (stack.install / "run-crawler.sh").read_bytes()
+    assert installed == (v2_dir / "run-crawler.sh").read_bytes() != (v1_dir / "run-crawler.sh").read_bytes()
+    log(
+        "PASS d: failed migration left dirty and paused (exit 4), next deploy refused (exit 6), reconcile-schema and resume-crawler cleared both; resume checked the v2 crawler record"
+    )
 
 
 def test_e_killed_run_is_indeterminate_until_the_operator_resolves_it(stack: Stack):

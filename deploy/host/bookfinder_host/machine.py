@@ -7,6 +7,7 @@ deliberately not converted into a known result: the run stays indeterminate unti
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -516,12 +517,19 @@ def _finish_success_path(r: _Run) -> int:
         return _finish_schema_ahead(r)
     problem, substeps = _update_crawler(r)
     r.crawler_substeps = substeps
-    crawler_digest = r.command.crawler_digest if problem is None else r.state.crawler.digest
-    new_runtime = _docker_runtime(r, crawler_digest)
-    promoted = st.promote_runtime(r.state, new_runtime)
+    crawler: st.Crawler | None = None
     if problem is None:
-        r.save(replace(promoted, crawler=st.Crawler(digest=r.command.crawler_digest, paused=None)))
+        try:
+            crawler = _recorded_crawler(r, substeps)
+        except (EffectFailed, OSError, UnsafeFileError) as exc:
+            problem = f"provenance failed: {exc}"
+    if crawler is not None:
+        promoted = st.promote_runtime(r.state, _docker_runtime(r, r.command.crawler_digest))
+        r.save(replace(promoted, crawler=crawler))
         return r.finish(OK, "success", "web and crawler are on the target release")
+    # Partial: the crawler keeps the provenance it had, because half-installed files are not recorded as provenance.
+    crawler_digest = r.state.crawler.digest
+    promoted = st.promote_runtime(r.state, _docker_runtime(r, crawler_digest))
     # The web runtime is already serving the new release, so it is promoted; the crawler stays out of cron (N3).
     if r.command.chain != "forward":
         promoted = st.pause_crawler(promoted, release=r.tag, reason="crawler update failed", now=r.deps.clock.now())
@@ -531,6 +539,29 @@ def _finish_success_path(r: _Run) -> int:
         "partial-crawler",
         f"web is on the target release; crawler update failed ({problem}); crawler stays paused; resume-crawler (L4) is required",
     )
+
+
+def _recorded_crawler(r: _Run, steps: dict[str, str]) -> st.Crawler:
+    """The provenance of a fully successful crawler update (M3c-2).
+
+    A file the release does not ship was not touched, so its hash stays as recorded. The hashes are read back from the
+    installed files, not from the release, so the record describes what is on disk.
+    """
+    previous = r.state.crawler
+    runner = _installed_sha256(r.settings.crawler_runner) if steps["run_crawler"] == "ok" else previous.runner_sha256
+    cron = _installed_sha256(r.settings.cron_file) if steps["crawler_cron"] == "ok" else previous.cron_sha256
+    return st.Crawler(
+        digest=r.command.crawler_digest,
+        runner_sha256=runner,
+        cron_sha256=cron,
+        source_release=st.SourceRelease(tag=r.tag, web_digest=r.command.web_digest),
+        paused=None,
+    )
+
+
+def _installed_sha256(path: str) -> str:
+    # The same bound the install used (MAX_RUNNER_BYTES); the config reader's 64 KiB cap would refuse a valid runner.
+    return hashlib.sha256(read_regular_file(path, MAX_RUNNER_BYTES)).hexdigest()
 
 
 def rewrite_crawler_image(data: bytes, reference: str) -> bytes:
