@@ -275,7 +275,7 @@ sudo python3 <checkout>/deploy/host/book-finder-admin install-host \
 **Immutable Releases**（Settings → Releases → Enable release immutability）
 
 - 必須在**第一個 release 之前**開啟。這個設定只對開啟後發布的 release 生效。
-- 開啟後：publish 之後 asset 不能修改或刪除，tag 鎖定在原 commit，也不能刪除。（以上行為的來源是 `Docs/Implementation-Report/issue-92-cd.md` 的驗證結果，不是程式碼。）
+- 開啟後（依 GitHub 官方文件 [Immutable releases](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases)）：publish 之後 release asset 與 Git tag 不能修改；刪除 release 會釋放 tag 名稱，但同名 tag 不能再次使用。title 與 release notes 仍可編輯。只對開啟後發布的 release 生效。建議順序：先建立 draft、上傳全部 asset，再 publish。`gh release verify <tag>` 可檢查 release 是否 immutable。
 - 尚未確認此功能是否已 GA（**待確認**）。
 
 **`v*` tag ruleset**（建議，程式不強制）
@@ -425,7 +425,7 @@ sudo systemctl disable <SYSTEMD_UNIT>
 - 以 `sudo /opt/book-finder/host/book-finder-admin <指令> … --reason "…"` 執行（`--reason` 必填，單行，最多 400 字元）；
 - 輸入程式顯示的確認值，或以 `--yes-i-verified <值>` 傳入。
 
-人工指令採用 operator 協定（M3c）：先寫 `operator-started` 並 fsync → 才改變任何東西 → 寫 `operator-completed`。若只有 started 沒有 completed，該操作視為 indeterminate，之後所有部署與人工指令（`resolve-run` 除外）都會以 exit 8 拒絕，直到 `resolve-run` 處理它（S8、S10）。
+人工指令採用 operator 協定：先寫 `operator-started` 並 fsync → 才改變任何東西 → 寫 `operator-completed`。若只有 started 沒有 completed，該操作視為 indeterminate，之後所有部署與人工指令（`resolve-run` 除外）都會以 exit 8 拒絕，直到 `resolve-run` 處理它（S8、S10）。
 
 ### 5.1 `resolve-run`：處理 indeterminate
 
@@ -469,6 +469,7 @@ sudo /opt/book-finder/host/book-finder-admin resolve-run <op_id> --result succes
 3. 對照失敗的 migration：`<id>.sql`（release 的 asset）與 `Infrastructure/Persistence/Migrations/<id>.cs`。確認 DDL 與資料變更是否完整、是否有手動補救。每個 migration 在自己的 transaction 中執行（計畫檔 §7 第 4 項的實測），因此失敗時 DB 停在 migration 的邊界。本專案的 CI 禁止 `suppressTransaction` 與 `CONCURRENTLY`（`check_migrations.py`），這個前提才成立。
 4. 確認資料庫的 schema 與預期相符（例如相關的 table、column、index）。
 5. 確認 RDS 的 pre-migration snapshot 仍存在（id 記在 completed 紀錄的 `snapshot_id`）。
+6. **Provenance（程式無法驗證）**：`--rebuild-web-digest` 必須來自已發布的 `release.json`（host 上沒有 `gh` 與 sigstore，不會驗證 attestation）。
 
 執行：
 
@@ -482,6 +483,7 @@ sudo /opt/book-finder/host/book-finder-admin reconcile-schema --mark-clean \
 - 程式會列出 DB 的 migration id 與該前綴的 schema digest。`--expect-schema-digest` 必須與它完全相同，且要輸入同一個值確認。
 - 若 DB 的 id 不是 release manifest 的前綴，或 state 已記錄的 id 與 manifest 不符（divergent），程式拒絕。
 - 成功後 `schema.dirty=false`，`schema.applied` 與 `schema.rebuild` 更新。crawler 仍是 paused，需走 §5.3。
+- **Provenance（人工責任）**：host 上沒有 `gh` 與 sigstore，程式無法驗證 image attestation。操作者必須先確認 `--rebuild-web-digest` 來自已發布的 `release.json`（release 的 Immutable asset），不可只憑 tag 或記憶輸入。
 
 ### 5.3 `resume-crawler`：恢復爬蟲（N3、S11）
 
@@ -508,6 +510,8 @@ sudo /opt/book-finder/host/book-finder-admin resume-crawler --crawler-digest sha
 sudo /opt/book-finder/host/book-finder-admin resume-crawler --crawler-digest sha256:<新 digest> \
   --adopt-release <tag> --adopt-web-digest sha256:<web digest> --reason "…"
 ```
+
+**Provenance（人工責任）**：`--adopt-*` 與 `--crawler-digest` 的 image 來源，host 無法驗證 attestation（沒有 `gh` 與 sigstore）。操作者必須先確認 `--adopt-web-digest` 與 `--crawler-digest` 來自已發布的 `release.json`，而且已安裝的檔案確實來自該 release。
 
 `--adopt-*` 會讀取 `RELEASES_DIR/<web digest hex>/` 的 `run-crawler.sh` 與 `crawler.cron`（須通過 release 內容檢查），並要求已安裝的檔案與它們完全相同，然後把 provenance 記為該 release。`--adopt-release` 的 tag 無法從目錄本身驗證，程式只記錄操作者的宣告。
 
@@ -639,14 +643,23 @@ Journal 是**輔助資訊**，不是結果的來源。結果以 history 為準�
 
 ## 7. 已知限制與待確認（在 EC2 上驗證）
 
+### 7.1 刻意偏離規格的設計
+
+規格（N3）原本是：只有 forward 的部署會 pause crawler，in-sync 與 schema-ahead 的部署不設 paused。實作與它有兩處偏離，兩處都是刻意的：
+
+- **in-sync 部署的 crawler 步驟失敗會設 paused。** 原因：web 已切到新版，crawler 的檔案或 `crawler.conf` 可能只更新了一半；若不 pause，cron 可能跑一個半更新的 crawler。schema-ahead 不執行 crawler 步驟（S7，crawler 維持目前 digest），因此不適用此偏離。
+- **`reconcile-schema` 與 `resume-crawler --adopt-release` 無法在 host 上驗證 image attestation。** host 沒有 `gh` 與 sigstore，因此操作者必須先確認 digest 來自已發布的 `release.json`，再執行這兩個指令（已列入 §5.2 與 §5.3 的 L4 檢查清單）。
+
+### 7.2 已知限制與待確認
+
 | # | 項目 | 狀態 | 驗證方式 |
 |---|---|---|---|
 | 1 | **sudoers 的 `env_keep` 行是否生效**（§2.6） | **待確認，上線前必要** | 以 plan key 執行 `status 1-1`，必須回傳 `not-started`（見 §2.6） |
-| 2 | `systemd-run` 以 root 執行 transient unit，`INVOCATION_ID` 是否由 systemd 設定 | 待確認。本機只以 `--user` manager 驗證（`Docs/Implementation-Report/issue-92-cd.md` 驗證結果第 5 項） | 第一次正式部署前，用 system manager 的一次性 unit 驗證 |
-| 3 | SSH 斷線後 unit 是否仍會完成 | 本機以 `--user` 驗證；system manager 語意相同，**待確認** | 同上 |
+| 2 | `systemd-run` 以 root 執行 transient unit，`INVOCATION_ID` 是否由 systemd 設定 | 待確認。`systemd-run` 只以 `--user` manager 在本機驗證過（`--collect` 且不加 `--pipe` 時，launcher 被 kill -9 後 unit 仍會跑完；unit 回收後 `systemctl show` 回傳 `inactive`/`success`，與不存在的 unit 相同，因此結果以 history 為準）；system manager 未驗證 | 第一次正式部署前，用 system manager 的一次性 unit 驗證 |
+| 3 | SSH 斷線後 unit 是否仍會完成 | 本機只以 `--user` manager 驗證；system manager 未在本機驗證，**待確認** | 同上 |
 | 4 | psql 容器能否連到 RDS（docker 預設 bridge 網路到 RDS 端點） | 待確認 | 操作者在 EC2 上以 `docker run --rm --pull=never -e DATABASE_URL <PSQL_IMAGE> …` 做唯讀查詢。URL 從 shell 環境注入，不寫進命令列 |
 | 5 | Compose 的 `env_file: format: raw` 在 EC2 的 Docker Compose 版本是否支援 | 程式內有 probe，不支援會 exit 2。**版本號待記錄** | `docker compose version`，記錄於此處 |
-| 6 | `docker cp`（不帶 `-L`）遇到 symlink 只複製連結本身 | 本機實測成立（`Docs/Implementation-Report/issue-92-cd.md` 驗證結果第 3 項）。EC2 上的 Docker 版本未驗證 | 程式的 release 檢查會拒絕 symlink，不依賴此行為的正確性；**待確認** |
+| 6 | `docker cp`（不帶 `-L`）遇到 symlink 只複製連結本身 | 本機實測：不帶 `-L` 的 `docker cp` 複製出的是連結本身（`/opt/release/migrations.txt -> /etc/shadow` 複製後仍指向 host 的 `/etc/shadow`）。EC2 上的 Docker 版本未驗證 | 程式的 release 檢查會拒絕 symlink，不依賴此行為的正確性；**待確認** |
 | 7 | host nginx 設定（不在本 repository）：是否把 `PUBLIC_URL` 的請求轉發到 `127.0.0.1:5000` 並加上 `X-Forwarded-Proto` | 待確認 | `curl -sI <PUBLIC_URL>` 回 200，且 web 能辨識為 HTTPS |
 | 8 | Web 的 `ForwardedHeaders__KnownNetworks__0`（`172.31.250.0/24`）是否涵蓋 host nginx 經 docker-proxy 的來源位址 | 待確認（compose 註解的推論） | 健康檢查與登入 cookie 的 `Secure` 行為 |
 | 9 | 爬蟲的 `docker run --pull=never`：image 是否已由 host 拉取 | 程式在 `_update_crawler` 會 pull；bootstrap 前需手動 pull | `docker image inspect <CRAWLER_IMAGE>` |

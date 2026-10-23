@@ -96,7 +96,7 @@ MVP 只有單一 Web instance。Cache 只存可由 PostgreSQL 重建的唯讀資
 - 第一次切換需要 `bootstrap-state` 與 `cutover`（L4）。之後的 host 程式升級經 `install-host`，並受 `HOST_API_RANGE` 的相容範圍限制（N4）。
 - 任何改變 state.json 格式、history 格式或 exit code 的變更，都必須更新本 ADR 與 `deploy/README.md`。
 
-**Invariants**（每條的理由是一行摘要；設計過程與 review 紀錄見 `Docs/Implementation-Report/issue-92-cd.md`）：
+**Invariants**（每條的理由是一行摘要）：
 
 | # | 內容 | 理由 |
 |---|---|---|
