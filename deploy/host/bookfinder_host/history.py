@@ -167,3 +167,23 @@ def unresolved_indeterminate(records: Records, unit_states: dict[str, str]) -> l
         if unit_states.get(run_id, "missing") not in ACTIVE_STATES:
             unresolved.append(run_id)
     return unresolved
+
+
+def repair_unterminated_tail(path: str | os.PathLike[str]) -> int:
+    """Drops an incomplete final line left by a crash during append; returns the number of bytes removed.
+
+    Why: the next append would otherwise join its record to the fragment and turn both into one damaged line. Only an
+    unterminated tail is removed; a damaged line that ends with a newline is left for a person to inspect.
+    """
+    name = os.fspath(path)
+    data = read_regular_file(name, MAX_HISTORY_BYTES)
+    cut = data.rfind(b"\n") + 1
+    removed = len(data) - cut
+    if removed:
+        os.truncate(name, cut)
+        fd = os.open(name, os.O_RDONLY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+    return removed
