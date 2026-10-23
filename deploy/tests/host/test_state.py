@@ -4,6 +4,7 @@ Why: state.json is the only record of what the host believes is running and appl
 accepted unknown key, or a lost revision would let a later deploy act on a false picture.
 """
 
+import dataclasses
 import json
 import os
 import stat
@@ -119,6 +120,42 @@ def test_load_rejects_missing_key(tmp_path):
     del document["crawler"]
     with pytest.raises(st.StateCorrupt):
         st.load_state(write_document(tmp_path, document))
+
+
+def test_crawler_provenance_fields_are_required(tmp_path):
+    # Pre-release: there are no production state files, so the provenance fields are mandatory, not optional.
+    for key in ("runner_sha256", "cron_sha256", "source_release"):
+        document = valid_document()
+        del document["crawler"][key]
+        with pytest.raises(st.StateCorrupt):
+            st.load_state(write_document(tmp_path, document))
+
+
+@pytest.mark.parametrize(
+    "key, value",
+    [
+        ("runner_sha256", "A" * 64),
+        ("runner_sha256", "a" * 63),
+        ("cron_sha256", None),
+        ("source_release", {"tag": TAG1}),
+        ("source_release", {"tag": "latest", "web_digest": WEB1}),
+        ("source_release", {"tag": TAG1, "web_digest": WEB1, "extra": 1}),
+    ],
+)
+def test_crawler_provenance_is_strictly_parsed(tmp_path, key, value):
+    document = valid_document()
+    document["crawler"][key] = value
+    with pytest.raises(st.StateCorrupt):
+        st.load_state(write_document(tmp_path, document))
+
+
+def test_crawler_provenance_round_trips(tmp_path):
+    base = sample_state(applied=[], revision=0, tag=TAG1, web_digest=WEB1)
+    crawler = st.Crawler(digest=CRAWLER, runner_sha256="c" * 64, cron_sha256="d" * 64, source_release=st.SourceRelease(TAG2, WEB2), paused=None)
+    state = st.replace_revision(dataclasses.replace(base, crawler=crawler), 0)
+    path = tmp_path / "state.json"
+    st.write_state(path, state, expected_revision=0)
+    assert st.load_state(path).crawler == crawler
 
 
 def test_load_rejects_duplicate_keys(tmp_path):

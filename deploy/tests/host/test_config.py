@@ -92,7 +92,7 @@ def test_make_psql_query_passes_the_url_only_in_the_environment(tmp_path):
     url = "postgres://user:secret@db.internal/book_finder"
     runner = ScriptedRunner(
         [
-            (("aws",), lambda argv: ok(url + "\n")),
+            (("/usr/local/bin/aws",), lambda argv: ok(url + "\n")),
             (
                 ("docker", "run"),
                 lambda argv: ok("20261010174616_EnablePgvector\n20261010174654_Catalog\n"),
@@ -112,7 +112,7 @@ def test_make_psql_query_passes_the_url_only_in_the_environment(tmp_path):
 
 
 def test_make_psql_query_refuses_a_url_with_a_newline(tmp_path):
-    runner = ScriptedRunner([(("aws",), lambda argv: ok("postgres://x\nrm\n"))])
+    runner = ScriptedRunner([(("/usr/local/bin/aws",), lambda argv: ok("postgres://x\nrm\n"))])
     query = cfg.make_psql_query(runner, cfg.load_settings(write(tmp_path, VALID)))
     with pytest.raises(cfg.ConfigError):
         query("SELECT 1;")
@@ -121,7 +121,7 @@ def test_make_psql_query_refuses_a_url_with_a_newline(tmp_path):
 def test_make_psql_query_reports_psql_failure(tmp_path):
     runner = ScriptedRunner(
         [
-            (("aws",), lambda argv: ok("postgres://db/x\n")),
+            (("/usr/local/bin/aws",), lambda argv: ok("postgres://db/x\n")),
             (("docker", "run"), lambda argv: CommandResult(1, "", "connection refused")),
         ]
     )
@@ -142,3 +142,27 @@ def test_host_api_range_rejects_malformed_content(tmp_path, content):
     path.write_text(content)
     with pytest.raises(cfg.ConfigError):
         cfg.read_host_api_range(path)
+
+
+def test_aws_cli_defaults_to_the_absolute_path_and_must_be_absolute():
+    settings = cfg.parse_settings(VALID)
+    assert settings.aws_cli == "/usr/local/bin/aws"
+    with pytest.raises(cfg.ConfigError):
+        cfg.parse_settings(VALID + "AWS_CLI=aws\n")
+    assert cfg.parse_settings(VALID + "AWS_CLI=/opt/aws/bin/aws\n").aws_cli == "/opt/aws/bin/aws"
+
+
+def test_public_url_allows_plain_http_only_on_loopback():
+    assert cfg.parse_settings(VALID.replace("https://book-finder.example", "http://127.0.0.1:5123")).public_url == "http://127.0.0.1:5123"
+    for url in ("http://localhost:5000", "http://10.0.0.5", "http://127.0.0.1.evil.example"):
+        with pytest.raises(cfg.ConfigError):
+            cfg.parse_settings(VALID.replace("https://book-finder.example", url))
+
+
+def test_root_ownership_check_refuses_a_file_the_operator_owns(tmp_path):
+    config = cfg
+
+    cli = tmp_path / "aws"
+    cli.write_text("#!/bin/sh\n", encoding="utf-8")
+    with pytest.raises(cfg.ConfigError):
+        config.check_root_owned(str(cli))

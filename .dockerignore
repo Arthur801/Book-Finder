@@ -7,7 +7,12 @@
 .vscode
 .venv
 tests/
-crawler/
+# Only the two crawler host files are shipped in the release directory; the rest of crawler/ stays out.
+crawler/*
+!crawler/deploy
+crawler/deploy/*
+!crawler/deploy/run-crawler.sh
+!crawler/deploy/crawler.cron
 Docs/
 TestResults
 .github

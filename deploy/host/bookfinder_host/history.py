@@ -6,8 +6,11 @@ status rules below read the completed record first; the unit state only tells wh
 running, and never changes an answer once the records say what happened.
 """
 
+import hashlib
 import json
 import os
+import re
+import tempfile
 from dataclasses import dataclass
 from typing import Any
 
@@ -18,6 +21,11 @@ PIPE_BUF = 4096
 MAX_HISTORY_BYTES = 64 << 20
 ACTIVE_STATES = frozenset({"active", "activating"})
 UNIT_STATES = frozenset({"active", "activating", "inactive", "failed", "missing"})
+# Operator operations (M3c) are recorded as operator-started / operator-completed pairs keyed by op_id (see operator_cli).
+OPERATOR_STARTED = "operator-started"
+OPERATOR_COMPLETED = "operator-completed"
+OP_PREFIX = "op-"
+OP_ID_RE = re.compile(r"op-[0-9]{14}-[0-9a-f]{4}")
 
 
 class HistoryCorrupt(Exception):
@@ -46,6 +54,34 @@ def started_record(*, run_id: str, unit: str, at: str, target: dict[str, str], e
     }
 
 
+def operator_started_record(*, op_id: str, action: str, at: str, operator: str, reason: str, intended: dict[str, Any], before: Any) -> dict[str, Any]:
+    """Written and fsynced before an operator command changes anything (M3c)."""
+    return {
+        "phase": OPERATOR_STARTED,
+        "op_id": op_id,
+        "action": action,
+        "at": at,
+        "operator": operator,
+        "reason": reason,
+        "intended": intended,
+        "before": before,
+    }
+
+
+def operator_completed_record(*, op_id: str, action: str, at: str, result: str, before: Any, after: Any, extra: dict[str, Any] | None = None) -> dict[str, Any]:
+    record: dict[str, Any] = {
+        "phase": OPERATOR_COMPLETED,
+        "op_id": op_id,
+        "action": action,
+        "at": at,
+        "result": result,
+        "before": before,
+        "after": after,
+    }
+    record.update(extra or {})
+    return record
+
+
 def completed_record(
     *,
     run_id: str,
@@ -57,7 +93,7 @@ def completed_record(
     operator: str | None = None,
     reason: str | None = None,
     snapshot_id: str | None = None,
-    crawler_substeps: dict[str, str] | None = None,
+    crawler_substeps: dict[str, str] | str | None = None,
 ) -> dict[str, Any]:
     record: dict[str, Any] = {
         "run_id": run_id,
@@ -162,10 +198,26 @@ def status(records: Records, run_id: str, unit_state: str) -> str:
     return "not-started"
 
 
-def unresolved_indeterminate(records: Records, unit_states: dict[str, str]) -> list[str]:
-    """Run ids that status reports as indeterminate: a started record, no completed record, and no active unit.
+def open_operations(records: Records) -> list[str]:
+    """Operator op ids with an operator-started record and no operator-completed record (M3c).
 
-    A run without an entry in unit_states counts as "missing", so it is listed.
+    Such an operation may have changed the host or state before it stopped, so it is indeterminate, like a run.
+    """
+    completed = {entry.get("op_id") for entry in records.entries if entry.get("phase") == OPERATOR_COMPLETED}
+    opened: list[str] = []
+    for entry in records.entries:
+        op_id = entry.get("op_id")
+        if entry.get("phase") == OPERATOR_STARTED and op_id not in completed and op_id not in opened:
+            opened.append(op_id)
+    return opened
+
+
+def unresolved_indeterminate(records: Records, unit_states: dict[str, str]) -> list[str]:
+    """Ids that block plan and deploy as indeterminate.
+
+    Run ids: a started record, no completed record, and no active unit (a run without an entry in unit_states counts as
+    "missing", so it is listed). Operator op ids (prefix "op-") come after them: an operator-started record with no
+    operator-completed record blocks everything until resolve-run names it.
     """
     unresolved = []
     for entry in records.entries:
@@ -176,4 +228,76 @@ def unresolved_indeterminate(records: Records, unit_states: dict[str, str]) -> l
             continue
         if unit_states.get(run_id, "missing") not in ACTIVE_STATES:
             unresolved.append(run_id)
-    return unresolved
+    return unresolved + open_operations(records)
+
+
+def _fsync_dir(directory: str) -> None:
+    fd = os.open(directory, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def preserve_tail(path: str | os.PathLike[str], run_id: str, stamp: str) -> dict[str, Any] | None:
+    """Keeps the exact bytes of an incomplete final line in a sidecar file; history itself is not changed here.
+
+    Why: history is the durable record, so the bytes that a repair removes must stay recoverable. The sidecar is created
+    exclusively with mode 0600, written and fsynced (file and directory) before the caller rewrites history. Returns
+    None when there is no fragment, otherwise the sidecar path, byte count, sha256 and the cut offset in history.
+    """
+    name = os.fspath(path)
+    data = read_regular_file(name, MAX_HISTORY_BYTES)
+    cut = data.rfind(b"\n") + 1
+    fragment = data[cut:]
+    if not fragment:
+        return None
+    directory = os.path.dirname(os.path.abspath(name))
+    sidecar = f"{name}.tail-{stamp}-{run_id}"
+    fd = os.open(sidecar, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+    try:
+        try:
+            view = memoryview(fragment)
+            while view:
+                view = view[os.write(fd, view) :]
+            os.fsync(fd)
+        except BaseException:
+            os.close(fd)
+            fd = -1
+            os.unlink(sidecar)
+            raise
+    finally:
+        if fd >= 0:
+            os.close(fd)
+    _fsync_dir(directory)
+    return {"path": sidecar, "bytes": len(fragment), "sha256": hashlib.sha256(fragment).hexdigest(), "cut": cut}
+
+
+def rewrite_with_record(path: str | os.PathLike[str], cut: int, record: dict[str, Any]) -> None:
+    """Atomically replaces history with its first cut bytes followed by one record (the tail repair plus its started record).
+
+    Why: the damaged fragment must go before the operator's started record can be written, and a plain append would
+    turn it into a damaged middle line. One rename removes the fragment and adds the record together, so no crash point
+    leaves the fragment gone without the record, or the record in front of the fragment.
+    """
+    name = os.fspath(path)
+    data = read_regular_file(name, MAX_HISTORY_BYTES)
+    if cut > len(data) or (cut and data[cut - 1 : cut] != b"\n"):
+        raise HistoryCorrupt("history changed since it was read; the tail repair was not applied")
+    line = serialize(record).encode("ascii")
+    directory = os.path.dirname(os.path.abspath(name))
+    fd, temporary = tempfile.mkstemp(prefix=".history.", suffix=".tmp", dir=directory)
+    try:
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(data[:cut] + line)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, name)
+    except BaseException:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+        raise
+    _fsync_dir(directory)

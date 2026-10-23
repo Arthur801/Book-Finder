@@ -6,6 +6,7 @@ assert which commands were (or were not) issued.
 
 import json
 import shutil
+import stat
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
@@ -83,7 +84,13 @@ def sample_state(
         dirty_since=None,
         dirty_release=None,
     )
-    crawler = st.Crawler(digest="sha256:" + "3" * 64, paused=None)
+    crawler = st.Crawler(
+        digest="sha256:" + "3" * 64,
+        runner_sha256="5" * 64,
+        cron_sha256="6" * 64,
+        source_release=st.SourceRelease(tag=tag, web_digest=web_digest),
+        paused=None,
+    )
     return st.State(revision=revision, runtime=runtime, previous_runtime=None, schema=schema, crawler=crawler)
 
 
@@ -196,6 +203,8 @@ class FakeEffects:
         self.trace: list[str] = []
         self.docker = FakeDocker(self, host, release_tree if release_tree is not None else host.release_dir)
         self.compose = FakeCompose(self)
+        # What `docker compose version --short` reports to the host; tests change it to exercise the minimum check.
+        self.compose_version = "2.40.0"
         self.aws = FakeAws(self)
         self.ssm = FakeSsm(self)
         self.systemd = FakeSystemd(self)
@@ -265,8 +274,30 @@ class FakeCompose:
         self.up_failures = 0
         self.down_failures = 0
         self.up_calls: list[tuple[str, dict[str, str]]] = []
+        # How config_json answers the capability probe: literal (a correct Compose), interpolated, error or missing-key.
+        self.config_mode = "literal"
+        self.config_calls: list[str] = []
+        self.probe_dir_mode: int | None = None
         self.down_calls: list[tuple[str, dict[str, str]]] = []
         self.on_up: Callable[[], None] | None = None
+
+    def version(self) -> str:
+        # Not traced: the version is read by the plan and the unit before any change, and tests assert on compose calls.
+        return self.fx.compose_version + "\n"
+
+    def config_json(self, compose_file: str) -> str:
+        # Not traced, like version(): the probe runs before any change and tests assert on the traced compose calls.
+        self.config_calls.append(compose_file)
+        probe_dir = Path(compose_file).parent
+        self.probe_dir_mode = stat.S_IMODE(probe_dir.stat().st_mode)
+        if self.config_mode == "error":
+            raise EffectFailed("config failed")
+        if self.config_mode == "missing-key":
+            return json.dumps({"services": {}})
+        name, value = (probe_dir / "probe.env").read_text(encoding="utf-8").rstrip("\n").split("=", 1)
+        if self.config_mode == "interpolated":
+            value = value.replace("$B", "").replace("${HOME}", "/home/probe")
+        return json.dumps({"services": {"probe": {"environment": {name: value}}}})
 
     def up(self, compose_file: str, project: str, env: Mapping[str, str]) -> None:
         self.fx.trace.append(f"compose.up {compose_file}")

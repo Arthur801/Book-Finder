@@ -30,6 +30,8 @@ from bookfinder_host.ports import Clock, CommandResult, Effects, Runner, Subproc
 # Test-only hook: when set, the fakes file replaces docker, systemd, aws, psql and the clock. It is refused for root,
 # and the SSH forced command never sets it, so production cannot reach it by accident.
 TEST_HOOK_ENV = "BOOKFINDER_HOST_TEST_FAKES"
+# A local integration run points the host at a temporary host.conf; root never honours it, so the forced command cannot be redirected.
+CONFIG_ENV = "BOOKFINDER_HOST_CONF"
 DEFAULT_CONFIG = Path(cfg.DEFAULT_CONFIG_PATH)
 DEFAULT_ENTRY = Path(__file__).resolve().parent.parent / "deploy-entry"
 # Passed by systemd-run to the entry script; only accepted when INVOCATION_ID shows systemd started the process.
@@ -203,8 +205,16 @@ def render_deploy_tokens(command: DeployCommand) -> list[str]:
     return tokens
 
 
-def load_production_deps() -> Deps:
-    settings = cfg.load_settings(DEFAULT_CONFIG)
+def config_path_from(environ: Mapping[str, str]) -> Path:
+    if CONFIG_ENV not in environ:
+        return DEFAULT_CONFIG
+    if os.geteuid() == 0:
+        raise cfg.ConfigError(f"{CONFIG_ENV} is refused for root")
+    return Path(environ[CONFIG_ENV])
+
+
+def load_production_deps(config_path: Path = DEFAULT_CONFIG) -> Deps:
+    settings = cfg.load_settings(config_path)
     # Above the aws waiter's own limit, so a slow snapshot is not cut short by this process.
     runner = SubprocessRunner(timeout_s=3600.0)
     return Deps(
@@ -288,7 +298,7 @@ def main(argv: list[str], environ: Mapping[str, str], out: TextIO, err: TextIO, 
                     return BAD_INPUT
                 deps = load_fake_deps(environ[TEST_HOOK_ENV])
             else:
-                deps = load_production_deps()
+                deps = load_production_deps(config_path_from(environ))
     except cfg.ConfigError as exc:
         err.write(f"configuration error: {exc}\n")
         return BAD_INPUT
@@ -347,6 +357,13 @@ def _fetch_target(deps: Deps, web_digest: str) -> mf.ReleaseMetadata:
         return mf.extract_release_metadata(deps.runner, image_ref, Path(scratch))
 
 
+def _schema_ahead_crawler_problem(command: DeployCommand, current_digest: str) -> str | None:
+    """Contract: a schema-ahead deploy never changes the crawler, so its crawler_digest must be the current one (M3c)."""
+    if command.chain == "schema-ahead" and command.crawler_digest != current_digest:
+        return f"schema-ahead keeps the current crawler ({current_digest}); crawler_digest must be that digest"
+    return None
+
+
 def _api_in_range(release_api: int, deps: Deps) -> bool:
     low, high = deps.host_api_range
     return low <= release_api <= high
@@ -372,6 +389,11 @@ def _plan_locked(command: PlanCommand, deps: Deps, out: TextIO, err: TextIO) -> 
     if blocked:
         out.write(json.dumps({"revision": state.revision, "indeterminate": blocked}, sort_keys=True) + "\n")
         return INDETERMINATE
+    compose_version, problem = machine.compose_raw_env_check(deps.effects.compose, Path(deps.settings.run_dir))
+    if problem is not None:
+        out.write(json.dumps({"revision": state.revision, "compose_version": compose_version, "refused": problem}, sort_keys=True) + "\n")
+        err.write(f"{problem}\n")
+        return BAD_INPUT
     try:
         target = _fetch_target(deps, command.web_digest)
     except mf.ManifestError as exc:
@@ -400,6 +422,7 @@ def _plan_locked(command: PlanCommand, deps: Deps, out: TextIO, err: TextIO) -> 
             "rebuild": {"tag": state.schema.rebuild.tag, "web_digest": state.schema.rebuild.web_digest},
         },
         "crawler": {"paused": st.pause_to_json(state.crawler.paused)},
+        "compose_version": compose_version,
         "target": {"tag": command.tag, "web_digest": command.web_digest, "release_api": target.release_api},
         "classification": classification,
         "pending": pending_ids,
@@ -444,6 +467,9 @@ def _check_deploy_gates(command: DeployCommand, state: st.State, deps: Deps) -> 
         raise GateFailure(BAD_INPUT, "chain is divergent")
     if classification != command.chain:
         raise GateFailure(DRIFT, f"chain is {classification}, expected {command.chain}")
+    problem = _schema_ahead_crawler_problem(command, state.crawler.digest)
+    if problem is not None:
+        raise GateFailure(BAD_INPUT, problem)
     is_systemd = isinstance(state.runtime, st.SystemdRuntime)
     if command.cutover:
         if not is_systemd:
@@ -477,6 +503,16 @@ def run_deploy_ssh(command: DeployCommand, deps: Deps, out: TextIO, err: TextIO)
     if history is not None and any(entry.get("run_id") == run_id for entry in history.entries):
         err.write(f"run id already used: {run_id}\n")
         return DRIFT
+    # The SSH side can only refuse what the state already shows; the unit gate repeats the check (completed rejected).
+    try:
+        current = st.load_state(deps.settings.state_file)
+    except (st.StateMissing, st.StateCorrupt):
+        current = None
+    if current is not None:
+        problem = _schema_ahead_crawler_problem(command, current.crawler.digest)
+        if problem is not None:
+            err.write(f"rejected: {problem}\n")
+            return BAD_INPUT
     blocked = runs.indeterminate_reasons(deps.settings, deps.runner)
     if blocked:
         err.write(f"indeterminate runs block deploy: {', '.join(blocked)}\n")

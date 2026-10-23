@@ -326,7 +326,43 @@ def test_schema_ahead_web_failure_also_rolls_back(tmp_path):
     world = make_world(tmp_path, state, target=applied((ID1, H1)))
     with_old_release(world)
     only_web_failures_on_target(world)
-    assert world.run_unit(deploy_text(world, chain="schema-ahead"))[0] == ROLLED_BACK
+    assert world.run_unit(deploy_text(world, chain="schema-ahead", crawler=CRAWLER))[0] == ROLLED_BACK
+
+
+# Schema-ahead keeps the crawler (M3c contract): no pull, install or conf rewrite, and the digest must be the current one
+
+
+def schema_ahead_world(tmp_path):
+    state = sample_state(applied=applied((ID1, H1), (ID2, H2)))
+    return make_world(tmp_path, state, target=applied((ID1, H1)))
+
+
+def test_schema_ahead_success_skips_the_crawler_and_keeps_its_digest(tmp_path):
+    world = schema_ahead_world(tmp_path)
+    conf_before = Path(world.settings.crawler_conf).read_text()
+    assert world.run_unit(deploy_text(world, chain="schema-ahead", crawler=CRAWLER))[0] == OK
+    record = completed_records(world)[-1]
+    assert (record["result"], record["exit_code"]) == ("success", OK)
+    assert record["crawler_substeps"] == "skipped (schema-ahead)"
+    assert world.load_state().crawler.digest == CRAWLER
+    assert world.load_state().crawler == world.state.crawler
+    assert world.load_state().runtime.crawler_digest == CRAWLER
+    assert world.load_state().schema.rebuild == world.state.schema.rebuild
+    crawler_paths = {world.settings.crawler_runner, world.settings.cron_file, world.settings.crawler_conf}
+    assert not [t for t in world.fx.trace if t.startswith("docker.pull") or t.split(" ", 1)[-1] in crawler_paths]
+    assert Path(world.settings.crawler_conf).read_text() == conf_before
+
+
+def test_schema_ahead_with_another_crawler_is_rejected_by_the_unit_gate(tmp_path):
+    world = schema_ahead_world(tmp_path)
+    before = world.load_state()
+    code, _, err = world.run_unit(deploy_text(world, chain="schema-ahead", crawler=CRAWLER2))
+    assert code == BAD_INPUT
+    assert f"schema-ahead keeps the current crawler ({CRAWLER})" in err
+    record = completed_records(world)[-1]
+    assert (record["result"], record["exit_code"]) == ("rejected", BAD_INPUT)
+    assert world.load_state() == before
+    assert not [t for t in world.fx.trace if t.startswith(("docker.pull", "docker.extract", "compose.up", "files.write", "aws."))]
 
 
 # Cutover: systemd to docker
@@ -644,6 +680,65 @@ def test_smoke_failure_stops_before_any_install(tmp_path):
     }
 
 
+def shipped_crawler_release(tmp_path, runner: str | None, cron: str | None, name: str = "release-crawler"):
+    release = tmp_path / name
+    write_release(release, [Migration(ID1, H1)])
+    if runner is not None:
+        (release / "run-crawler.sh").write_text(runner)
+    if cron is not None:
+        (release / "crawler.cron").write_text(cron)
+    return release
+
+
+def test_success_records_the_hashes_of_the_installed_files_and_the_source_release(tmp_path):
+    world = in_sync_world(tmp_path)
+    runner, cron = "#!/bin/sh\necho crawl\n", "0 3 * * * root /opt/book-finder/run-crawler.sh\n"
+    world.fx.docker.release_tree = shipped_crawler_release(tmp_path, runner, cron)
+    assert world.run_unit(deploy_text(world))[0] == OK
+    crawler = world.load_state().crawler
+    assert crawler.digest == CRAWLER2 and crawler.paused is None
+    assert crawler.runner_sha256 == hashlib.sha256(Path(world.settings.crawler_runner).read_bytes()).hexdigest()
+    assert crawler.cron_sha256 == hashlib.sha256(Path(world.settings.cron_file).read_bytes()).hexdigest()
+    assert crawler.source_release == st.SourceRelease(tag=TAG2, web_digest=DIGEST_OK)
+
+
+def test_a_file_the_release_does_not_ship_keeps_its_recorded_hash(tmp_path):
+    world = in_sync_world(tmp_path)
+    before = world.state.crawler
+    world.fx.docker.release_tree = shipped_crawler_release(tmp_path, "#!/bin/sh\necho new\n", None)
+    assert world.run_unit(deploy_text(world))[0] == OK
+    crawler = world.load_state().crawler
+    assert crawler.runner_sha256 == hashlib.sha256(b"#!/bin/sh\necho new\n").hexdigest()
+    assert crawler.cron_sha256 == before.cron_sha256
+    assert crawler.source_release == st.SourceRelease(tag=TAG2, web_digest=DIGEST_OK)
+
+
+def test_a_runner_larger_than_the_config_cap_is_still_recorded(tmp_path):
+    # The config reader caps reads at 64 KiB; the runner may be 1 MiB, so its provenance must not depend on that cap.
+    world = in_sync_world(tmp_path)
+    runner = "#!/bin/sh\n" + "# padding\n" * 10_000
+    assert len(runner) > 65536
+    world.fx.docker.release_tree = shipped_crawler_release(tmp_path, runner, None)
+    assert world.run_unit(deploy_text(world))[0] == OK
+    assert world.load_state().crawler.runner_sha256 == hashlib.sha256(runner.encode()).hexdigest()
+
+
+def test_a_partial_crawler_update_keeps_the_old_provenance(tmp_path):
+    world = in_sync_world(tmp_path)
+    before = world.state.crawler
+    set_setting(world, cron_file=str(tmp_path / "missing-dir" / "cron"))
+    world.fx.docker.release_tree = shipped_crawler_release(tmp_path, "#!/bin/sh\necho new\n", "0 3 * * * root x\n")
+    assert world.run_unit(deploy_text(world))[0] == PARTIAL_CRAWLER
+    crawler = world.load_state().crawler
+    assert (crawler.digest, crawler.runner_sha256, crawler.cron_sha256, crawler.source_release) == (
+        before.digest,
+        before.runner_sha256,
+        before.cron_sha256,
+        before.source_release,
+    )
+    assert crawler.paused is not None
+
+
 def test_crawler_conf_rewrite_keeps_other_lines_and_mode(tmp_path):
     world = in_sync_world(tmp_path)
     conf = Path(world.settings.crawler_conf)
@@ -711,3 +806,67 @@ def test_status_of_a_finished_run_comes_from_history_even_when_the_unit_is_gone(
     assert world.run(f"status {cmd.parse_command(deploy_text(world)).run_id}") == OK
     assert "completed:success" in world.out.getvalue()
     assert hi.read(world.settings.history_file).entries[-1]["phase"] == "completed"
+
+
+# Compose minimum (raw env_file needs it) and verbatim secrets
+
+
+def test_probe_that_is_interpolated_refuses_before_anything_changes(tmp_path):
+    world = in_sync_world(tmp_path)
+    world.fx.compose.config_mode = "interpolated"
+    code, _out, err = world.run_unit(deploy_text(world))
+    assert code == BAD_INPUT
+    assert "docker compose does not support env_file format: raw (found 2.40.0)" in err
+    assert not [t for t in world.fx.trace if t.startswith(("compose.", "ssm."))]
+    assert not env_path(world).exists()
+    assert world.load_state() == world.state
+    assert completed_records(world)[-1]["result"] == "rejected"
+    assert completed_records(world)[-1]["exit_code"] == BAD_INPUT
+
+
+def test_probe_error_refuses(tmp_path):
+    world = in_sync_world(tmp_path)
+    world.fx.compose.config_mode = "error"
+    code, _out, err = world.run_unit(deploy_text(world))
+    assert code == BAD_INPUT
+    assert "does not support env_file format: raw" in err
+
+
+@pytest.mark.parametrize("version", ["2.30.0", "v2.31.4", "2.40.0\n", "garbage"])
+def test_a_capable_compose_is_accepted_whatever_its_version_text(tmp_path, version):
+    world = in_sync_world(tmp_path)
+    world.fx.compose_version = version
+    assert world.run_unit(deploy_text(world))[0] == OK
+
+
+def test_plan_refuses_a_compose_that_fails_the_probe_and_reports_its_version(tmp_path):
+    world = in_sync_world(tmp_path)
+    world.fx.compose.config_mode = "missing-key"
+    world.fx.compose_version = "2.10.0"
+    assert world.run(f"plan {TAG2} {DIGEST_OK}", plan_only=True) == BAD_INPUT
+    assert "docker compose does not support env_file format: raw (found 2.10.0)" in world.err.getvalue()
+    assert world.stdout_json()["compose_version"] == "2.10.0"
+    assert world.stdout_json()["refused"].startswith("docker compose does not support")
+
+
+def test_secret_values_reach_the_env_file_verbatim(tmp_path):
+    world = in_sync_world(tmp_path)
+    jwt = "a$ABC${HOME}#'\"\\ =" + "0" * 32
+    db = "Host=db;Password=p$W\"d'\\ = #x"
+    openai = "sk-$ABC${HOME}\"'\\ ="
+    world.fx.ssm.values.update({world.settings.ssm_db_connection: db, world.settings.ssm_openai_key: openai, world.settings.ssm_jwt_key: jwt})
+    seen = {}
+    world.fx.compose.on_up = lambda: seen.setdefault("env", env_path(world).read_bytes())
+    assert world.run_unit(deploy_text(world))[0] == OK
+    # No escaping and no quoting: the file holds exactly the bytes SSM returned, one value per line.
+    assert seen["env"] == f"ConnectionStrings__DefaultConnection={db}\nOPENAIAPI_KEY={openai}\nJwt__SigningKey={jwt}\n".encode()
+
+
+def test_carriage_return_in_a_secret_is_refused(tmp_path):
+    world = in_sync_world(tmp_path)
+    world.fx.ssm.values[world.settings.ssm_jwt_key] = "value\rwith-cr"
+    code, out, err = world.run_unit(deploy_text(world))
+    assert code == BAD_INPUT
+    assert "Jwt__SigningKey must be a non-empty single-line value" in err
+    assert "with-cr" not in err and "with-cr" not in out
+    assert not env_path(world).exists()

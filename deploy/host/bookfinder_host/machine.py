@@ -7,6 +7,7 @@ deliberately not converted into a known result: the run stays indeterminate unti
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -42,6 +43,8 @@ HEALTH_INTERVAL_S = 2.0
 CRAWLER_KEY = "CRAWLER_IMAGE="
 # Outcome per sub-step, recorded in the completed record so resume-crawler can tell what already took effect (M3c).
 CRAWLER_SUBSTEPS = ("image", "smoke", "run_crawler", "crawler_cron", "crawler_conf")
+# A schema-ahead deploy never touches the crawler (contract, M3c); its sub-steps are recorded as one marker.
+SCHEMA_AHEAD_SUBSTEPS = "skipped (schema-ahead)"
 MAX_RUNNER_BYTES = 1 << 20
 
 
@@ -65,7 +68,7 @@ def finish_run(
     result: str,
     reason: str,
     snapshot_id: str | None = None,
-    crawler_substeps: dict[str, str] | None = None,
+    crawler_substeps: dict[str, str] | str | None = None,
 ) -> int:
     """Writes the single completed record for a run (N7); the history line never holds secrets or free text.
 
@@ -102,7 +105,7 @@ class _Run:
     compose_sha256: str = ""
     env_path: str = ""
     snapshot_id: str | None = None
-    crawler_substeps: dict[str, str] | None = None
+    crawler_substeps: dict[str, str] | str | None = None
 
     @property
     def effects(self) -> Effects:
@@ -163,10 +166,62 @@ def run_state_machine(
         _discard_env(run)
 
 
+# The capability probe: a one-service compose file whose env_file uses format: raw, and a value that interpolation,
+# quoting or comment handling would change. Only `config` runs, so nothing is started.
+PROBE_SERVICE = "probe"
+PROBE_NAME = "PROBE"
+PROBE_VALUE = "a$B${HOME}'\"#x"
+PROBE_COMPOSE = """services:
+  probe:
+    image: alpine:3
+    env_file:
+      - path: ./probe.env
+        format: raw
+"""
+
+
+def compose_raw_env_check(compose, run_dir: Path) -> tuple[str, str | None]:
+    """Returns (docker compose version --short or a reason, refusal message or None).
+
+    Why: a Compose without raw env_file support would interpolate the secrets, so the host asks the installed Compose
+    to render the probe and checks the value it returns. Any failure, missing key or changed value is a refusal.
+    """
+    try:
+        version = compose.version().strip() or "unknown"
+    except EffectFailed as exc:
+        version = f"unknown ({exc})"
+    if not compose_supports_raw_env_file(compose, run_dir):
+        return version, f"docker compose does not support env_file format: raw (found {version})"
+    return version, None
+
+
+def compose_supports_raw_env_file(compose, run_dir: Path) -> bool:
+    os.makedirs(run_dir, mode=0o700, exist_ok=True)
+    # mkdtemp creates the directory with mode 0700; the probe never outlives this call.
+    probe_dir = Path(tempfile.mkdtemp(prefix=".probe-", dir=run_dir))
+    try:
+        (probe_dir / "compose.yaml").write_text(PROBE_COMPOSE, encoding="utf-8")
+        (probe_dir / "probe.env").write_text(f"{PROBE_NAME}={PROBE_VALUE}\n", encoding="utf-8")
+        try:
+            rendered = json.loads(compose.config_json(str(probe_dir / "compose.yaml")))
+            value = rendered["services"][PROBE_SERVICE]["environment"][PROBE_NAME]
+        except (EffectFailed, ValueError, KeyError, TypeError):
+            return False
+        # `config --format json` writes each literal $ as $$ (verified with Compose 5.6.0). An interpolated value cannot
+        # equal either form, because $B is blanked and ${HOME} expanded before the comparison.
+        return value in (PROBE_VALUE, PROBE_VALUE.replace("$", "$$"))
+    finally:
+        shutil.rmtree(probe_dir, ignore_errors=True)
+
+
 def _execute(r: _Run) -> int:
     # Step 0 (the gates ran in commands.py): a crawler left paused by an earlier failure needs a human first.
     if r.state.crawler.paused is not None:
         raise _Stop(DRIFT, "drift", "crawler is paused by an earlier run; resume-crawler must run first")
+    # Before any change: an old Compose must not get as far as the migration.
+    _version, problem = compose_raw_env_check(r.effects.compose, Path(r.settings.run_dir))
+    if problem is not None:
+        raise _Stop(BAD_INPUT, "rejected", problem)
     # Step 1: the current runtime must be healthy before anything changes.
     if not _probe_tries(r):
         raise _Stop(DRIFT, "drift", "current runtime failed its health check; nothing was changed")
@@ -438,11 +493,8 @@ def _rollback(r: _Run, reason: str) -> None:
 # Step 6
 
 
-def _finish_success_path(r: _Run) -> int:
-    problem, substeps = _update_crawler(r)
-    r.crawler_substeps = substeps
-    crawler_digest = r.command.crawler_digest if problem is None else r.state.crawler.digest
-    new_runtime = st.DockerRuntime(
+def _docker_runtime(r: _Run, crawler_digest: str) -> st.DockerRuntime:
+    return st.DockerRuntime(
         tag=r.tag,
         release_api=r.target.release_api,
         web_digest=r.command.web_digest,
@@ -450,10 +502,34 @@ def _finish_success_path(r: _Run) -> int:
         compose_sha256=r.compose_sha256,
         release_dir=str(r.release_dir),
     )
-    promoted = st.promote_runtime(r.state, new_runtime)
+
+
+def _finish_schema_ahead(r: _Run) -> int:
+    """Web only: the crawler keeps its current digest and gets no pull, install or conf rewrite (M3c contract)."""
+    crawler_digest = r.state.crawler.digest
+    r.save(st.promote_runtime(r.state, _docker_runtime(r, crawler_digest)))
+    r.crawler_substeps = SCHEMA_AHEAD_SUBSTEPS
+    return r.finish(OK, "success", f"web is on the target release; the crawler stays on {crawler_digest} (schema-ahead)")
+
+
+def _finish_success_path(r: _Run) -> int:
+    if r.command.chain == "schema-ahead":
+        return _finish_schema_ahead(r)
+    problem, substeps = _update_crawler(r)
+    r.crawler_substeps = substeps
+    crawler: st.Crawler | None = None
     if problem is None:
-        r.save(replace(promoted, crawler=st.Crawler(digest=r.command.crawler_digest, paused=None)))
+        try:
+            crawler = _recorded_crawler(r, substeps)
+        except (EffectFailed, OSError, UnsafeFileError) as exc:
+            problem = f"provenance failed: {exc}"
+    if crawler is not None:
+        promoted = st.promote_runtime(r.state, _docker_runtime(r, r.command.crawler_digest))
+        r.save(replace(promoted, crawler=crawler))
         return r.finish(OK, "success", "web and crawler are on the target release")
+    # Partial: the crawler keeps the provenance it had, because half-installed files are not recorded as provenance.
+    crawler_digest = r.state.crawler.digest
+    promoted = st.promote_runtime(r.state, _docker_runtime(r, crawler_digest))
     # The web runtime is already serving the new release, so it is promoted; the crawler stays out of cron (N3).
     if r.command.chain != "forward":
         promoted = st.pause_crawler(promoted, release=r.tag, reason="crawler update failed", now=r.deps.clock.now())
@@ -463,6 +539,29 @@ def _finish_success_path(r: _Run) -> int:
         "partial-crawler",
         f"web is on the target release; crawler update failed ({problem}); crawler stays paused; resume-crawler (L4) is required",
     )
+
+
+def _recorded_crawler(r: _Run, steps: dict[str, str]) -> st.Crawler:
+    """The provenance of a fully successful crawler update (M3c-2).
+
+    A file the release does not ship was not touched, so its hash stays as recorded. The hashes are read back from the
+    installed files, not from the release, so the record describes what is on disk.
+    """
+    previous = r.state.crawler
+    runner = _installed_sha256(r.settings.crawler_runner) if steps["run_crawler"] == "ok" else previous.runner_sha256
+    cron = _installed_sha256(r.settings.cron_file) if steps["crawler_cron"] == "ok" else previous.cron_sha256
+    return st.Crawler(
+        digest=r.command.crawler_digest,
+        runner_sha256=runner,
+        cron_sha256=cron,
+        source_release=st.SourceRelease(tag=r.tag, web_digest=r.command.web_digest),
+        paused=None,
+    )
+
+
+def _installed_sha256(path: str) -> str:
+    # The same bound the install used (MAX_RUNNER_BYTES); the config reader's 64 KiB cap would refuse a valid runner.
+    return hashlib.sha256(read_regular_file(path, MAX_RUNNER_BYTES)).hexdigest()
 
 
 def rewrite_crawler_image(data: bytes, reference: str) -> bytes:

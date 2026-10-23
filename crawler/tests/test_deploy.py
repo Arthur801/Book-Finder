@@ -1,5 +1,6 @@
 """Exercise the host wrapper without AWS, Docker, root, or website requests."""
 
+import json
 import os
 import subprocess
 import time
@@ -41,8 +42,24 @@ docker() {
         "CRAWLER_STATE_DIR": str(tmp_path / "state"),
         "CRAWLER_RUNTIME_DIR": str(tmp_path / "runtime"),
         "CALLS": str(tmp_path / "calls"),
+        # N3: every test uses its own maintenance lock and state file; the wait is short so timeouts stay fast.
+        "DB_MAINTENANCE_LOCK": str(tmp_path / "db-maintenance.lock"),
+        "BOOKFINDER_STATE_FILE": str(tmp_path / "state.json"),
+        "DB_MAINTENANCE_WAIT_S": "1",
     }
     return tmp_path, env
+
+
+def write_state(root, *, paused=None, dirty=False):
+    state = {
+        "revision": 3,
+        "crawler": {"digest": "sha256:" + "3" * 64, "paused": paused},
+        "schema": {"dirty": dirty},
+    }
+    (root / "state.json").write_text(json.dumps(state), encoding="utf-8")
+
+
+PAUSE = {"since": "2026-10-23T00:00:00Z", "release": "v1.1.0", "reason": "forward migration"}
 
 
 def execute(env, *args):
@@ -89,3 +106,87 @@ def test_daily_and_pages_share_a_lock(host):
     second.communicate(timeout=10)
     assert first.returncode == second.returncode == 0
     assert (root / "calls").read_text() == "start\nend\nstart\nend\n"
+
+
+def test_absent_state_keeps_pre_cd_behaviour(host):
+    root, env = host
+    result = execute(env, "daily")
+    assert result.returncode == 0
+    assert "state=absent" in result.stdout
+    assert (root / "calls").read_text() == "start\nend\n"
+
+
+def test_paused_state_skips_before_docker(host):
+    root, env = host
+    write_state(root, paused=PAUSE)
+    result = execute(env, "daily")
+    assert result.returncode == 6
+    assert "skipped=paused" in result.stdout
+    assert not (root / "calls").exists()
+
+
+def test_dirty_schema_skips_before_docker(host):
+    root, env = host
+    write_state(root, dirty=True)
+    result = execute(env, "pages", "--scheduled")
+    assert result.returncode == 6
+    assert "skipped=dirty" in result.stdout
+    assert not (root / "calls").exists()
+
+
+def test_clean_state_runs(host):
+    root, env = host
+    write_state(root)
+    assert execute(env, "daily").returncode == 0
+    assert (root / "calls").read_text() == "start\nend\n"
+
+
+def test_unreadable_state_fails_closed(host):
+    root, env = host
+    (root / "state.json").write_text("{not json", encoding="utf-8")
+    result = execute(env, "daily")
+    assert result.returncode == 2
+    assert "state=unreadable" in result.stderr
+    assert not (root / "calls").exists()
+
+
+def test_lock_is_taken_before_state_is_read(host):
+    root, env = host
+    lock = root / "db-maintenance.lock"
+    # A deploy holds the lock exclusively and pauses the crawler while the crawler is still waiting. Reading state
+    # before the lock would miss that pause and start the run.
+    holder = subprocess.Popen(["flock", "-x", str(lock), "sleep", "3"])
+    time.sleep(0.3)
+    env = {**env, "DB_MAINTENANCE_WAIT_S": "10"}
+    waiter = subprocess.Popen(["bash", str(SCRIPT), "daily"], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    time.sleep(0.5)
+    write_state(root, paused=PAUSE)
+    stdout, _ = waiter.communicate(timeout=20)
+    holder.wait(timeout=10)
+    assert waiter.returncode == 6
+    assert "skipped=paused" in stdout
+    assert not (root / "calls").exists()
+
+
+def test_maintenance_lock_is_held_while_the_container_runs(host):
+    root, env = host
+    env = {**env, "DOCKER_DELAY": "1.5"}
+    runner = subprocess.Popen(["bash", str(SCRIPT), "daily"], env=env, stdout=subprocess.PIPE, text=True)
+    time.sleep(0.7)
+    probe = subprocess.run(["flock", "-n", "-x", str(root / "db-maintenance.lock"), "true"], check=False)
+    assert probe.returncode != 0, "a deploy could take the migration lock while a crawler container runs"
+    runner.communicate(timeout=20)
+    assert runner.returncode == 0
+
+
+def test_maintenance_wait_timeout_exits_3(host):
+    root, env = host
+    holder = subprocess.Popen(["flock", "-x", str(root / "db-maintenance.lock"), "sleep", "5"])
+    time.sleep(0.3)
+    try:
+        result = execute(env, "daily")
+    finally:
+        holder.wait(timeout=10)
+    assert result.returncode == 3
+    assert "maintenance=busy" in result.stderr
+    assert not (root / "calls").exists()
