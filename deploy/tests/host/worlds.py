@@ -1,6 +1,6 @@
 """Shared test worlds: settings, a scripted FakeHost and scripted effects, all rooted in one tmp directory.
 
-Why: the M3a command tests and the M3b state-machine tests must build the same host, so a change to the world
+Why: the command tests and the state-machine tests must build the same host, so a change to the world
 setup is made once. Unit bodies are run through the real entry point (commands.main) with an INVOCATION_ID, the same
 path systemd uses, so no test calls the state machine directly.
 """

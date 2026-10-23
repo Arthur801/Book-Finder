@@ -1,11 +1,11 @@
-"""Operator commands run by a person over their own SSH session as root (plan section 2, M3c).
+"""Operator commands run by a person over their own SSH session as root (see deploy/README.md §5).
 
 Why: these commands change the state that the forced-command path refuses to change (dirty, paused, the first
 bootstrap, and resolution of an indeterminate run). Each one takes the deploy lock, writes through the same CAS as the
 state machine, requires a non-empty reason, and needs the operator to type the value shown (or pass it again with
 --yes-i-verified). None of them is reachable through SSH_ORIGINAL_COMMAND.
 
-Protocol (M3c review): every mutating command first validates and confirms, then appends operator-started (fsynced) with
+Protocol: every mutating command first validates and confirms, then appends operator-started (fsynced) with
 op_id, intended and before; only then does it change anything, and it ends with exactly one operator-completed record.
 An operator-started without a completed record is indeterminate: every operator command except resolve-run refuses
 until resolve-run names that op_id.
@@ -56,7 +56,7 @@ RESOLVE_EXIT = {
     "partial-crawler": 7,
     "drift": DRIFT,
 }
-# The fixed link that the forced commands and sudoers use. It points at host-versions/<id> (install-host, N4 and M3c).
+# The fixed link that the forced commands and sudoers use. It points at host-versions/<id> (install-host, N4: the swap is atomic, so the link resolves at every crash point).
 # Not derived from __file__: the code runs through a resolved path, which is a version directory, not the link.
 INSTALLED_HOST_DIR = Path("/opt/book-finder/host")
 VERSIONS_DIRNAME = "host-versions"
@@ -129,11 +129,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     resume = sub.add_parser("resume-crawler", help="resume a paused crawler after its update is verified (N3)")
     resume.add_argument("--crawler-digest", required=True)
-    resume.add_argument("--adopt-release", help="after a partial crawler update: the release whose copies are installed (M3c-2)")
+    resume.add_argument("--adopt-release", help="after a partial crawler update: the release whose copies are installed")
     resume.add_argument("--adopt-web-digest", help="the web digest of --adopt-release; names its directory under RELEASES_DIR")
     common(resume)
 
-    resolve = sub.add_parser("resolve-run", help="record the outcome of an indeterminate run (N7) or operator operation (M3c)")
+    resolve = sub.add_parser("resolve-run", help="record the outcome of an indeterminate run (N7) or operator operation")
     resolve.add_argument("run_id", help="a run id, or an operator op_id (op-<yyyymmddHHMMSS>-<4 hex>)")
     # Run results and operation results share the flag; each command still checks which set it accepts.
     resolve.add_argument("--result", required=True, choices=sorted(set(RESOLVE_EXIT) | set(OPERATION_RESULTS)))
@@ -300,7 +300,7 @@ def _perform(
     unchanged_note: str = "state unchanged (verified)",
     start_cut: int | None = None,
 ):
-    """The operator protocol (M3c): operator-started is durable before apply() changes anything.
+    """The operator protocol: operator-started is durable before apply() changes anything.
 
     apply() returns (after_summary, value, extra). operator-completed is written only for a success, or for a failure
     that verifiably changed nothing (unchanged is True). Every other failure, including an exception that leaves the
@@ -402,7 +402,7 @@ def _check_tag(value: str) -> str:
     return value
 
 
-# bootstrap-state (N6)
+# bootstrap-state (N6: an operator creates the first state; CD never does)
 
 
 def _bootstrap(ctx: Context) -> int:
@@ -440,6 +440,14 @@ def _bootstrap(ctx: Context) -> int:
             f"database migrations ({len(database_ids)}) are not exactly the release manifest ({len(manifest_ids)}); bootstrap needs an in-sync database",
         )
     runner_bytes, cron_bytes = _read_crawler_files(deps.settings, "bootstrap-state needs both crawler files installed")
+    # The state records the crawler digest, so the installed crawler.conf must pin that same digest (N6).
+    expected_image = f"{deps.settings.crawler_image_repository}@{crawler_digest}"
+    found_image = _crawler_image_line(_read_crawler_conf(deps.settings))
+    if found_image != expected_image:
+        raise Refusal(
+            DRIFT,
+            f"crawler.conf has CRAWLER_IMAGE={found_image} but --crawler-digest {crawler_digest} requires CRAWLER_IMAGE={expected_image}; fix crawler.conf or the digest",
+        )
     ctx.err.write(
         "trust assumption: the existing database was created by exactly the migration sources of "
         f"{tag} (ids match the manifest; hashes are taken from the manifest)\n"
@@ -485,7 +493,7 @@ def _bootstrap(ctx: Context) -> int:
     return _report(ctx, "bootstrap-state", revision=stored.revision, release=tag)
 
 
-# reconcile-schema (N2)
+# reconcile-schema (N2: only a person who verified the database may clear the dirty flag)
 
 
 def _reconcile(ctx: Context) -> int:
@@ -553,7 +561,7 @@ def _write_cas(deps: cmd.Deps, new_state: st.State, expected_revision: int) -> s
         raise OperationFailed(f"state changed while the command ran: {exc}", unchanged=True) from exc
 
 
-# resume-crawler (N3)
+# resume-crawler (N3: a person verifies the crawler update before cron may run it again)
 
 
 def _crawler_image_line(text: str) -> str:
@@ -561,6 +569,13 @@ def _crawler_image_line(text: str) -> str:
     if len(lines) != 1:
         raise Refusal(DRIFT, "crawler.conf must contain exactly one CRAWLER_IMAGE= line")
     return lines[0][len("CRAWLER_IMAGE=") :]
+
+
+def _read_crawler_conf(settings: cfg.Settings) -> str:
+    try:
+        return read_regular_file(settings.crawler_conf, 65536).decode("utf-8")
+    except (OSError, UnsafeFileError) as exc:
+        raise Refusal(DRIFT, f"crawler.conf cannot be read: {exc}") from exc
 
 
 def _sha256_hex(data: bytes) -> str:
@@ -617,11 +632,7 @@ def _resume(ctx: Context) -> int:
             f"state records crawler {state.crawler.digest}; --crawler-digest must be that digest (a different crawler needs --adopt-release and --adopt-web-digest)",
         )
     expected_image = f"{deps.settings.crawler_image_repository}@{digest}"
-    try:
-        conf = read_regular_file(deps.settings.crawler_conf, 65536).decode("utf-8")
-    except (OSError, UnsafeFileError) as exc:
-        raise Refusal(DRIFT, f"crawler.conf cannot be read: {exc}") from exc
-    if _crawler_image_line(conf) != expected_image:
+    if _crawler_image_line(_read_crawler_conf(deps.settings)) != expected_image:
         raise Refusal(DRIFT, f"fix CRAWLER_IMAGE in {deps.settings.crawler_conf} to {expected_image} first")
     installed_runner, installed_cron = _read_crawler_files(deps.settings, "run-crawler.sh and crawler.cron must be installed")
     if adopting:
@@ -666,7 +677,7 @@ def _resume(ctx: Context) -> int:
     return _report(ctx, "resume-crawler", revision=stored.revision)
 
 
-# resolve-run (N7, M3c)
+# resolve-run (N7: records the end of a run whose outcome could not be observed)
 
 
 def _run_has_completed(path: str, run_id: str) -> bool:
@@ -756,7 +767,7 @@ def _tail_summary(tail: dict | None) -> dict | None:
 
 
 def _resolve_operation(ctx: Context) -> int:
-    """Records the outcome of an open operator operation (M3c).
+    """Records the outcome of an open operator operation.
 
     Single append, no operator-started: the only change is the completed record itself, so a crash leaves either the op
     open (nothing recorded) or closed. A damaged tail is repaired in the same atomic rewrite, after its sidecar is kept.
@@ -793,7 +804,7 @@ def _resolve_operation(ctx: Context) -> int:
     return _report(ctx, "resolve-run", run_id=op_id, result=args.result, truncated_tail_bytes=0 if tail is None else tail["bytes"])
 
 
-# install-host (N4)
+# install-host (N4: the host program is swapped in one step)
 
 
 def _install(ctx: Context) -> int:
@@ -851,7 +862,7 @@ def _install(ctx: Context) -> int:
     return _report(ctx, "install-host", host_api_range=new_text, version=result["version"], previous=result["previous"])
 
 
-# install-host swap (N4, M3c review)
+# install-host swap (N4)
 #
 # Layout: <root>/host is a symlink to <root>/host-versions/<id>, where <id> is the first 16 hex digits of a hash over the
 # installed tree. Every version directory is complete before it gets a name, and the link is replaced with one rename(2),

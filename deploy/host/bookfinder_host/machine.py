@@ -1,4 +1,4 @@
-"""The deploy state machine (plan section 5, steps 1-7), executed inside the transient unit (N7).
+"""The deploy state machine (steps 1-7 of the deploy flow, deploy/README.md §1.1), executed inside the transient unit (N7: the unit, not the SSH session, owns the run).
 
 Why: every outcome is decided here and written to history exactly once. Each step that changes the host is ordered so
 that a crash at any point leaves state the next run can see and refuse (dirty, paused, indeterminate). A crash is
@@ -41,9 +41,9 @@ PROBE_INTERVAL_S = 1.0
 HEALTH_BUDGET_S = 90.0  # step 5: the new runtime gets 90 s to answer
 HEALTH_INTERVAL_S = 2.0
 CRAWLER_KEY = "CRAWLER_IMAGE="
-# Outcome per sub-step, recorded in the completed record so resume-crawler can tell what already took effect (M3c).
+# Outcome per sub-step, recorded in the completed record so resume-crawler can tell what already took effect.
 CRAWLER_SUBSTEPS = ("image", "smoke", "run_crawler", "crawler_cron", "crawler_conf")
-# A schema-ahead deploy never touches the crawler (contract, M3c); its sub-steps are recorded as one marker.
+# A schema-ahead deploy never touches the crawler, so its sub-steps are recorded as one marker.
 SCHEMA_AHEAD_SUBSTEPS = "skipped (schema-ahead)"
 MAX_RUNNER_BYTES = 1 << 20
 
@@ -70,7 +70,7 @@ def finish_run(
     snapshot_id: str | None = None,
     crawler_substeps: dict[str, str] | str | None = None,
 ) -> int:
-    """Writes the single completed record for a run (N7); the history line never holds secrets or free text.
+    """Writes the single completed record for a run (N7: one end per run, so the history can never say two things); the history line never holds secrets or free text.
 
     state is None when the run ends before a state was read (lock busy, state missing or corrupt); the summary is then
     empty, since no state was observed.
@@ -128,7 +128,7 @@ class _Run:
         return f"{self.settings.crawler_image_repository}@{self.command.crawler_digest}"
 
     def save(self, new: st.State) -> None:
-        # Every write is a CAS on the revision this run last saw (S4); the file is durable before the next step.
+        # Every write is a compare-and-set on the revision this run last saw (S4: a concurrent writer cannot be silently overwritten); the file is durable before the next step.
         self.state = st.write_state(self.settings.state_file, new, expected_revision=self.state.revision)
 
     def finish(self, code: int, result: str, reason: str) -> int:
@@ -396,7 +396,7 @@ def _migrate_locked(r: _Run) -> None:
     if exit_code == 0 and applied == [m.id for m in r.target.migrations]:
         r.save(st.mark_migrated(r.state, r.tag, r.command.web_digest, r.target.migrations))
         return
-    # Dirty and paused stay set; only the human reconcile-schema and resume-crawler commands clear them (N2, N3).
+    # Dirty and paused stay set; only the human reconcile-schema and resume-crawler commands clear them (N2, N3: a person must verify the schema and the crawler first).
     raise _Stop(
         FAILED_MIGRATION,
         "failed-migration",
@@ -505,7 +505,7 @@ def _docker_runtime(r: _Run, crawler_digest: str) -> st.DockerRuntime:
 
 
 def _finish_schema_ahead(r: _Run) -> int:
-    """Web only: the crawler keeps its current digest and gets no pull, install or conf rewrite (M3c contract)."""
+    """Web only: the crawler keeps its current digest and gets no pull, install or conf rewrite."""
     crawler_digest = r.state.crawler.digest
     r.save(st.promote_runtime(r.state, _docker_runtime(r, crawler_digest)))
     r.crawler_substeps = SCHEMA_AHEAD_SUBSTEPS
@@ -542,7 +542,7 @@ def _finish_success_path(r: _Run) -> int:
 
 
 def _recorded_crawler(r: _Run, steps: dict[str, str]) -> st.Crawler:
-    """The provenance of a fully successful crawler update (M3c-2).
+    """The provenance of a fully successful crawler update.
 
     A file the release does not ship was not touched, so its hash stays as recorded. The hashes are read back from the
     installed files, not from the release, so the record describes what is on disk.

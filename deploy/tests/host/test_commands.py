@@ -209,6 +209,29 @@ def test_plan_stopped_web_container_is_drift_exit_3(tmp_path):
     assert any("not running" in reason for reason in world.stdout_json()["drift"])
 
 
+def test_plan_paused_crawler_exits_3_and_names_the_blocker(tmp_path):
+    # The unit refuses a paused crawler at step 0, so the plan must not look deployable (it would fail after approval).
+    paused = replace(sample_state(applied=applied((ID1, H1))), crawler=replace(sample_state().crawler, paused=st.Pause("t0", TAG1, "forward migration")))
+    world = make_world(tmp_path, paused, target=applied((ID1, H1)))
+    assert world.run(f"plan {TAG1} {DIGEST_OK}") == DRIFT
+    report = world.stdout_json()
+    assert report["drift"] == []
+    assert report["blocked"] == [f"crawler paused by {TAG1} at t0: run resume-crawler first"]
+
+
+def test_plan_clean_state_has_no_blocked_reasons(tmp_path):
+    world = make_world(tmp_path, sample_state(applied=applied((ID1, H1))), target=applied((ID1, H1)))
+    assert world.run(f"plan {TAG1} {DIGEST_OK}") == OK
+    assert world.stdout_json()["blocked"] == []
+
+
+def test_plan_dirty_wins_over_paused(tmp_path):
+    dirty = st.mark_dirty(sample_state(applied=applied((ID1, H1))), TAG1, "t0")
+    paused = replace(dirty, crawler=replace(dirty.crawler, paused=st.Pause("t0", TAG1, "forward migration")))
+    world = make_world(tmp_path, paused, target=applied((ID1, H1)))
+    assert world.run(f"plan {TAG1} {DIGEST_OK}") == DIRTY
+
+
 def test_plan_without_state_needs_bootstrap_and_touches_nothing(tmp_path):
     world = make_world(tmp_path, state=None)
     assert world.run(f"plan {TAG1} {DIGEST_OK}") == DRIFT
@@ -487,3 +510,38 @@ def test_missing_production_configuration_exits_2(tmp_path, monkeypatch):
     monkeypatch.setattr(cmd, "DEFAULT_CONFIG", tmp_path / "absent.conf")
     out, err = io.StringIO(), io.StringIO()
     assert cmd.main([], {"SSH_ORIGINAL_COMMAND": f"status {RUN_ID_TEXT}"}, out, err) == BAD_INPUT
+
+
+def test_empty_command_under_sudo_names_the_sudoers_fix(tmp_path):
+    # sudo strips SSH_ORIGINAL_COMMAND; the message must say how to keep it instead of a generic usage error.
+    world = make_world(tmp_path)
+    out, err = io.StringIO(), io.StringIO()
+    code = cmd.main([], {"SUDO_USER": "deployer"}, out, err, deps=world.deps)
+    assert code == BAD_INPUT
+    assert cmd.SUDO_EMPTY_COMMAND_MESSAGE in err.getvalue()
+    assert "env_keep" in err.getvalue()
+    assert world.host.calls == []
+
+
+def test_empty_command_under_sudo_with_plan_only_names_the_sudoers_fix(tmp_path):
+    world = make_world(tmp_path)
+    out, err = io.StringIO(), io.StringIO()
+    code = cmd.main(["--plan-only"], {"SUDO_USER": "deployer", "SSH_ORIGINAL_COMMAND": ""}, out, err, deps=world.deps)
+    assert code == BAD_INPUT
+    assert cmd.SUDO_EMPTY_COMMAND_MESSAGE in err.getvalue()
+
+
+def test_empty_command_without_sudo_keeps_the_generic_usage_error(tmp_path):
+    world = make_world(tmp_path)
+    out, err = io.StringIO(), io.StringIO()
+    assert cmd.main([], {}, out, err, deps=world.deps) == BAD_INPUT
+    assert "empty command" in err.getvalue()
+    assert cmd.SUDO_EMPTY_COMMAND_MESSAGE not in err.getvalue()
+
+
+def test_sudo_with_a_command_is_unaffected(tmp_path):
+    world = make_world(tmp_path)
+    out, err = io.StringIO(), io.StringIO()
+    code = cmd.main([], {"SUDO_USER": "deployer", "SSH_ORIGINAL_COMMAND": f"status {RUN_ID_TEXT}"}, out, err, deps=world.deps)
+    assert code == OK
+    assert cmd.SUDO_EMPTY_COMMAND_MESSAGE not in err.getvalue()

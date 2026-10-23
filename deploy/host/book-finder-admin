@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Operator command line for the Book Finder host (plan section 2). Run as root over the operator's own SSH session."""
+"""Operator command line for the Book Finder host (see deploy/README.md §5). Run as root over the operator's own SSH session."""
 
 import os
 import sys

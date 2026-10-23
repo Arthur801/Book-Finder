@@ -178,7 +178,7 @@ def test_resolved_operator_record_clears_the_run():
     assert resolved["resolved_by_operator"] is True
 
 
-# operator operations (M3c): an operator-started record without operator-completed is indeterminate too
+# operator operations: an operator-started record without operator-completed is indeterminate too
 
 
 OP = "op-20261023000000-beef"

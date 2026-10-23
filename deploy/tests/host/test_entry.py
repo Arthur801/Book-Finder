@@ -119,3 +119,11 @@ def test_without_test_hook_and_without_host_conf_the_entry_refuses(tmp_path):
 
 def test_entry_script_is_executable():
     assert os.access(ENTRY, os.X_OK)
+
+
+def test_entry_under_sudo_without_command_names_the_sudoers_fix():
+    # Real entry script, no test hook: the sudo check runs before any configuration is loaded.
+    env = {"PATH": os.environ["PATH"], "SUDO_USER": "deployer"}
+    done = subprocess.run([sys.executable, str(ENTRY), "--plan-only"], capture_output=True, text=True, env=env, check=False, timeout=60)
+    assert done.returncode == 2
+    assert "env_keep" in done.stderr and "SSH_ORIGINAL_COMMAND" in done.stderr

@@ -1,5 +1,6 @@
-# Non-secret configuration, sourced by root. Use a fixed release tag or image digest.
-CRAWLER_IMAGE=YOUR_DOCKERHUB_USER/book-finder-crawler:2026-10-12.1
+# Non-secret configuration, sourced by root.
+# Production requires an immutable GHCR digest taken from the release's release.json; CD rewrites this line on each deploy.
+CRAWLER_IMAGE=ghcr.io/arthur801/book-finder-crawler@sha256:<digest>
 AWS_REGION=ap-northeast-1
 # This parameter must contain a psycopg PostgreSQL URL, not a .NET connection string.
 DATABASE_URL_PARAMETER=/book-finder/prod/crawler-database-url

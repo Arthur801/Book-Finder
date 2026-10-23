@@ -1,4 +1,4 @@
-"""Operator commands: preconditions, refusals, confirmation, CAS and the operator history record (plan section 2, M3c).
+"""Operator commands: preconditions, refusals, confirmation, CAS and the operator history record (deploy/README.md §5).
 
 Why: each command changes the state the automated path refuses to change, so every precondition gets a refusal test,
 and every success checks the state file, the history record and the exit code together.
@@ -191,6 +191,7 @@ def bootstrap_world(tmp_path, *, db_ids=None, active=True, state=None, crawler_f
     if crawler_files:
         Path(world.settings.crawler_runner).write_text(RUNNER1, encoding="utf-8")
         Path(world.settings.cron_file).write_text(CRON1, encoding="utf-8")
+        Path(world.settings.crawler_conf).write_text(f"CRAWLER_IMAGE={world.settings.crawler_image_repository}@{CRAWLER}\nSCHEDULE=0 3 * * *\n", encoding="utf-8")
     return world
 
 
@@ -225,6 +226,27 @@ def test_bootstrap_refuses_without_both_crawler_files(tmp_path):
         code, _, err = run_admin(world, bootstrap_argv(), typed=WEB1)
         assert code == 3, err
         assert "crawler files" in err
+        assert not Path(world.settings.state_file).exists()
+
+
+def test_bootstrap_refuses_when_crawler_conf_pins_another_digest(tmp_path):
+    world = bootstrap_world(tmp_path)
+    Path(world.settings.crawler_conf).write_text(f"CRAWLER_IMAGE={world.settings.crawler_image_repository}@{CRAWLER2}\n", encoding="utf-8")
+    code, _, err = run_admin(world, bootstrap_argv(), typed=WEB1)
+    assert code == 3, err
+    assert CRAWLER2 in err and CRAWLER in err
+    assert not Path(world.settings.state_file).exists()
+
+
+def test_bootstrap_refuses_when_crawler_conf_has_no_or_duplicate_image_line(tmp_path):
+    for index, text in enumerate(("SCHEDULE=0 3 * * *\n", f"CRAWLER_IMAGE=x@{CRAWLER}\nCRAWLER_IMAGE=x@{CRAWLER}\n")):
+        base = tmp_path / str(index)
+        base.mkdir()
+        world = bootstrap_world(base)
+        Path(world.settings.crawler_conf).write_text(text, encoding="utf-8")
+        code, _, err = run_admin(world, bootstrap_argv(), typed=WEB1)
+        assert code == 3, err
+        assert "exactly one CRAWLER_IMAGE" in err
         assert not Path(world.settings.state_file).exists()
 
 
@@ -480,7 +502,7 @@ def test_resume_refuses_when_installed_cron_differs_from_the_recorded_one(tmp_pa
 
 
 def test_resume_does_not_depend_on_the_runtime_kind(tmp_path):
-    # Provenance lives in the crawler record (M3c-2), so a systemd web runtime does not block the crawler.
+    # Provenance lives in the crawler record, so a systemd web runtime does not block the crawler.
     world = paused_world(tmp_path, runtime_docker=False)
     code, _, err = run_admin(world, ["resume-crawler", "--crawler-digest", CRAWLER2, *REASON], typed=CRAWLER2)
     assert code == 0, err
@@ -795,7 +817,7 @@ def test_a_failed_sidecar_write_leaves_history_untouched(tmp_path):
     assert operator_records(world) == []
 
 
-# operator protocol (M3c review): started -> mutation -> completed for every mutating command
+# operator protocol: started -> mutation -> completed for every mutating command
 
 PROTOCOL_COMMANDS = ["bootstrap-state", "reconcile-schema", "resume-crawler", "install-host", "resolve-run"]
 OTHER_OPERATOR_ARGV = ["install-host", "--source", "/nonexistent", *REASON]

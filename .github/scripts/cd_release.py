@@ -59,7 +59,7 @@ IMAGE_TAG_REF_RE = re.compile(rf"(?:{re.escape(WEB_REPO)}|{re.escape(CRAWLER_REP
 # A build pushes here first; the release tag is created only after the staging digest is attested and verified.
 STAGING_TAG_RE = re.compile(r"build-[0-9]{1,20}-[0-9]{1,4}")
 RELEASE_KEYS = {"schema_version", "tag", "commit", "web_digest", "crawler_digest", "release_api", "migrations", "sql_assets"}
-PLAN_KEYS = {"revision", "runtime", "drift", "schema", "crawler", "compose_version", "target", "classification", "pending"}
+PLAN_KEYS = {"revision", "runtime", "drift", "schema", "crawler", "compose_version", "target", "classification", "pending", "blocked"}
 TERMINAL_PREFIX = "completed:"
 
 
@@ -417,7 +417,7 @@ def release_state(tag: str, runner: Runner) -> str:
 
 
 def publish_release(tag: str, assets_dir: Path, runner: Runner) -> str:
-    """Immutable flow (N-plan section 6): draft, upload, publish. A draft is resumed; a published release must match.
+    """Immutable flow (the immutable release flow, see deploy/README.md §1.1 and §2.8): draft, upload, publish. A draft is resumed; a published release must match.
 
     Returns "published" when this call publishes, or "already-published" when the release was already public and identical.
     """
@@ -491,6 +491,8 @@ def plan_outputs(plan: object, host_exit: int, release: ReleaseRecord, tag: str,
         raise CdError("schema is dirty; resolve it on the host first")
     if plan["drift"] != []:
         raise CdError("host reports drift")
+    if not isinstance(plan["blocked"], list) or plan["blocked"] != []:
+        raise CdError("host reports blocked: " + "; ".join(str(reason) for reason in plan["blocked"]))
     crawler = plan["crawler"]
     if not isinstance(crawler, dict) or set(crawler) != {"paused", "digest"} or crawler["paused"] is not None:
         raise CdError("crawler is paused or the plan crawler block is malformed")
@@ -634,10 +636,19 @@ def decision_summary(outputs: dict[str, str]) -> str:
 
 
 def plan_summary(raw: str, host_exit: int) -> str:
-    """Summary text written before any validation, so a failed plan still shows the host's JSON."""
+    """Summary text written before any validation, so a failed plan still shows the host's JSON and why it is blocked."""
     body = raw[:MAX_SUMMARY_PLAN_BYTES]
     fence = fence_for(body)
-    lines = ["## CD plan", "", f"- host exit code: `{host_exit}`", "", f"{fence}json", body.rstrip("\n"), fence, ""]
+    lines = ["## CD plan", "", f"- host exit code: `{host_exit}`"]
+    try:
+        parsed = json.loads(raw)
+    except ValueError:
+        parsed = None
+    blocked = parsed.get("blocked") if isinstance(parsed, dict) else None
+    if isinstance(blocked, list) and blocked:
+        lines.append("- blocked:")
+        lines.extend(f"  - {reason}" for reason in blocked)
+    lines += ["", f"{fence}json", body.rstrip("\n"), fence, ""]
     return "\n".join(lines) + "\n"
 
 

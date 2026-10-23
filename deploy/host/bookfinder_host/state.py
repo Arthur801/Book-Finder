@@ -2,7 +2,7 @@
 
 Why: the state records what the host believes is running and applied. It is parsed strictly so an unknown or missing
 key fails loudly, written atomically so a crash never leaves a torn file, and revisioned so a stale caller cannot
-overwrite a newer decision (S4).
+overwrite a newer decision (S4: every write is a compare-and-set on the revision).
 """
 
 import json
@@ -26,7 +26,7 @@ _SHA256_HEX_RE = re.compile(r"[0-9a-f]{64}")
 
 
 class StateMissing(Exception):
-    """No state file exists; the first cutover must bootstrap it (N6)."""
+    """No state file exists; the first cutover must bootstrap it (N6: only an operator creates state)."""
 
 
 class StateCorrupt(Exception):
@@ -34,7 +34,7 @@ class StateCorrupt(Exception):
 
 
 class RevisionConflict(Exception):
-    """The on-disk revision is not the one the caller expected (S4)."""
+    """The on-disk revision is not the one the caller expected (S4: a stale writer must not overwrite a newer decision)."""
 
 
 @dataclass(frozen=True)

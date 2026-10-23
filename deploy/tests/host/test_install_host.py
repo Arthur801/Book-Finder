@@ -1,4 +1,4 @@
-"""install-host swap (N4, M3c review): <root>/host/deploy-entry resolves to a complete tree at every crash point.
+"""install-host swap (N4): <root>/host/deploy-entry resolves to a complete tree at every crash point.
 
 Why: the forced commands and book-finder-admin live under <root>/host, so an interrupted install must never leave that
 path missing or half-copied. Each test injects a BaseException after one named step (the same thing a SIGKILL or a
