@@ -164,8 +164,6 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 _OPENER = urllib.request.build_opener(_NoRedirect)
-# A named tuple keeps the clause valid on Python 3.12: ruff's py314 target would otherwise drop the parentheses.
-_NETWORK_ERRORS = (urllib.error.URLError, OSError, http.client.HTTPException, ValueError)
 
 
 class RealHttp:
@@ -177,7 +175,7 @@ class RealHttp:
                 return response.status
         except urllib.error.HTTPError as exc:
             return exc.code
-        except _NETWORK_ERRORS:
+        except (urllib.error.URLError, OSError, http.client.HTTPException, ValueError):
             return 0
 
 

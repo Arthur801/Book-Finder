@@ -82,10 +82,14 @@ jobs:
       - run: ruff format --check .
         working-directory: crawler
 
-      # The CI scripts share the crawler's ruff settings; the ruff installed above runs from the repository root.
-      - run: ruff check --output-format github --config crawler/ruff.toml .github/scripts deploy/tests deploy/host
+      # The CI scripts share the crawler's ruff settings; the host code is checked for Python 3.12 (deploy/ruff.toml).
+      - run: ruff check --output-format github --config crawler/ruff.toml .github/scripts
 
-      - run: ruff format --check --config crawler/ruff.toml .github/scripts deploy/tests deploy/host
+      - run: ruff format --check --config crawler/ruff.toml .github/scripts
+
+      - run: ruff check --output-format github --config deploy/ruff.toml deploy
+
+      - run: ruff format --check --config deploy/ruff.toml deploy
 
       # The pytest version is pinned in crawler/requirements.txt, like ruff, so both tools move together.
       - run: |
