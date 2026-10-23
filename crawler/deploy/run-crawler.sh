@@ -26,6 +26,43 @@ mkdir -p "$state_dir" "$runtime_dir"
 exec 9>"$state_dir/run.lock"
 flock 9
 
+# N3: a deploy takes the maintenance lock exclusively while it migrates, so the crawler holds it shared for its whole
+# run. The lock is taken before state is read: reading first would let a deploy pause and migrate in between.
+maintenance_lock=${DB_MAINTENANCE_LOCK:-/var/lib/book-finder/db-maintenance.lock}
+maintenance_wait_s=${DB_MAINTENANCE_WAIT_S:-7200}
+mkdir -p "$(dirname "$maintenance_lock")"
+exec 8>>"$maintenance_lock"
+if ! flock -s -w "$maintenance_wait_s" 8; then
+    echo "$(date -u +%FT%TZ) mode=$mode maintenance=busy waited_s=$maintenance_wait_s" >&2
+    exit 3
+fi
+
+# Missing state means a host that has not been bootstrapped yet, which keeps the pre-CD behaviour; a damaged state
+# file fails closed, because a crawler that cannot read the pause flag must not run.
+db_state_file=${BOOKFINDER_STATE_FILE:-/var/lib/book-finder/state.json}
+if [[ -e $db_state_file ]]; then
+    if ! gate=$(python3 -I -c '
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as handle:
+    state = json.load(handle)
+if state["crawler"]["paused"] is not None:
+    print("paused")
+elif state["schema"]["dirty"] is True:
+    print("dirty")
+else:
+    print("ok")
+' "$db_state_file"); then
+        echo "$(date -u +%FT%TZ) mode=$mode state=unreadable" >&2
+        exit 2
+    fi
+    if [[ $gate != ok ]]; then
+        echo "$(date -u +%FT%TZ) mode=$mode skipped=$gate"
+        exit 6
+    fi
+else
+    echo "$(date -u +%FT%TZ) mode=$mode state=absent"
+fi
+
 now=$(date +%s)
 state_file="$state_dir/pages-last-success"
 if [[ "$mode" == pages && ${2:-} == --scheduled && -f "$state_file" ]]; then
