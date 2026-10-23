@@ -1,4 +1,4 @@
-"""Tests for bookfinder_host.machine: one test per branch of the deploy state machine (plan section 5).
+"""Tests for bookfinder_host.machine: one test per branch of the deploy state machine (deploy/README.md §1.1).
 
 Why: the state machine is the only code that changes the production host. Each test checks the exit code, the
 completed result, the order of effects (pause before snapshot, dirty before efbundle, stop before up, and so on),
@@ -329,7 +329,7 @@ def test_schema_ahead_web_failure_also_rolls_back(tmp_path):
     assert world.run_unit(deploy_text(world, chain="schema-ahead", crawler=CRAWLER))[0] == ROLLED_BACK
 
 
-# Schema-ahead keeps the crawler (M3c contract): no pull, install or conf rewrite, and the digest must be the current one
+# Schema-ahead keeps the crawler: no pull, install or conf rewrite, and the digest must be the current one
 
 
 def schema_ahead_world(tmp_path):

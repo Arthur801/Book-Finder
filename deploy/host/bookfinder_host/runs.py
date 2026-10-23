@@ -1,4 +1,4 @@
-"""Run-level queries shared by the SSH side (launch, follow, status) and the unit: unit state and the N7 rules.
+"""Run-level queries shared by the SSH side (launch, follow, status) and the unit: unit state and the N7 rules: history.jsonl, not the SSH session, is the record of how a run ended.
 
 Why: launch, follow and status must agree on what "running", "indeterminate" and "not-started" mean, so the rules
 live once here and read only the history and the unit state.

@@ -1,4 +1,4 @@
-"""Local integration scenarios a-e against real docker (plan M3c, section 3). Opt-in: BOOKFINDER_IT=1 (see deploy/integration).
+"""Local integration scenarios a-e against real docker . Opt-in: BOOKFINDER_IT=1 (see deploy/integration).
 
 What is real: the unit body (deploy-entry --unit-body deploy ...) with INVOCATION_ID set, the plan and status entry points,
 the admin command, docker, a pgvector container on the docker0 gateway, a registry on 127.0.0.1 that gives the images
@@ -527,7 +527,7 @@ def stack(tmp_path_factory):
         logs = stack.work / "logs"
         logs.mkdir()
         # v1 ships a different run-crawler.sh from v2 (one comment line), so a resume that compares the installed runner
-        # with the web runtime's release copy cannot pass by accident (M3c-2 regression).
+        # with the web runtime's release copy cannot pass by accident (regression guard).
         v1_src = stack.work / "src-v1"
         scratch_tree(v1_src, [])
         runner_v1 = v1_src / "crawler" / "deploy" / "run-crawler.sh"

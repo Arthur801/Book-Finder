@@ -1,4 +1,4 @@
-"""Validation of the release directory extracted from a web image (plan section 5, step 2).
+"""Validation of the release directory extracted from a web image (step 2 of the deploy flow, deploy/README.md §1.1).
 
 Why: the directory is written by root and later passed to docker compose, so it must contain only plain files and
 directories. A symlink, device or fifo is refused before anything is read through it, because docker cp without -L

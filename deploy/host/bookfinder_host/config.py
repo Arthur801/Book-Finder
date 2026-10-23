@@ -213,7 +213,7 @@ def load_settings(path: str | Path = DEFAULT_CONFIG_PATH) -> Settings:
 
 
 def read_host_api_range(path: str | Path = HOST_API_RANGE_PATH) -> tuple[int, int]:
-    """The host supports release_api values from min through max inclusive (N4)."""
+    """The host supports release_api values from min through max inclusive (N4: a release outside the range is refused before anything changes)."""
     try:
         text = read_regular_file(path, 64).decode("ascii")
     except (OSError, UnsafeFileError, UnicodeDecodeError) as exc:

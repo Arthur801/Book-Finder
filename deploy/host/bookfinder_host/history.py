@@ -1,4 +1,4 @@
-"""Append-only run history (history.jsonl): the durable source of truth for how a deploy ended (N7).
+"""Append-only run history (history.jsonl): the durable source of truth for how a deploy ended (N7: the unit writes it, so a lost SSH session cannot hide the result).
 
 Why: systemd forgets transient units and their journals (--collect), so the unit state cannot prove an outcome. Each run
 writes a "started" record before it takes any lock or changes anything, and a "completed" record when it ends. The
@@ -21,7 +21,7 @@ PIPE_BUF = 4096
 MAX_HISTORY_BYTES = 64 << 20
 ACTIVE_STATES = frozenset({"active", "activating"})
 UNIT_STATES = frozenset({"active", "activating", "inactive", "failed", "missing"})
-# Operator operations (M3c) are recorded as operator-started / operator-completed pairs keyed by op_id (see operator_cli).
+# Operator operations are recorded as operator-started / operator-completed pairs keyed by op_id (see operator_cli).
 OPERATOR_STARTED = "operator-started"
 OPERATOR_COMPLETED = "operator-completed"
 OP_PREFIX = "op-"
@@ -55,7 +55,7 @@ def started_record(*, run_id: str, unit: str, at: str, target: dict[str, str], e
 
 
 def operator_started_record(*, op_id: str, action: str, at: str, operator: str, reason: str, intended: dict[str, Any], before: Any) -> dict[str, Any]:
-    """Written and fsynced before an operator command changes anything (M3c)."""
+    """Written and fsynced before an operator command changes anything, so a crash mid-command stays visible."""
     return {
         "phase": OPERATOR_STARTED,
         "op_id": op_id,
@@ -106,7 +106,7 @@ def completed_record(
     if snapshot_id is not None:
         record["snapshot_id"] = snapshot_id
     if crawler_substeps is not None:
-        # Lets resume-crawler (M3c) see which crawler sub-steps already took effect.
+        # Lets resume-crawler see which crawler sub-steps already took effect.
         record["crawler_substeps"] = crawler_substeps
     if resolved_by_operator:
         record.update({"resolved_by_operator": True, "operator": operator, "reason": reason})
@@ -177,7 +177,7 @@ def _started_for(records: Records, run_id: str) -> bool:
 
 
 def status(records: Records, run_id: str, unit_state: str) -> str:
-    """Implements N7 ①-④, in this order and independent of whether systemd still remembers the unit.
+    """Implements N7 ①-④, in this order and independent of whether systemd still remembers the unit. The first matching rule wins, so a finished record always beats a unit that is still listed.
 
     ① a completed record gives "completed:<result>";
     ② otherwise an active or activating unit gives "running";
@@ -199,7 +199,7 @@ def status(records: Records, run_id: str, unit_state: str) -> str:
 
 
 def open_operations(records: Records) -> list[str]:
-    """Operator op ids with an operator-started record and no operator-completed record (M3c).
+    """Operator op ids with an operator-started record and no operator-completed record.
 
     Such an operation may have changed the host or state before it stopped, so it is indeterminate, like a run.
     """
