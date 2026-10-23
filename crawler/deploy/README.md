@@ -77,6 +77,7 @@ sudoedit /etc/book-finder/crawler.conf
 | `CRAWLER_IMAGE` | `ghcr.io/arthur801/book-finder-crawler@sha256:<digest>`（digest 由 release.json 取得；範例檔中的 `<digest>` 必須替換為實際 digest） |
 | `AWS_REGION` | SSM 所在 region |
 | `DATABASE_URL_PARAMETER` | 上節的 SSM parameter name |
+| `CRAWLER_ENABLED` | 選填。`true`（預設，未寫入時即為 true）或 `false`；見下節「暫停排程」。空字串或其他值會以 exit 2 拒絕 |
 
 `crawler.conf` 由 root 擁有，只讓 root 編輯，因為 script 會 source 此檔。
 
@@ -104,6 +105,16 @@ wrapper 使用 `--pull=never`，因此 image 必須事先用 digest 拉取。CD 
 
 - 部署（CD）在 forward migration 失敗、forward 之後的 web 失敗，或爬蟲更新部分失敗時，會保持 paused；爬蟲會跳過，直到人工以 `resume-crawler` 恢復（`deploy/README.md` §5.3）。
 - 爬蟲跳過（exit 6）不是錯誤，只是 log 中會有 `skipped=paused` 或 `skipped=dirty`。
+
+## 5.1 暫停排程（不影響部署）
+
+若 EC2 被來源網站擋下（例如博客來封鎖 EC2 的 IP），把 `/etc/book-finder/crawler.conf` 加上 `CRAWLER_ENABLED=false`：
+
+- 每次 cron 觸發仍會執行 wrapper，但它在取得 lock、讀取 state、呼叫 AWS 與 Docker 之前就結束，回傳 exit 0，並寫入 `YYYY-MM-DDTHH:MM:SSZ mode=daily skipped=disabled`（pages 為 `mode=pages`）。
+- `pages-last-success` 不會被更新，也不會有 container。
+- 部署不受影響：CD 只改寫 `CRAWLER_IMAGE=`，`CRAWLER_ENABLED=false` 會保留；也不會把 crawler 設為 paused（paused 會讓部署被拒絕）。
+- 恢復時把這一行改為 `true` 或刪除即可，不需要重新安裝 cron。
+- 值只接受 `true` 與 `false`，其他值（包括空字串）會以 exit 2 拒絕並寫入 stderr。
 
 ## 6. 手動驗證，再啟用 cron
 

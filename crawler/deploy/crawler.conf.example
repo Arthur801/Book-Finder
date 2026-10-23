@@ -1,6 +1,9 @@
 # Non-secret configuration, sourced by root.
 # Production requires an immutable GHCR digest taken from the release's release.json; CD rewrites this line on each deploy.
 CRAWLER_IMAGE=ghcr.io/arthur801/book-finder-crawler@sha256:<digest>
+# Set to false to stop scheduled runs without blocking deploys (for example when the source site blocks EC2).
+# Deploys rewrite only CRAWLER_IMAGE=, so this survives them. Cron still fires and exits at once (skipped=disabled).
+CRAWLER_ENABLED=true
 AWS_REGION=ap-northeast-1
 # This parameter must contain a psycopg PostgreSQL URL, not a .NET connection string.
 DATABASE_URL_PARAMETER=/book-finder/prod/crawler-database-url
