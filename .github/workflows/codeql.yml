@@ -40,10 +40,11 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # SDK version comes from global.json so CI and local builds use the same SDK feature band (10.0.1xx) and dotnet format.
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         if: matrix.build-mode == 'manual'
         with:
-          dotnet-version: 10.0.x
+          global-json-file: global.json
 
       - uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
         with:
