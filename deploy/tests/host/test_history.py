@@ -113,9 +113,15 @@ def test_started_with_dead_unit_is_indeterminate():
         assert hi.status(records, RUN, unit_state) == "indeterminate"
 
 
-def test_tail_corrupt_without_completed_is_indeterminate_even_if_unit_active():
+def test_active_unit_is_running_even_when_the_tail_is_corrupt():
+    # N7 ② comes before ③: an active unit is still writing, so the records are not final yet.
     records = hi.Records([started()], tail_corrupt=True)
-    assert hi.status(records, RUN, "active") == "indeterminate"
+    assert hi.status(records, RUN, "active") == "running"
+
+
+def test_tail_corrupt_without_completed_is_indeterminate_when_the_unit_is_not_active():
+    records = hi.Records([started()], tail_corrupt=True)
+    assert hi.status(records, RUN, "failed") == "indeterminate"
 
 
 def test_tail_corrupt_with_no_records_is_indeterminate_because_started_may_be_the_lost_line():
@@ -126,8 +132,10 @@ def test_no_records_and_no_unit_is_not_started():
     assert hi.status(hi.Records([], tail_corrupt=False), RUN, "missing") == "not-started"
 
 
-def test_unit_present_without_started_record_is_indeterminate():
-    assert hi.status(hi.Records([], tail_corrupt=False), RUN, "failed") == "indeterminate"
+def test_failed_or_inactive_unit_without_started_record_is_not_started():
+    # started is written before anything changes, so a unit that failed earlier changed nothing.
+    for unit_state in ("failed", "inactive", "missing"):
+        assert hi.status(hi.Records([], tail_corrupt=False), RUN, unit_state) == "not-started"
 
 
 def test_status_rejects_unknown_unit_state():

@@ -60,14 +60,18 @@ def finish_run(
     out: TextIO,
     err: TextIO,
     run_id: str,
-    state: st.State,
+    state: st.State | None,
     code: int,
     result: str,
     reason: str,
     snapshot_id: str | None = None,
     crawler_substeps: dict[str, str] | None = None,
 ) -> int:
-    """Writes the single completed record for a run (N7); the history line never holds secrets or free text."""
+    """Writes the single completed record for a run (N7); the history line never holds secrets or free text.
+
+    state is None when the run ends before a state was read (lock busy, state missing or corrupt); the summary is then
+    empty, since no state was observed.
+    """
     hi.append(
         deps.settings.history_file,
         hi.completed_record(
@@ -75,7 +79,7 @@ def finish_run(
             result=result,
             exit_code=code,
             at=deps.clock.now(),
-            state_summary=st.state_summary(state),
+            state_summary={} if state is None else st.state_summary(state),
             snapshot_id=snapshot_id,
             crawler_substeps=crawler_substeps,
         ),

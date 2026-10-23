@@ -60,25 +60,30 @@ def open_run_ids(records: hi.Records) -> list[str]:
     return open_runs
 
 
-def indeterminate_reasons(settings: Settings, runner: Runner) -> list[str]:
-    """Every reason that history blocks plan and deploy (exit 8, N7)."""
+def indeterminate_reasons(settings: Settings, runner: Runner, exclude_run_id: str | None = None) -> list[str]:
+    """Every reason that history blocks plan and deploy (exit 8, N7).
+
+    exclude_run_id leaves one run out of the check; the unit body uses it so that its own started record does not
+    block its own deploy.
+    """
     try:
         records = hi.read(settings.history_file)
     except hi.HistoryCorrupt as exc:
         return [f"history: {exc}"]
     reasons = ["history: final line is incomplete"] if records.tail_corrupt else []
-    open_runs = open_run_ids(records)
+    open_runs = [run_id for run_id in open_run_ids(records) if run_id != exclude_run_id]
     if any(not isinstance(run_id, str) or _RUN_ID_RE.fullmatch(run_id) is None for run_id in open_runs):
         return reasons + ["history: malformed run id"]
     try:
         states = {run_id: unit_state(runner, unit_name(run_id)) for run_id in open_runs}
     except ObservationError as exc:
         return reasons + [f"units: {exc}"]
-    return reasons + hi.unresolved_indeterminate(records, states)
+    unresolved = [run_id for run_id in hi.unresolved_indeterminate(records, states) if run_id != exclude_run_id]
+    return reasons + unresolved
 
 
 def status_text(settings: Settings, runner: Runner, run_id: str) -> str:
-    """N7 ①-④. An unreadable history or an unknown unit state is never reported as running."""
+    """N7 ①-④ (see history.status). An unreadable history is indeterminate; an unobservable unit counts as inactive."""
     try:
         records = hi.read(settings.history_file)
     except hi.HistoryCorrupt:

@@ -1,8 +1,9 @@
 """Append-only run history (history.jsonl): the durable source of truth for how a deploy ended (N7).
 
-Why: systemd forgets transient units and their journals, so the unit state cannot prove an outcome. Each run writes a
-"started" record before it changes anything and a "completed" record when it ends; the status rules below read only
-these records, with the unit state used only where the records are silent.
+Why: systemd forgets transient units and their journals (--collect), so the unit state cannot prove an outcome. Each run
+writes a "started" record before it takes any lock or changes anything, and a "completed" record when it ends. The
+status rules below read the completed record first; the unit state only tells whether a run without one is still
+running, and never changes an answer once the records say what happened.
 """
 
 import json
@@ -140,23 +141,32 @@ def _started_for(records: Records, run_id: str) -> bool:
 
 
 def status(records: Records, run_id: str, unit_state: str) -> str:
-    """Implements N7 ①-④. The completed record is authoritative; the unit state only fills gaps."""
+    """Implements N7 ①-④, in this order and independent of whether systemd still remembers the unit.
+
+    ① a completed record gives "completed:<result>";
+    ② otherwise an active or activating unit gives "running";
+    ③ otherwise a started record, or an incomplete final line, gives "indeterminate";
+    ④ otherwise "not-started": started is written before anything changes, so no started record means nothing changed.
+    The unit state after ① only decides between "running" and the records, so systemd garbage collection (--collect)
+    of a failed unit never changes the answer.
+    """
     if unit_state not in UNIT_STATES:
         raise ValueError(f"unknown unit state: {unit_state}")
     completed = _completed_for(records, run_id)
     if completed is not None:
         return f"completed:{completed['result']}"
-    if records.tail_corrupt:
-        return "indeterminate"
     if unit_state in ACTIVE_STATES:
         return "running"
-    if _started_for(records, run_id) or unit_state != "missing":
+    if records.tail_corrupt or _started_for(records, run_id):
         return "indeterminate"
     return "not-started"
 
 
 def unresolved_indeterminate(records: Records, unit_states: dict[str, str]) -> list[str]:
-    """Run ids with a started record, no completed record, and a unit that is no longer active."""
+    """Run ids that status reports as indeterminate: a started record, no completed record, and no active unit.
+
+    A run without an entry in unit_states counts as "missing", so it is listed.
+    """
     unresolved = []
     for entry in records.entries:
         run_id = entry.get("run_id")
