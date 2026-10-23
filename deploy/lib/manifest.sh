@@ -64,14 +64,14 @@ manifest_schema_digest() {
 
 # Prints "<shared-prefix-length> <applied-count> <target-count>" for two manifests compared line by line.
 _manifest_prefix_summary() {
-  local -a applied target
+  local -a applied_lines target_lines
   local index=0
-  mapfile -t applied <"$1" || return 1
-  mapfile -t target <"$2" || return 1
-  while ((index < ${#applied[@]} && index < ${#target[@]})) && [[ ${applied[index]} == "${target[index]}" ]]; do
+  mapfile -t applied_lines <"$1" || return 1
+  mapfile -t target_lines <"$2" || return 1
+  while ((index < ${#applied_lines[@]} && index < ${#target_lines[@]})) && [[ ${applied_lines[index]} == "${target_lines[index]}" ]]; do
     index=$((index + 1))
   done
-  printf '%s %s %s\n' "$index" "${#applied[@]}" "${#target[@]}"
+  printf '%s %s %s\n' "$index" "${#applied_lines[@]}" "${#target_lines[@]}"
 }
 
 manifest_classify() {
@@ -91,7 +91,7 @@ manifest_classify() {
 
 manifest_pending() {
   local classification shared applied_count target_count index
-  local -a target
+  local -a target_lines
   classification=$(manifest_classify "$1" "$2") || return 1
   case $classification in
     in-sync | forward) ;;
@@ -101,8 +101,8 @@ manifest_pending() {
       ;;
   esac
   read -r shared applied_count target_count < <(_manifest_prefix_summary "$1" "$2") || return 1
-  mapfile -t target <"$2" || return 1
+  mapfile -t target_lines <"$2" || return 1
   for ((index = applied_count; index < target_count; index++)); do
-    printf '%s\n' "${target[index]}"
+    printf '%s\n' "${target_lines[index]}"
   done
 }

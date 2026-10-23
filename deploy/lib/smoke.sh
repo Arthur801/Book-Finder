@@ -24,6 +24,8 @@ smoke_create_network() {
   for _ in 1 2 3 4 5; do
     octet=$((100 + RANDOM % 100))
     if docker network create --internal --subnet "172.30.$octet.0/24" "$name" >/dev/null 2>&1; then
+      # Read by the caller after a successful return, so shellcheck cannot see the use.
+      # shellcheck disable=SC2034
       SMOKE_SUBNET="172.30.$octet.0/24"
       return 0
     fi
@@ -65,6 +67,8 @@ smoke_wait_ready() {
       return 2
     fi
     code=$(smoke_curl "$network" -H "X-Forwarded-Proto: https" -o /dev/null -w '%{http_code}' "http://$container:8080/" || true)
+    # Read by the caller for its failure message.
+    # shellcheck disable=SC2034
     SMOKE_LAST_STATUS=$code
     [[ $code == 200 ]] && return 0
     sleep 1
