@@ -776,7 +776,8 @@ def _cmd_verify_attestation(args: argparse.Namespace) -> None:
 
 def _cmd_plan_outputs(args: argparse.Namespace) -> None:
     plan_path = Path(args.plan_file)
-    raw = plan_path.read_bytes()[:MAX_SUMMARY_PLAN_BYTES].decode("utf-8", errors="replace") if plan_path.exists() else ""
+    # The whole file is parsed (capped at 1 MiB); only the summary copy is truncated.
+    raw = read_regular_file(plan_path, MAX_JSON_BYTES).decode("utf-8", errors="replace") if plan_path.exists() else ""
     append_text(args.summary, plan_summary(raw, args.host_exit))
     if args.host_exit != 0:
         raise CdError(f"host plan exited {args.host_exit}")
