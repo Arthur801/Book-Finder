@@ -41,6 +41,17 @@ from worlds import (
 
 REASON = ["--reason", "planned operator action"]
 DEPLOY_LOCK = "deploy.lock"
+# Crawler files as the release ships them: RUNNER1/CRON1 are the installed pair, RUNNER2/CRON2 a newer release's pair.
+RUNNER1 = "#!/bin/bash\necho ok\n"
+RUNNER2 = "#!/bin/bash\necho ok v2\n"
+RUNNER3 = "#!/bin/bash\necho stale\n"
+CRON1 = "0 3 * * * root /opt/book-finder/run-crawler.sh\n"
+CRON2 = "0 4 * * * root /opt/book-finder/run-crawler.sh\n"
+SHIPPED_REQUIRED = ("compose.prod.yaml", "migrations.txt", "RELEASE_API")
+
+
+def sha(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def run_admin(world, argv, *, typed="", environ=None, host_dir=None):
@@ -174,9 +185,12 @@ def bootstrap_argv(*, web=WEB1, crawler=CRAWLER, unit=SYSTEMD_UNIT, tag=TAG1):
     return ["bootstrap-state", "--release", tag, "--web-digest", web, "--crawler-digest", crawler, "--systemd-unit", unit, *REASON]
 
 
-def bootstrap_world(tmp_path, *, db_ids=None, active=True, state=None):
+def bootstrap_world(tmp_path, *, db_ids=None, active=True, state=None, crawler_files=True):
     world = make_world(tmp_path, state=state, target=applied((ID1, H1), (ID2, H2)), db_ids=[ID1, ID2] if db_ids is None else db_ids)
     world.host.unit_states[SYSTEMD_UNIT] = "active" if active else "inactive"
+    if crawler_files:
+        Path(world.settings.crawler_runner).write_text(RUNNER1, encoding="utf-8")
+        Path(world.settings.cron_file).write_text(CRON1, encoding="utf-8")
     return world
 
 
@@ -192,7 +206,7 @@ def test_bootstrap_writes_revision_one_systemd_state(tmp_path):
     assert [(e.id, e.source_hash, e.by_release) for e in stored.schema.applied] == [(ID1, H1, TAG1), (ID2, H2, TAG1)]
     assert stored.schema.rebuild == st.Rebuild(tag=TAG1, web_digest=WEB1)
     assert stored.schema.dirty is False
-    assert stored.crawler == st.Crawler(digest=CRAWLER, paused=None)
+    assert stored.crawler == st.Crawler(digest=CRAWLER, runner_sha256=sha(RUNNER1), cron_sha256=sha(CRON1), source_release=None, paused=None)
     started, completed = op_pair(world)
     assert started["action"] == "bootstrap-state"
     assert started["operator"] == "operator1"
@@ -200,6 +214,18 @@ def test_bootstrap_writes_revision_one_systemd_state(tmp_path):
     assert started["before"] is None
     assert completed["result"] == "success"
     assert completed["after"]["revision"] == 1
+
+
+def test_bootstrap_refuses_without_both_crawler_files(tmp_path):
+    for missing in ("crawler_runner", "cron_file"):
+        base = tmp_path / missing
+        base.mkdir()
+        world = bootstrap_world(base)
+        Path(getattr(world.settings, missing)).unlink()
+        code, _, err = run_admin(world, bootstrap_argv(), typed=WEB1)
+        assert code == 3, err
+        assert "crawler files" in err
+        assert not Path(world.settings.state_file).exists()
 
 
 def test_bootstrap_refuses_when_state_exists(tmp_path):
@@ -340,32 +366,68 @@ def test_reconcile_never_touches_the_database(tmp_path):
 # resume-crawler (N3)
 
 
-def paused_world(tmp_path, *, dirty=False, conf_digest=CRAWLER2, installed_text=None, shipped_text="#!/bin/bash\necho ok\n", runtime_docker=True):
+def paused_world(tmp_path, *, dirty=False, conf_digest=CRAWLER2, installed_text=None, installed_cron=None, runtime_docker=True):
+    """A forward migration paused the crawler; the installed crawler files match the state's provenance (CRAWLER2)."""
     base = sample_state(applied=[], revision=5, tag=TAG1, web_digest=WEB1)
     release = tmp_path / "releases" / "v1"
     release.mkdir(parents=True)
-    (release / "run-crawler.sh").write_text(shipped_text, encoding="utf-8")
+    (release / "run-crawler.sh").write_text(RUNNER1, encoding="utf-8")
+    (release / "crawler.cron").write_text(CRON1, encoding="utf-8")
     runtime = dataclasses.replace(base.runtime, release_dir=str(release))
     if not runtime_docker:
         runtime = st.SystemdRuntime(unit=SYSTEMD_UNIT, version="pre-cd")
+    crawler = st.Crawler(
+        digest=CRAWLER2,
+        runner_sha256=sha(RUNNER1),
+        cron_sha256=sha(CRON1),
+        source_release=st.SourceRelease(tag=TAG1, web_digest=WEB1),
+        paused=st.Pause(NOW, TAG2, "forward migration"),
+    )
     state = dataclasses.replace(
         base,
         runtime=runtime,
         schema=dataclasses.replace(base.schema, dirty=dirty, dirty_since=NOW if dirty else None, dirty_release=TAG2 if dirty else None),
-        crawler=st.Crawler(digest=CRAWLER, paused=st.Pause(NOW, TAG2, "forward migration")),
+        crawler=crawler,
     )
     world = make_world(tmp_path, state=state, target=[])
     Path(world.settings.crawler_conf).write_text(f"CRAWLER_IMAGE=ghcr.io/example/book-finder-crawler@{conf_digest}\nSCHEDULE=0 3 * * *\n", encoding="utf-8")
-    Path(world.settings.crawler_runner).write_text(installed_text if installed_text is not None else shipped_text, encoding="utf-8")
+    Path(world.settings.crawler_runner).write_text(installed_text if installed_text is not None else RUNNER1, encoding="utf-8")
+    Path(world.settings.cron_file).write_text(installed_cron if installed_cron is not None else CRON1, encoding="utf-8")
     return world
 
 
-def test_resume_clears_the_pause_and_sets_the_digest(tmp_path):
+def adopt_release(world, *, web=WEB2, runner=RUNNER2, cron=CRON2, omit=()):
+    """A complete release directory under RELEASES_DIR, named by its web digest as the unit body names it."""
+    directory = Path(world.settings.releases_dir) / web.split(":", 1)[1]
+    directory.mkdir(parents=True, exist_ok=True)
+    for name in SHIPPED_REQUIRED:
+        if name not in omit:
+            (directory / name).write_text("release file\n", encoding="utf-8")
+    if runner is not None:
+        (directory / "run-crawler.sh").write_text(runner, encoding="utf-8")
+    if cron is not None:
+        (directory / "crawler.cron").write_text(cron, encoding="utf-8")
+    return directory
+
+
+def partial_world(tmp_path, *, installed_runner=RUNNER2, installed_cron=CRON2, conf_digest=CRAWLER2):
+    """A partial crawler update: the state still records the old crawler CRAWLER; the files on disk are the new release's."""
+    world = paused_world(tmp_path, conf_digest=conf_digest, installed_text=installed_runner, installed_cron=installed_cron)
+    state = world.load_state()
+    world.write_state(dataclasses.replace(state, crawler=dataclasses.replace(state.crawler, digest=CRAWLER)))
+    adopt_release(world)
+    return world
+
+
+ADOPT = ["--adopt-release", TAG2, "--adopt-web-digest", WEB2]
+
+
+def test_resume_clears_the_pause_and_keeps_the_recorded_provenance(tmp_path):
     world = paused_world(tmp_path)
+    before = world.load_state().crawler
     code, _, err = run_admin(world, ["resume-crawler", "--crawler-digest", CRAWLER2, *REASON], typed=CRAWLER2)
     assert code == 0, err
-    stored = world.load_state()
-    assert stored.crawler == st.Crawler(digest=CRAWLER2, paused=None)
+    assert world.load_state().crawler == dataclasses.replace(before, paused=None)
     started, completed = op_pair(world)
     assert started["action"] == "resume-crawler" and completed["result"] == "success"
 
@@ -373,7 +435,7 @@ def test_resume_clears_the_pause_and_sets_the_digest(tmp_path):
 def test_resume_refuses_when_not_paused(tmp_path):
     world = paused_world(tmp_path)
     state = world.load_state()
-    world.write_state(dataclasses.replace(state, crawler=st.Crawler(digest=CRAWLER, paused=None)))
+    world.write_state(dataclasses.replace(state, crawler=dataclasses.replace(state.crawler, paused=None)))
     code, _, err = run_admin(world, ["resume-crawler", "--crawler-digest", CRAWLER2, *REASON], typed=CRAWLER2)
     assert code == 3
     assert "not paused" in err
@@ -385,6 +447,15 @@ def test_resume_refuses_a_dirty_schema(tmp_path):
     assert code == 6
 
 
+def test_resume_refuses_a_digest_other_than_the_recorded_one(tmp_path):
+    world = paused_world(tmp_path)
+    before = world.load_state()
+    code, _, err = run_admin(world, ["resume-crawler", "--crawler-digest", CRAWLER, *REASON], typed=CRAWLER)
+    assert code == 3
+    assert "must be that digest" in err
+    assert world.load_state() == before
+
+
 def test_resume_refuses_when_crawler_conf_names_another_image(tmp_path):
     world = paused_world(tmp_path, conf_digest=CRAWLER)
     code, _, err = run_admin(world, ["resume-crawler", "--crawler-digest", CRAWLER2, *REASON], typed=CRAWLER2)
@@ -392,19 +463,78 @@ def test_resume_refuses_when_crawler_conf_names_another_image(tmp_path):
     assert "fix CRAWLER_IMAGE" in err
 
 
-def test_resume_refuses_when_installed_runner_differs_from_the_release(tmp_path):
-    world = paused_world(tmp_path, installed_text="#!/bin/bash\necho stale\n")
+def test_resume_refuses_when_installed_runner_differs_from_the_recorded_one(tmp_path):
+    world = paused_world(tmp_path, installed_text=RUNNER3)
     code, _, err = run_admin(world, ["resume-crawler", "--crawler-digest", CRAWLER2, *REASON], typed=CRAWLER2)
     assert code == 3
-    assert "differs" in err
+    assert "differs" in err and "run-crawler.sh" in err
     assert world.load_state().crawler.paused is not None
 
 
-def test_resume_refuses_a_systemd_runtime(tmp_path):
-    world = paused_world(tmp_path, runtime_docker=False)
+def test_resume_refuses_when_installed_cron_differs_from_the_recorded_one(tmp_path):
+    world = paused_world(tmp_path, installed_cron=CRON2)
     code, _, err = run_admin(world, ["resume-crawler", "--crawler-digest", CRAWLER2, *REASON], typed=CRAWLER2)
     assert code == 3
-    assert "release directory" in err
+    assert "differs" in err and "cron" in err
+    assert world.load_state().crawler.paused is not None
+
+
+def test_resume_does_not_depend_on_the_runtime_kind(tmp_path):
+    # Provenance lives in the crawler record (M3c-2), so a systemd web runtime does not block the crawler.
+    world = paused_world(tmp_path, runtime_docker=False)
+    code, _, err = run_admin(world, ["resume-crawler", "--crawler-digest", CRAWLER2, *REASON], typed=CRAWLER2)
+    assert code == 0, err
+    assert world.load_state().crawler.paused is None
+
+
+def test_adopt_records_the_new_release_after_a_partial_update(tmp_path):
+    world = partial_world(tmp_path)
+    code, _, err = run_admin(world, ["resume-crawler", "--crawler-digest", CRAWLER2, *ADOPT, *REASON], typed=CRAWLER2)
+    assert code == 0, err
+    stored = world.load_state()
+    assert stored.crawler == st.Crawler(
+        digest=CRAWLER2,
+        runner_sha256=sha(RUNNER2),
+        cron_sha256=sha(CRON2),
+        source_release=st.SourceRelease(tag=TAG2, web_digest=WEB2),
+        paused=None,
+    )
+    started, completed = op_pair(world)
+    assert started["intended"]["adopted_release"] == TAG2 and completed["result"] == "success"
+
+
+@pytest.mark.parametrize(
+    "case, expected_code, expected_text",
+    [
+        ("missing-release", 3, "is missing"),
+        ("no-cron-in-release", 3, "does not ship both crawler files"),
+        ("no-api-in-release", 3, "rejected"),
+        ("installed-runner-differs", 3, "run-crawler.sh differs"),
+        ("conf-not-new-digest", 3, "fix CRAWLER_IMAGE"),
+        ("only-one-flag", 2, "must be given together"),
+    ],
+)
+def test_adopt_refusals_name_what_differs(tmp_path, case, expected_code, expected_text):
+    if case == "installed-runner-differs":
+        world = partial_world(tmp_path, installed_runner=RUNNER3)
+    elif case == "conf-not-new-digest":
+        world = partial_world(tmp_path, conf_digest=CRAWLER)
+    else:
+        world = partial_world(tmp_path)
+        release = Path(world.settings.releases_dir) / WEB2.split(":", 1)[1]
+        if case == "missing-release":
+            release.rename(release.with_name("moved"))
+        elif case == "no-cron-in-release":
+            (release / "crawler.cron").unlink()
+        elif case == "no-api-in-release":
+            (release / "RELEASE_API").unlink()
+    argv = ["resume-crawler", "--crawler-digest", CRAWLER2, *REASON]
+    argv += ["--adopt-release", TAG2] if case == "only-one-flag" else ADOPT
+    before = world.load_state()
+    code, _, err = run_admin(world, argv, typed=CRAWLER2)
+    assert code == expected_code, err
+    assert expected_text in err
+    assert world.load_state() == before
 
 
 # resolve-run (N7)
@@ -843,6 +973,79 @@ def test_a_known_failure_is_recorded_as_failed(tmp_path, monkeypatch, name):
     assert not mutation_happened(name, world, before_revision)
     # A recorded failure closes the operation, so the other operator commands run again.
     assert run_admin(world, OTHER_OPERATOR_ARGV, typed="x")[0] != 8
+
+
+def linked_host(tmp_path):
+    """An installed host that is already a versioned link (the normal state after the first install)."""
+    version = tmp_path / "host-versions" / ("0" * 16)
+    (version / "bookfinder_host").mkdir(parents=True)
+    (version / "bookfinder_host" / "HOST_API_RANGE").write_text("1 1\n", encoding="utf-8")
+    host = tmp_path / "host"
+    os.symlink(version, host)
+    return host
+
+
+@pytest.mark.parametrize("name", ["bootstrap-state", "reconcile-schema", "resume-crawler"])
+def test_a_failure_after_the_state_was_replaced_stays_indeterminate(tmp_path, monkeypatch, name):
+    # The rename happens and then the directory fsync fails: the new state is on disk, so the outcome is unknown.
+    case = protocol_case(name, tmp_path)
+    world = case["world"]
+    before_revision = revision_of(world)
+    real_write = st.write_state
+
+    def replaced_then_failed(path, state, expected_revision):
+        real_write(path, state, expected_revision)
+        raise OSError("directory fsync failed after the rename")
+
+    monkeypatch.setattr(st, "write_state", replaced_then_failed)
+    code, _, err = run_admin(world, case["argv"], typed=case["typed"], host_dir=case["host_dir"])
+    assert code == 3, err
+    assert "outcome is unknown" in err and "resolve-run" in err
+    assert revision_of(world) == before_revision + 1
+    started, completed = op_pair(world)
+    assert completed is None
+    assert started["op_id"] in err
+    if name != "bootstrap-state":
+        assert world.run(f"plan {TAG1} {WEB1}", plan_only=True) == 8
+        assert started["op_id"] in world.out.getvalue()
+    code, _, err = run_admin(world, OTHER_OPERATOR_ARGV, typed="x")
+    assert code == 8 and started["op_id"] in err
+    code, _, err = run_admin(world, ["resolve-run", started["op_id"], "--result", "success", *REASON], typed=started["op_id"])
+    assert code == 0, err
+    _, completed = op_pair(world)
+    assert completed["result"] == "success" and completed["resolved_by_operator"] is True
+    assert run_admin(world, OTHER_OPERATOR_ARGV, typed="x")[0] != 8
+
+
+@pytest.mark.parametrize("layout", ["legacy-directory", "versioned-link"])
+def test_install_failure_after_the_pointer_moved_stays_indeterminate(tmp_path, monkeypatch, layout):
+    # The directory fsync after the host pointer changed fails. The new tree is live, so the op must stay open.
+    world = make_world(tmp_path, state=runtime_state())
+    source = make_source(tmp_path, "1 2\n")
+    host = installed(tmp_path) if layout == "legacy-directory" else linked_host(tmp_path)
+    before_target = os.readlink(host) if os.path.islink(host) else None
+    real_fsync = op._fsync_dir
+
+    def fsync_then_fail_on_root(directory):
+        real_fsync(directory)
+        if Path(directory) == host.parent and os.path.islink(host):
+            raise OSError("directory fsync failed after the link swap")
+
+    monkeypatch.setattr(op, "_fsync_dir", fsync_then_fail_on_root)
+    code, _, err = run_admin(world, ["install-host", "--source", str(source), *REASON], typed="1-2", host_dir=host)
+    assert code == 3, err
+    assert "outcome is unknown" in err and "resolve-run" in err
+    assert os.path.islink(host) and os.readlink(host) != before_target
+    assert (host / "bookfinder_host" / "HOST_API_RANGE").read_text() == "1 2\n"
+    started, completed = op_pair(world)
+    assert completed is None and started["op_id"] in err
+    assert world.run(f"plan {TAG1} {WEB1}", plan_only=True) == 8
+    assert started["op_id"] in world.out.getvalue()
+    code, _, err = run_admin(world, OTHER_OPERATOR_ARGV, typed="x", host_dir=host)
+    assert code == 8 and started["op_id"] in err
+    code, _, err = run_admin(world, ["resolve-run", started["op_id"], "--result", "success", *REASON], typed=started["op_id"])
+    assert code == 0, err
+    assert run_admin(world, OTHER_OPERATOR_ARGV, typed="x", host_dir=host)[0] != 8
 
 
 def test_open_operation_refuses_every_operator_command_but_resolve(tmp_path):

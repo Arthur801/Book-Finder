@@ -84,7 +84,13 @@ def sample_state(
         dirty_since=None,
         dirty_release=None,
     )
-    crawler = st.Crawler(digest="sha256:" + "3" * 64, paused=None)
+    crawler = st.Crawler(
+        digest="sha256:" + "3" * 64,
+        runner_sha256="5" * 64,
+        cron_sha256="6" * 64,
+        source_release=st.SourceRelease(tag=tag, web_digest=web_digest),
+        paused=None,
+    )
     return st.State(revision=revision, runtime=runtime, previous_runtime=None, schema=schema, crawler=crawler)
 
 
