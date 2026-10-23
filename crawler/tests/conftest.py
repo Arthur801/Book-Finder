@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import time
@@ -56,12 +57,15 @@ def ef_schema_sql(tmp_path_factory) -> str:
     if build.returncode != 0:
         pytest.fail(f"dotnet build failed: {build.stdout[-2000:]}")
     script = tmp_path_factory.mktemp("ef-schema") / "schema.sql"
+    # The script only reads the model and never connects, so a placeholder satisfies Program.cs on CI.
+    env = {**os.environ, "ConnectionStrings__DefaultConnection": "Host=placeholder;Database=placeholder"}
     generated = subprocess.run(
         [dotnet, "ef", "migrations", "script", "--idempotent", "--no-build", "-o", str(script)],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
         check=False,
+        env=env,
     )
     if generated.returncode != 0:
         pytest.fail(f"dotnet ef migrations script failed: {generated.stderr or generated.stdout}")
