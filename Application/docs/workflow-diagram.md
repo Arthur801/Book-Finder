@@ -145,15 +145,20 @@ parser/embedding/search/ranker 失敗不進保存。Application 透過 [IRecomme
 ```mermaid
 flowchart TD
   LOCAL[本地Candidate Set] --> FEW{少於5本}
-  FEW -->|否| RANK[既有ranking]
+  FEW -->|否| HAS{Candidate Set 大於0本}
   FEW -->|是| GOOGLE[Recommendation 呼叫 Catalog ingestion port：未接入]
-  GOOGLE --> NORMALIZE[Catalog 正規化與跨來源 identity 寫入 Book：未接入]
+  GOOGLE -->|成功| NORMALIZE[Catalog 正規化與跨來源 identity 寫入 Book：未接入]
   NORMALIZE --> EMB[Recommendation 補 embedding 後相同 filter 與門檻重查]
-  EMB --> RANK
-  GOOGLE -->|失敗或逾時| RANK
+  EMB --> HAS
+  GOOGLE -->|失敗或逾時| ORIGINAL[使用原 Local Candidate Set 繼續]
+  ORIGINAL --> HAS
+  HAS -->|是| RANK[Ranking 與結果驗證]
+  HAS -->|否| EMPTY[不呼叫 ranker；results 為空]
+  RANK --> SAVE[保存成功 Recommendation Search 與全部 results]
+  EMPTY --> SAVE
 ```
 
-[recommendation §6](../../Docs/modules/recommendation.md) 是 authority；ParsedRequirement.GoogleQueries 未被 orchestration 使用，無 Google adapter port，log 固定 false/0。這是 APP-B01 未實作規格差距，不是已核准取消 fallback。Recommendation 擁有觸發條件與 orchestration；Google Books normalization、cross-source identity resolution、Book persistence 規則由 [Book Catalog §6](../../Docs/modules/book-catalog.md) 擁有，Catalog 完成後由 Recommendation 補 embedding、重新 retrieval，再進 ranking。Catalog ingestion 與 Search／Results 保存是不同 atomic boundary；已寫入 Book 不隨後續推薦失敗回滾。
+[recommendation §6](../../Docs/modules/recommendation.md) 是 authority；ParsedRequirement.GoogleQueries 未被 orchestration 使用，無 Google adapter port，log 固定 false/0。這是 APP-B01 未實作規格差距，不是已核准取消 fallback。Google 失敗／逾時保留原 Local Candidate Set；成功重查後亦須判斷候選數，零候選不呼叫 ranker，直接保存零結果 Search（APP-T16）。Recommendation 擁有觸發條件與 orchestration；Google Books normalization、cross-source identity resolution、Book persistence 規則由 [Book Catalog §6](../../Docs/modules/book-catalog.md) 擁有，Catalog 完成後由 Recommendation 補 embedding、重新 retrieval，再進 ranking。Catalog ingestion 與 Search／Results 保存是不同 atomic boundary；已寫入 Book 不隨後續推薦失敗回滾。
 
 ## 背景補齊與 profile
 

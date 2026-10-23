@@ -101,7 +101,7 @@ git show --format= --numstat <sha> -- Application ':(exclude)Application/docs'
 
 [Program](../../Program.cs)、[EfRecommendationStore](../../Infrastructure/Persistence/EfRecommendationStore.cs)、cache readers、OpenAI adapters與background workers是目前跨層證據。本表只完整枚舉Application路徑歷史；沒有宣稱完整追溯所有依賴目錄，也未用Implementation-Report當規格。
 
-工作開始時觀察到其他代理新增`Controllers/docs/`，它不是Application來源變更；其他並行文件亦非本代理產物。本次五份新文件無既存歷史，不能推定原Application建立時間以外的部署時間。Git commit記錄不代表測試在本次通過、功能已上線或production已驗證。
+工作開始時觀察到其他代理新增`Controllers/docs/`，它不是Application來源變更；其他並行文件亦非本代理產物。截至查核基準 `91333c3`，`Application/docs/` 尚不存在；本 PR 中新增及後續修正這五份文件的 commits 不納入上述 Application source history。不能由來源建立時間推定部署時間。Git commit記錄不代表測試在本次通過、功能已上線或production已驗證。
 
 ## 導覽
 

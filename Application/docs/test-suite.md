@@ -39,7 +39,7 @@ dotnet test tests/WebIntegration/WebIntegration.csproj
 
 - 風險／狀態：L2；**測試實作：Implemented；執行：Not executed in this audit**。規格：[book-catalog](../../Docs/modules/book-catalog.md) §3～4、BOOK-05。
 - **Given**：全形ISBN含空白連字號、一般keyword、無效Unicode；BookDetail contract。
-- **When**：SearchQuery.Parse；檢視BookDetail序列化公開欄位與PublishedDateText.Format。
+- **When**：SearchQuery.Parse；透過 reflection 檢視 `BookDetail*` public contract/properties，並呼叫 PublishedDateText.Format；此 contract guard 不執行序列化。
 - **Then**：ISBN正規化；keyword保留原內部文字；invalid Unicode不throw；detail沒有description/目錄；precision缺少回null。
 - 測試來源／擴充入口：[SearchQueryTests.cs](../../tests/UnitTests/SearchQueryTests.cs)、[BookDetailContractTests.cs](../../tests/UnitTests/BookDetailContractTests.cs)、[PublishedDateTextTests.cs](../../tests/UnitTests/PublishedDateTextTests.cs)。
 
@@ -81,7 +81,7 @@ dotnet test tests/WebIntegration/WebIntegration.csproj
 - **Given**：FakeTimeProvider固定UTC時刻，usage=20或19；DailyLimit=20；recording parser/embedding/ranker/store。
 - **When**：RecommendAsync(userId,text,ct)。
 - **Then**：20回DailyLimitReached，無parser/embedding/ranker/save；CountSince是當日台北00:00對應UTC；19走流程；失敗搜尋不計入usage由DB/web測試補證。
-- 測試來源／擴充入口：[RecommendationServiceTests.cs](../../tests/UnitTests/RecommendationServiceTests.cs)、[TaipeiTimeZoneTests.cs](../../tests/UnitTests/TaipeiTimeZoneTests.cs)。
+- 測試來源／擴充入口：[RecommendationServiceTests.cs](../../tests/UnitTests/RecommendationServiceTests.cs)、[TaipeiTimeZoneTests.cs](../../tests/UnitTests/TaipeiTimeZoneTests.cs)、[RecommendationApiTests.cs](../../tests/WebIntegration/RecommendationApiTests.cs) 的 `Failed_searches_are_not_counted_and_the_next_attempt_still_fits_under_the_limit`（19 筆成功 → ranker 失敗 502，DB 仍 19 → 重試成功，DB 為 20；本次未執行）。
 
 ### APP-T08 — filter與retrieval fallback
 
@@ -150,9 +150,9 @@ dotnet test tests/WebIntegration/WebIntegration.csproj
 ### APP-T16 — Fallback故障降級與配額隔離
 
 - 風險／狀態：L3；**測試實作：Missing；前置：Blocked by APP-B01；執行：Not executed in this audit**。規格：[recommendation](../../Docs/modules/recommendation.md) §6/§8/§11。
-- **Given**：待建 Catalog ingestion capability fake 回報 Google 例外/timeout，既有本地候選；另quota已滿；Google已寫Book後ranker失敗。
+- **Given**：待建 Catalog ingestion capability fake 回報 Google 例外/timeout，原 Local Candidate Set 分別為 0 本與 1～4 本；另備 quota 已滿，以及 Catalog 已寫 Book 後 ranker 失敗的獨立情境。
 - **When**：未來RecommendAsync。
-- **Then**：Google失敗使用本地候選並記log；quota已滿全外部零呼叫；推薦失敗不保存search，先前Google寫Book保留。
+- **Then**：Google 失敗／逾時使用原 Local Candidate Set 並記 log；原候選為 0 時 ranker 零呼叫，保存一筆零結果 Recommendation Search；原候選為 1～4 本時只排序這些候選。quota 已滿全外部零呼叫且不保存 Search；ranker 失敗不保存 Search，先前 Catalog 寫入的 Book 保留。
 - 測試來源／擴充入口：[RecommendationServiceTests.cs](../../tests/UnitTests/RecommendationServiceTests.cs)、[RecommendationApiTests.cs](../../tests/WebIntegration/RecommendationApiTests.cs)（擴充入口）。
 
 ### APP-T17 — DB commit與保存後caller取消
@@ -167,9 +167,9 @@ dotnet test tests/WebIntegration/WebIntegration.csproj
 
 - 風險／狀態：L3；**測試實作：Implemented；執行：Not executed in this audit**。規格：[api-spec §3](../../Docs/api/api-spec.md)、[recommendation §13](../../Docs/modules/recommendation.md)。
 - **Given**：null、空白、500/501 code points需求（包含emoji）；ChatModel空白、threshold為NaN或超出0～1、TopK為0、ResultLimit為0/11、DailyLimit為0；有效對照設定。
-- **When**：呼叫RecommendationInputRules.ValidateRequirementText，以及RecommendationOptions的HasValid系列函式；startup整合入口另由HostingSetup/OpenAI registration測試查核。
+- **When**：呼叫RecommendationInputRules.ValidateRequirementText，以及RecommendationOptions的HasValid系列函式；options validation 與 DI registration 由 OpenAiServiceCollectionExtensionsTests 查核（建立 ServiceProvider、讀取 options／解析 ports，不呼叫真實 OpenAI）。
 - **Then**：有效需求trim後保留；空白/501拒絕且不得進RecommendationService；500有效；無效設定判定false；RequestTimeout固定60秒；不能用UTF-16 Length替代code point計數。
-- 來源：[RecommendationInputRulesTests](../../tests/UnitTests/RecommendationInputRulesTests.cs)、[RecommendationOptionsTests](../../tests/UnitTests/RecommendationOptionsTests.cs)、[HostingSetupTests](../../tests/UnitTests/HostingSetupTests.cs)。
+- 來源：[RecommendationInputRulesTests](../../tests/UnitTests/RecommendationInputRulesTests.cs)、[RecommendationOptionsTests](../../tests/UnitTests/RecommendationOptionsTests.cs)、[OpenAiServiceCollectionExtensionsTests](../../tests/UnitTests/OpenAiServiceCollectionExtensionsTests.cs)：`Invalid_recommendation_setting_fails_validation_at_startup`、`Missing_chat_model_key_fails_validation_at_startup`、`Requirement_parser_and_ranker_resolve_to_the_openai_adapters`；缺 API key 的驗證亦在此檔。
 
 ### APP-T19 — Profile文字、hash與可重現性
 
