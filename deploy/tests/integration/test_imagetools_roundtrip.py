@@ -23,5 +23,6 @@ pytestmark = [
 def test_release_tag_keeps_the_attested_digest():
     result = subprocess.run(["bash", str(SCRIPT)], capture_output=True, text=True, check=False, timeout=900, cwd=REPO)
     assert result.returncode == 0, f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
-    assert "PASS roundtrip: release tag keeps the attested digest" in result.stdout
-    assert "INFO control: default imagetools create digest" in result.stdout
+    assert "INFO source shape:" in result.stdout
+    assert "PASS single-manifest: --prefer-index=false keeps the digest" in result.stdout
+    assert "PASS control: default create wraps a single manifest into a new index" in result.stdout
