@@ -21,6 +21,12 @@ PSQL_IMAGE=docker.io/library/postgres@sha256:"""
 DATABASE_URL_PARAMETER=/book-finder/prod/database-url
 AWS_REGION=ap-northeast-1
 SYSTEMD_UNIT=book-finder.service
+PUBLIC_URL=https://book-finder.example
+RDS_INSTANCE_ID=book-finder-prod
+SSM_DB_CONNECTION=/book-finder/prod/db-connection
+SSM_OPENAI_KEY=/book-finder/prod/openai-key
+SSM_JWT_KEY=/book-finder/prod/jwt-key
+CRAWLER_IMAGE_REPOSITORY=ghcr.io/example/book-finder-crawler
 """
 )
 
@@ -36,6 +42,7 @@ def test_loads_valid_configuration(tmp_path):
     assert settings.state_file == "/var/lib/book-finder/state.json"
     assert settings.aws_region == "ap-northeast-1"
     assert settings.compose_project == "book-finder"
+    assert settings.follow_timeout_s == 6000.0
 
 
 @pytest.mark.parametrize(
@@ -51,6 +58,11 @@ def test_loads_valid_configuration(tmp_path):
         lambda text: text.replace(
             "WEB_IMAGE_REPOSITORY=ghcr.io/example/book-finder-web\n", "WEB_IMAGE_REPOSITORY=ghcr.io/example/book-finder-web:v1\n"
         ),  # no tag in repository
+        lambda text: text.replace("PUBLIC_URL=https://book-finder.example", "PUBLIC_URL=http://book-finder.example"),  # TLS only
+        lambda text: text.replace("CRAWLER_IMAGE_REPOSITORY=ghcr.io/example/book-finder-crawler", "CRAWLER_IMAGE_REPOSITORY=ghcr.io/x:1"),
+        lambda text: text + "CRON_FILE=relative/cron\n",  # paths must be absolute
+        lambda text: text + "FOLLOW_TIMEOUT_S=0\n",  # must be positive
+        lambda text: text + "FOLLOW_TIMEOUT_S=soon\n",  # must be a number
     ],
 )
 def test_rejects_bad_configuration(tmp_path, mutation):
@@ -62,6 +74,12 @@ def test_rejects_bad_configuration(tmp_path, mutation):
 def test_rejects_lock_timeout_that_is_not_a_finite_positive_number(tmp_path, value):
     with pytest.raises(cfg.ConfigError, match="LOCK_TIMEOUT_S"):
         cfg.load_settings(write(tmp_path, VALID + f"LOCK_TIMEOUT_S={value}\n"))
+
+
+@pytest.mark.parametrize("value", ["nan", "NaN", "inf", "-inf", "Infinity", "0", "-1", "soon"])
+def test_rejects_follow_timeout_that_is_not_a_finite_positive_number(tmp_path, value):
+    with pytest.raises(cfg.ConfigError, match="FOLLOW_TIMEOUT_S"):
+        cfg.load_settings(write(tmp_path, VALID + f"FOLLOW_TIMEOUT_S={value}\n"))
 
 
 @pytest.mark.parametrize(("value", "expected"), [("0.5", 0.5), ("10", 10.0)])

@@ -5,7 +5,6 @@ each gate must fail with its documented exit code before anything changes on the
 """
 
 import io
-import json
 from dataclasses import replace
 from pathlib import Path
 
@@ -13,96 +12,25 @@ import pytest
 from bookfinder_host import commands as cmd
 from bookfinder_host import history as hi
 from bookfinder_host import state as st
-from bookfinder_host.commands import Deps
-from bookfinder_host.config import Settings, make_psql_query
 from bookfinder_host.exit_codes import BAD_INPUT, DIRTY, DRIFT, INDETERMINATE, OK
-from bookfinder_host.manifest import Migration
-from bookfinder_host.testing import FakeClock, FakeHost, sample_state, write_release
-
-ID1 = "20261010174616_EnablePgvector"
-ID2 = "20261010174654_Catalog"
-ID3 = "20261010174708_IdentityUserLibrary"
-H1 = "a" * 64
-H2 = "b" * 64
-H3 = "c" * 64
-WEB1 = "sha256:" + "1" * 64
-WEB2 = "sha256:" + "2" * 64
-CRAWLER = "sha256:" + "3" * 64
-TAG1 = "v1.0.0"
-TAG2 = "v1.1.0"
-SYSTEMD_UNIT = "book-finder.service"
-DIGEST_OK = "sha256:" + "d" * 64
-RUN_ID_TEXT = "1234-5"
-DEPLOY_RUN_ID = "5555-1"
-
-
-class World:
-    def __init__(self, tmp_path: Path, state, host: FakeHost, settings: Settings, deps: Deps) -> None:
-        self.tmp_path = tmp_path
-        self.state = state
-        self.host = host
-        self.settings = settings
-        self.deps = deps
-        self.out = io.StringIO()
-        self.err = io.StringIO()
-
-    def run(self, text: str, *, plan_only: bool = False) -> int:
-        argv = ["--plan-only"] if plan_only else []
-        return cmd.main(argv, {"SSH_ORIGINAL_COMMAND": text}, self.out, self.err, deps=self.deps)
-
-    def stdout_json(self):
-        return json.loads(self.out.getvalue())
-
-    def history(self):
-        return hi.read(self.settings.history_file)
-
-    def write_state(self, state) -> None:
-        Path(self.settings.state_file).write_text(json.dumps(st.state_to_json(state)), encoding="utf-8")
-
-    def remove_state(self) -> None:
-        Path(self.settings.state_file).unlink()
-
-
-DEFAULT_STATE = sample_state()
-
-
-def make_world(tmp_path, state=DEFAULT_STATE, *, target=None, release_api="1", db_ids=None, now="2026-10-23T00:00:00Z", **host_kwargs):
-    settings = Settings(
-        state_file=str(tmp_path / "state.json"),
-        history_file=str(tmp_path / "history.jsonl"),
-        deploy_lock_file=str(tmp_path / "deploy.lock"),
-        web_image_repository="ghcr.io/example/book-finder-web",
-        psql_image="docker.io/library/postgres@sha256:" + "f" * 64,
-        database_url_parameter="/book-finder/prod/database-url",
-        aws_region="ap-northeast-1",
-        systemd_unit=SYSTEMD_UNIT,
-        compose_project="book-finder",
-        lock_timeout_s=0.2,
-    )
-    if target is None:
-        target = st.applied_migrations(state) if state is not None else []
-    target_migrations = [Migration(m.id, m.source_hash) for m in target]
-    release_dir = write_release(tmp_path / "release", target_migrations, release_api)
-    # The database starts out matching state, not the target: pending migrations are not applied yet.
-    recorded = [m.id for m in st.applied_migrations(state)] if state is not None else []
-    host_kwargs.setdefault("db_ids", recorded if db_ids is None else db_ids)
-    host = FakeHost(release_dir=release_dir, **host_kwargs)
-    deps = Deps(
-        settings=settings,
-        runner=host,
-        clock=FakeClock(epoch=1_800_000_000.0, now=now),
-        db_query=make_psql_query(host, settings),
-        host_api_range=(1, 1),
-    )
-    world = World(tmp_path, state, host, settings, deps)
-    if state is not None:
-        world.write_state(state)
-    return world
-
-
-def applied(*pairs):
-    return [Migration(i, h) for i, h in pairs]
-
+from bookfinder_host.testing import sample_state
+from worlds import (
+    CRAWLER,
+    DEPLOY_RUN_ID,
+    DIGEST_OK,
+    H1,
+    H2,
+    H3,
+    ID1,
+    ID2,
+    ID3,
+    RUN_ID_TEXT,
+    SYSTEMD_UNIT,
+    TAG1,
+    WEB1,
+    applied,
+    make_world,
+)
 
 # Grammar
 
@@ -380,7 +308,7 @@ def deploy_outcome(world):
 
 def test_deploy_refuses_a_run_id_with_any_history_and_writes_nothing(tmp_path):
     world = in_sync_world(tmp_path)
-    assert world.run(deploy_text(world)) == BAD_INPUT  # first call: the stub records a completed run
+    assert world.run(deploy_text(world)) == OK  # first call runs the whole deployment
     before = Path(world.settings.history_file).read_text()
     # A retried SSH call with the same run id must not start a second deployment.
     assert world.run(deploy_text(world)) == DRIFT
@@ -400,7 +328,9 @@ def test_deploy_without_state_needs_bootstrap(tmp_path):
     world = in_sync_world(tmp_path)
     world.remove_state()
     assert world.run(deploy_text(world)) == DRIFT
-    assert world.history().entries == []
+    assert [e["phase"] for e in world.history().entries] == ["started", "completed"]
+    completed = world.history().entries[-1]
+    assert (completed["result"], completed["exit_code"]) == ("drift", DRIFT)
 
 
 def test_deploy_refuses_while_history_is_indeterminate(tmp_path):
@@ -474,21 +404,22 @@ def test_deploy_observed_runtime_drift_exits_3(tmp_path):
     assert world.run(deploy_text(world)) == DRIFT
 
 
-def test_valid_deploy_reaches_state_machine_stub_and_records_not_implemented(tmp_path):
+def test_valid_deploy_runs_the_state_machine_to_success(tmp_path):
     world = in_sync_world(tmp_path)
-    assert world.run(deploy_text(world)) == BAD_INPUT
+    assert world.run(deploy_text(world)) == OK
     report, completed = deploy_outcome(world)
-    assert completed[0]["result"] == "not-implemented"
-    assert report["exit_code"] == BAD_INPUT
+    assert completed[0]["result"] == "success"
+    assert report["exit_code"] == OK and report["status"] == "completed:success"
     started = [e for e in world.history().entries if e.get("phase") == "started"]
     assert started and started[0]["expected_revision"] == 1
 
 
-def test_valid_cutover_reaches_state_machine_stub(tmp_path):
+def test_valid_cutover_runs_the_state_machine(tmp_path):
     state = replace(sample_state(applied=applied((ID1, H1))), runtime=st.SystemdRuntime(unit=SYSTEMD_UNIT, version="pre-cd"))
     world = make_world(tmp_path, state, target=applied((ID1, H1)), unit_states={SYSTEMD_UNIT: "active"})
-    assert world.run(deploy_text(world, runtime="systemd", cutover=True)) == BAD_INPUT
-    assert deploy_outcome(world)[1][0]["result"] == "not-implemented"
+    assert world.run(deploy_text(world, runtime="systemd", cutover=True)) == OK
+    assert deploy_outcome(world)[1][0]["result"] == "success"
+    assert isinstance(world.load_state().runtime, st.DockerRuntime)
 
 
 def test_deploy_lock_busy_exits_3(tmp_path):
@@ -500,7 +431,9 @@ def test_deploy_lock_busy_exits_3(tmp_path):
     fcntl.flock(blocker, fcntl.LOCK_SH)
     try:
         assert world.run(deploy_text(world)) == DRIFT
-        assert world.history().entries == []
+        # started is written before the lock is taken, so a busy lock leaves a completed record after it.
+        assert [e["phase"] for e in world.history().entries] == ["started", "completed"]
+        assert world.history().entries[-1]["result"] == "drift"
     finally:
         os.close(blocker)
 

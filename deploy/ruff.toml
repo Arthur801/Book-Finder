@@ -1,0 +1,4 @@
+# Host code runs on EC2 Ubuntu 24.04's Python 3.12, so ruff must not rewrite to 3.13+/3.14 syntax such as the
+# PEP 758 unparenthesized except. Everything else (line length, rules) is shared with the crawler.
+extend = "../crawler/ruff.toml"
+target-version = "py312"

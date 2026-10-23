@@ -27,8 +27,36 @@ _REQUIRED = {
     "DATABASE_URL_PARAMETER",
     "AWS_REGION",
     "SYSTEMD_UNIT",
+    "PUBLIC_URL",
+    "RDS_INSTANCE_ID",
+    "SSM_DB_CONNECTION",
+    "SSM_OPENAI_KEY",
+    "SSM_JWT_KEY",
+    "CRAWLER_IMAGE_REPOSITORY",
 }
-_OPTIONAL = {"COMPOSE_PROJECT": "book-finder", "LOCK_TIMEOUT_S": "10"}
+_OPTIONAL = {
+    "COMPOSE_PROJECT": "book-finder",
+    "LOCK_TIMEOUT_S": "10",
+    # Covers the 30 min deploy-lock wait, the 45 min db-maintenance wait and the snapshot before the SSH side gives up.
+    "FOLLOW_TIMEOUT_S": "6000",
+    "CRAWLER_CONF": "/etc/book-finder/crawler.conf",
+    "DB_MAINTENANCE_LOCK": "/var/lib/book-finder/db-maintenance.lock",
+    "RELEASES_DIR": "/opt/book-finder/releases",
+    "RUN_DIR": "/run/book-finder",
+    "CRAWLER_RUNNER": "/opt/book-finder/run-crawler.sh",
+    "CRON_FILE": "/etc/cron.d/book-finder-crawler",
+}
+_PATH_KEYS = (
+    "STATE_FILE",
+    "HISTORY_FILE",
+    "DEPLOY_LOCK_FILE",
+    "CRAWLER_CONF",
+    "DB_MAINTENANCE_LOCK",
+    "RELEASES_DIR",
+    "RUN_DIR",
+    "CRAWLER_RUNNER",
+    "CRON_FILE",
+)
 # The psql container runs one fixed command; the SQL is passed as a single argv element and never interpolated.
 _PSQL_SCRIPT = 'psql -X -At -v ON_ERROR_STOP=1 "$DATABASE_URL" -c "$1"'
 
@@ -49,6 +77,19 @@ class Settings:
     systemd_unit: str
     compose_project: str
     lock_timeout_s: float
+    follow_timeout_s: float
+    public_url: str
+    rds_instance_id: str
+    ssm_db_connection: str
+    ssm_openai_key: str
+    ssm_jwt_key: str
+    crawler_image_repository: str
+    crawler_conf: str
+    db_maintenance_lock: str
+    releases_dir: str
+    run_dir: str
+    crawler_runner: str
+    cron_file: str
 
 
 def _positive_finite_seconds(values: dict[str, str], key: str) -> float:
@@ -88,9 +129,17 @@ def parse_settings(text: str) -> Settings:
     values = {**_OPTIONAL, **values}
     if not is_repository(values["WEB_IMAGE_REPOSITORY"]):
         raise ConfigError("WEB_IMAGE_REPOSITORY must be a repository without a tag or digest")
+    if not is_repository(values["CRAWLER_IMAGE_REPOSITORY"]):
+        raise ConfigError("CRAWLER_IMAGE_REPOSITORY must be a repository without a tag or digest")
+    if not values["PUBLIC_URL"].startswith("https://") or len(values["PUBLIC_URL"]) <= len("https://"):
+        raise ConfigError("PUBLIC_URL must be an https:// URL")
+    for key in _PATH_KEYS:
+        if not values[key].startswith("/"):
+            raise ConfigError(f"{key} must be an absolute path")
     if not is_digest_ref(values["PSQL_IMAGE"]):
         raise ConfigError("PSQL_IMAGE must be pinned by digest (<repository>@sha256:<digest>)")
     timeout = _positive_finite_seconds(values, "LOCK_TIMEOUT_S")
+    follow_timeout = _positive_finite_seconds(values, "FOLLOW_TIMEOUT_S")
     return Settings(
         state_file=values["STATE_FILE"],
         history_file=values["HISTORY_FILE"],
@@ -102,6 +151,19 @@ def parse_settings(text: str) -> Settings:
         systemd_unit=values["SYSTEMD_UNIT"],
         compose_project=values["COMPOSE_PROJECT"],
         lock_timeout_s=timeout,
+        follow_timeout_s=follow_timeout,
+        public_url=values["PUBLIC_URL"],
+        rds_instance_id=values["RDS_INSTANCE_ID"],
+        ssm_db_connection=values["SSM_DB_CONNECTION"],
+        ssm_openai_key=values["SSM_OPENAI_KEY"],
+        ssm_jwt_key=values["SSM_JWT_KEY"],
+        crawler_image_repository=values["CRAWLER_IMAGE_REPOSITORY"],
+        crawler_conf=values["CRAWLER_CONF"],
+        db_maintenance_lock=values["DB_MAINTENANCE_LOCK"],
+        releases_dir=values["RELEASES_DIR"],
+        run_dir=values["RUN_DIR"],
+        crawler_runner=values["CRAWLER_RUNNER"],
+        cron_file=values["CRON_FILE"],
     )
 
 
