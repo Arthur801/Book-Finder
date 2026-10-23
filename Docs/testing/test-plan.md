@@ -73,6 +73,7 @@ CI 由 `.github/workflows/` 定義，PR 與 push 到 `main` 時執行：
   - `Crawler tests`：安裝 .NET SDK 以產生 EF schema（`tests/conftest.py`），安裝 Playwright Chromium 後執行 pytest，JUnit XML 上傳為 artifact。
   - `Lint and format`：`dotnet format --verify-no-changes` 與 ruff（版本由 `crawler/requirements.txt` 釘定）。
 - `CodeQL` workflow：對 csharp、python、actions 做程式碼掃描，於 PR、push 到 `main` 與每週一排程時執行。
+- .NET SDK 由根目錄 `global.json` 固定為 10.0.113（`rollForward: latestFeature`）：CI 的 setup-dotnet 安裝該版本，本機 SDK 須為 10.x 且不低於 10.0.113。升版需手動修改 `global.json`；Dependabot 不管理此檔，以免本機 apt 安裝的 SDK 落後而無法建置。
 - Dependabot 每週更新 nuget、pip、github-actions、docker 的依賴。
 - `main` 由 ruleset 保護：必須經 PR 合併，且 `.NET build and tests`、`Crawler tests`、`Lint and format` 通過、CodeQL 無 high 以上告警才能合併。
 - CI 不使用任何 secret。CD（部署）仍為延後項目。
