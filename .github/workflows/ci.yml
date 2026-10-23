@@ -5,12 +5,17 @@ on:
     branches: [main]
   push:
     branches: [main]
+  # cd.yml calls this workflow to test a release tag before anything is built or deployed.
+  workflow_call:
 
 permissions:
   contents: read
 
 concurrency:
   # Pushes to main are keyed per commit so every merge commit keeps its own run; PRs still cancel superseded runs.
+  # When cd.yml calls this workflow, github.workflow and github.event_name are the caller's ("CD" and "push" for a tag
+  # push). The group is then "CD-<tagged commit>", so two tags on one commit queue behind each other, and nothing is
+  # cancelled because cancel-in-progress is only true for pull_request events.
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
