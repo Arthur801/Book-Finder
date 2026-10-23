@@ -18,7 +18,10 @@ def host(tmp_path):
     # Bash functions override external services even though the wrapper sets a fixed PATH.
     stubs = tmp_path / "stubs.sh"
     stubs.write_text("""
-aws() { printf 'postgresql://test:secret@example.invalid/db\\n'; }
+aws() {
+    printf 'aws\\n' >> "$AWS_CALLS"
+    printf 'postgresql://test:secret@example.invalid/db\\n'
+}
 chown() { :; }
 docker() {
     printf 'start\\n' >> "$CALLS"
@@ -42,6 +45,7 @@ docker() {
         "CRAWLER_STATE_DIR": str(tmp_path / "state"),
         "CRAWLER_RUNTIME_DIR": str(tmp_path / "runtime"),
         "CALLS": str(tmp_path / "calls"),
+        "AWS_CALLS": str(tmp_path / "aws-calls"),
         # N3: every test uses its own maintenance lock and state file; the wait is short so timeouts stay fast.
         "DB_MAINTENANCE_LOCK": str(tmp_path / "db-maintenance.lock"),
         "BOOKFINDER_STATE_FILE": str(tmp_path / "state.json"),
@@ -190,3 +194,55 @@ def test_maintenance_wait_timeout_exits_3(host):
     assert result.returncode == 3
     assert "maintenance=busy" in result.stderr
     assert not (root / "calls").exists()
+
+
+def disable(root, value):
+    """Appends the switch to crawler.conf, as an operator would on the host."""
+    with (root / "crawler.conf").open("a", encoding="utf-8") as handle:
+        handle.write(f"CRAWLER_ENABLED={value}\n")
+
+
+def test_crawler_enabled_true_runs_as_before(host):
+    root, env = host
+    disable(root, "true")
+    result = execute(env, "daily")
+    assert result.returncode == 0
+    assert "skipped=disabled" not in result.stdout
+    assert (root / "calls").read_text() == "start\nend\n"
+
+
+def test_crawler_disabled_exits_before_any_external_work(host):
+    root, env = host
+    disable(root, "false")
+    # An unreadable state file would make the wrapper exit 2 if it were read; the disabled switch must win first.
+    write_state(root)
+    (root / "state.json").write_text("{not json", encoding="utf-8")
+    result = execute(env, "pages", "--scheduled")
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.endswith(" mode=pages skipped=disabled\n")
+    assert not (root / "calls").exists()
+    assert not (root / "aws-calls").exists()
+    assert not (root / "state").exists()
+    assert not (root / "runtime").exists()
+    assert not (root / "db-maintenance.lock").exists()
+
+
+def test_crawler_disabled_daily_does_not_touch_pages_schedule(host):
+    root, env = host
+    disable(root, "false")
+    assert execute(env, "daily").returncode == 0
+    assert not (root / "state" / "pages-last-success").exists()
+
+
+@pytest.mark.parametrize("value", ["no", "False", "TRUE", "1", ""])
+def test_crawler_enabled_rejects_invalid_values(host, value):
+    root, env = host
+    disable(root, value)
+    result = execute(env, "daily")
+    assert result.returncode == 2
+    assert "CRAWLER_ENABLED" in result.stderr
+    assert "true" in result.stderr and "false" in result.stderr
+    assert "skipped=disabled" not in result.stdout
+    assert not (root / "calls").exists()
+    assert not (root / "aws-calls").exists()
+    assert not (root / "state").exists()

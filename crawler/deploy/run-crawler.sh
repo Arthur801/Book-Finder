@@ -20,6 +20,21 @@ source "${CRAWLER_CONFIG_FILE:-/etc/book-finder/crawler.conf}"
 : "${CRAWLER_IMAGE:?CRAWLER_IMAGE is required}"
 : "${AWS_REGION:?AWS_REGION is required}"
 : "${DATABASE_URL_PARAMETER:?DATABASE_URL_PARAMETER is required}"
+
+# Operator switch for hosts the source site blocks (EC2). It is not paused: a paused crawler blocks deploys, and the
+# deploy reinstalls crawler.cron anyway. CD rewrites only CRAWLER_IMAGE=, so this line survives releases. Unset means
+# true; an empty value is a typo, so it is rejected rather than treated as unset.
+case "${CRAWLER_ENABLED-true}" in
+    true) ;;
+    false)
+        echo "$(date -u +%FT%TZ) mode=$mode skipped=disabled"
+        exit 0
+        ;;
+    *)
+        echo 'CRAWLER_ENABLED must be exactly true or false (unset means true)' >&2
+        exit 2
+        ;;
+esac
 state_dir=${CRAWLER_STATE_DIR:-/var/lib/book-finder/crawler}
 runtime_dir=${CRAWLER_RUNTIME_DIR:-/run/book-finder}
 mkdir -p "$state_dir" "$runtime_dir"
