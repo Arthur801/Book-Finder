@@ -5,12 +5,15 @@ systemd-run argv (no secrets), the refusals that happen before anything is launc
 indeterminate, not-started after a grace period) and that losing the SSH side loses nothing.
 """
 
+import fcntl
 import io
+import os
 import sys
 from dataclasses import replace
 from pathlib import Path
 
 from bookfinder_host import commands as cmd
+from bookfinder_host import history as hi
 from bookfinder_host import state as st
 from bookfinder_host.exit_codes import BAD_INPUT, DRIFT, INDETERMINATE, OK
 from bookfinder_host.ports import CommandResult
@@ -282,3 +285,101 @@ def test_unit_name_is_built_from_the_validated_run_id_only(tmp_path):
     from bookfinder_host import runs
 
     assert runs.unit_name("5555-1") == "book-finder-deploy-5555-1"
+
+
+# N7 outcomes that must survive systemd garbage collection (--collect): the unit body always leaves a durable
+# outcome once started is written, and status reads the same answer whether the unit failed or is gone.
+
+
+def _status(world) -> str:
+    world.out = io.StringIO()
+    assert world.run(f"status {DEPLOY_RUN_ID}", plan_only=True) == OK
+    return world.stdout_json()["status"]
+
+
+def _hold_deploy_lock(world) -> int:
+    fd = os.open(world.settings.deploy_lock_file, os.O_RDWR | os.O_CREAT, 0o600)
+    fcntl.flock(fd, fcntl.LOCK_SH)  # a shared holder makes the unit's exclusive wait time out
+    return fd
+
+
+def _started_only(world, run_id=DEPLOY_RUN_ID, unit=UNIT):
+    hi.append(world.settings.history_file, hi.started_record(run_id=run_id, unit=unit, at="t0", target={}, expected_revision=1))
+
+
+def test_unit_that_timed_out_on_the_deploy_lock_stays_completed_drift_through_gc(tmp_path):
+    world = in_sync(tmp_path)
+    fd = _hold_deploy_lock(world)
+    try:
+        assert world.run_unit(deploy_text(world))[0] == DRIFT
+    finally:
+        os.close(fd)
+    assert history_phases(world) == ["started", "completed"]
+    world.host.unit_states[UNIT] = "failed"
+    assert _status(world) == "completed:drift"
+    del world.host.unit_states[UNIT]  # systemd --collect has removed the unit
+    assert _status(world) == "completed:drift"
+
+
+def test_missing_state_is_completed_drift_through_gc(tmp_path):
+    world = in_sync(tmp_path)
+    world.remove_state()
+    assert world.run_unit(deploy_text(world))[0] == DRIFT
+    world.host.unit_states[UNIT] = "failed"
+    assert _status(world) == "completed:drift"
+    del world.host.unit_states[UNIT]
+    assert _status(world) == "completed:drift"
+
+
+def test_corrupt_state_is_completed_rejected_with_exit_2(tmp_path):
+    world = in_sync(tmp_path)
+    Path(world.settings.state_file).write_text("{broken", encoding="utf-8")
+    assert world.run_unit(deploy_text(world))[0] == BAD_INPUT
+    assert world.history().entries[-1]["exit_code"] == BAD_INPUT
+    world.host.unit_states.pop(UNIT, None)
+    assert _status(world) == "completed:rejected"
+
+
+def test_another_indeterminate_run_blocks_this_run_with_exit_8(tmp_path):
+    world = in_sync(tmp_path)
+    _started_only(world, run_id="7001-1", unit="book-finder-deploy-7001-1")
+    code, _, _ = world.run_unit(deploy_text(world))
+    assert code == INDETERMINATE
+    assert world.history().entries[-1]["result"] == "blocked-indeterminate"
+    assert _status(world) == "completed:blocked-indeterminate"
+
+
+def test_unit_that_failed_before_writing_started_is_not_started_before_and_after_gc(tmp_path):
+    world = in_sync(tmp_path)
+    world.host.unit_states[UNIT] = "failed"
+    assert _status(world) == "not-started"
+    del world.host.unit_states[UNIT]
+    assert _status(world) == "not-started"
+
+
+def test_started_without_completed_is_indeterminate_through_gc_and_blocks_the_next_deploy(tmp_path):
+    world = in_sync(tmp_path)
+    _started_only(world)
+    world.host.unit_states[UNIT] = "failed"
+    assert _status(world) == "indeterminate"
+    del world.host.unit_states[UNIT]
+    assert _status(world) == "indeterminate"
+    assert world.run(deploy_text(world, run_id="5556-1")) == INDETERMINATE
+
+
+def test_duplicate_execution_of_an_existing_run_id_writes_nothing(tmp_path):
+    world = in_sync(tmp_path)
+    assert world.run(deploy_text(world)) == OK
+    before = Path(world.settings.history_file).read_text()
+    code, _, err = world.run_unit(deploy_text(world))
+    assert code == DRIFT
+    assert "run id already used" in err
+    assert Path(world.settings.history_file).read_text() == before
+
+
+def test_damaged_history_tail_refuses_the_unit_without_writing(tmp_path):
+    world = in_sync(tmp_path)
+    Path(world.settings.history_file).write_text('{"run_id": "1-1", "phase": "sta', encoding="utf-8")
+    before = Path(world.settings.history_file).read_text()
+    assert world.run_unit(deploy_text(world))[0] == INDETERMINATE
+    assert Path(world.settings.history_file).read_text() == before

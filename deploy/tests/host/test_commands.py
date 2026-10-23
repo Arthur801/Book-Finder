@@ -328,7 +328,9 @@ def test_deploy_without_state_needs_bootstrap(tmp_path):
     world = in_sync_world(tmp_path)
     world.remove_state()
     assert world.run(deploy_text(world)) == DRIFT
-    assert world.history().entries == []
+    assert [e["phase"] for e in world.history().entries] == ["started", "completed"]
+    completed = world.history().entries[-1]
+    assert (completed["result"], completed["exit_code"]) == ("drift", DRIFT)
 
 
 def test_deploy_refuses_while_history_is_indeterminate(tmp_path):
@@ -429,7 +431,9 @@ def test_deploy_lock_busy_exits_3(tmp_path):
     fcntl.flock(blocker, fcntl.LOCK_SH)
     try:
         assert world.run(deploy_text(world)) == DRIFT
-        assert world.history().entries == []
+        # started is written before the lock is taken, so a busy lock leaves a completed record after it.
+        assert [e["phase"] for e in world.history().entries] == ["started", "completed"]
+        assert world.history().entries[-1]["result"] == "drift"
     finally:
         os.close(blocker)
 
