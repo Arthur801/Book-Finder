@@ -4,6 +4,11 @@ Why: these commands change the state that the forced-command path refuses to cha
 bootstrap, and resolution of an indeterminate run). Each one takes the deploy lock, writes through the same CAS as the
 state machine, requires a non-empty reason, and needs the operator to type the value shown (or pass it again with
 --yes-i-verified). None of them is reachable through SSH_ORIGINAL_COMMAND.
+
+Protocol (M3c review): every mutating command first validates and confirms, then appends operator-started (fsynced) with
+op_id, intended and before; only then does it change anything, and it ends with exactly one operator-completed record.
+An operator-started without a completed record is indeterminate: every operator command except resolve-run refuses
+until resolve-run names that op_id.
 """
 
 from __future__ import annotations
@@ -13,6 +18,7 @@ import hashlib
 import json
 import os
 import re
+import secrets
 import shutil
 import sys
 import tempfile
@@ -28,10 +34,12 @@ from bookfinder_host import locks, runs
 from bookfinder_host import manifest as mf
 from bookfinder_host import runtime as rt
 from bookfinder_host import state as st
-from bookfinder_host.exit_codes import BAD_INPUT, DIRTY, DRIFT, OK
+from bookfinder_host.exit_codes import BAD_INPUT, DIRTY, DRIFT, INDETERMINATE, OK
 from bookfinder_host.safefile import UnsafeFileError, read_regular_file
 
 MAX_REASON_CHARS = 400  # keeps an operator record well under the history line limit
+MAX_ERROR_CHARS = 500  # keeps a failed operator-completed record under the history line limit
+OPERATION_RESULTS = ("success", "failed")  # what resolve-run may record for an operator operation
 OPERATOR_RE = re.compile(r"[A-Za-z0-9._-]{1,64}")
 UNIT_RE = re.compile(r"[A-Za-z0-9@._-]{1,128}")
 # Results an operator may record for an indeterminate run, with the exit code the run would have reported.
@@ -62,6 +70,15 @@ class Refusal(Exception):
         super().__init__(reason)
         self.code = code
         self.reason = reason
+
+
+class OperationFailed(Exception):
+    """A known failure inside an operation. unchanged=True means the failing step verifiably changed nothing."""
+
+    def __init__(self, reason: str, *, unchanged: bool) -> None:
+        super().__init__(reason)
+        self.reason = reason
+        self.unchanged = unchanged
 
 
 @dataclass
@@ -101,9 +118,10 @@ def build_parser() -> argparse.ArgumentParser:
     resume.add_argument("--crawler-digest", required=True)
     common(resume)
 
-    resolve = sub.add_parser("resolve-run", help="record the outcome of an indeterminate run (N7)")
-    resolve.add_argument("run_id")
-    resolve.add_argument("--result", required=True, choices=sorted(RESOLVE_EXIT))
+    resolve = sub.add_parser("resolve-run", help="record the outcome of an indeterminate run (N7) or operator operation (M3c)")
+    resolve.add_argument("run_id", help="a run id, or an operator op_id (op-<yyyymmddHHMMSS>-<4 hex>)")
+    # Run results and operation results share the flag; each command still checks which set it accepts.
+    resolve.add_argument("--result", required=True, choices=sorted(set(RESOLVE_EXIT) | set(OPERATION_RESULTS)))
     common(resolve)
 
     install = sub.add_parser("install-host", help="install the host program from a checked-out tag (N4)")
@@ -159,8 +177,11 @@ def main(
         err.write(f"refused: {refusal.reason}\n")
         return refusal.code
     except OSError as exc:
-        # A filesystem failure leaves history or state as it was; report it instead of a traceback.
-        err.write(f"refused: filesystem error, nothing further was changed: {exc}\n")
+        # Not "nothing changed": a failure after operator-started leaves that operation open, and history says so.
+        err.write(
+            f"refused: filesystem error: {exc}; an operation that had already started is shown in history as started "
+            "without completed (indeterminate); inspect history.jsonl before retrying\n"
+        )
         return DRIFT
     except cfg.ConfigError as exc:
         err.write(f"configuration error: {exc}\n")
@@ -189,9 +210,36 @@ def _under_lock(ctx: Context) -> int:
     settings = ctx.deps.settings
     try:
         with locks.exclusive(settings.deploy_lock_file, settings.lock_timeout_s, ctx.deps.clock):
+            if ctx.args.command != "resolve-run":
+                _refuse_while_indeterminate(ctx)
             return _HANDLERS[ctx.args.command](ctx)
     except locks.LockTimeout as exc:
         raise Refusal(DRIFT, f"busy: {exc}") from exc
+
+
+def _refuse_while_indeterminate(ctx: Context) -> None:
+    """Only resolve-run may run while an operator operation is open, or while the final history line is damaged.
+
+    Why: an open operation may have changed state or the host, and appending after a damaged final line would make it
+    a damaged middle line, which breaks every later read of history.
+    """
+    records = _read_history_or_refuse(ctx)
+    if records.tail_corrupt:
+        raise Refusal(DRIFT, "history final line is incomplete; resolve-run repairs it (with its sidecar) before anything else")
+    opened = hi.open_operations(records)
+    if opened:
+        raise Refusal(
+            INDETERMINATE,
+            f"operator operation(s) {', '.join(opened)} started but have no completed record; "
+            f"resolve-run {opened[0]} --result <success|failed> first (nothing was changed)",
+        )
+
+
+def _read_history_or_refuse(ctx: Context) -> hi.Records:
+    try:
+        return hi.read(ctx.deps.settings.history_file)
+    except hi.HistoryCorrupt as exc:
+        raise Refusal(DRIFT, f"history is damaged beyond its last line: {exc}") from exc
 
 
 def _confirm(ctx: Context, expected: str, prompt: str) -> None:
@@ -207,23 +255,96 @@ def _confirm(ctx: Context, expected: str, prompt: str) -> None:
         raise Refusal(BAD_INPUT, "confirmation did not match; nothing was changed")
 
 
-def _record(ctx: Context, action: str, before, after, extra: dict | None = None) -> None:
-    record = {
-        "phase": "operator",
-        "action": action,
-        "at": ctx.deps.clock.now(),
-        "operator": ctx.operator,
-        "reason": ctx.args.reason.strip(),
-        "before": before,
-        "after": after,
-    }
-    record.update(extra or {})
-    hi.append(ctx.deps.settings.history_file, record)
+def _new_op_id(ctx: Context) -> str:
+    stamp = re.sub(r"\D", "", ctx.deps.clock.now())[:14]  # ISO UTC "2026-10-23T00:00:00Z" -> "20261023000000"
+    return f"op-{stamp}-{secrets.token_hex(2)}"
+
+
+def _complete(ctx: Context, op_id: str, action: str, before, result: str, after, extra: dict | None) -> None:
+    hi.append(
+        ctx.deps.settings.history_file,
+        hi.operator_completed_record(op_id=op_id, action=action, at=ctx.deps.clock.now(), result=result, before=before, after=after, extra=extra),
+    )
+
+
+def _verified_unchanged(check) -> bool:
+    try:
+        return bool(check())
+    except Exception:  # noqa: BLE001 - a failed check cannot prove anything, so the outcome stays unknown
+        return False
+
+
+def _perform(
+    ctx: Context,
+    action: str,
+    *,
+    intended: dict,
+    before,
+    apply: Callable[[], tuple[object, object, dict]],
+    verify_unchanged: Callable[[], bool],
+    start_cut: int | None = None,
+):
+    """The operator protocol (M3c): operator-started is durable before apply() changes anything.
+
+    apply() returns (after_summary, value, extra). A known failure appends operator-completed with result "failed" and
+    says what is known; an unexpected exception or BaseException appends nothing, which leaves the op indeterminate.
+    start_cut, when given, means the started record replaces a damaged history tail (see rewrite_with_record).
+    """
+    deps = ctx.deps
+    op_id = _new_op_id(ctx)
+    started = hi.operator_started_record(
+        op_id=op_id,
+        action=action,
+        at=deps.clock.now(),
+        operator=ctx.operator,
+        reason=ctx.args.reason.strip(),
+        intended=intended,
+        before=before,
+    )
+    try:
+        if start_cut is None:
+            hi.append(deps.settings.history_file, started)
+        else:
+            hi.rewrite_with_record(deps.settings.history_file, start_cut, started)
+    except (OSError, ValueError, hi.HistoryCorrupt) as exc:
+        raise Refusal(DRIFT, f"could not record the start of {action} ({exc}); nothing was changed") from exc
+    try:
+        after, value, extra = apply()
+    except OperationFailed as failure:
+        message, unchanged = failure.reason, failure.unchanged
+    except Exception as exc:  # noqa: BLE001 - known enough to report; the verification decides what is claimed
+        message, unchanged = f"{action} failed: {exc}", _verified_unchanged(verify_unchanged)
+    else:
+        try:
+            _complete(ctx, op_id, action, before, "success", after, extra)
+        except OSError as exc:
+            raise Refusal(
+                DRIFT,
+                f"{action} was applied, but its completion record could not be written ({exc}); the outcome is recorded as "
+                f"unknown and op {op_id} stays indeterminate; inspect state and history before doing anything else",
+            ) from exc
+        return value
+    note = "state unchanged (verified)" if unchanged else f"outcome unknown - see op {op_id}"
+    full = f"{message}; {note}"
+    try:
+        _complete(ctx, op_id, action, before, "failed", None, {"error": full[:MAX_ERROR_CHARS]})
+    except OSError as exc:
+        raise Refusal(DRIFT, f"{full}; the failure could not be recorded in op {op_id} ({exc}); op {op_id} stays indeterminate") from exc
+    raise Refusal(DRIFT, full)
 
 
 def _report(ctx: Context, action: str, **fields) -> int:
     ctx.out.write(json.dumps({"action": action, "result": "done", **fields}, sort_keys=True) + "\n")
     return OK
+
+
+def _state_revision_on_disk(ctx: Context) -> int | None:
+    try:
+        return st.load_state(ctx.deps.settings.state_file).revision
+    except st.StateMissing:
+        return 0
+    except st.StateCorrupt:
+        return None
 
 
 def _load_state_or_refuse(ctx: Context) -> st.State:
@@ -312,11 +433,23 @@ def _bootstrap(ctx: Context) -> int:
         ),
         crawler=st.Crawler(digest=crawler_digest, paused=None),
     )
-    try:
-        stored = st.write_state(deps.settings.state_file, new_state, expected_revision=0)
-    except st.RevisionConflict as exc:
-        raise Refusal(DRIFT, f"state appeared while bootstrapping: {exc}") from exc
-    _record(ctx, "bootstrap-state", None, st.state_summary(stored))
+    intended = {
+        "release": tag,
+        "web_digest": web_digest,
+        "crawler_digest": crawler_digest,
+        "runtime": {"kind": "systemd", "unit": args.systemd_unit},
+        "schema_digest": new_state.schema.digest,
+        "applied_count": len(metadata.migrations),
+    }
+
+    def apply():
+        try:
+            stored = _write_cas(deps, new_state, expected_revision=0)
+        except OperationFailed as failure:
+            raise OperationFailed(f"state appeared while bootstrapping: {failure.reason}", unchanged=True) from failure
+        return st.state_summary(stored), stored, {}
+
+    stored = _perform(ctx, "bootstrap-state", intended=intended, before=None, apply=apply, verify_unchanged=lambda: _state_revision_on_disk(ctx) == 0)
     return _report(ctx, "bootstrap-state", revision=stored.revision, release=tag)
 
 
@@ -363,16 +496,29 @@ def _reconcile(ctx: Context) -> int:
         dirty_release=None,
     )
     new_state = replace(state, schema=new_schema)
-    stored = _write_cas(deps, new_state, state)
-    _record(ctx, "reconcile-schema", st.state_summary(state), st.state_summary(stored))
+    intended = {"schema_digest": digest, "applied_count": len(prefix), "dirty": False, "rebuild": {"tag": rebuild_tag, "web_digest": rebuild_digest}}
+
+    def apply():
+        stored = _write_cas(deps, new_state, expected_revision=state.revision)
+        return st.state_summary(stored), stored, {}
+
+    stored = _perform(
+        ctx,
+        "reconcile-schema",
+        intended=intended,
+        before=st.state_summary(state),
+        apply=apply,
+        verify_unchanged=lambda: _state_revision_on_disk(ctx) == state.revision,
+    )
     return _report(ctx, "reconcile-schema", revision=stored.revision, schema_digest=digest)
 
 
-def _write_cas(deps: cmd.Deps, new_state: st.State, current: st.State) -> st.State:
+def _write_cas(deps: cmd.Deps, new_state: st.State, expected_revision: int) -> st.State:
     try:
-        return st.write_state(deps.settings.state_file, new_state, expected_revision=current.revision)
+        return st.write_state(deps.settings.state_file, new_state, expected_revision=expected_revision)
     except st.RevisionConflict as exc:
-        raise Refusal(DRIFT, f"state changed while the command ran: {exc}") from exc
+        # write_state checks the revision before it writes, so this write verifiably did not happen.
+        raise OperationFailed(f"state changed while the command ran: {exc}", unchanged=True) from exc
 
 
 # resume-crawler (N3)
@@ -412,23 +558,43 @@ def _resume(ctx: Context) -> int:
         raise Refusal(DRIFT, f"installed {deps.settings.crawler_runner} differs from {release_copy}; reinstall it from the release")
     _confirm(ctx, digest, f"resume the crawler on {expected_image}")
     new_state = replace(state, crawler=st.Crawler(digest=digest, paused=None))
-    stored = _write_cas(deps, new_state, state)
-    _record(ctx, "resume-crawler", st.state_summary(state), st.state_summary(stored))
+
+    def apply():
+        stored = _write_cas(deps, new_state, expected_revision=state.revision)
+        return st.state_summary(stored), stored, {}
+
+    stored = _perform(
+        ctx,
+        "resume-crawler",
+        intended={"crawler_digest": digest, "paused": False},
+        before=st.state_summary(state),
+        apply=apply,
+        verify_unchanged=lambda: _state_revision_on_disk(ctx) == state.revision,
+    )
     return _report(ctx, "resume-crawler", revision=stored.revision)
 
 
-# resolve-run (N7)
+# resolve-run (N7, M3c)
+
+
+def _run_has_completed(path: str, run_id: str) -> bool:
+    return any(entry.get("run_id") == run_id and entry.get("phase") == "completed" for entry in hi.read(path).entries)
 
 
 def _resolve(ctx: Context) -> int:
+    if ctx.args.run_id.startswith(hi.OP_PREFIX):
+        return _resolve_operation(ctx)
+    return _resolve_run(ctx)
+
+
+def _resolve_run(ctx: Context) -> int:
     args, deps = ctx.args, ctx.deps
     run_id = args.run_id
     if cmd.RUN_ID_RE.fullmatch(run_id) is None:
         raise Refusal(BAD_INPUT, "run id is malformed")
-    try:
-        records = hi.read(deps.settings.history_file)
-    except hi.HistoryCorrupt as exc:
-        raise Refusal(DRIFT, f"history is damaged beyond its last line: {exc}") from exc
+    if args.result not in RESOLVE_EXIT:
+        raise Refusal(BAD_INPUT, f"a run can be recorded as {', '.join(sorted(RESOLVE_EXIT))}")
+    records = _read_history_or_refuse(ctx)
     if any(e.get("run_id") == run_id and e.get("phase") == "completed" for e in records.entries):
         raise Refusal(DRIFT, f"run {run_id} already has a completed record")
     if not any(e.get("run_id") == run_id and e.get("phase") == "started" for e in records.entries):
@@ -451,31 +617,87 @@ def _resolve(ctx: Context) -> int:
     _confirm(ctx, run_id, f"record run {run_id} as {args.result}")
     tail = None
     if records.tail_corrupt:
-        # The fragment is kept in a sidecar and only then removed; a failure here leaves history untouched.
+        # The fragment is kept in a sidecar before history is touched; a failure here leaves history as it was.
         stamp = re.sub(r"[-:]", "", deps.clock.now())
-        tail = hi.preserve_and_truncate_tail(deps.settings.history_file, run_id, stamp)
+        tail = hi.preserve_tail(deps.settings.history_file, run_id, stamp)
     result = args.result
-    hi.append(
-        deps.settings.history_file,
-        hi.completed_record(
-            run_id=run_id,
-            result=result,
-            exit_code=RESOLVE_EXIT[result],
-            at=deps.clock.now(),
-            state_summary=state_summary,
-            resolved_by_operator=True,
-            operator=ctx.operator,
-            reason=args.reason.strip(),
-        ),
+    record = hi.completed_record(
+        run_id=run_id,
+        result=result,
+        exit_code=RESOLVE_EXIT[result],
+        at=deps.clock.now(),
+        state_summary=state_summary,
+        resolved_by_operator=True,
+        operator=ctx.operator,
+        reason=args.reason.strip(),
     )
-    if tail is not None and tail["path"] is not None:
-        _record(ctx, "resolve-run", state_summary or None, {"run_id": run_id, "result": result}, {"tail_repair": tail})
+    path = deps.settings.history_file
+
+    def apply():
+        hi.append(path, record)
+        extra = {"tail_repair": _tail_summary(tail)} if tail is not None else {}
+        return {"run_id": run_id, "result": result}, {"run_id": run_id, "result": result}, extra
+
+    intended = {"run_id": run_id, "result": result, "tail_repair": _tail_summary(tail)}
+    _perform(
+        ctx,
+        "resolve-run",
+        intended=intended,
+        before={"run": "started without completed", "state": state_summary or None},
+        apply=apply,
+        verify_unchanged=lambda: not _run_has_completed(path, run_id),
+        start_cut=None if tail is None else tail["cut"],
+    )
     if state_summary.get("dirty"):
         ctx.err.write("reminder: the schema is still dirty; use reconcile-schema (N2)\n")
     if state_summary.get("crawler_paused"):
         ctx.err.write("reminder: the crawler is still paused; use resume-crawler (N3)\n")
     removed = 0 if tail is None else tail["bytes"]
     return _report(ctx, "resolve-run", run_id=run_id, result=result, truncated_tail_bytes=removed)
+
+
+def _tail_summary(tail: dict | None) -> dict | None:
+    if tail is None:
+        return None
+    return {"path": tail["path"], "bytes": tail["bytes"], "sha256": tail["sha256"]}
+
+
+def _resolve_operation(ctx: Context) -> int:
+    """Records the outcome of an open operator operation (M3c).
+
+    Single append, no operator-started: the only change is the completed record itself, so a crash leaves either the op
+    open (nothing recorded) or closed. A damaged tail is repaired in the same atomic rewrite, after its sidecar is kept.
+    """
+    args, deps = ctx.args, ctx.deps
+    op_id = args.run_id
+    if hi.OP_ID_RE.fullmatch(op_id) is None:
+        raise Refusal(BAD_INPUT, "operation id is malformed")
+    if args.result not in OPERATION_RESULTS:
+        raise Refusal(BAD_INPUT, f"an operator operation can only be recorded as {' or '.join(OPERATION_RESULTS)}")
+    records = _read_history_or_refuse(ctx)
+    if op_id not in hi.open_operations(records):
+        raise Refusal(DRIFT, f"operation {op_id} is not open; it has no operator-started record without a completed record")
+    started = next(e for e in records.entries if e.get("phase") == hi.OPERATOR_STARTED and e.get("op_id") == op_id)
+    _confirm(ctx, op_id, f"record operation {op_id} ({started.get('action')}) as {args.result}")
+    completed = hi.operator_completed_record(
+        op_id=op_id,
+        action=started.get("action"),
+        at=deps.clock.now(),
+        result=args.result,
+        before=started.get("before"),
+        after={"resolved": args.result},
+        extra={"resolved_by_operator": True, "operator": ctx.operator, "reason": args.reason.strip()},
+    )
+    path = deps.settings.history_file
+    tail = None
+    if records.tail_corrupt:
+        stamp = re.sub(r"[-:]", "", deps.clock.now())
+        tail = hi.preserve_tail(path, op_id, stamp)
+        completed["tail_repair"] = _tail_summary(tail)
+        hi.rewrite_with_record(path, tail["cut"], completed)
+    else:
+        hi.append(path, completed)
+    return _report(ctx, "resolve-run", run_id=op_id, result=args.result, truncated_tail_bytes=0 if tail is None else tail["bytes"])
 
 
 # install-host (N4)
@@ -516,8 +738,20 @@ def _install(ctx: Context) -> int:
     new_text = f"{new_low}-{new_high}"
     ctx.err.write(f"host_api_range: old={old_text} new={new_text}\n")
     _confirm(ctx, new_text, f"install the host program into {ctx.host_dir}")
-    _swap_install(source, ctx.host_dir)
-    _record(ctx, "install-host", {"host_api_range": old_text}, {"host_api_range": new_text})
+
+    def apply():
+        _swap_install(source, ctx.host_dir)
+        return {"host_api_range": new_text}, None, {}
+
+    # Until the swap is crash-safe (next change), an interrupted install is reported as unknown, never as unchanged.
+    _perform(
+        ctx,
+        "install-host",
+        intended={"host_api_range": new_text, "source": str(source)},
+        before={"host_api_range": old_text},
+        apply=apply,
+        verify_unchanged=lambda: False,
+    )
     return _report(ctx, "install-host", host_api_range=new_text, previous_kept=str(ctx.host_dir.parent / f"{ctx.host_dir.name}.prev"))
 
 

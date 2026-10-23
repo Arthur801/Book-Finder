@@ -9,6 +9,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import stat
 from pathlib import Path
 
@@ -58,7 +59,17 @@ def run_admin(world, argv, *, typed="", environ=None, host_dir=None):
 
 
 def operator_records(world):
-    return [entry for entry in world.history().entries if entry.get("phase") == "operator"]
+    """Every operator-started and operator-completed record, in history order."""
+    return [entry for entry in world.history().entries if entry.get("phase") in ("operator-started", "operator-completed")]
+
+
+def op_pair(world, index=-1):
+    """(started, completed) of the index-th operation in history; completed is None while the op is open."""
+    started_ids = [e["op_id"] for e in operator_records(world) if e["phase"] == "operator-started"]
+    op_id = started_ids[index]
+    started = next(e for e in operator_records(world) if e["phase"] == "operator-started" and e["op_id"] == op_id)
+    completed = [e for e in operator_records(world) if e["phase"] == "operator-completed" and e["op_id"] == op_id]
+    return started, (completed[0] if completed else None)
 
 
 def dirty_state(applied_migrations, *, rebuild_tag=TAG1, release=TAG2):
@@ -182,12 +193,13 @@ def test_bootstrap_writes_revision_one_systemd_state(tmp_path):
     assert stored.schema.rebuild == st.Rebuild(tag=TAG1, web_digest=WEB1)
     assert stored.schema.dirty is False
     assert stored.crawler == st.Crawler(digest=CRAWLER, paused=None)
-    record = operator_records(world)[-1]
-    assert record["action"] == "bootstrap-state"
-    assert record["operator"] == "operator1"
-    assert record["reason"] == "planned operator action"
-    assert record["before"] is None
-    assert record["after"]["revision"] == 1
+    started, completed = op_pair(world)
+    assert started["action"] == "bootstrap-state"
+    assert started["operator"] == "operator1"
+    assert started["reason"] == "planned operator action"
+    assert started["before"] is None
+    assert completed["result"] == "success"
+    assert completed["after"]["revision"] == 1
 
 
 def test_bootstrap_refuses_when_state_exists(tmp_path):
@@ -280,8 +292,8 @@ def test_reconcile_marks_clean_to_the_database_prefix(tmp_path):
     assert stored.schema.applied[2].by_release == TAG2  # the release whose migration left the database dirty
     assert stored.schema.rebuild == st.Rebuild(tag=TAG1, web_digest=WEB2)
     assert stored.schema.digest == digest
-    record = operator_records(world)[-1]
-    assert record["action"] == "reconcile-schema"
+    started, completed = op_pair(world)
+    assert started["action"] == "reconcile-schema" and completed["result"] == "success"
 
 
 def test_reconcile_prints_ids_and_requires_the_expected_digest(tmp_path):
@@ -354,7 +366,8 @@ def test_resume_clears_the_pause_and_sets_the_digest(tmp_path):
     assert code == 0, err
     stored = world.load_state()
     assert stored.crawler == st.Crawler(digest=CRAWLER2, paused=None)
-    assert operator_records(world)[-1]["action"] == "resume-crawler"
+    started, completed = op_pair(world)
+    assert started["action"] == "resume-crawler" and completed["result"] == "success"
 
 
 def test_resume_refuses_when_not_paused(tmp_path):
@@ -512,9 +525,9 @@ def test_install_keeps_the_previous_host_and_records_both_ranges(tmp_path):
     assert (host / "bookfinder_host" / "HOST_API_RANGE").read_text() == "1 2\n"
     assert (host / "book-finder-admin").exists()
     assert (host.parent / "host.prev" / "marker").read_text() == "old install"
-    record = operator_records(world)[-1]
-    assert record["before"] == {"host_api_range": "1-1"}
-    assert record["after"] == {"host_api_range": "1-2"}
+    started, completed = op_pair(world)
+    assert started["before"] == {"host_api_range": "1-1"}
+    assert completed["after"] == {"host_api_range": "1-2"}
 
 
 def test_install_refuses_when_the_current_runtime_is_outside_the_new_range(tmp_path):
@@ -605,9 +618,10 @@ def test_resolve_keeps_the_removed_bytes_in_a_sidecar(tmp_path):
     world = _tail_world(tmp_path)
     code, _, err = run_admin(world, ["resolve-run", "1234-5", "--result", "drift", *REASON], typed="1234-5")
     assert code == 0, err
-    record = operator_records(world)[-1]
-    assert record["action"] == "resolve-run"
-    tail = record["tail_repair"]
+    started, completed = op_pair(world)
+    assert started["action"] == "resolve-run"
+    tail = started["intended"]["tail_repair"]
+    assert completed["tail_repair"] == tail
     assert tail["bytes"] == len(FRAGMENT)
     assert tail["sha256"] == hashlib.sha256(FRAGMENT).hexdigest()
     sidecar = Path(tail["path"])
@@ -619,17 +633,20 @@ def test_resolve_keeps_the_removed_bytes_in_a_sidecar(tmp_path):
 
 def test_truncation_happens_only_after_the_sidecar_is_durable(tmp_path, monkeypatch):
     world = _tail_world(tmp_path)
-    real_truncate = os.truncate
+    real_replace = os.replace
     seen = {}
 
-    def checked_truncate(path, length):
-        seen["sidecars"] = [p.read_bytes() for p in Path(path).parent.glob("history.jsonl.tail-*")]
-        real_truncate(path, length)
+    def checked_replace(source, target):
+        # The tail is removed by the atomic rewrite of history, so the sidecar must already exist at that point.
+        if Path(target) == Path(world.settings.history_file):
+            seen["sidecars"] = [p.read_bytes() for p in Path(target).parent.glob("history.jsonl.tail-*")]
+        real_replace(source, target)
 
-    monkeypatch.setattr(os, "truncate", checked_truncate)
+    monkeypatch.setattr(os, "replace", checked_replace)
     code, _, err = run_admin(world, ["resolve-run", "1234-5", "--result", "drift", *REASON], typed="1234-5")
     assert code == 0, err
     assert seen["sidecars"] == [FRAGMENT]
+    assert hi.read(world.settings.history_file).tail_corrupt is False
 
 
 def test_a_failed_sidecar_write_leaves_history_untouched(tmp_path):
@@ -643,3 +660,231 @@ def test_a_failed_sidecar_write_leaves_history_untouched(tmp_path):
     assert Path(world.settings.history_file).read_bytes() == before
     assert not [e for e in hi.read(world.settings.history_file).entries if e.get("phase") == "completed"]
     assert operator_records(world) == []
+
+
+# operator protocol (M3c review): started -> mutation -> completed for every mutating command
+
+PROTOCOL_COMMANDS = ["bootstrap-state", "reconcile-schema", "resume-crawler", "install-host", "resolve-run"]
+OTHER_OPERATOR_ARGV = ["install-host", "--source", "/nonexistent", *REASON]
+
+
+class Crash(BaseException):
+    """Stands in for a process that dies mid-command: it is not an Exception, so nothing catches it and nothing is recorded."""
+
+
+def protocol_case(name, tmp_path):
+    if name == "bootstrap-state":
+        return {"world": bootstrap_world(tmp_path), "argv": bootstrap_argv(), "typed": WEB1, "host_dir": None}
+    if name == "reconcile-schema":
+        world = reconcile_world(tmp_path, db_ids=[ID1, ID2, ID3])
+        digest = expected_digest([ID1, ID2, ID3])
+        return {"world": world, "argv": reconcile_argv(digest), "typed": digest, "host_dir": None}
+    if name == "resume-crawler":
+        world = paused_world(tmp_path)
+        return {"world": world, "argv": ["resume-crawler", "--crawler-digest", CRAWLER2, *REASON], "typed": CRAWLER2, "host_dir": None}
+    if name == "install-host":
+        world = make_world(tmp_path, state=runtime_state())
+        source = make_source(tmp_path, "1 2\n")
+        return {"world": world, "argv": ["install-host", "--source", str(source), *REASON], "typed": "1-2", "host_dir": installed(tmp_path)}
+    world = make_world(tmp_path, state=DEFAULT_STATE)
+    start_run(world)
+    return {"world": world, "argv": ["resolve-run", "1234-5", "--result", "drift", *REASON], "typed": "1234-5", "host_dir": None}
+
+
+def snapshot(root: Path) -> dict[str, bytes]:
+    # Lock files are created empty by the lock itself, before any command decides anything; they carry no state.
+    return {str(path.relative_to(root)): path.read_bytes() for path in sorted(root.rglob("*")) if path.is_file() and not path.name.endswith(".lock")}
+
+
+def fail_appends(monkeypatch, phase, make_error):
+    real = hi.append
+
+    def patched(path, record):
+        if record.get("phase") == phase:
+            raise make_error()
+        return real(path, record)
+
+    monkeypatch.setattr(hi, "append", patched)
+
+
+def fail_mutation(monkeypatch, name, make_error):
+    def boom(*args, **kwargs):
+        raise make_error()
+
+    if name == "install-host":
+        monkeypatch.setattr(op, "_swap_install", boom)
+    elif name == "resolve-run":
+        fail_appends(monkeypatch, "completed", make_error)
+    else:
+        monkeypatch.setattr(st, "write_state", boom)
+
+
+def mutation_happened(name, world, before_revision):
+    if name == "install-host":
+        return (world.tmp_path / "host" / "bookfinder_host" / "HOST_API_RANGE").read_text() == "1 2\n"
+    if name == "resolve-run":
+        return any(e.get("run_id") == "1234-5" and e.get("phase") == "completed" for e in world.history().entries)
+    return revision_of(world) != before_revision
+
+
+def revision_of(world):
+    try:
+        return world.load_state().revision
+    except st.StateMissing:
+        return 0
+
+
+@pytest.mark.parametrize("name", PROTOCOL_COMMANDS)
+def test_a_failed_start_record_changes_nothing(tmp_path, monkeypatch, name):
+    case = protocol_case(name, tmp_path)
+    world = case["world"]
+    before = snapshot(tmp_path)
+    fail_appends(monkeypatch, "operator-started", lambda: OSError("disk full"))
+    code, _, err = run_admin(world, case["argv"], typed=case["typed"], host_dir=case["host_dir"])
+    assert code == 3, err
+    assert "could not record the start" in err and "nothing was changed" in err
+    assert snapshot(tmp_path) == before
+
+
+@pytest.mark.parametrize("name", PROTOCOL_COMMANDS)
+def test_started_is_durable_before_the_mutation_runs(tmp_path, monkeypatch, name):
+    case = protocol_case(name, tmp_path)
+    world = case["world"]
+    seen = []
+    if name == "install-host":
+        real = op._swap_install
+
+        def spy(source, target):
+            seen.append(any(e.get("phase") == "operator-started" for e in world.history().entries))
+            return real(source, target)
+
+        monkeypatch.setattr(op, "_swap_install", spy)
+    elif name == "resolve-run":
+        real_append = hi.append
+
+        def spy_append(path, record):
+            if record.get("phase") == "completed":
+                seen.append(any(e.get("phase") == "operator-started" for e in hi.read(path).entries))
+            return real_append(path, record)
+
+        monkeypatch.setattr(hi, "append", spy_append)
+    else:
+        real_write = st.write_state
+
+        def spy_write(path, state, expected_revision):
+            seen.append(any(e.get("phase") == "operator-started" for e in world.history().entries))
+            return real_write(path, state, expected_revision)
+
+        monkeypatch.setattr(st, "write_state", spy_write)
+    code, _, err = run_admin(world, case["argv"], typed=case["typed"], host_dir=case["host_dir"])
+    assert code == 0, err
+    assert seen == [True]
+    started, completed = op_pair(world)
+    assert started["op_id"] == completed["op_id"]
+    assert completed["result"] == "success" and completed["action"] == started["action"]
+    assert re.fullmatch(r"op-20261023000000-[0-9a-f]{4}", started["op_id"])
+
+
+@pytest.mark.parametrize("name", PROTOCOL_COMMANDS)
+def test_crash_after_started_leaves_an_indeterminate_operation(tmp_path, monkeypatch, name):
+    case = protocol_case(name, tmp_path)
+    world = case["world"]
+    fail_mutation(monkeypatch, name, Crash) if name != "resolve-run" else fail_appends(monkeypatch, "completed", Crash)
+    with pytest.raises(Crash):
+        run_admin(world, case["argv"], typed=case["typed"], host_dir=case["host_dir"])
+    started, completed = op_pair(world)
+    assert completed is None
+    code, _, err = run_admin(world, OTHER_OPERATOR_ARGV, typed="x")
+    assert code == 8 and started["op_id"] in err
+    if name != "bootstrap-state":
+        # The state exists here, so the plan gate is the one that must refuse (exit 8).
+        assert world.run(f"plan {TAG1} {WEB1}", plan_only=True) == 8
+    code, _, err = run_admin(world, ["resolve-run", started["op_id"], "--result", "failed", *REASON], typed=started["op_id"])
+    assert code == 0, err
+    _, completed = op_pair(world)
+    assert completed["result"] == "failed" and completed["resolved_by_operator"] is True
+    assert completed["operator"] == "operator1" and completed["reason"] == "planned operator action"
+    code, _, _ = run_admin(world, OTHER_OPERATOR_ARGV, typed="x")
+    assert code != 8
+
+
+@pytest.mark.parametrize("name", PROTOCOL_COMMANDS)
+def test_failed_completion_after_a_real_change_stays_indeterminate(tmp_path, monkeypatch, name):
+    case = protocol_case(name, tmp_path)
+    world = case["world"]
+    before_revision = revision_of(world)
+    fail_appends(monkeypatch, "operator-completed", lambda: OSError("disk full"))
+    code, _, err = run_admin(world, case["argv"], typed=case["typed"], host_dir=case["host_dir"])
+    assert code == 3
+    assert "outcome is recorded as unknown" in err and "stays indeterminate" in err
+    assert mutation_happened(name, world, before_revision)
+    _started, completed = op_pair(world)
+    assert completed is None
+    code, _, _ = run_admin(world, OTHER_OPERATOR_ARGV, typed="x")
+    assert code == 8
+
+
+@pytest.mark.parametrize("name", PROTOCOL_COMMANDS)
+def test_a_known_failure_is_recorded_as_failed(tmp_path, monkeypatch, name):
+    case = protocol_case(name, tmp_path)
+    world = case["world"]
+    before_revision = revision_of(world)
+    fail_mutation(monkeypatch, name, lambda: OSError("write refused"))
+    code, _, err = run_admin(world, case["argv"], typed=case["typed"], host_dir=case["host_dir"])
+    assert code == 3
+    started, completed = op_pair(world)
+    assert completed["result"] == "failed" and completed["op_id"] == started["op_id"]
+    assert "write refused" in completed["error"]
+    if name == "install-host":
+        assert "outcome unknown - see op" in err
+    else:
+        assert "state unchanged (verified)" in err and "outcome unknown" not in err
+        assert not mutation_happened(name, world, before_revision)
+    # A recorded failure closes the operation, so the other operator commands run again.
+    assert run_admin(world, OTHER_OPERATOR_ARGV, typed="x")[0] != 8
+
+
+def test_open_operation_refuses_every_operator_command_but_resolve(tmp_path):
+    world = make_world(tmp_path, state=DEFAULT_STATE)
+    start_run(world)
+    hi.append(
+        world.settings.history_file,
+        hi.operator_started_record(op_id="op-20261023000000-beef", action="resume-crawler", at=NOW, operator="op", reason="r", intended={}, before=None),
+    )
+    before = snapshot(tmp_path)
+    for argv in (
+        ["bootstrap-state", "--release", TAG1, "--web-digest", WEB1, "--crawler-digest", CRAWLER, "--systemd-unit", SYSTEMD_UNIT, *REASON],
+        ["reconcile-schema", "--mark-clean", "--rebuild-release", TAG1, "--rebuild-web-digest", WEB2, "--expect-schema-digest", "sha256:" + "0" * 64, *REASON],
+        ["resume-crawler", "--crawler-digest", CRAWLER2, *REASON],
+        OTHER_OPERATOR_ARGV,
+    ):
+        code, _, err = run_admin(world, argv, typed="x")
+        assert code == 8, argv
+        assert "op-20261023000000-beef" in err
+    assert snapshot(tmp_path) == before
+
+
+def test_resolve_operation_refuses_unknown_closed_and_malformed_ids(tmp_path):
+    world = make_world(tmp_path, state=DEFAULT_STATE)
+    code, _, err = run_admin(world, ["resolve-run", "op-20261023000000-beef", "--result", "success", *REASON], typed="op-20261023000000-beef")
+    assert code == 3 and "not open" in err
+    assert run_admin(world, ["resolve-run", "op-x", "--result", "success", *REASON], typed="op-x")[0] == 2
+    assert run_admin(world, ["resolve-run", "op-20261023000000-beef", "--result", "drift", *REASON], typed="x")[0] == 2
+    assert run_admin(world, ["resolve-run", "1234-5", "--result", "failed", *REASON], typed="x")[0] == 2
+
+
+def test_resolve_operation_repairs_a_damaged_tail_in_the_same_rewrite(tmp_path):
+    world = make_world(tmp_path, state=DEFAULT_STATE)
+    hi.append(
+        world.settings.history_file,
+        hi.operator_started_record(op_id="op-20261023000000-beef", action="resume-crawler", at=NOW, operator="op", reason="r", intended={}, before=None),
+    )
+    with open(world.settings.history_file, "ab") as handle:
+        handle.write(FRAGMENT)
+    code, _, err = run_admin(world, ["resolve-run", "op-20261023000000-beef", "--result", "success", *REASON], typed="op-20261023000000-beef")
+    assert code == 0, err
+    records = hi.read(world.settings.history_file)
+    assert records.tail_corrupt is False and hi.open_operations(records) == []
+    completed = next(e for e in records.entries if e.get("phase") == "operator-completed")
+    assert completed["tail_repair"]["bytes"] == len(FRAGMENT)
+    assert Path(completed["tail_repair"]["path"]).read_bytes() == FRAGMENT

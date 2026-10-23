@@ -176,3 +176,30 @@ def test_resolved_operator_record_clears_the_run():
     assert hi.unresolved_indeterminate(records, {}) == []
     assert hi.status(records, RUN, "missing") == "completed:failed-down"
     assert resolved["resolved_by_operator"] is True
+
+
+# operator operations (M3c): an operator-started record without operator-completed is indeterminate too
+
+
+OP = "op-20261023000000-beef"
+
+
+def op_started(op_id=OP):
+    return hi.operator_started_record(op_id=op_id, action="resume-crawler", at="t0", operator="op", reason="r", intended={}, before=None)
+
+
+def op_completed(op_id=OP):
+    return hi.operator_completed_record(op_id=op_id, action="resume-crawler", at="t1", result="success", before=None, after={})
+
+
+def test_open_operation_blocks_unresolved_and_is_listed_after_runs():
+    records = hi.Records([started(RUN), op_started()], tail_corrupt=False)
+    assert hi.open_operations(records) == [OP]
+    assert hi.unresolved_indeterminate(records, {RUN: "inactive"}) == [RUN, OP]
+
+
+def test_completed_operation_is_not_open():
+    records = hi.Records([op_started(), op_completed()], tail_corrupt=False)
+    assert hi.open_operations(records) == []
+    assert hi.unresolved_indeterminate(records, {}) == []
+

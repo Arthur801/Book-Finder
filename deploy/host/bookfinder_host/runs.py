@@ -78,8 +78,14 @@ def indeterminate_reasons(settings: Settings, runner: Runner, exclude_run_id: st
         states = {run_id: unit_state(runner, unit_name(run_id)) for run_id in open_runs}
     except ObservationError as exc:
         return reasons + [f"units: {exc}"]
-    unresolved = [run_id for run_id in hi.unresolved_indeterminate(records, states) if run_id != exclude_run_id]
-    return reasons + unresolved
+    reasons += [_describe(item) for item in hi.unresolved_indeterminate(records, states) if item != exclude_run_id]
+    return reasons
+
+
+def _describe(item: str) -> str:
+    if item.startswith(hi.OP_PREFIX):
+        return f"operator operation {item} started but has no completed record; resolve-run {item} first"
+    return item
 
 
 def status_text(settings: Settings, runner: Runner, run_id: str) -> str:
