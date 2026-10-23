@@ -14,6 +14,41 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  lint:
+    name: Lint and format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      - uses: actions/cache@v6
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', 'dotnet-tools.json') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      - run: dotnet restore Book-Finder.slnx
+
+      # Fails when whitespace or formatting in the .NET projects differs from .editorconfig rules.
+      - run: dotnet format Book-Finder.slnx --verify-no-changes --no-restore
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+
+      # The ruff version is pinned in crawler/requirements.txt, the single source of truth for this job.
+      - run: pip install "$(grep -E '^ruff==' requirements.txt)"
+        working-directory: crawler
+
+      - run: ruff check --output-format github .
+        working-directory: crawler
+
+      - run: ruff format --check .
+        working-directory: crawler
+
   dotnet:
     name: .NET build and tests
     runs-on: ubuntu-latest
