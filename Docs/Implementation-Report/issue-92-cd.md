@@ -118,9 +118,9 @@
 
 | 指令 | 結果 |
 |---|---|
-| `.venv/bin/python -m pytest .github/scripts/tests deploy/tests -q`（Python 3.14.4） | 614 passed, 6 skipped（skip 為 `BOOKFINDER_IT` 未設定的整合測試） |
-| `uv run --no-project --python 3.12 --with pytest==9.1.1 python -m pytest deploy/tests -q` | 552 passed, 6 skipped（同上） |
-| `dotnet test tests/UnitTests/UnitTests.csproj` | 707 passed, 0 failed |
+| `.venv/bin/python -m pytest .github/scripts/tests deploy/tests -q`（Python 3.14.4） | 619 passed, 6 skipped（skip 為 `BOOKFINDER_IT` 未設定的整合測試） |
+| `uv run --no-project --python 3.12 --with pytest==9.1.1 python -m pytest deploy/tests -q` | 557 passed, 6 skipped（同上）；`ruff check` 與 `ruff format --check`（`deploy/ruff.toml`）通過 |
+| `dotnet test tests/UnitTests/UnitTests.csproj` | 707 passed, 0 failed（本次的追加修正沒有改動 .NET 程式） |
 
 - `Program.cs` 與 `HostingSetup` 的設定讀取由 UnitTests 的 `HostingSetupTests` 覆蓋。`DatabaseIntegration` 與 `WebIntegration` 未在本次執行（需要本機 Docker，Testcontainers）。
 - 本次未執行 `BOOKFINDER_IT=1` 的本機整合測試（情境 a～e 與 probe）。
