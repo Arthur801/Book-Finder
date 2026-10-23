@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
+from bookfinder_host.images import is_digest_ref
 from bookfinder_host.ports import Runner
 from bookfinder_host.safefile import UnsafeFileError, read_regular_file
 
@@ -20,7 +21,6 @@ CONTAINER_RELEASE_DIR = "/opt/release"
 # Migration identity is (id, source_hash) per N5; the SQL hash is audit-only and never appears here.
 _LINE_RE = re.compile(r"[0-9]{14}_[A-Za-z0-9]+ [0-9a-f]{64}")
 _RELEASE_API_RE = re.compile(rb"[0-9]{1,4}\n")
-_IMAGE_REF_RE = re.compile(r"[a-z0-9][A-Za-z0-9./:_-]*@sha256:[0-9a-f]{64}")
 _CONTAINER_ID_RE = re.compile(r"[0-9a-f]{12,64}")
 
 Classification = Literal["in-sync", "forward", "schema-ahead", "divergent"]
@@ -126,9 +126,13 @@ def extract_release_metadata(runner: Runner, image_ref: str, dest_dir: Path) -> 
     Why: docker cp without -L copies a symlink as a link, which would point into the host. Each copied file is checked
     with lstat before it is opened, so a link is rejected without reading what it points to.
     """
-    if _IMAGE_REF_RE.fullmatch(image_ref) is None:
-        raise ManifestError(f"image reference must be pinned by digest: {image_ref!r}")
-    created = runner.run(["docker", "create", image_ref])
+    if not is_digest_ref(image_ref):
+        raise ManifestError(f"image reference must be <repository>@sha256:<digest>: {image_ref!r}")
+    # Pull first and create with --pull=never, so the metadata always comes from the digest that was named.
+    pulled = runner.run(["docker", "pull", image_ref])
+    if pulled.returncode != 0:
+        raise ManifestError(f"docker pull failed for {image_ref}: {pulled.stderr.strip()}")
+    created = runner.run(["docker", "create", "--pull=never", image_ref])
     if created.returncode != 0:
         raise ManifestError(f"docker create failed: {created.stderr.strip()}")
     container_id = created.stdout.strip()

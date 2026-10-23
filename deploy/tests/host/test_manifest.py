@@ -177,7 +177,7 @@ def test_pending_refuses_schema_ahead_and_divergent():
         manifest.pending(migrations((ID1, H1)), migrations((ID1, H2)))
 
 
-def fake_docker(tmp_path, cid="0123456789ab", cp_source=None, rc_create=0):
+def fake_docker(tmp_path, cid="0123456789ab", cp_source=None, rc_create=0, rc_pull=0):
     """Returns a runner whose docker create/cp/rm calls are scripted and recorded."""
     from bookfinder_host.ports import CommandResult
     from bookfinder_host.testing import ScriptedRunner
@@ -197,6 +197,7 @@ def fake_docker(tmp_path, cid="0123456789ab", cp_source=None, rc_create=0):
 
     runner = ScriptedRunner(
         [
+            (("docker", "pull"), lambda argv: CommandResult(rc_pull, "", "" if rc_pull == 0 else "manifest unknown")),
             (("docker", "create"), create),
             (("docker", "cp"), copy),
             (("docker", "rm"), lambda argv: CommandResult(0, "", "")),
@@ -277,10 +278,41 @@ def test_extract_rejects_oversize_release_api(tmp_path):
         manifest.extract_release_metadata(runner, IMAGE, dest)
 
 
-def test_extract_refuses_unpinned_image_reference(tmp_path):
+@pytest.mark.parametrize(
+    "reference",
+    [
+        "-rm",
+        "ghcr.io/example/book-finder-web:v1.0.0",  # tag, the thing digest pinning exists to avoid
+        "ghcr.io/example/book-finder-web:v1.0.0@sha256:" + "d" * 64,  # tag plus digest is still a tag
+        "ghcr.io/example/book-finder-web@sha256:" + "D" * 64,  # uppercase digest
+    ],
+)
+def test_extract_refuses_references_that_are_not_digest_pinned(tmp_path, reference):
     runner, _ = fake_docker(tmp_path)
     with pytest.raises(ManifestError):
-        manifest.extract_release_metadata(runner, "-rm", tmp_path)
+        manifest.extract_release_metadata(runner, reference, tmp_path)
+    assert runner.calls_argv() == []
+
+
+def test_extract_pulls_explicitly_then_creates_with_pull_never(tmp_path):
+    def copy_files(source, dest):
+        dest.write_text("" if source.endswith("migrations.txt") else "1\n")
+
+    runner, _ = fake_docker(tmp_path, cp_source=copy_files)
+    dest = tmp_path / "out"
+    dest.mkdir()
+    manifest.extract_release_metadata(runner, IMAGE, dest)
+    commands = runner.calls_argv()
+    assert commands[0] == ["docker", "pull", IMAGE]
+    assert commands[1] == ["docker", "create", "--pull=never", IMAGE]
+    assert commands[-1][:2] == ["docker", "rm"]
+
+
+def test_extract_reports_pull_failure_clearly_and_never_creates(tmp_path):
+    runner, _ = fake_docker(tmp_path, rc_pull=1)
+    with pytest.raises(ManifestError, match="docker pull failed"):
+        manifest.extract_release_metadata(runner, IMAGE, tmp_path)
+    assert all(argv[:2] != ["docker", "create"] for argv in runner.calls_argv())
 
 
 def test_extract_reports_docker_create_failure(tmp_path):
