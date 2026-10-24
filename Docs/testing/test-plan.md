@@ -174,7 +174,7 @@ Report：`compat-report.json`（`schema_version: 1`）包含 `classification`、
 | 1 | ISBN 對到 0 本 Book 時建立新 Book | Crawler（DB） | PR3 |
 | 2 | 對到 1 本時附加 Source 並補 NULL：日期與精度成對補；Book 沒有 AUTHOR 才補 AUTHOR；`updated_at` 只在 books 欄位真的補了值時更新 | Crawler（DB） | PR3 |
 | 3 | 對到 2 本以上，或 draft 的兩個 ISBN 各對到不同 Book：建立新 Book，`new_book`、`new_source`、`ambiguous_isbn` 各 +1 | Crawler（DB） | PR3 |
-| 4 | 既有 `ISBN_13` 資料與新 draft 的 `ISBN` 對到同一本 Book | Crawler（DB） | PR3 |
+| 4 | 既有 `ISBN` 資料（011 後唯一的 ISBN 類型）與新 draft 的 `ISBN` 對到同一本 Book | Crawler（DB） | PR3；PR4 M2 改寫為 `ISBN` 版本（`test_existing_isbn_row_and_a_draft_isbn_with_the_same_value_are_the_same_book`） |
 | 5 | 附加之後才發現同榜重複：`existing_book`、`attached_source`、`new_source`、`skipped`、`error` 各 +1 | Crawler（ledger + DB） | PR3 |
 | 6 | Existing Source 同榜重複：`existing_source`、`skipped`、`error`、consecutive 各 +1，不 reset | Crawler（ledger） | PR3 |
 | 7 | 連續 10 個 `ERROR_SKIP`、1 個 `RESTRICTED_SKIP`、再 1 個 `ERROR_SKIP` → `consecutive_error_count = 1` | Crawler（ledger） | PR3 |

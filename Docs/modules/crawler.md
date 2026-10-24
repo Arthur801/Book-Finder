@@ -39,12 +39,12 @@ Crawler 必須能逐步擴充：
 
 ## 2. Current implementation vs target contract
 
-本文件描述 multi-source 的目標 contract（#113）。以下表格標示 crawler 目前的實作狀態（#116 phase A 與 phase B，2026-10-25）。查核基準 `a448b82` 之後，crawler 已實作：每日總榜 TOP 100、分類榜 pages mode、first-book diagnostic mode、curl_cffi / optional Playwright fetcher，以及下表標為「已實作」的規則。尚未完成者只剩下表中標示的 migration 011 與 `book_offers`：
+本文件描述 multi-source 的目標 contract（#113）。以下表格標示 crawler 目前的實作狀態（#116 phase A 與 phase B，2026-10-25）。查核基準 `a448b82` 之後，crawler 已實作：每日總榜 TOP 100、分類榜 pages mode、first-book diagnostic mode、curl_cffi / optional Playwright fetcher，以及下表標為「已實作」的規則。尚未完成者只剩下表中標示的 `book_offers`，以及 migration 011 的 gate 執行證據（data-model §11.3）：
 
 | 規則 | 現行程式 | 由誰完成 |
 |---|---|---|
-| provider code（`source_code`）取代 `SourceType` enum | 已實作：crawler 只讀寫 `source_code`，migration 010 的 trigger 補 `source_type`（#116 phase B） | 已實作 |
-| ISBN 正規化（data-model §7.1）與 distinct Book 比對（§6.3） | 已實作：§7.1 正規化（共用 fixture），寫入型別 `ISBN`，比對三種類型的 distinct Book。PR4（011）後只查 `ISBN` | 已實作；011 待完成 |
+| provider code（`source_code`）取代 `SourceType` enum | 已實作：crawler 只讀寫 `source_code`；migration 010 的 trigger 曾補 `source_type`，011 已移除（#116 phase B，PR4 M1） | 已實作 |
+| ISBN 正規化（data-model §7.1）與 distinct Book 比對（§6.3） | 已實作：§7.1 正規化（共用 fixture），寫入型別 `ISBN`，比對 `ISBN` 類型的 distinct Book（PR4 M2，`f92a63d`：011 後只查 `ISBN`） | 已實作 |
 | 附加 Source 時補 NULL（§6.4） | 已實作：與附加同一 transaction，只補 NULL 欄位，日期成對，AUTHOR 條件式 | 已實作 |
 | `last_seen_at` 看到就更新（§6.1） | 已實作：Existing Source 在獨立 transaction touch，三種模式共用重試與 policy；`replace_bestsellers` 不再更新 | 已實作 |
 | 榜內重複時 Catalog 照常 commit（§14.2） | 已實作（phase A）：`RunLedger` 決定 DUPLICATE_BOOK，Catalog 側先 commit | 已實作 |
@@ -843,7 +843,7 @@ Crawler change 最低驗證：pytest + 存下來的博客來 HTML fixtures + 拋
 
 1. Existing Source 不建立 duplicate Book / Source，不重抓、不覆寫 metadata。
 2. ISBN 對到 0 本 → 新 Book；1 本 → 附加並補 NULL（日期成對、AUTHOR 條件、`updated_at` 只在真的補了值時更新）；≥ 2 本或 draft 的兩個 ISBN 各對到不同 Book → 新 Book，`new_book`、`new_source`、`ambiguous_isbn` 各 +1。
-3. 既有 `ISBN_13` 資料與新 draft 的 `ISBN` 對到同一本 Book。
+3. 既有 `ISBN` 資料（011 後的唯一 ISBN 類型）與新 draft 的 `ISBN` 對到同一本 Book。
 4. 無 ISBN 不以 title/author heuristic merge。
 5. New Source transaction failure 不留下半套資料。
 6. `last_seen_at`：Existing Source 在 abort 或 snapshot 失敗後仍保留更新；New Source 失敗時不寫任何資料；分類榜與 first_book 也會更新。

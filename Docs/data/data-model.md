@@ -923,7 +923,7 @@ External verification references：
 - `IdentifierType` 只有 `Isbn10`／`Isbn13`／`Other`；ISBN 以 partial unique 跨 Book 唯一；crawler 寫入前驗證格式與 checksum（`crawler/books_crawler/normalize.py`），不合格的值被丟棄。
 - crawler 依 ISBN-13 → ISBN-10 逐一比對；ISBN 命中時只附加 Source、不補 NULL；榜內重複的新 Source 不寫入；`last_seen_at` 只在 Bestseller 替換 transaction 中更新。
 
-crawler 的實作狀態（#116 phase A／B，2026-10-25）：crawler 只讀寫 `source_code`（trigger 補 `source_type`）；ISBN 依 §7.1 正規化、寫入型別 `ISBN`、不驗證 checksum；比對依 §7.2 的 distinct Book（三種類型）；附加時依 §7.4 補 NULL；Source identity 依 §7.3 矩陣；`last_seen_at` 在獨立 transaction touch；disabled provider 以 exit 2 拒絕執行。上方第一、第三點描述的是 #113 之前的程式，已由 crawler 實作取代；PR4 M1（`5052361`）已完成 migration 011 與 `IdentifierType.Isbn10`／`Isbn13` 的移除；仍待：§11.3 gate 的實際執行證據、部署授權，以及 `deploy/migration-test/seeds/20261025120000_ContractMultiSourceCatalog.sql`（`deploy/` 不在 M1 範圍）。
+crawler 的實作狀態（#116 phase A／B，2026-10-25）：crawler 只讀寫 `source_code`（011 後無 `source_type`）；ISBN 依 §7.1 正規化、寫入型別 `ISBN`、不驗證 checksum；比對依 §7.2 的 distinct Book（PR4 M2 起只查 `ISBN`）；附加時依 §7.4 補 NULL；Source identity 依 §7.3 矩陣；`last_seen_at` 在獨立 transaction touch；disabled provider 以 exit 2 拒絕執行。上方第一、第三點描述的是 #113 之前的程式，已由 crawler 實作取代；PR4 M1（`5052361`）已完成 migration 011 與 `IdentifierType.Isbn10`／`Isbn13` 的移除，M2（`f92a63d`）已讓 crawler 只查 `ISBN`；仍待：§11.3 gate 的實際執行證據、部署授權，以及 `deploy/migration-test/seeds/20261025120000_ContractMultiSourceCatalog.sql`（`deploy/` 不在 M1 範圍）。
 
 收斂順序（每個 PR 合併後下一個才從最新 main 建立）：
 
