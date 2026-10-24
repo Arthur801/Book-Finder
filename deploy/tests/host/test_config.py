@@ -166,3 +166,108 @@ def test_root_ownership_check_refuses_a_file_the_operator_owns(tmp_path):
     cli.write_text("#!/bin/sh\n", encoding="utf-8")
     with pytest.raises(cfg.ConfigError):
         config.check_root_owned(str(cli))
+
+
+CA_PATH = "/etc/book-finder/global-bundle.pem"
+
+
+def test_db_ca_bundle_is_unset_by_default_and_taken_when_absolute():
+    assert cfg.parse_settings(VALID).db_ca_bundle is None
+    assert cfg.parse_settings(VALID + f"DB_CA_BUNDLE={CA_PATH}\n").db_ca_bundle == CA_PATH
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "relative/bundle.pem",  # must be absolute
+        "/etc/book-finder/a,readonly.pem",  # a comma would split the --mount option list
+        "/etc/book-finder/a=b.pem",
+        "/etc/book finder/x.pem",
+        "/etc/book-finder/$(id).pem",
+        "/etc/book-finder/x.pem;reboot",
+    ],
+)
+def test_db_ca_bundle_path_must_be_absolute_and_plain(value):
+    with pytest.raises(cfg.ConfigError, match="DB_CA_BUNDLE"):
+        cfg.parse_settings(VALID + f"DB_CA_BUNDLE={value}\n")
+
+
+def test_db_ca_bundle_duplicate_key_is_refused():
+    with pytest.raises(cfg.ConfigError, match="duplicate"):
+        cfg.parse_settings(VALID + f"DB_CA_BUNDLE={CA_PATH}\nDB_CA_BUNDLE={CA_PATH}\n")
+
+
+def _bundle(tmp_path, *, mode=0o644, size=1024, name="global-bundle.pem"):
+    path = tmp_path / name
+    path.write_bytes(b"x" * size)
+    path.chmod(mode)
+    return path
+
+
+def test_check_ca_bundle_accepts_a_public_regular_file_up_to_one_mebibyte(tmp_path):
+    cfg.check_ca_bundle(str(_bundle(tmp_path)))
+    cfg.check_ca_bundle(str(_bundle(tmp_path, size=1 << 20, name="exact.pem")))
+
+
+def test_check_ca_bundle_refuses_a_missing_file(tmp_path):
+    with pytest.raises(cfg.ConfigError, match="does not exist"):
+        cfg.check_ca_bundle(str(tmp_path / "absent.pem"))
+
+
+def test_check_ca_bundle_refuses_a_symlink_without_following_it(tmp_path):
+    target = _bundle(tmp_path)
+    link = tmp_path / "link.pem"
+    link.symlink_to(target)
+    with pytest.raises(cfg.ConfigError, match="symbolic link"):
+        cfg.check_ca_bundle(str(link))
+
+
+def test_check_ca_bundle_refuses_a_directory(tmp_path):
+    with pytest.raises(cfg.ConfigError, match="regular file"):
+        cfg.check_ca_bundle(str(tmp_path))
+
+
+@pytest.mark.parametrize("mode", [0o600, 0o640, 0o620])
+def test_check_ca_bundle_refuses_a_file_that_others_cannot_read(tmp_path, mode):
+    with pytest.raises(cfg.ConfigError, match="readable by others"):
+        cfg.check_ca_bundle(str(_bundle(tmp_path, mode=mode)))
+
+
+def test_check_ca_bundle_refuses_a_file_over_one_mebibyte(tmp_path):
+    with pytest.raises(cfg.ConfigError, match="larger than"):
+        cfg.check_ca_bundle(str(_bundle(tmp_path, size=(1 << 20) + 1)))
+
+
+def test_load_settings_checks_the_configured_bundle_and_nothing_when_unset(tmp_path):
+    bad = write(tmp_path, VALID + f"DB_CA_BUNDLE={tmp_path / 'missing.pem'}\n")
+    with pytest.raises(cfg.ConfigError, match="does not exist"):
+        cfg.load_settings(bad)
+    good_bundle = _bundle(tmp_path)
+    assert cfg.load_settings(write(tmp_path, VALID + f"DB_CA_BUNDLE={good_bundle}\n")).db_ca_bundle == str(good_bundle)
+    assert cfg.load_settings(write(tmp_path, VALID)).db_ca_bundle is None
+
+
+def test_ca_bundle_mount_argument_is_read_only_at_the_same_path():
+    assert cfg.ca_bundle_mount_args(None) == []
+    assert cfg.ca_bundle_mount_args(CA_PATH) == ["--mount", f"type=bind,src={CA_PATH},dst={CA_PATH},readonly"]
+
+
+def test_make_psql_query_mounts_the_bundle_only_when_configured(tmp_path):
+    url = "postgres://user:secret@db.internal/book_finder"
+
+    def psql_argv(extra: str) -> list[str]:
+        runner = ScriptedRunner(
+            [
+                (("/usr/local/bin/aws",), lambda argv: ok(url + "\n")),
+                (("docker", "run"), lambda argv: ok("")),
+            ]
+        )
+        cfg.make_psql_query(runner, cfg.load_settings(write(tmp_path, VALID + extra)))("SELECT 1;")
+        return next(call for call in runner.calls if call[0][:2] == ["docker", "run"])[0]
+
+    unset = psql_argv("")
+    assert "--mount" not in unset
+    bundle = _bundle(tmp_path)
+    configured = psql_argv(f"DB_CA_BUNDLE={bundle}\n")
+    assert configured[configured.index("--mount") + 1] == f"type=bind,src={bundle},dst={bundle},readonly"
+    assert configured[: configured.index("--mount")] == unset[: configured.index("--mount")]

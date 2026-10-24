@@ -116,3 +116,17 @@ def test_compose_sha_of_an_installed_release_refuses_a_symlinked_directory(tmp_p
 def test_compose_sha_of_an_installed_release_matches_validation(tmp_path):
     root = valid(tmp_path)
     assert rc.compose_sha256_of(root) == rc.validate_tree(root).compose_sha256
+
+
+def test_ca_bundle_override_is_accepted_and_reported(tmp_path):
+    root = valid(tmp_path)
+    assert rc.validate_tree(root).ca_bundle_override is False
+    (root / "compose.ca-bundle.yaml").write_text("services: {}\n")
+    assert rc.validate_tree(root).ca_bundle_override is True
+
+
+def test_ca_bundle_override_as_a_symlink_is_refused(tmp_path):
+    root = valid(tmp_path)
+    (root / "compose.ca-bundle.yaml").symlink_to(root / "compose.prod.yaml")
+    with pytest.raises(rc.ReleaseRejected):
+        rc.validate_tree(root)

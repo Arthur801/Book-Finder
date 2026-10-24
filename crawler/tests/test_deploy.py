@@ -246,3 +246,101 @@ def test_crawler_enabled_rejects_invalid_values(host, value):
     assert not (root / "calls").exists()
     assert not (root / "aws-calls").exists()
     assert not (root / "state").exists()
+
+
+ARGV_STUB = """
+aws() { printf 'postgresql://test:secret@example.invalid/db\\n'; }
+chown() { :; }
+docker() {
+    printf 'start\\n' >> "$CALLS"
+    printf '%s\\n' "$@" > "$DOCKER_ARGV"
+    return 0
+}
+"""
+
+
+def run_with_ca_config(tmp_path, extra_config):
+    """Runs the wrapper with a config that names DB_CA_BUNDLE and records the docker argv it would use."""
+    root = tmp_path
+    (root / "crawler.conf").write_text("CRAWLER_IMAGE=crawler:test\nAWS_REGION=test-region\nDATABASE_URL_PARAMETER=/test/db\n" + extra_config)
+    stubs = root / "argv-stubs.sh"
+    stubs.write_text(ARGV_STUB)
+    env = {
+        **os.environ,
+        "BASH_ENV": str(stubs),
+        "CRAWLER_CONFIG_FILE": str(root / "crawler.conf"),
+        "CRAWLER_STATE_DIR": str(root / "state"),
+        "CRAWLER_RUNTIME_DIR": str(root / "runtime"),
+        "CALLS": str(root / "calls"),
+        "DOCKER_ARGV": str(root / "docker-argv"),
+        "DB_MAINTENANCE_LOCK": str(root / "db-maintenance.lock"),
+        "BOOKFINDER_STATE_FILE": str(root / "state.json"),
+        "DB_MAINTENANCE_WAIT_S": "1",
+    }
+    env.pop("CRAWLER_ENABLED", None)
+    return execute(env, "daily")
+
+
+def docker_argv(root):
+    return (root / "docker-argv").read_text().splitlines()
+
+
+def public_bundle(root, name="global-bundle.pem", mode=0o644):
+    path = root / name
+    path.write_text("-----BEGIN CERTIFICATE-----\nx\n-----END CERTIFICATE-----\n", encoding="utf-8")
+    path.chmod(mode)
+    return path
+
+
+def test_unset_ca_bundle_adds_no_mount(tmp_path):
+    result = run_with_ca_config(tmp_path, "")
+    assert result.returncode == 0, result.stderr
+    # Only the existing artifacts bind is mounted; no read-only CA mount is added.
+    assert docker_argv(tmp_path).count("--mount") == 1
+    assert "readonly" not in docker_argv(tmp_path)
+
+
+def test_configured_ca_bundle_is_mounted_read_only_at_the_same_path(tmp_path):
+    bundle = public_bundle(tmp_path)
+    result = run_with_ca_config(tmp_path, f"DB_CA_BUNDLE={bundle}\n")
+    assert result.returncode == 0, result.stderr
+    argv = docker_argv(tmp_path)
+    mount = f"type=bind,src={bundle},dst={bundle},readonly"
+    assert argv[argv.index(mount) - 1] == "--mount"
+    assert argv.index(mount) < argv.index("crawler:test")
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "relative/bundle.pem",
+        "/absent/bundle.pem",
+        "/abs/a,readonly.pem",
+        "",
+    ],
+    ids=["relative", "missing", "comma", "empty"],
+)
+def test_invalid_ca_bundle_exits_2_before_any_change(tmp_path, value):
+    result = run_with_ca_config(tmp_path, f"DB_CA_BUNDLE={value}\n")
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "DB_CA_BUNDLE" in result.stderr
+    assert not (tmp_path / "calls").exists()
+    assert not (tmp_path / "state").exists()
+
+
+def test_ca_bundle_that_is_a_symlink_exits_2_without_following_it(tmp_path):
+    target = public_bundle(tmp_path, "target.pem")
+    link = tmp_path / "link.pem"
+    link.symlink_to(target)
+    result = run_with_ca_config(tmp_path, f"DB_CA_BUNDLE={link}\n")
+    assert result.returncode == 2
+    assert "symbolic link" in result.stderr
+    assert not (tmp_path / "calls").exists()
+
+
+def test_ca_bundle_that_others_cannot_read_exits_2(tmp_path):
+    bundle = public_bundle(tmp_path, mode=0o600)
+    result = run_with_ca_config(tmp_path, f"DB_CA_BUNDLE={bundle}\n")
+    assert result.returncode == 2
+    assert "readable by others" in result.stderr
+    assert not (tmp_path / "calls").exists()

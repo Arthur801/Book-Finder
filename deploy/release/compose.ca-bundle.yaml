@@ -1,0 +1,13 @@
+# Optional override for the web container, shipped in the web image at /opt/release/ next to compose.prod.yaml.
+# The host adds it with a second -f only when host.conf sets DB_CA_BUNDLE, and passes DB_CA_BUNDLE in the compose
+# environment. The bundle is public CA material (mode 0644), mounted read-only at the same path so the connection
+# string's Root Certificate= value needs no change between the systemd web unit and the container.
+# Why a separate file: a release built before DB_CA_BUNDLE existed has no such mount, and the host refuses to run
+# such a release on a host that is configured with the bundle (machine.py, step 2 and rollback).
+services:
+  web:
+    volumes:
+      - type: bind
+        source: ${DB_CA_BUNDLE:?DB_CA_BUNDLE must be set when compose.ca-bundle.yaml is used}
+        target: ${DB_CA_BUNDLE:?DB_CA_BUNDLE must be set when compose.ca-bundle.yaml is used}
+        read_only: true

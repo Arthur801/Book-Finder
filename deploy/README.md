@@ -142,10 +142,10 @@ CD 的 `build` job 對每個 image（web、crawler）依序執行。`<TAG>` 是 
 
 | host.conf 鍵 | 用途 | 值的格式 | 限制（程式檢查） |
 |---|---|---|---|
-| `SSM_DB_CONNECTION` | web 與 efbundle 的 `ConnectionStrings__DefaultConnection` | .NET 連線字串：`Host=<host>;Port=5432;Database=<db>;Username=<user>;Password=<password>` | 非空、單行、無控制字元。程式不記錄值 |
+| `SSM_DB_CONNECTION` | web 與 efbundle 的 `ConnectionStrings__DefaultConnection` | .NET 連線字串：`Host=<host>;Port=5432;Database=<db>;Username=<user>;Password=<password>`。採用 `DB_CA_BUNDLE`（§2.4）時，必須與 systemd web 的 `/etc/book-finder/web.env` 使用同一個 verify-full 字串：`Host=<host>;Port=5432;Database=<db>;Username=<user>;Password=<password>;SSL Mode=VerifyFull;Root Certificate=<DB_CA_BUNDLE>` | 非空、單行、無控制字元。程式不記錄值。不得為了連線而改成 `Require`（不驗證憑證） |
 | `SSM_OPENAI_KEY` | web 的 `OPENAIAPI_KEY` | OpenAI API key 原文 | 非空、單行 |
 | `SSM_JWT_KEY` | web 的 `Jwt__SigningKey` | 隨機字串，**至少 32 bytes**（web 啟動時驗證，`JwtOptions.MinimumSigningKeyBytes = 32`） | 非空、單行；長度由 web 檢查 |
-| `DATABASE_URL_PARAMETER` | host 的 psql 讀取 `__EFMigrationsHistory`（唯讀查詢） | `postgresql://<user>:<URL 編碼的密碼>@<RDS 端點>:5432/<db>?sslmode=require` | 必須以 `postgres://` 或 `postgresql://` 開頭，且不含空白 |
+| `DATABASE_URL_PARAMETER` | host 的 psql 讀取 `__EFMigrationsHistory`（唯讀查詢） | `postgresql://<user>:<URL 編碼的密碼>@<RDS 端點>:5432/<db>?sslmode=require`；設定 `DB_CA_BUNDLE` 後為 `postgresql://<user>:<URL 編碼的密碼>@<RDS 端點>:5432/<db>?sslmode=verify-full&sslrootcert=<DB_CA_BUNDLE>` | 必須以 `postgres://` 或 `postgresql://` 開頭，且不含空白 |
 | 爬蟲的 DB URL 參數（`crawler.conf` 的 `DATABASE_URL_PARAMETER`） | 爬蟲容器的 `DATABASE_URL` | 同上（psycopg 格式，不是 .NET 格式） | 見 `crawler/deploy/README.md` §3 |
 
 - 類型建議 `SecureString`（程式以 `--with-decryption` 讀取）。
@@ -180,6 +180,7 @@ CD 的 `build` job 對每個 image（web、crawler）依序執行。`<TAG>` 是 
 
 | 鍵 | 預設 | 說明 |
 |---|---|---|
+| `DB_CA_BUNDLE` | 未設定（不掛載任何 CA 檔，行為與之前完全相同） | RDS 的 CA bundle 絕對路徑，例如 `/etc/book-finder/global-bundle.pem`。字元只允許 `A-Za-z0-9._/-`。設定後，程式（在任何變更之前，不合法即 exit 2）檢查：必須是一般檔案、不能是 symlink、others 可讀（0644）、不超過 1 MiB。通過後以唯讀方式掛到 efbundle、psql 查詢與 web 容器的**同一路徑**。web 容器需要 release 內附的 `compose.ca-bundle.yaml`，沒有它的 release 會在變更前被拒絕；回滾到沒有它的舊 release 會 failed-down 並說明原因，不自動回滾。 |
 | `COMPOSE_PROJECT` | `book-finder` | compose project 名稱；runtime 以此 label 找 web container |
 | `LOCK_TIMEOUT_S` | `10` | 取得 deploy lock 的最長等待（秒，必須為有限正數） |
 | `FOLLOW_TIMEOUT_S` | `6000` | 不帶 `--detach` 的 `deploy` 跟隨 status 的上限（秒）。超過後回傳 `running`（exit 3）。CD 使用 `--detach`，不受此值限制；CD 的跟隨上限是 `cd_release.py` 的 `FOLLOW_TIMEOUT_S`（160 分鐘） |
@@ -214,13 +215,24 @@ CRAWLER_IMAGE_REPOSITORY=ghcr.io/arthur801/book-finder-crawler
 
 ### 2.5 目錄
 
-程式不會建立 lock 檔所在的目錄，請先建立（權限為建議值，程式不檢查）：
+程式不會建立 lock 檔所在的目錄，請先建立。**只建立不存在的目錄，絕不對已存在的目錄重新執行 `install -d -m`**：`install -d` 會把既有目錄的權限改成指定值。2026-10-24 production 因此出現 500：`install -d -m 0750 /etc/book-finder` 把早就存在的目錄從 0755 改成 0750，web 的服務使用者無法再讀取其中的 CA bundle。
 
 ```bash
-sudo install -d -m 0755 /opt/book-finder
-sudo install -d -m 0750 /var/lib/book-finder /var/log/book-finder
-sudo install -d -m 0750 /etc/book-finder
+[ -d /opt/book-finder ] || sudo install -d -m 0755 /opt/book-finder
+[ -d /var/lib/book-finder ] || sudo install -d -m 0750 /var/lib/book-finder
+[ -d /var/log/book-finder ] || sudo install -d -m 0750 /var/log/book-finder
+[ -d /etc/book-finder ] || sudo install -d -m 0755 /etc/book-finder
 ```
+
+權限要求：
+
+| 路徑 | 權限 | 原因 |
+|---|---|---|
+| `/etc/book-finder` | `0755` | web 的服務使用者要能穿越此目錄讀取 CA bundle（`DB_CA_BUNDLE`） |
+| `/etc/book-finder/global-bundle.pem`（CA bundle） | `0644` | 公開憑證，容器內的非 root 使用者（uid 1654）必須能讀；設定 `DB_CA_BUNDLE` 時檢查 |
+| `host.conf`、`crawler.conf`、`web.env` | `0600` | 含設定或機密，只給 root |
+
+檢查：`stat -c '%a %U:%G %n' /etc/book-finder /etc/book-finder/global-bundle.pem` 應分別為 `755` 與 `644`。若目錄或檔案權限不符，請用 `sudo chmod` 修正並記錄原因，不要重新執行 `install -d`。
 
 `/opt/book-finder/releases`、`/run/book-finder` 由程式建立（`makedirs`）。`/var/lib/book-finder/crawler` 由 `run-crawler.sh` 建立。
 
@@ -705,3 +717,4 @@ Journal 是**輔助資訊**，不是結果的來源。結果以 history 為準�
 | 17 | **第一個正式 release 在 GHCR 上的 end-to-end 確認**（§1.6） | **第一次正式 release 前必要**。Docker 的 `imagetools create` 行為本身已不是未知：本機 registry 的 round trip 由 CI 的 `imagetools-roundtrip.sh` 驗證（見 §1.6） | 第一次 release 的 `Confirm the web release tag` 與 `Confirm the crawler release tag` 步驟必須通過（GHCR 上 release tag 解析到 attest 的 digest）。若失敗，release tag 指向未 attest 的 digest：先依 §1.6 在 GHCR 刪除該版本，確認後才 rerun（L4 等級） |
 | 18 | Build 留下的 staging tag（`build-<run_id>-<run_attempt>`）的 GHCR 清理 | 待確認（GHCR 網頁的確切路徑） | 依 §1.6：只刪除版本上所有 tag 都是 `build-*` 的版本；有 `v*` tag 的版本不得刪除 |
 | 19 | **EC2 被博客來擋下，crawler 停用**（2026-10-24 手動試跑失敗） | 已知限制。在修正之前，crawler 以 `CRAWLER_ENABLED=false` 停用（`crawler/deploy/README.md` §5.1）；需發布支援此開關的 release 後才會生效。恢復前須確認 EC2 可取得頁面，或採用替代資料管道（`Docs/deployment/deployment.md` §8） | 在 EC2 手動執行 `run-crawler.sh daily` 取得成功結果後，將 `CRAWLER_ENABLED` 改為 `true` 並觀察一次排程 |
+| 20 | **2026-10-24 production 500（`/etc/book-finder` 權限被改動）** | 已修正文件（§2.5 只建立不存在的目錄，並說明 0755 與 0644 的原因）；`DB_CA_BUNDLE`（§2.4）讓 web、efbundle、psql 與 crawler 容器以唯讀方式掛載同一個 CA 路徑，verify-full 不需放寬為 `Require`（#103）。尚未在 EC2 上啟用 `DB_CA_BUNDLE`，待上線時確認 | 設定 `DB_CA_BUNDLE` 後，`stat` 檢查 §2.5 的權限，並以 `docker compose … config` 確認 web 有唯讀掛載（見 `deploy/tests/test_release_files.py`） |
