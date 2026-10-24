@@ -58,7 +58,7 @@ flowchart TD
  J -->|否且已知 URL| K[成功並歸零]
  J -->|否且新來源| L[每書 transaction 新 Book 或附加 source]
  L -->|commit| K
- L -->|DB 失敗且可重試| M[等待 保留 draft 只重試 ISBN 與寫入]
+ L -->|DB 失敗且可重試| M[等待 保留 draft；連線已斷則重連；寫入前重新解析 Source 身分；已存在則回報 EXISTING]
  M --> I
  L -->|三次耗盡| H
 ```

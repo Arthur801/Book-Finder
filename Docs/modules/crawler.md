@@ -230,7 +230,9 @@ optionally refresh offer
 | 分類榜 | 這一筆失敗，其他 item 與分類頁照常處理；最後 PARTIAL_SUCCESS 或 FAILED 依 §15.6、§15.7 |
 | first_book | FAILED，exit 1（上限 0，§16） |
 
-查詢既有 Source 本身（touch 之前的 SELECT）的資料庫錯誤維持現行行為：不在 §13 重試範圍內，例外逸出使 run FAILED（§15.6）。
+查詢既有 Source 本身（touch 之前的 SELECT）的資料庫錯誤維持現行行為：不在 §13 重試範圍內，例外逸出使 run FAILED（§15.6）。連線在這個 SELECT 中斷時也一樣：不做重連，run FAILED；重連規則只適用於 §13.1 的重試（touch、ISBN 查詢與寫入、寫入後的重新解析）。這是刻意的取捨：讀取失敗不會產生寫入，直接失敗比在這裡重連更簡單，而且保留既有的 run 失敗語意。
+
+**Touch 的重連**：touch 的每次嘗試使用同一個 session，連線斷開時於下一次嘗試重連（同 §13.1）；最後仍失敗時依 §6.1 的模式 policy 處理。
 
 ### 6.2 Source identity 衝突與 URL 漂移
 
@@ -529,6 +531,11 @@ Optional field 無法可靠解析時保存 `NULL` / 不建立 related row；不�
 ```
 
 - 「只重試寫入」的理由：詳細頁已成功取得且解析完成，資料庫暫時失敗時重抓只會增加對博客來的請求量，對結果沒有幫助。
+- **連線中斷（重連規則，#119）**：run 持有的資料庫連線若已被伺服器關閉或網路中斷（psycopg 的 `closed` 或 `broken` 為真；不以例外類別判斷），下一次嘗試前先丟棄舊連線（關閉時忽略錯誤）並透過注入的 connect 建立新連線，再於同一個 3 次預算內、同樣的 backoff 下重試；沿用已解析的 draft，不重新 request 詳細頁。之後 run 的所有資料庫操作（剩餘排名、榜單替換）都使用新連線。連線由 run 持有的 session 物件管理，不是模組層級狀態。
+- **寫入重試前先重新解析身分**：若上一次寫入失敗發生在 Source 寫入的交易（persist）之後，該交易可能已在伺服器端 commit，而 client 沒有收到結果。因此下一次嘗試寫入前，先依 §7.3 重新解析該 URL 的 Source：
+  - 若 Source 已存在（前一次嘗試已 commit）：不再插入。以該 Source 的 `book_id` 作為結果，`CatalogResolution` 報告為 `EXISTING`（原本的 `IMPORTED`／`ISBN_ATTACHED`／`AMBIGUOUS_CREATED` 未保存，無法還原）。§7.4 的補 NULL 與原交易同一個 transaction，不重複執行。touch 是冪等的，依一般規則處理。
+  - 若 Source 不存在：照常寫入。
+  - 重新解析本身失敗（連線錯誤）計為該次嘗試的 `database_error`，預算照常計算。
 - `source_identity_conflict` 是確定性的，不重試。
 - 失敗的新來源不建立任何資料列，也沒有失敗佇列。隔天若仍在榜上，它依然是新來源，會自然再嘗試一次。
 - 排行榜頁使用同一個 retry 迴圈，但它的失敗永遠不是「跳過」，見 §14.1（分類頁例外，見 §15.4）。

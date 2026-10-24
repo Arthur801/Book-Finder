@@ -192,3 +192,10 @@ Phase B（#116）覆蓋：
 - **When**：對每組 c1 執行分段 NFKC；對 U+1CCF0 與混合字串執行 `normalize_isbn_value`；以 `ensure_runtime_unicode_supported` 模擬舊 runtime。
 - **Then**：每組結果與 c4 逐字相同；未指派 code point 原樣保留並分段；舊 runtime 啟動時 exit 2。
 - **來源與狀態**：[test_unicode_nfkc_conformance.py](../tests/test_unicode_nfkc_conformance.py)、[test_isbn_fixture.py](../tests/test_isbn_fixture.py)、[test_cli.py](../tests/test_cli.py)；CI `unicode_tables.py --check` 檢查產生檔沒有漂移。
+
+### 連線中斷與重連（crawler.md §13.1、§6.1，#119）
+
+- **Given**：DB integration 的 PostgreSQL；fetcher 與 parser 是 fake，不連線博客來。會話斷線以 `pg_terminate_backend(<crawler backend pid>)` 從另一個 admin 連線執行，在操作前的 hook 中觸發。
+- **When**：touch 前斷線；寫入前斷線；commit 成功後 client 沒有看到結果（commit-then-drop）；三次嘗試都遇到斷線；另有 first_book 的三次斷線，以及讀取既有 Source 時斷線。
+- **Then**：touch 重連後成功、`last_seen_at` 前進、第 2 次嘗試成功；寫入重連後 Source 只插入一次；commit-then-drop 不重複插入，回報 EXISTING，只有一筆 source；三次斷線後該列為 FAILED `database_error`（attempts 3），daily 為 ERROR_SKIP、first_book 為 FAILED exit 1；讀取既有 Source 斷線則 run FAILED。另有 `DatabaseSession` 的單元測試（替換 closed／broken 連線、關閉錯誤被忽略、重連失敗可再試）。
+- **來源與狀態**：[test_reconnect_integration.py](../tests/test_reconnect_integration.py)、[test_session.py](../tests/test_session.py)、[test_first_book.py](../tests/test_first_book.py)（重試不重抓 detail，lookup 在寫入重試前重新解析）。
