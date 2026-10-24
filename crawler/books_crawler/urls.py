@@ -8,7 +8,7 @@ identity and is dropped. The 100 ranking URLs of the saved chart are unique afte
 Accepted inputs: absolute ``http``/``https`` URLs on ``books.com.tw`` or ``www.books.com.tw``,
 protocol-relative and root-relative paths. Anything else is not a product URL and is rejected.
 
-``is_category_ranking_url`` is the separate check for pages mode (crawler.md §16): an ``https`` URL on
+``is_category_ranking_url`` is the separate check for pages mode (crawler.md §15): an ``https`` URL on
 ``www.books.com.tw`` with a two-digit category path and ``attribute=7`` (the 7-day list). It never
 raises; a string that cannot be parsed at all is simply not a category ranking URL.
 
@@ -32,7 +32,7 @@ class InvalidProductUrl(ValueError):
 
 
 def is_category_ranking_url(raw: str) -> bool:
-    """True for a books.com.tw category 7-day ranking page URL (pages mode, crawler.md §16)."""
+    """True for a books.com.tw category 7-day ranking page URL (pages mode, crawler.md §15)."""
     try:
         parts = urlsplit(raw.strip())
     except ValueError:  # e.g. an unbalanced IPv6 bracket: not a URL at all

@@ -141,7 +141,7 @@ CASES = {
         "published": (date(2026, 9, 17), "DAY"),
         "language": "zh-TW",
         "page_count": 320,
-        "identifiers": (Identifier("ISBN_13", "9789570881592"),),
+        "identifiers": (Identifier("ISBN", "9789570881592"),),
         "contributors": (Contributor(1, "李翔宙", "AUTHOR"),),
         "subjects": ("人文社科", "政治", "政治人物"),
         "toc_startswith": "序 五十年軍政生涯的省思",
@@ -154,7 +154,7 @@ CASES = {
         "published": (date(2020, 3, 31), "DAY"),
         "language": "zh-TW",
         "page_count": 368,
-        "identifiers": (Identifier("ISBN_13", "9789869866262"),),
+        "identifiers": (Identifier("ISBN", "9789869866262"),),
         # The page's TOC text mentions 譯者, but there is no translator row: only the author is a contributor.
         "contributors": (Contributor(1, "楊双子", "AUTHOR"),),
         "subjects": ("文學小說", "華文創作", "小說"),
@@ -169,7 +169,7 @@ CASES = {
         "published": (date(2026, 10, 2), "DAY"),
         "language": "zh-TW",
         "page_count": 148,
-        "identifiers": (Identifier("ISBN_13", "9786260284909"),),
+        "identifiers": (Identifier("ISBN", "9786260284909"),),
         "contributors": (Contributor(1, "あおのなち", "AUTHOR"), Contributor(2, "蔡夢芳", "TRANSLATOR")),
         "subjects": ("漫畫/圖文書", "GL"),
         "toc_startswith": None,  # no 目錄 section on this page
@@ -182,7 +182,7 @@ CASES = {
         "published": (date(2026, 7, 27), "DAY"),
         "language": "zh-TW",
         "page_count": 352,
-        "identifiers": (Identifier("ISBN_13", "9786267859506"),),
+        "identifiers": (Identifier("ISBN", "9786267859506"),),
         "contributors": (Contributor(1, "摩根．豪瑟", "AUTHOR"), Contributor(2, "洪世民", "TRANSLATOR")),
         "subjects": ("商業理財", "投資理財", "投資學"),
         "toc_startswith": "【推薦序】了解錢的作用，賺錢才有意義／綠角",
@@ -196,7 +196,7 @@ CASES = {
         "published": (date(2026, 10, 7), "DAY"),
         "language": "zh-TW",
         "page_count": 170,
-        "identifiers": (Identifier("ISBN_13", "9786260279233"),),
+        "identifiers": (Identifier("ISBN", "9786260279233"),),
         "contributors": (Contributor(1, "大島かもめ", "AUTHOR"), Contributor(2, "加奈", "TRANSLATOR")),
         "subjects": ("漫畫/圖文書", "BL"),
         "toc_startswith": None,  # no 目錄 section on this page
@@ -239,7 +239,7 @@ def test_detail_parser_accepts_tracking_url_and_canonicalizes_it():
 
 
 # ---------------------------------------------------------------------------
-# Restricted books (crawler.md §6): the logged-out member gate vs. the logged-in page
+# Restricted books (crawler.md §13.2): the logged-out member gate vs. the logged-in page
 # ---------------------------------------------------------------------------
 
 
@@ -303,12 +303,13 @@ def test_missing_isbn_row_means_no_identifier():
     assert draft.identifiers == ()
 
 
-def test_invalid_isbn_checksum_is_not_stored():
-    html = _base_html().replace("9789570881592", "9789570881593")  # wrong check digit
+def test_isbn_with_a_wrong_check_digit_is_stored_as_isbn_without_validation():
+    # data-model §7.1: no checksum validation on write; the normalized value is kept as the ISBN type.
+    html = _base_html().replace("9789570881592", "9789570881593")
 
     draft = parse_detail_html(html, product_url(int(BASE_ID)))
 
-    assert draft.identifiers == ()
+    assert draft.identifiers == (Identifier("ISBN", "9789570881593"),)
 
 
 def test_missing_toc_section_is_null():

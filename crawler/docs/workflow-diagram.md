@@ -25,19 +25,19 @@ flowchart TD
  B -->|是| C[建立 fetcher 總榜 fetch 最多三次]
  C --> D{parse 並驗證唯一 URL 與 rank 1 到 100}
  D -->|失敗| F[FAILED 舊榜保留]
- D -->|成功| E[依 rank resolve 並記錄 RunLedger]
+ D -->|成功| E[依 rank resolve；Catalog 先 commit，RunLedger 決定 RankingDecision]
  E --> G{連續一般錯誤超過 20}
  G -->|是| F
  G -->|否且還有列| E
  G -->|否且完成| H[交易內檢查 source ownership]
- H --> I[DELETE 舊榜 INSERT snapshot UPDATE last_seen_at]
+ H --> I[DELETE 舊榜 INSERT snapshot]
  I -->|rollback| F
  I -->|commit| J[SUCCESS 或 PARTIAL_SUCCESS exit 0]
  F --> K[CLI finally 關閉 fetcher]
  J --> K
 ```
 
-來源：[run](../books_crawler/run.py)、[ranking](../books_crawler/ranking.py)、[ledger](../books_crawler/ledger.py)、[db](../books_crawler/db.py)，規格 §11～14、§16。總榜 fetch 失敗才重試；parse／完整性錯誤不重試且在開 DB 前失敗。輸入須 100 列，輸出可缺號甚至空 snapshot；空榜仍替換是已定規則。first-book 仍驗證 100 列，只 resolve rank 1，不替換榜單；一般失敗 FAILED，限制級 PARTIAL_SUCCESS。
+來源：[run](../books_crawler/run.py)、[ranking](../books_crawler/ranking.py)、[ledger](../books_crawler/ledger.py)、[db](../books_crawler/db.py)，規格 §5～§6、§13～§14、§16。總榜 fetch 失敗才重試；parse／完整性錯誤不重試且在開 DB 前失敗。輸入須 100 列，輸出可缺號甚至空 snapshot；空榜仍替換是已定規則。first-book 仍驗證 100 列，只 resolve rank 1，不替換榜單；一般失敗 FAILED，限制級 PARTIAL_SUCCESS。榜內重複（DUPLICATE_BOOK）在 Catalog 寫入之後由 RunLedger 決定，記為跳過與一般錯誤，不重試。
 
 ## 共用單列管線
 
@@ -51,14 +51,14 @@ flowchart TD
  F -->|是| G[等待 1 秒或 2 秒後重新 fetch]
  G --> D
  F -->|否| H[skip 計一次一般錯誤]
- D -->|draft| I[ISBN13 再 ISBN10 查詢]
+ D -->|draft| I[ISBN 正規化後 distinct Book 查詢]
  C --> J{daily 已使用此 Book}
  I --> J
  J -->|是| H
  J -->|否且已知 URL| K[成功並歸零]
  J -->|否且新來源| L[每書 transaction 新 Book 或附加 source]
  L -->|commit| K
- L -->|DB 失敗且可重試| M[等待 保留 draft 只重試 ISBN 與寫入]
+ L -->|DB 失敗且可重試| M[等待 保留 draft；連線已斷則重連；寫入前重新解析 Source 身分；已存在則回報 EXISTING]
  M --> I
  L -->|三次耗盡| H
 ```

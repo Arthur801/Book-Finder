@@ -917,11 +917,13 @@ External verification references：
 
 ## 14. Implementation compatibility note
 
-本文件描述 multi-source 的目標 contract（#113）。查核基準 `a448b82` 時的程式仍是：
+以下三點是 #113 之前的程式基準（`a448b82`），**已由 #116 取代，不是現行行為**，只保留作為歷史對照：
 
 - C# `SourceType` enum（BooksComTw / GoogleBooks）與 `book_sources.source_type`、`book_subjects.source_type` 的 check constraint；Python crawler 也有 `SourceType.BOOKS_COM_TW`。
 - `IdentifierType` 只有 `Isbn10`／`Isbn13`／`Other`；ISBN 以 partial unique 跨 Book 唯一；crawler 寫入前驗證格式與 checksum（`crawler/books_crawler/normalize.py`），不合格的值被丟棄。
 - crawler 依 ISBN-13 → ISBN-10 逐一比對；ISBN 命中時只附加 Source、不補 NULL；榜內重複的新 Source 不寫入；`last_seen_at` 只在 Bestseller 替換 transaction 中更新。
+
+crawler 的實作狀態（#116 phase A／B，2026-10-25）：crawler 只讀寫 `source_code`（trigger 補 `source_type`）；ISBN 依 §7.1 正規化、寫入型別 `ISBN`、不驗證 checksum；比對依 §7.2 的 distinct Book（三種類型）；附加時依 §7.4 補 NULL；Source identity 依 §7.3 矩陣；`last_seen_at` 在獨立 transaction touch；disabled provider 以 exit 2 拒絕執行。上方第一、第三點描述的是 #113 之前的程式，已由 crawler 實作取代；尚未完成的只有 migration 011 與 `IdentifierType.Isbn10`／`Isbn13` 的移除（PR4）。
 
 收斂順序（每個 PR 合併後下一個才從最新 main 建立）：
 

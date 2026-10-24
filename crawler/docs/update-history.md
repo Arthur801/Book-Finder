@@ -4,6 +4,8 @@
 
 > 查核 2026-10-24；HEAD `91333c334148fa5bfe07055d0e799dc13bb0bb4e`。依基準版本靜態閱讀；本次未執行 build、測試、部署、外部服務或真實抓取。
 
+> 2026-10-25（#116 phase A、phase B、review 修正、Unicode 15.1 分段 NFKC 與 PR #119 連線重連）：實作前 HEAD `ee29e02`；各階段的 commits 列於文末「#116 phase A」「#116 phase B 與 review 修正」。本次有執行 pytest（DB integration 含）、C# DatabaseIntegration、ruff 與 deploy tests，未執行部署或真實抓取。
+
 ## 範圍與方法
 
 涵蓋基準 `91333c3` 可達的全量 crawler 非 merge commit，2026-10-11～2026-10-23；排除 crawler/docs。日期為 author date，作者為 author，非 committer 或部署日期。merge 省略避免重複，不宣稱檢視所有父線 merge diff。
@@ -89,3 +91,29 @@ Workflow／architecture／CR-T12 的 host 現況引用 [target wrapper](https://
 `dccad53`（2026-10-23，Arthur801）同時改 compose、EF integration 與 crawler conftest 的 pgvector image 字串為 0.8.7-pg17；crawler 自己不遷移 schema。資料契約／部署規格的外部歷史未做全量追蹤。完整 author／committer 時刻可由 git show --format=fuller SHA 查；沒有從日期推斷發布成功或測試通過。
 
 相關：[流程](workflow-diagram.md)／[架構](architecture.md)／[待辦](backlog.md)／[歷史](update-history.md)／[案例](test-suite.md)。
+
+## #116 phase A（2026-10-25）
+
+| Author 日期 | SHA | Author | Subject | 目標內實際差異檔案 |
+|---|---|---|---|---|
+| 2026-10-25 | `0149b69` | Arthur801 | feat(crawler): split outcomes into CatalogResolution and RankingDecision | M crawler/books_crawler/ledger.py；M crawler/books_crawler/models.py；M crawler/books_crawler/run.py；M crawler/tests/test_ledger.py；M crawler/tests/test_pages_ledger.py；M crawler/tests/test_run_pages.py；M crawler/tests/test_run_unit.py；M crawler/tests/test_db_integration.py；M crawler/tests/test_first_book.py |
+| 2026-10-25 | `448571e` | Arthur801 | feat(crawler): run first_book manually through run-crawler.sh | M crawler/deploy/run-crawler.sh；M crawler/tests/test_deploy.py |
+| 2026-10-25 | `ad82318` | Arthur801 | docs(crawler): renumber crawler.md citations to the current spec | M crawler/books_crawler/*（docstring 與 cli TODO）；M crawler/tests/*（docstring） |
+
+行為轉折：榜內重複不再於寫入前跳過，改由 `RunLedger` 決定；DB integration 中該 rank 的 Source 現在會存在（Catalog 側已 commit）。
+
+## #116 phase B 與 review 修正（2026-10-25）
+
+| Author 日期 | SHA | Author | Subject | 目標內實際差異檔案 |
+|---|---|---|---|---|
+| 2026-10-25 | `861c334` | Arthur801 | feat(crawler): phase B identity, ISBN matching, touch and provider gate | M crawler/books_crawler/{cli,db,models,normalize,run}.py；A crawler/books_crawler/identity.py；M crawler/tests/{test_cli,test_db_integration,test_e2e_real_fixtures,test_first_book,test_first_book_integration,test_normalize,test_parsers_real_fixtures,test_run_pages,test_run_unit}.py；A crawler/tests/{test_identity,test_isbn_fixture}.py |
+| 2026-10-25 | `75b8aab` | Arthur801 | docs(crawler): sync phase B docs and spec implementation status | M crawler/README.md；M crawler/docs/*；M Docs/data/data-model.md §14；M Docs/modules/crawler.md §2 |
+| 2026-10-25 | `1051d6e` | Arthur801 | fix(crawler): review fixes for identity logging, provider constant and docstrings | M crawler/books_crawler/{db,identity,ledger,models,cli,run}.py；M crawler/tests/{test_identity,test_run_pages,test_first_book}.py |
+| 2026-10-25 | `0fa845d` | Arthur801 | docs: remove stale pre-#116 statements and document provider read exits | M Docs/data/data-model.md；M Docs/modules/crawler.md；M crawler/README.md；M crawler/docs/{architecture,test-suite}.md |
+| 2026-10-25 | `0d3e28f` | Arthur801 | test(recommendation): field-sensitive stale detection after a NULL fill | A tests/DatabaseIntegration/EfStaleDetectionTests.cs；M crawler/docs/test-suite.md |
+| 2026-10-25 | `118eb5b` | Arthur801 | feat(crawler): pin ISBN NFKC to Unicode 15.1 with segmented runs | M crawler/books_crawler/{normalize,cli}.py；A crawler/books_crawler/unicode_15_1.py（由 `.github/scripts/unicode_tables.py` 產生）；A crawler/tests/test_unicode_nfkc_conformance.py |
+| 2026-10-25 | `38c2bb9` | Arthur801 | docs(crawler): record Unicode 15.1 NFKC pinning in architecture, tests and history | M crawler/docs/{architecture,test-suite,update-history}.md |
+| 2026-10-25 | `d8e5915` | Arthur801 | fix(crawler): reconnect a broken database connection inside the retry budget | A crawler/books_crawler/session.py；M crawler/books_crawler/run.py；A crawler/tests/{test_session,test_reconnect_integration}.py；M crawler/tests/test_first_book.py |
+| 2026-10-25 | `a17da36` | Arthur801 | docs(crawler): specify the reconnect rule and document its tests | M Docs/modules/crawler.md；M crawler/docs/{architecture,workflow-diagram,test-suite}.md |
+
+行為轉折：ISBN 不再驗證 checksum，所有非空正規化值都以 `ISBN` 寫入；既有 Source 每次出現都更新 `last_seen_at`；`replace_bestsellers` 不再更新 `last_seen_at`；停用的 provider 以 exit 2 拒絕執行。新 DB 測試依 migration 010 的 trigger 驗證 `source_type = source_code`。

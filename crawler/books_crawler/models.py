@@ -9,11 +9,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
-from enum import Enum, StrEnum
+from enum import StrEnum
 from uuid import UUID
 
 
-class SourceType(StrEnum):
+class ProviderCode(StrEnum):
+    """``source_providers.code`` values this crawler writes (data-model §7, crawler.md §3.1)."""
+
     BOOKS_COM_TW = "BOOKS_COM_TW"
 
 
@@ -24,7 +26,8 @@ class PublishedDatePrecision(StrEnum):
 
 
 class IdentifierType(StrEnum):
-    ISBN_10 = "ISBN_10"
+    ISBN = "ISBN"  # data-model §6.5: the normalized value of §7.1; the only type written from now on
+    ISBN_10 = "ISBN_10"  # legacy rows, read for matching until migration 011
     ISBN_13 = "ISBN_13"
 
 
@@ -44,21 +47,59 @@ class RunStatus(StrEnum):
 
 
 class SkipReason(StrEnum):
-    """Why a ranking row was skipped (crawler.md §6, §12). Stored and logged as these values."""
+    """Why a row was skipped (crawler.md §13, §14.2). Stored and logged as these values."""
 
     FETCH_ERROR = "fetch_error"
     PARSE_ERROR = "parse_error"
     DATABASE_ERROR = "database_error"
     DUPLICATE_BOOK_IN_RANKING = "duplicate_book_in_ranking"
     RESTRICTED_BOOK = "restricted_book"
+    SOURCE_IDENTITY_CONFLICT = "source_identity_conflict"  # data-model §7.3: not retried, not written
 
 
-class Resolution(Enum):
-    """How a ranking row was resolved to a Book (crawler.md §5). In-process only: never stored or logged."""
+class JobName(StrEnum):
+    """The discovery job of a run, as logged in ``job_name`` (crawler.md §19.2, §15.8)."""
 
-    EXISTING_SOURCE = "existing_source"  # known BOOKS_COM_TW source URL; no detail request
-    ISBN_ATTACHED = "isbn_attached"  # new source attached to an existing Book by ISBN
-    NEW_BOOK = "new_book"  # new source and a new Book
+    DAILY_BESTSELLER = "daily-bestseller"
+    FIRST_BOOK = "first-book"
+    CATEGORY_PAGES = "category-pages"
+
+
+PROVIDER = ProviderCode.BOOKS_COM_TW  # the single provider this crawler writes (crawler.md §3.1); logged as provider_code
+
+
+class CatalogResolution(StrEnum):
+    """Catalog-side outcome of one discovery item (crawler.md §3.5, §6.5). In-process only: never stored.
+
+    The first four are resolved rows (they reach ``ResolvedRow``); ``RESTRICTED`` and ``FAILED`` are
+    skipped rows (``SkippedRow``). Only the Catalog counters (§10.2) depend on this value.
+    """
+
+    EXISTING = "EXISTING"  # Source already known, touched and reused; no detail request
+    IMPORTED = "IMPORTED"  # new Book and new Source
+    ISBN_ATTACHED = "ISBN_ATTACHED"  # new Source attached to exactly one existing Book by ISBN, gaps filled
+    AMBIGUOUS_CREATED = "AMBIGUOUS_CREATED"  # new Book and new Source, ISBN matched two or more Books
+    RESTRICTED = "RESTRICTED"  # restricted member-only page (crawler.md §13.2)
+    FAILED = "FAILED"  # retries exhausted, touch failed, or source identity conflict
+
+
+RESOLVED_CATALOG_RESOLUTIONS = frozenset(
+    {
+        CatalogResolution.EXISTING,
+        CatalogResolution.IMPORTED,
+        CatalogResolution.ISBN_ATTACHED,
+        CatalogResolution.AMBIGUOUS_CREATED,
+    }
+)
+
+
+class RankingDecision(StrEnum):
+    """Ranking-side decision for one row of a ranking job (crawler.md §3.5, §14.2). Decided by ``RunLedger`` only."""
+
+    ADMITTED = "ADMITTED"  # kept in the snapshot at its rank
+    DUPLICATE_BOOK = "DUPLICATE_BOOK"  # the Book is already used by an earlier rank
+    RESTRICTED_SKIP = "RESTRICTED_SKIP"  # restricted page: skipped, not an error
+    ERROR_SKIP = "ERROR_SKIP"  # general error: skipped, counts toward the streak
 
 
 @dataclass(frozen=True)
@@ -76,7 +117,7 @@ class Failure:
 
 @dataclass(frozen=True)
 class SkippedRow:
-    """A ranking row left out of the snapshot (crawler.md §6)."""
+    """A discovery item left out of the snapshot (crawler.md §14.2)."""
 
     rank: int
     url: str
@@ -87,10 +128,15 @@ class SkippedRow:
         """A restricted member-only page: skipped without retry and not counted as an error."""
         return self.failure.error_type == SkipReason.RESTRICTED_BOOK
 
+    @property
+    def resolution(self) -> CatalogResolution:
+        """The Catalog-side outcome of a skipped row: RESTRICTED or FAILED (crawler.md §6.5)."""
+        return CatalogResolution.RESTRICTED if self.is_restricted else CatalogResolution.FAILED
+
 
 @dataclass(frozen=True)
 class SkippedPage:
-    """A category ranking page skipped in pages mode because it could not be fetched or parsed (crawler.md §16)."""
+    """A category ranking page skipped in pages mode because it could not be fetched or parsed (crawler.md §15.4)."""
 
     url: str
     failure: Failure
@@ -158,19 +204,31 @@ class SourceRef:
 
 @dataclass(frozen=True)
 class ResolvedRow:
-    """A ranking row that resolved to a Book; it goes into the snapshot at its original rank."""
+    """A discovery item that resolved to a Book (a resolved ``CatalogResolution``).
+
+    ``attempts`` is the number of attempts that produced the resolution: 0 for an existing Source (no
+    detail request), otherwise the attempt that wrote the Source. It is only used if the ledger later
+    decides ``DUPLICATE_BOOK`` for this row.
+    """
 
     rank: int
+    url: str
     source_ref: SourceRef
-    resolution: Resolution
+    resolution: CatalogResolution
+    attempts: int = 0
+
+    def __post_init__(self) -> None:
+        if self.resolution not in RESOLVED_CATALOG_RESOLUTIONS:
+            raise ValueError(f"{self.resolution} is not a resolved outcome; use SkippedRow")
 
 
 @dataclass(frozen=True)
-class IsbnMatch:
-    """An existing Book whose identifier equals one of a new source's identifiers."""
+class SourceRecord:
+    """A ``book_sources`` row as the identity lookup sees it (data-model §7.3)."""
 
+    source_id: UUID
     book_id: UUID
-    identifier: Identifier
+    external_id: str | None
 
 
 @dataclass(frozen=True)

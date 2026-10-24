@@ -1,4 +1,4 @@
-"""Optional headless-browser fetcher for diagnostics (crawler.md §15.1).
+"""Optional headless-browser fetcher for diagnostics (crawler.md §12.1).
 
 Imported only when ``CRAWLER_FETCHER=browser`` or by ``inspect_page``, so the production curl path
 does not need Playwright. It shares pacing, page classification and failure diagnostics with the
@@ -31,7 +31,7 @@ from books_crawler.redact import redact
 log = logging.getLogger("books_crawler.browser")
 
 # Normal desktop Chrome UA and zh-TW locale for the Playwright browser. Approved by the user on
-# 2026-10-11 (crawler.md §15.1). The major version matches the Chromium that the pinned playwright release
+# 2026-10-11 (crawler.md §12.1). The major version matches the Chromium that the pinned playwright release
 # installs (see crawler/README.md); update both together.
 BROWSER_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36"
 BROWSER_LOCALE = "zh-TW"
@@ -78,7 +78,7 @@ class PlaywrightFetcher:
     - ``FetchError``: navigation error or timeout, a browser crash or closed page during any step
       (every Playwright error is wrapped), or a page that ``classify_page`` rejects. A rejected
       page is saved first (HTML, JSON and a screenshot). No retries here; retry and skip belong
-      to the run (crawler.md §6).
+      to the run (crawler.md §13.1).
     - ``BrowserUnavailableError``: ``launch`` failed (Chromium or the Playwright driver cannot be
       started). Not retried.
 

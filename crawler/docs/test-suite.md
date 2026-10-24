@@ -144,7 +144,7 @@ python -m pytest tests/test_fetcher.py tests/test_curl_fetcher.py tests/test_pla
 - 責任／規格：§7／11；data-model；風險 L3；狀態：已有測試但本次未執行。
 - Given：有效／錯誤 ISBN、完整／年月日期、未知語言、缺 optional、分類多層與多貢獻者 HTML。
 - When：parse_detail_html → BookDraft → persist_new_source。
-- Then：ISBN format／checksum 正確，日期保存實際精度、未知語言 NULL 並 log，subtitle NULL、optional 不推測，分類去重，角色正規化；不寫 embedding／AI tables。公開 API 排除簡介／目錄另由 Web 案例驗證。
+- Then：ISBN 依 §7.1 正規化後以 `ISBN` 類型保存（不驗 checksum、不驗長度），日期保存實際精度、未知語言 NULL 並 log，subtitle NULL、optional 不推測，分類去重，角色正規化；不寫 embedding／AI tables。公開 API 排除簡介／目錄另由 Web 案例驗證。
 - 現有測試或擴充入口：[test_normalize.py](../tests/test_normalize.py)、[test_parsers_real_fixtures.py](../tests/test_parsers_real_fixtures.py)、[test_e2e_real_fixtures.py](../tests/test_e2e_real_fixtures.py)。
 
 ### CR-T15 — first-book 不改榜與冪等
@@ -160,3 +160,42 @@ python -m pytest tests/test_fetcher.py tests/test_curl_fetcher.py tests/test_pla
 沒有明確暫緩的 crawler 核心功能；embedding 是明確不屬此模組，不建立待實作案例。artifact cleanup 是未實作改善提案；產品時間語意需決策。沒有程序取消狀態與取消測試，不推定 finally 可處理 SIGKILL。本次僅靜態文件檢查，所有命令均是日後測試入口。
 
 相關：[流程](workflow-diagram.md)／[架構](architecture.md)／[待辦](backlog.md)／[歷史](update-history.md)。
+
+## Phase A（#116）測試覆蓋
+
+| 測試 | 覆蓋 | 規格 |
+|---|---|---|
+| [test_ledger.py](../tests/test_ledger.py) | RankingDecision 完整表；Existing Source 的榜內重複不 reset streak；附加後才重複的 Catalog 與 ranking 計數；10 個 ERROR_SKIP → RESTRICTED_SKIP → ERROR_SKIP 後 streak 為 1；DUPLICATE_BOOK 記錄而非 raise | §3.5、§10.2、§14.2、§14.3（plan §4 #5–#7） |
+| [test_pages_ledger.py](../tests/test_pages_ledger.py) | pages 只用 CatalogResolution；Catalog 軸計數與 items_seen | §10.2、§15.5、§15.8 |
+| [test_first_book.py](../tests/test_first_book.py) | first_book 的 summary 欄位與 job_name；既有來源計為 existing | §16、§19.2 |
+| [test_run_unit.py](../tests/test_run_unit.py)、[test_run_pages.py](../tests/test_run_pages.py) | summary 欄位順序（daily 與 pages） | §15.8、§19.2 |
+| [test_db_integration.py](../tests/test_db_integration.py) | 榜內重複時 Catalog 側已 commit（新 Source 存在），只跳過 rank；需要真實 PostgreSQL（EF schema） | §14.2 |
+| [test_deploy.py](../tests/test_deploy.py) | `first_book` 模式的 module、pause／dirty gate、共用 run.lock 與 maintenance lock | deploy README §6 |
+
+Phase B（#116）覆蓋：
+
+| 測試 | 覆蓋 | 規格 |
+|---|---|---|
+| [test_isbn_fixture.py](../tests/test_isbn_fixture.py) | 共用 `tests/Fixtures/isbn-normalization.json` 逐 byte；每個 White_Space code point 都有 vector；反例保留 | data-model §7.1（plan §4 #18） |
+| [test_identity.py](../tests/test_identity.py) | §7.3 矩陣每一列（純函式） | §7.3（plan §4 #19） |
+| [test_db_integration.py](../tests/test_db_integration.py) | 0／1／≥2 本比對；legacy `ISBN_13` 與 draft ISBN 同一本；補 NULL（日期成對、AUTHOR 條件、updated_at 只在補值時更新）；ambiguous 不改既有 Book；touch 每次 run、重試不重抓、最後失敗的 daily policy；`replace_bestsellers` 不更新 `last_seen_at`；URL drift、衝突、NULL external_id；trigger 讓 `source_type = source_code`；`provider_enabled` | plan §4 #1–#4、#11、#15 概念、#17、#19 |
+| [test_first_book.py](../tests/test_first_book.py) | touch 最後仍失敗 → FAILED exit 1，不重抓 detail | plan §4 #17 |
+| [test_run_pages.py](../tests/test_run_pages.py) | touch 最後仍失敗 → 只跳過該列，其餘照常 | plan §4 #17 |
+| [test_cli.py](../tests/test_cli.py) | 停用 provider → exit 2 且不建立 fetcher；讀 registry 失敗 → exit 1 | crawler.md §3.1 |
+| [EfStaleDetectionTests.cs](../../tests/DatabaseIntegration/EfStaleDetectionTests.cs)（C#，`dotnet test tests/DatabaseIntegration`） | 9 種 §7.4 補值：AUTHOR、subject、description 讓 embedding pending 且 profile stale；publisher、table_of_contents 只讓 profile stale；published_date、page_count、thumbnail_url、ISBN 兩者皆不變 | plan §4 #15 |
+
+尚未覆蓋：migration 011（PR4）；C# 端 fixture（#115 的測試範圍）；stale 偵測屬 Web 端（#115）。
+
+### Unicode 15.1 NFKC 一致性（data-model §7.1）
+
+- **Given**：vendored `tests/Fixtures/unicode-15.1/NormalizationTest-NFKC.txt`（19074 組 c1→c4）；`tests/Fixtures/isbn-normalization.json` 含未指派 OUTLINED DIGIT 與混合分段的 vector。
+- **When**：對每組 c1 執行分段 NFKC；對 U+1CCF0 與混合字串執行 `normalize_isbn_value`；以 `ensure_runtime_unicode_supported` 模擬舊 runtime。
+- **Then**：每組結果與 c4 逐字相同；未指派 code point 原樣保留並分段；舊 runtime 啟動時 exit 2。
+- **來源與狀態**：[test_unicode_nfkc_conformance.py](../tests/test_unicode_nfkc_conformance.py)、[test_isbn_fixture.py](../tests/test_isbn_fixture.py)、[test_cli.py](../tests/test_cli.py)；CI `unicode_tables.py --check` 檢查產生檔沒有漂移。
+
+### 連線中斷與重連（crawler.md §13.1、§6.1，#119）
+
+- **Given**：DB integration 的 PostgreSQL；fetcher 與 parser 是 fake，不連線博客來。會話斷線以 `pg_terminate_backend(<crawler backend pid>)` 從另一個 admin 連線執行，在操作前的 hook 中觸發。
+- **When**：touch 前斷線；寫入前斷線；commit 成功後 client 沒有看到結果（commit-then-drop）；三次嘗試都遇到斷線；另有 first_book 的三次斷線，以及讀取既有 Source 時斷線。
+- **Then**：touch 重連後成功、`last_seen_at` 前進、第 2 次嘗試成功；寫入重連後 Source 只插入一次；commit-then-drop 不重複插入，回報 EXISTING，只有一筆 source；三次斷線後該列為 FAILED `database_error`（attempts 3），daily 為 ERROR_SKIP、first_book 為 FAILED exit 1；讀取既有 Source 斷線則 run FAILED。另有 `DatabaseSession` 的單元測試（替換 closed／broken 連線、關閉錯誤被忽略、重連失敗可再試）。
+- **來源與狀態**：[test_reconnect_integration.py](../tests/test_reconnect_integration.py)、[test_session.py](../tests/test_session.py)、[test_first_book.py](../tests/test_first_book.py)（重試不重抓 detail，lookup 在寫入重試前重新解析）。

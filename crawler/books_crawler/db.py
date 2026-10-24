@@ -5,11 +5,11 @@ Rules:
   and ``bestsellers`` are written (data-model §7). No DDL is ever executed here.
 - Connections use autocommit mode; every write goes through an explicit ``conn.transaction()``
   block, so a failure always rolls back exactly that unit of work.
+- The crawler writes and reads ``source_code`` only. The migration 010 trigger keeps the legacy
+  ``source_type`` column filled, so SQL here never names it.
 - The schema is owned by EF Core and has no DB defaults, so UUIDs and timestamps come from here.
 - Decisions (which Book a new source belongs to, whether a Book may be ranked twice) are made by
-  the caller (``run``). This module only looks up and writes, except for the one bestseller rule
-  the schema does not enforce (a ranked source must be a BOOKS_COM_TW source of the same Book),
-  which ``replace_bestsellers`` checks inside its own transaction.
+  the caller (``run``) and by ``identity``. This module only looks up and writes.
 """
 
 from __future__ import annotations
@@ -21,19 +21,24 @@ from uuid import UUID
 
 import psycopg
 
+from books_crawler.identity import SourceIdentity, decide_source_identity
 from books_crawler.models import (
+    PROVIDER,
     BookDraft,
-    Identifier,
+    ContributorRole,
     IdentifierType,
-    IsbnMatch,
+    ProviderCode,
     SnapshotRow,
+    SourceRecord,
     SourceRef,
-    SourceType,
 )
+
+# data-model §7.2: the ISBN types that count for matching (011 leaves only 'ISBN').
+MATCHING_IDENTIFIER_TYPES = (IdentifierType.ISBN, IdentifierType.ISBN_10, IdentifierType.ISBN_13)
 
 
 class SnapshotValidationError(Exception):
-    """A snapshot row's source is not a BOOKS_COM_TW Book Source of that row's Book (crawler.md §10)."""
+    """A snapshot row's source is not a BOOKS_COM_TW Book Source of that row's Book (crawler.md §14.4)."""
 
 
 def connect(database_url: str) -> psycopg.Connection:
@@ -41,39 +46,57 @@ def connect(database_url: str) -> psycopg.Connection:
     return psycopg.connect(database_url, autocommit=True)
 
 
-def find_source(conn: psycopg.Connection, source_url: str) -> SourceRef | None:
-    """Look up the BOOKS_COM_TW Book Source for a canonical product URL."""
+def provider_enabled(database_url: str, code: ProviderCode) -> bool | None:
+    """``source_providers.enabled`` for ``code``; None when the provider row does not exist (crawler.md §3.1)."""
+    with connect(database_url) as conn:
+        row = conn.execute("SELECT enabled FROM source_providers WHERE code = %s", (code,)).fetchone()
+    return None if row is None else bool(row[0])
+
+
+def _lookup(conn: psycopg.Connection, where: str, value: object) -> SourceRecord | None:
     row = conn.execute(
-        "SELECT id, book_id FROM book_sources WHERE source_type = %s AND source_url = %s",
-        (SourceType.BOOKS_COM_TW, source_url),
+        f"SELECT id, book_id, external_id FROM book_sources WHERE source_code = %s AND {where} = %s",
+        (PROVIDER, value),
     ).fetchone()
     if row is None:
         return None
-    return SourceRef(source_id=row[0], book_id=row[1])
+    return SourceRecord(source_id=row[0], book_id=row[1], external_id=row[2])
 
 
-def find_book_by_isbn(conn: psycopg.Connection, identifiers: Sequence[Identifier]) -> IsbnMatch | None:
-    """Find the existing Book that owns one of the identifiers: ISBN-13 first, then ISBN-10 (data-model §6)."""
-    for identifier_type in (IdentifierType.ISBN_13, IdentifierType.ISBN_10):
-        for identifier in identifiers:
-            if identifier.identifier_type != identifier_type:
-                continue
-            row = conn.execute(
-                "SELECT book_id FROM book_identifiers WHERE identifier_type = %s AND identifier_value = %s",
-                (identifier.identifier_type, identifier.identifier_value),
-            ).fetchone()
-            if row is not None:
-                return IsbnMatch(book_id=row[0], identifier=identifier)
-    return None
+def resolve_source_identity(conn: psycopg.Connection, source_url: str, external_id: str | None = None) -> SourceIdentity:
+    """Source identity of one item (data-model §7.3): both keys are queried when ``external_id`` is given."""
+    by_external_id = _lookup(conn, "external_id", external_id) if external_id is not None else None
+    by_url = _lookup(conn, "source_url", source_url)
+    return decide_source_identity(by_external_id, by_url, external_id=external_id)
+
+
+def touch_source(conn: psycopg.Connection, source_id: UUID, now: datetime) -> None:
+    """``last_seen_at`` of one existing Source, in its own transaction (crawler.md §6.1)."""
+    with conn.transaction():
+        conn.execute("UPDATE book_sources SET last_seen_at = %s WHERE id = %s", (now, source_id))
+
+
+def find_books_by_isbn(conn: psycopg.Connection, values: Sequence[str]) -> list[UUID]:
+    """Distinct Books owning any of the normalized ISBN values (data-model §7.2 step 2), sorted for stable logs."""
+    if not values:
+        return []
+    rows = conn.execute(
+        """
+        SELECT DISTINCT book_id FROM book_identifiers
+        WHERE identifier_value = ANY(%s) AND identifier_type = ANY(%s)
+        """,
+        (list(values), [str(item) for item in MATCHING_IDENTIFIER_TYPES]),
+    ).fetchall()
+    return sorted(row[0] for row in rows)
 
 
 def _insert_source(conn: psycopg.Connection, source_id: UUID, book_id: UUID, source_url: str, now: datetime) -> None:
     conn.execute(
         """
-        INSERT INTO book_sources (id, book_id, source_type, external_id, source_url, first_seen_at, last_seen_at)
+        INSERT INTO book_sources (id, book_id, source_code, external_id, source_url, first_seen_at, last_seen_at)
         VALUES (%s, %s, %s, NULL, %s, %s, %s)
         """,
-        (source_id, book_id, SourceType.BOOKS_COM_TW, source_url, now, now),
+        (source_id, book_id, PROVIDER, source_url, now, now),
     )
 
 
@@ -103,65 +126,126 @@ def _insert_book(conn: psycopg.Connection, book_id: UUID, draft: BookDraft, now:
     )
 
 
+def _write_identifiers(conn: psycopg.Connection, book_id: UUID, draft: BookDraft) -> None:
+    # Always stored as the ISBN type: the value is the §7.1 key, and the legacy types are read-only (§7.2).
+    values = list(dict.fromkeys(item.identifier_value for item in draft.identifiers))
+    with conn.cursor() as cursor:
+        cursor.executemany(
+            "INSERT INTO book_identifiers (book_id, identifier_type, identifier_value) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
+            [(book_id, IdentifierType.ISBN, value) for value in values],
+        )
+
+
+def _write_subjects(conn: psycopg.Connection, book_id: UUID, draft: BookDraft) -> None:
+    subjects = list(dict.fromkeys(draft.subjects))
+    with conn.cursor() as cursor:
+        cursor.executemany(
+            "INSERT INTO book_subjects (book_id, subject, source_code) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
+            [(book_id, subject, PROVIDER) for subject in subjects],
+        )
+
+
+def _fill_book_gaps(conn: psycopg.Connection, book_id: UUID, draft: BookDraft, now: datetime) -> None:
+    """Fill only the NULL books columns from the draft (data-model §7.4); ``updated_at`` only when something was filled."""
+    row = conn.execute(
+        """
+        SELECT publisher, published_date, published_date_precision, language, description,
+               table_of_contents, page_count, thumbnail_url
+        FROM books WHERE id = %s FOR UPDATE
+        """,
+        (book_id,),
+    ).fetchone()
+    publisher, published_date, precision, language, description, toc, page_count, thumbnail = row
+    fills: dict[str, object] = {}
+    if publisher is None and draft.publisher is not None:
+        fills["publisher"] = draft.publisher
+    if published_date is None and precision is None and draft.published_date is not None:
+        fills["published_date"] = draft.published_date
+        fills["published_date_precision"] = draft.published_date_precision
+    if language is None and draft.language is not None:
+        fills["language"] = draft.language
+    if description is None and draft.description is not None:
+        fills["description"] = draft.description
+    if toc is None and draft.table_of_contents is not None:
+        fills["table_of_contents"] = draft.table_of_contents
+    if page_count is None and draft.page_count is not None:
+        fills["page_count"] = draft.page_count
+    if thumbnail is None and draft.thumbnail_url is not None:
+        fills["thumbnail_url"] = draft.thumbnail_url
+    if fills:
+        fills["updated_at"] = now
+        assignments = ", ".join(f"{column} = %s" for column in fills)
+        conn.execute(f"UPDATE books SET {assignments} WHERE id = %s", (*fills.values(), book_id))
+
+
+def _fill_author_if_missing(conn: psycopg.Connection, book_id: UUID, draft: BookDraft) -> None:
+    """Add the draft's AUTHORs only when the Book has no AUTHOR, after its current maximum order (§7.4)."""
+    has_author = conn.execute(
+        "SELECT EXISTS (SELECT 1 FROM book_contributors WHERE book_id = %s AND role = %s)",
+        (book_id, ContributorRole.AUTHOR),
+    ).fetchone()[0]
+    authors = [item for item in draft.contributors if item.role is ContributorRole.AUTHOR]
+    if has_author or not authors:
+        return
+    base = conn.execute("SELECT COALESCE(MAX(contributor_order), 0) FROM book_contributors WHERE book_id = %s", (book_id,)).fetchone()[0]
+    with conn.cursor() as cursor:
+        cursor.executemany(
+            "INSERT INTO book_contributors (book_id, contributor_order, name, role) VALUES (%s, %s, %s, %s)",
+            [(book_id, base + position, item.name, item.role) for position, item in enumerate(authors, start=1)],
+        )
+
+
 def persist_new_source(
     conn: psycopg.Connection,
     draft: BookDraft,
     now: datetime,
     attach_to_book_id: UUID | None = None,
 ) -> SourceRef:
-    """Persist a new BOOKS_COM_TW Book Source in one transaction.
+    """Persist a new BOOKS_COM_TW Book Source in one transaction (data-model §7.2, §7.4).
 
-    - ``attach_to_book_id`` set (the caller found an ISBN match): only a ``book_sources`` row is
-      inserted for that Book. The Book's metadata, identifiers, contributors and subjects are not
-      modified (no canonical merge by the crawler).
-    - ``attach_to_book_id`` is None: a new Book is created with its source, identifiers,
-      contributors and subjects.
+    - ``attach_to_book_id`` set (exactly one Book matched the ISBN): the source is attached and the
+      Book's NULL columns, a missing AUTHOR, its identifiers and this source's subjects are filled
+      in the same transaction.
+    - ``attach_to_book_id`` None: a new Book is created with its source, identifiers, contributors
+      and subjects (no match, or an ambiguous match, in which case nothing of the existing Books changes).
     """
     source_id = uuid.uuid4()
     with conn.transaction():
         if attach_to_book_id is not None:
             _insert_source(conn, source_id, attach_to_book_id, draft.source_url, now)
+            _fill_book_gaps(conn, attach_to_book_id, draft, now)
+            _fill_author_if_missing(conn, attach_to_book_id, draft)
+            _write_identifiers(conn, attach_to_book_id, draft)
+            _write_subjects(conn, attach_to_book_id, draft)
             return SourceRef(source_id=source_id, book_id=attach_to_book_id)
 
         book_id = uuid.uuid4()
-        identifiers = list(dict.fromkeys(draft.identifiers))
-        subjects = list(dict.fromkeys(draft.subjects))
         _insert_book(conn, book_id, draft, now)
         _insert_source(conn, source_id, book_id, draft.source_url, now)
+        _write_identifiers(conn, book_id, draft)
         with conn.cursor() as cursor:
-            cursor.executemany(
-                "INSERT INTO book_identifiers (book_id, identifier_type, identifier_value) VALUES (%s, %s, %s)",
-                [(book_id, item.identifier_type, item.identifier_value) for item in identifiers],
-            )
             cursor.executemany(
                 "INSERT INTO book_contributors (book_id, contributor_order, name, role) VALUES (%s, %s, %s, %s)",
                 [(book_id, item.order, item.name, item.role) for item in draft.contributors],
             )
-            cursor.executemany(
-                "INSERT INTO book_subjects (book_id, subject, source_type) VALUES (%s, %s, %s)",
-                [(book_id, subject, SourceType.BOOKS_COM_TW) for subject in subjects],
-            )
+        _write_subjects(conn, book_id, draft)
     return SourceRef(source_id=source_id, book_id=book_id)
 
 
 def replace_bestsellers(conn: psycopg.Connection, rows: Sequence[SnapshotRow], captured_at: datetime) -> None:
-    """Replace the whole bestseller list and mark its sources as seen, in one transaction (crawler.md §10).
+    """Replace the whole bestseller list in one transaction (crawler.md §14.4).
 
     First, every row's ``source_id`` must be a BOOKS_COM_TW Book Source of that row's own Book, or
     ``SnapshotValidationError`` is raised before the current list is touched. The other snapshot
-    rules are not repeated here: rank range and uniqueness and ``book_id`` uniqueness are schema
-    constraints, and ``RunLedger`` only puts resolved rows at their original ranks into a snapshot.
-
-    In the same transaction, ``last_seen_at`` of every Book Source in the snapshot is set to
-    ``captured_at`` (source metadata only; Book metadata is never touched). If any check or
-    statement fails, everything rolls back: the previous list and ``last_seen_at`` values stay intact.
+    rules are schema constraints (rank range and uniqueness, ``book_id`` uniqueness). This
+    transaction does not touch ``last_seen_at``: that was set per item in its own transaction (§6.1).
     """
     source_ids = [row.source_id for row in rows]
     with conn.transaction():
         owners = dict(
             conn.execute(
-                "SELECT id, book_id FROM book_sources WHERE source_type = %s AND id = ANY(%s)",
-                (SourceType.BOOKS_COM_TW, source_ids),
+                "SELECT id, book_id FROM book_sources WHERE source_code = %s AND id = ANY(%s)",
+                (PROVIDER, source_ids),
             ).fetchall()
         )
         for row in rows:
@@ -173,7 +257,3 @@ def replace_bestsellers(conn: psycopg.Connection, rows: Sequence[SnapshotRow], c
                 "INSERT INTO bestsellers (rank, book_id, source_id, captured_at) VALUES (%s, %s, %s, %s)",
                 [(row.rank, row.book_id, row.source_id, captured_at) for row in rows],
             )
-        conn.execute(
-            "UPDATE book_sources SET last_seen_at = %s WHERE id = ANY(%s)",
-            (captured_at, source_ids),
-        )

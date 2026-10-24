@@ -1,4 +1,4 @@
-"""Page retrieval seam (crawler.md §15).
+"""Page retrieval seam (crawler.md §12).
 
 ``Fetcher`` is the only thing the orchestration uses to obtain HTML; ``create_fetcher`` builds one
 from the ``CRAWLER_FETCHER`` kind. Two adapters sit at this seam:
@@ -72,7 +72,7 @@ class BrowserUnavailableError(RuntimeError):
 
 
 class Fetcher(Protocol):
-    """What the run needs from a fetcher (crawler.md §6, §15).
+    """What the run needs from a fetcher (crawler.md §12, §13).
 
     - ``get`` returns the page body as text, or raises:
       - ``FetchError``: this page could not be retrieved. The run retries and possibly skips it.
@@ -198,7 +198,7 @@ def _sample_page_delay() -> float:
 
 
 class RequestPacer:
-    """Sequential request pacing shared by every fetcher (crawler.md §15).
+    """Sequential request pacing shared by every fetcher (crawler.md §12).
 
     Each request waits until its delay target has passed since the previous request finished, so
     parsing, DB work and retry backoff in between count toward the target.

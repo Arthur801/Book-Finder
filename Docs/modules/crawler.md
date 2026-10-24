@@ -39,20 +39,20 @@ Crawler 必須能逐步擴充：
 
 ## 2. Current implementation vs target contract
 
-本文件描述 multi-source 的目標 contract（#113）。查核基準 `a448b82` 的實作只以 `BOOKS_COM_TW` 為中心，包含：每日總榜 TOP 100、分類榜 pages mode、first-book diagnostic mode，以及 curl_cffi / optional Playwright fetcher。下列規則**尚未實作**，由後續 PR 完成：
+本文件描述 multi-source 的目標 contract（#113）。以下表格標示 crawler 目前的實作狀態（#116 phase A 與 phase B，2026-10-25）。查核基準 `a448b82` 之後，crawler 已實作：每日總榜 TOP 100、分類榜 pages mode、first-book diagnostic mode、curl_cffi / optional Playwright fetcher，以及下表標為「已實作」的規則。尚未完成者只剩下表中標示的 migration 011 與 `book_offers`：
 
 | 規則 | 現行程式 | 由誰完成 |
 |---|---|---|
-| provider code（`source_code`）取代 `SourceType` enum | `models.SourceType`、`book_sources.source_type` | PR2（schema）+ PR3（crawler） |
-| ISBN 正規化（data-model §7.1）與 distinct Book 比對（§6.3） | ISBN-13 → ISBN-10 逐一比對，寫入前驗證 checksum | PR3；PR4 後只查 `ISBN` |
-| 附加 Source 時補 NULL（§6.4） | ISBN 命中只附加 Source，不改 Book | PR3 |
-| `last_seen_at` 看到就更新（§6.1） | 只在 Bestseller 替換 transaction 中更新；pages / first_book 不更新 | PR3 |
-| 榜內重複時 Catalog 照常 commit（§14.2） | 重複的新 Source 在寫入前就被跳過（`run.py` 的 `_DuplicateBook`） | PR3 |
-| 兩層 outcome 與計數（§10.2、§14.2） | 單層 `Resolution`；log 沒有 `existing_source_count` 等新欄位 | PR3 |
-| disabled provider 拒絕執行（§3.1） | 沒有 provider registry | PR3 |
+| provider code（`source_code`）取代 `SourceType` enum | 已實作：crawler 只讀寫 `source_code`，migration 010 的 trigger 補 `source_type`（#116 phase B） | 已實作 |
+| ISBN 正規化（data-model §7.1）與 distinct Book 比對（§6.3） | 已實作：§7.1 正規化（共用 fixture），寫入型別 `ISBN`，比對三種類型的 distinct Book。PR4（011）後只查 `ISBN` | 已實作；011 待完成 |
+| 附加 Source 時補 NULL（§6.4） | 已實作：與附加同一 transaction，只補 NULL 欄位，日期成對，AUTHOR 條件式 | 已實作 |
+| `last_seen_at` 看到就更新（§6.1） | 已實作：Existing Source 在獨立 transaction touch，三種模式共用重試與 policy；`replace_bestsellers` 不再更新 | 已實作 |
+| 榜內重複時 Catalog 照常 commit（§14.2） | 已實作（phase A）：`RunLedger` 決定 DUPLICATE_BOOK，Catalog 側先 commit | 已實作 |
+| 兩層 outcome 與計數（§10.2、§14.2） | 已實作（phase A）：`CatalogResolution`、`RankingDecision`，新 log 欄位 | 已實作 |
+| disabled provider 拒絕執行（§3.1） | 已實作：cli 讀 `source_providers.enabled`，停用或未登錄時 exit 2，且不建立 fetcher | 已實作 |
 | `book_offers` 寫入（§8） | 未實作；本系列也不實作，`offer_updated_count` 固定 0 | 未排程 |
 
-程式碼 docstring 內的 `crawler.md §…` 引用仍指舊版章節編號，隨 PR3 一併修正。
+程式碼 docstring 內的 `crawler.md §…` 引用已改為本文件的現行編號（phase A）。
 
 本文件把 crawler 分成 generic core 與 provider adapter：
 
@@ -88,6 +88,8 @@ ESLITE         disabled（future）
 
 - Crawler 只處理有 crawler adapter 的 provider。
 - `enabled = false` 只代表不允許主動 acquisition：crawler 對 disabled provider 啟動 job 時，以設定錯誤拒絕執行（**exit 2**），不建立 fetcher、不發出請求。它不影響既有資料的讀取。
+- 未登錄（查無 `source_providers` row）與 disabled 同樣是設定錯誤（**exit 2**）。
+- 讀取 `source_providers` 的資料庫錯誤**不是**設定錯誤：run 以 FAILED 結束（**exit 1**），記一行 ERROR `could not read source_providers: <redacted>`，同樣不建立 fetcher、不發出請求。
 
 ### 3.2 Source Adapter
 
@@ -228,7 +230,9 @@ optionally refresh offer
 | 分類榜 | 這一筆失敗，其他 item 與分類頁照常處理；最後 PARTIAL_SUCCESS 或 FAILED 依 §15.6、§15.7 |
 | first_book | FAILED，exit 1（上限 0，§16） |
 
-查詢既有 Source 本身（touch 之前的 SELECT）的資料庫錯誤維持現行行為：不在 §13 重試範圍內，例外逸出使 run FAILED（§15.6）。
+查詢既有 Source 本身（touch 之前的 SELECT）的資料庫錯誤維持現行行為：不在 §13 重試範圍內，例外逸出使 run FAILED（§15.6）。連線在這個 SELECT 中斷時也一樣：不做重連，run FAILED；重連規則只適用於 §13.1 的重試（touch、ISBN 查詢與寫入、寫入後的重新解析）。這是刻意的取捨：讀取失敗不會產生寫入，直接失敗比在這裡重連更簡單，而且保留既有的 run 失敗語意。
+
+**Touch 的重連**：touch 的每次嘗試使用同一個 session，連線斷開時於下一次嘗試重連（同 §13.1）；最後仍失敗時依 §6.1 的模式 policy 處理。
 
 ### 6.2 Source identity 衝突與 URL 漂移
 
@@ -527,6 +531,11 @@ Optional field 無法可靠解析時保存 `NULL` / 不建立 related row；不�
 ```
 
 - 「只重試寫入」的理由：詳細頁已成功取得且解析完成，資料庫暫時失敗時重抓只會增加對博客來的請求量，對結果沒有幫助。
+- **連線中斷（重連規則，#119）**：run 持有的資料庫連線若已被伺服器關閉或網路中斷（psycopg 的 `closed` 或 `broken` 為真；不以例外類別判斷），下一次嘗試前先丟棄舊連線（關閉時忽略錯誤）並透過注入的 connect 建立新連線，再於同一個 3 次預算內、同樣的 backoff 下重試；沿用已解析的 draft，不重新 request 詳細頁。之後 run 的所有資料庫操作（剩餘排名、榜單替換）都使用新連線。連線由 run 持有的 session 物件管理，不是模組層級狀態。
+- **寫入重試前先重新解析身分**：若上一次寫入失敗發生在 Source 寫入的交易（persist）之後，該交易可能已在伺服器端 commit，而 client 沒有收到結果。因此下一次嘗試寫入前，先依 §7.3 重新解析該 URL 的 Source：
+  - 若 Source 已存在（前一次嘗試已 commit）：不再插入。以該 Source 的 `book_id` 作為結果，`CatalogResolution` 報告為 `EXISTING`（原本的 `IMPORTED`／`ISBN_ATTACHED`／`AMBIGUOUS_CREATED` 未保存，無法還原）。§7.4 的補 NULL 與原交易同一個 transaction，不重複執行。touch 是冪等的，依一般規則處理。
+  - 若 Source 不存在：照常寫入。
+  - 重新解析本身失敗（連線錯誤）計為該次嘗試的 `database_error`，預算照常計算。
 - `source_identity_conflict` 是確定性的，不重試。
 - 失敗的新來源不建立任何資料列，也沒有失敗佇列。隔天若仍在榜上，它依然是新來源，會自然再嘗試一次。
 - 排行榜頁使用同一個 retry 迴圈，但它的失敗永遠不是「跳過」，見 §14.1（分類頁例外，見 §15.4）。

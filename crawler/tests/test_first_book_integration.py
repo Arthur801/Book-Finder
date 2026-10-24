@@ -26,7 +26,7 @@ def test_first_book_real_fixture_is_persisted_idempotently_without_changing_snap
     assert report.new_book_count == 1
     assert fetcher.calls == [RANKING_PAGE_URL, first]
     with db.connect(db_url) as conn:
-        ref = db.find_source(conn, first)
+        ref = db.resolve_source_identity(conn, first).ref
         assert ref is not None
         expected = parse_detail_html(detail, first)
         assert conn.execute("SELECT title, description, table_of_contents FROM books WHERE id=%s", (ref.book_id,)).fetchone() == (
@@ -43,6 +43,6 @@ def test_first_book_real_fixture_is_persisted_idempotently_without_changing_snap
     assert second.existing_book_count == 1
     assert fetcher.calls == [RANKING_PAGE_URL, first, RANKING_PAGE_URL]
     with db.connect(db_url) as conn:
-        assert db.find_source(conn, first) == ref
+        assert db.resolve_source_identity(conn, first).ref == ref
         assert conn.execute("SELECT count(*) FROM books").fetchone()[0] == 101
         assert conn.execute("SELECT * FROM bestsellers ORDER BY rank").fetchall() == baseline

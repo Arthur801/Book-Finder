@@ -180,7 +180,7 @@ def test_real_books_are_written_with_the_expected_columns(successful_baseline):
     # identifiers, contributors (with roles, in order) and subjects
     translated = rows["0011062550"][0]
     assert query(successful_baseline, "SELECT identifier_type, identifier_value FROM book_identifiers WHERE book_id = %s", (translated,)) == [
-        ("ISBN_13", "9786260284909")
+        ("ISBN", "9786260284909")
     ]
     assert query(
         successful_baseline,

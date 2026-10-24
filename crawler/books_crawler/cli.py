@@ -1,18 +1,18 @@
 """Command-line entry point: ``python -m books_crawler`` (run from the ``crawler`` directory).
 
 Modes (one entry point each):
-    python -m books_crawler              daily run: 7-day overall TOP 100 Bestseller (crawler.md §3)
-    python -m books_crawler.first_book   first-book import: rank 1 only, no Bestseller write (crawler.md §13.1)
-    python -m books_crawler.pages        pages import: category 7-day ranking pages, Catalog only (crawler.md §16)
+    python -m books_crawler              daily run: 7-day overall TOP 100 Bestseller (crawler.md §14)
+    python -m books_crawler.first_book   first-book import: rank 1 only, no Bestseller write (crawler.md §16)
+    python -m books_crawler.pages        pages import: category 7-day ranking pages, Catalog only (crawler.md §15)
 
 Environment:
     DATABASE_URL            PostgreSQL connection URL of the shared database (required; secret, never logged).
-    CRAWLER_FETCHER         Page fetcher: ``curl`` (default, Chrome fingerprint, crawler.md §15)
+    CRAWLER_FETCHER         Page fetcher: ``curl`` (default, Chrome fingerprint, crawler.md §12)
                             or ``browser`` (Playwright; diagnostics only).
     CRAWLER_NAV_TIMEOUT_MS  Browser navigation timeout in milliseconds (1..300000; default 30000).
                             Empty means the default. Only used by the browser fetcher.
     CRAWLER_PAGES_FILE      Pages mode only: the category page list (default ``crawler/category-pages.txt``,
-                            crawler.md §16). Read and validated before any request; ignored by the other modes.
+                            crawler.md §15.3). Read and validated before any request; ignored by the other modes.
 
 Exit codes:
     daily and first-book: 0 = SUCCESS or PARTIAL_SUCCESS (bestsellers replaced, or Catalog import done),
@@ -28,8 +28,10 @@ import logging
 import os
 import re
 import sys
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from enum import StrEnum
+
+import psycopg
 
 from books_crawler import db
 from books_crawler.fetcher import (
@@ -38,6 +40,8 @@ from books_crawler.fetcher import (
     FetcherKind,
     create_fetcher,
 )
+from books_crawler.models import PROVIDER, ProviderCode
+from books_crawler.normalize import ensure_runtime_unicode_supported
 from books_crawler.page_list import (
     PAGES_FILE_ENV,
     PageListError,
@@ -48,6 +52,7 @@ from books_crawler.parsers import parse_detail_html, parse_ranking_html
 from books_crawler.redact import redact
 from books_crawler.run import RunDependencies, run_first_book, run_once, run_pages
 
+EXIT_FAILED = 1
 EXIT_CONFIG_ERROR = 2
 FETCHER_ENV = "CRAWLER_FETCHER"
 NAVIGATION_TIMEOUT_ENV = "CRAWLER_NAV_TIMEOUT_MS"
@@ -84,10 +89,22 @@ def parse_navigation_timeout(raw: str) -> int:
     return milliseconds
 
 
-def main(environ: Mapping[str, str] | None = None, *, mode: CrawlerMode = CrawlerMode.DAILY) -> int:
+def main(
+    environ: Mapping[str, str] | None = None,
+    *,
+    mode: CrawlerMode = CrawlerMode.DAILY,
+    provider_enabled: Callable[[str, ProviderCode], bool | None] | None = None,
+) -> int:
     configure_logging()
     log = logging.getLogger("books_crawler.cli")
     env = os.environ if environ is None else environ
+
+    # Fail fast on a runtime whose Unicode data would give wrong ISBN keys (data-model 7.1): a configuration error.
+    try:
+        ensure_runtime_unicode_supported()
+    except RuntimeError as exc:
+        log.error("%s", exc)
+        return EXIT_CONFIG_ERROR
 
     database_url = env.get("DATABASE_URL", "").strip()
     if not database_url:
@@ -116,6 +133,17 @@ def main(environ: Mapping[str, str] | None = None, *, mode: CrawlerMode = Crawle
         except PageListError as exc:
             log.error("%s", redact(str(exc)))
             return EXIT_CONFIG_ERROR
+
+    # A disabled (or unregistered) provider is a configuration error: nothing is fetched (crawler.md §3.1, §14.5).
+    try:
+        check = provider_enabled or db.provider_enabled  # resolved per call so tests can replace it
+        enabled = check(database_url, PROVIDER)
+    except psycopg.Error as exc:
+        log.error("could not read source_providers: %s", redact(str(exc)))
+        return EXIT_FAILED
+    if enabled is not True:
+        log.error("source provider %s is disabled or not registered; nothing was crawled", PROVIDER)
+        return EXIT_CONFIG_ERROR
 
     fetcher = create_fetcher(kind, navigation_timeout_ms=navigation_timeout_ms)
     log.info("using %s fetcher", kind.value)
