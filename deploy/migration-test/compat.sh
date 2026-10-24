@@ -50,6 +50,9 @@ source "$repo_root/deploy/lib/smoke.sh"
 source "$repo_root/deploy/lib/schema_dump.sh"
 # shellcheck source=deploy/lib/compat_plan.sh
 source "$repo_root/deploy/lib/compat_plan.sh"
+# shellcheck source=deploy/lib/contract_allowance.sh
+source "$repo_root/deploy/lib/contract_allowance.sh"
+contract_root="$repo_root/deploy/migration-test/contract"
 db_image=$(smoke_db_image "$repo_root")
 
 suffix=$(smoke_random_hex 6)
@@ -61,6 +64,14 @@ keys_volume="bf-compat-keys-$suffix"
 workdir=$(mktemp -d)
 checks_file="$workdir/checks.tsv"
 : >"$checks_file"
+# Contract allowances that apply to this run: every directive of every pending allowance, one per line, then the
+# verify results. contract-used.tsv holds "migration<TAB>dropped columns<TAB>rewritten tables" (comma-separated lists).
+directives_file="$workdir/contract-directives.tsv"
+contract_used_file="$workdir/contract-used.tsv"
+contract_verify_file="$workdir/contract-verify.tsv"
+: >"$directives_file"
+: >"$contract_used_file"
+: >"$contract_verify_file"
 
 # Report state. Defaults describe a run that stopped before the step that sets them.
 classification=""
@@ -71,6 +82,7 @@ forward_ok=0
 runtime_result="skip"
 runtime_detail="no runtime image given"
 subnet=""
+contract_snapshot_taken=0
 
 # Secrets are exported and passed by name only, so they never appear in argv or this script's output.
 export POSTGRES_PASSWORD
@@ -98,12 +110,28 @@ write_report() {
   [[ $forward_ok -eq 1 ]] && forward_json=true
   python3 -I -c '
 import json, sys
-out, checks_path, rebuild, target, runtime, digest, classification, pending, forward, rt_result, rt_detail = sys.argv[1:12]
+(out, checks_path, rebuild, target, runtime, digest, classification, pending, forward, rt_result, rt_detail,
+ used_path, verify_path) = sys.argv[1:14]
 checks = []
 with open(checks_path, encoding="utf-8") as fh:
     for line in fh:
         result, name, detail = line.rstrip("\n").split("\t", 2)
         checks.append({"name": name, "result": result, "detail": detail})
+verify = {}
+with open(verify_path, encoding="utf-8") as fh:
+    for line in fh:
+        migration, rows, result = line.rstrip("\n").split("\t")
+        verify[migration] = {"rows": None if rows == "-" else int(rows), "result": result}
+allowances = []
+with open(used_path, encoding="utf-8") as fh:
+    for line in fh:
+        migration, dropped, rewritten = line.rstrip("\n").split("\t")
+        allowances.append({
+            "migration": migration,
+            "dropped_columns": [item for item in dropped.split(",") if item],
+            "rewritten_tables": [item for item in rewritten.split(",") if item],
+            "verify": verify.get(migration, {"rows": None, "result": "not run"}),
+        })
 report = {
     "schema_version": 1,
     "rebuild_image": rebuild,
@@ -113,6 +141,7 @@ report = {
     "classification": classification or None,
     "pending": [item for item in pending.split(",") if item],
     "checks": checks,
+    "contract_allowances": allowances,
     "forward_ok": forward == "true",
     "runtime_smoke": {"result": rt_result, "detail": rt_detail},
 }
@@ -120,7 +149,8 @@ with open(out, "w", encoding="utf-8") as fh:
     json.dump(report, fh, ensure_ascii=False, indent=2)
     fh.write("\n")
 ' "$report_out" "$checks_file" "$rebuild_image" "$target_image" "$runtime_image" "$applied_digest" \
-    "$classification" "$pending_csv" "$forward_json" "$runtime_result" "$runtime_detail"
+    "$classification" "$pending_csv" "$forward_json" "$runtime_result" "$runtime_detail" \
+    "$contract_used_file" "$contract_verify_file"
 }
 
 on_exit() {
@@ -267,6 +297,87 @@ check_manifests() {
   fi
 }
 
+# Step 1b: reviewed contract allowances. Only a migration that is pending in this run can use its allowance; any other
+# directory is recorded as INFO and ignored. A malformed allowance stops the run before any database work.
+load_contract_allowances() {
+  local id dir allow_out drops rewrites
+  while IFS= read -r id; do
+    [[ -n $id ]] || continue
+    dir="$contract_root/$id"
+    if ! contract_allowance_is_pending "$id" "$pending_csv"; then
+      record info "contract allowance $id" "migration is not pending in this run; ignored"
+      continue
+    fi
+    [[ -f $dir/allow.tsv ]] || fatal "contract allowance valid" "$id has no allow.tsv"
+    [[ -f $dir/verify.sql ]] || fatal "contract allowance valid" "$id has no verify.sql"
+    if ! allow_out=$(contract_allowance_parse "$dir/allow.tsv" 2>"$workdir/allow-error.txt"); then
+      fatal "contract allowance valid" "$id: $(cat "$workdir/allow-error.txt")"
+    fi
+    if [[ -n $allow_out ]]; then
+      printf '%s\n' "$allow_out" >>"$directives_file"
+    fi
+    drops=$(awk -F'\t' '$1 == "drop-column" { print $2 "." $3 }' <<<"$allow_out" | paste -sd, - || true)
+    rewrites=$(awk -F'\t' '$1 == "rewrite" { print $2 }' <<<"$allow_out" | paste -sd, - || true)
+    printf '%s\t%s\t%s\n' "$id" "$drops" "$rewrites" >>"$contract_used_file"
+    record pass "contract allowance $id" "drop-column: ${drops:-none}; rewrite: ${rewrites:-none}"
+  done < <(contract_allowance_ids "$contract_root")
+}
+
+# Before the upgrade: a copy of every rewrite table in compat_before, so verify.sql can compare the rows afterwards.
+# drop_contract_scratch removes the copies before any schema comparison.
+snapshot_contract_tables() {
+  local table sql=""
+  local -a tables=()
+  mapfile -t tables < <(awk -F'\t' '$1 == "rewrite" { print $2 }' "$directives_file" | LC_ALL=C sort -u)
+  if [[ ${#tables[@]} -eq 0 ]]; then
+    return 0
+  fi
+  for table in "${tables[@]}"; do
+    if ! awk -F'\t' -v t="$table" '$1 == t { found = 1 } END { exit !found }' "$workdir/columns-before.tsv"; then
+      fatal "contract snapshot" "rewrite table $table does not exist before the upgrade"
+    fi
+    sql+="CREATE TABLE compat_before.\"$table\" AS TABLE public.\"$table\";"$'\n'
+  done
+  if ! db_query book_finder "DROP SCHEMA IF EXISTS compat_before CASCADE; CREATE SCHEMA compat_before; $sql" >/dev/null; then
+    fatal "contract snapshot" "could not copy the rewrite tables into compat_before"
+  fi
+  contract_snapshot_taken=1
+  record pass "contract snapshot" "compat_before: ${tables[*]}"
+}
+
+# After the upgrade: every applicable verify.sql must return zero rows. Non-fatal, so the data and schema checks still run.
+check_contract_verify() {
+  local id _drops _rewrites out rows result
+  while IFS=$'\t' read -r id _drops _rewrites; do
+    if ! out=$(db_sql book_finder <"$contract_root/$id/verify.sql" 2>&1); then
+      record fail "contract verify $id" "verify.sql did not run: $(head -n 3 <<<"$out" | paste -sd' ' -)"
+      printf '%s\t-\tfail\n' "$id" >>"$contract_verify_file"
+      continue
+    fi
+    rows=$(grep -c . <<<"$out" || true)
+    result=$(contract_verify_verdict "$rows")
+    if [[ $result == pass ]]; then
+      record pass "contract verify $id" "verify.sql returned 0 rows"
+    else
+      record fail "contract verify $id" "verify.sql returned $rows row(s); first: $(head -n 5 <<<"$out" | paste -sd';' -)"
+    fi
+    printf '%s\t%s\t%s\n' "$id" "$rows" "$result" >>"$contract_verify_file"
+  done <"$contract_used_file"
+}
+
+# Runs after the data check whether or not it passed, and before the schema comparison, so compat_before never reaches
+# the schema dump or the fingerprints.
+drop_contract_scratch() {
+  if [[ $contract_snapshot_taken -ne 1 ]]; then
+    return 0
+  fi
+  if db_query book_finder 'DROP SCHEMA IF EXISTS compat_before CASCADE' >/dev/null; then
+    record pass "contract scratch removed" "compat_before dropped before the schema comparison"
+  else
+    record fail "contract scratch removed" "could not drop compat_before; the schema comparison would include it"
+  fi
+}
+
 # Step 2: database on the internal network.
 start_database() {
   [[ -n $db_image ]] || fatal "pgvector image found" "compose.yaml has no pgvector image line"
@@ -353,11 +464,14 @@ upgrade_to_target() {
 
 # Step 7: rows, tables and columns that existed before the upgrade must still exist with the same values. Non-fatal so
 # the forward smoke still runs and the report shows every problem at once.
-# Note: a contract migration that drops data will need an explicit, reviewed allowance here. Not implemented yet.
+# Contract allowances (deploy/lib/contract_allowance.sh) relax the rule only for the directives they name:
+#   drop-column: the column may be missing. The table's other columns are still compared, and its row count must match.
+#   rewrite: the table must still exist. Its rows and columns are not compared; contract verify checks them instead.
 check_data_preserved() {
-  local table column kind n h after_n after_h key
-  local -a problems=()
-  local -A after_tables=() after_cols=() skip_table=() missing_cols=() after_fp=()
+  local table column kind n h after_n after_h key problem detail
+  local -a problems=() dropped_ok=()
+  local -A after_tables=() after_cols=() skip_table=() missing_cols=() after_fp=() rewrite=() has_dropped=() allowed_drop=()
+  local pre_tables=0 pre_columns=0
 
   if [[ ! -s $workdir/columns-before.tsv ]]; then
     record pass "data preserved" "no pre-existing tables"
@@ -371,23 +485,38 @@ check_data_preserved() {
     after_tables[$table]=1
     after_cols[$table.$column]=1
   done <"$workdir/columns-after.tsv"
+  while IFS=$'\t' read -r kind table column; do
+    case $kind in
+      drop-column) allowed_drop[$table.$column]=1 ;;
+      rewrite) rewrite[$table]=1 ;;
+    esac
+  done <"$directives_file"
+  while IFS= read -r problem; do
+    if [[ -n $problem ]]; then
+      problems+=("$problem")
+    fi
+  done < <(contract_drop_problems "$directives_file" "$workdir/columns-before.tsv" "$workdir/columns-after.tsv")
 
   : >"$workdir/columns-present.tsv"
-  local pre_tables=0 pre_columns=0
+  pre_tables=$(cut -f1 "$workdir/columns-before.tsv" | sort -u | wc -l | tr -d ' ')
   while IFS=$'\t' read -r table column; do
     pre_columns=$((pre_columns + 1))
     if [[ -z ${after_tables[$table]+x} ]]; then
       skip_table[$table]=1
       problems+=("table $table was dropped")
     elif [[ -z ${after_cols[$table.$column]+x} ]]; then
-      skip_table[$table]=1
       missing_cols[$table.$column]=1
-      problems+=("column $table.$column was dropped")
-    else
+      if [[ -n ${allowed_drop[$table.$column]+x} ]]; then
+        dropped_ok+=("$table.$column")
+        has_dropped[$table]=1
+      else
+        skip_table[$table]=1
+        problems+=("column $table.$column was dropped")
+      fi
+    elif [[ -z ${rewrite[$table]+x} ]]; then
       printf '%s\t%s\n' "$table" "$column" >>"$workdir/columns-present.tsv"
     fi
   done <"$workdir/columns-before.tsv"
-  pre_tables=$(cut -f1 "$workdir/columns-before.tsv" | sort -u | wc -l | tr -d ' ')
 
   if [[ -s $workdir/columns-present.tsv ]]; then
     fingerprint_sql "$workdir/columns-present.tsv" >"$workdir/fingerprint-after.sql"
@@ -404,6 +533,9 @@ check_data_preserved() {
 
   while IFS=$'\t' read -r kind table column n h; do
     key="$kind|$table|$column"
+    if [[ -n ${rewrite[$table]+x} ]]; then
+      continue
+    fi
     if [[ $kind == row && -n ${skip_table[$table]+x} ]]; then
       continue
     fi
@@ -412,6 +544,13 @@ check_data_preserved() {
     fi
     if [[ -z ${after_fp[$key]+x} ]]; then
       problems+=("$key is missing after the upgrade")
+      continue
+    fi
+    if [[ $kind == row && -n ${has_dropped[$table]+x} ]]; then
+      after_n=${after_fp[$key]%%|*}
+      if [[ $after_n != "$n" ]]; then
+        problems+=("table $table row count changed from $n to $after_n")
+      fi
       continue
     fi
     if [[ ${after_fp[$key]} != "$n|$h" ]]; then
@@ -430,7 +569,14 @@ check_data_preserved() {
   done <"$workdir/fingerprint-before.tsv"
 
   if [[ ${#problems[@]} -eq 0 ]]; then
-    record pass "data preserved" "$pre_tables table(s), $pre_columns column(s) unchanged"
+    detail="$pre_tables table(s), $pre_columns column(s) unchanged"
+    if [[ ${#dropped_ok[@]} -gt 0 ]]; then
+      detail+="; allowed drop-column: $(IFS=,; echo "${dropped_ok[*]}")"
+    fi
+    if [[ ${#rewrite[@]} -gt 0 ]]; then
+      detail+="; rewritten, checked by contract verify: $(printf '%s\n' "${!rewrite[@]}" | LC_ALL=C sort | paste -sd, -)"
+    fi
+    record pass "data preserved" "$detail"
   else
     record fail "data preserved" "$(IFS='; '; echo "${problems[*]}")"
   fi
@@ -621,10 +767,12 @@ check_runtime_smoke() {
 
 main() {
   check_manifests
+  load_contract_allowances
   start_database
   rebuild_applied
   load_seed
   fingerprint_before
+  snapshot_contract_tables
   record_plan_skips
   if [[ $classification == schema-ahead ]]; then
     # The target never touches the schema: it has to start on the newer database and leave the data and schema alone.
@@ -635,7 +783,9 @@ main() {
     check_schema_unchanged || true
   else
     upgrade_to_target
+    check_contract_verify || true
     check_data_preserved || true
+    drop_contract_scratch || true
     check_schema_matches_fresh || true
     check_forward_smoke
   fi

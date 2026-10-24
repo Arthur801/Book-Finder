@@ -1,0 +1,8 @@
+# Reviewed allowance for 20261025120000_ContractMultiSourceCatalog (Docs/data/data-model.md 11.3, gate 7).
+# Only the data the contract step changes on purpose:
+# - source_type is removed from book_sources and book_subjects; source_code keeps every value (gates 4 and 5).
+# - book_identifiers is rewritten: ISBN_10 and ISBN_13 become ISBN, duplicates of one Book's value collapse,
+#   OTHER is kept. verify.sql checks each of those rules against the copy taken before the upgrade.
+drop-column	book_sources	source_type
+drop-column	book_subjects	source_type
+rewrite	book_identifiers
