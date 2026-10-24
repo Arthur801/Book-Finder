@@ -598,7 +598,7 @@ NFKC 與 White_Space 都固定在 **Unicode 15.1**，與 runtime 內建的 Unico
 ```
 
 - 無 ISBN 時（或正規化後沒有任何值），不得只因 title / author 相似就自動跨來源 merge，直接建立新 Book。
-- 舊的 `ISBN_13` 資料與新 draft 的 `ISBN` 值相同時，對到同一本 Book（步驟 2 同時查三種類型）。
+- 舊的 `ISBN_13` 資料與新 draft 的 `ISBN` 值相同時，對到同一本 Book（010 期間步驟 2 同時查三種類型；011 已把舊資料轉成 `ISBN`，之後只查 `ISBN` 也得到同一結果）。
 
 ### 7.3 Source identity 衝突與 URL 漂移
 
