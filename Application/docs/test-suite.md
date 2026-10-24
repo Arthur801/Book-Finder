@@ -215,3 +215,11 @@ Auth的Google登入/email驗證/忘記密碼/個資修改/refresh token依identi
 - **Given**：同值的 `ISBN` 與 `ISBN_13`、同值的 `ISBN_13` 與 `ISBN_10`，不同值的三種類型，`javascript:` 與 `https` 的 KINGSTONE 來源，Google Books 與博客來來源。
 - **When**：`BookDetailViewModel.From`。
 - **Then**：同值只顯示優先度最高的標籤（ISBN > ISBN-13 > ISBN-10）；不同值全部顯示；OTHER 不出現；有博客來時第一筆為主要按鈕，其餘博客來為次要，其他 provider 依來源順序並以 `ProviderDisplayName` 命名；沒有博客來時第一個合格來源（任一 provider）為主要按鈕。本次 `dotnet test` UnitTests 通過。
+
+### APP-T23 — 寫入端 NFKC 與 Unicode 15.1 一致性
+
+風險 L2；`aa792bf` 已實作。來源：[NormalizationConformanceTests](../../tests/UnitTests/NormalizationConformanceTests.cs)、[Unicode151AssignedTests](../../tests/UnitTests/Unicode151AssignedTests.cs)、[IsbnNormalizerTests](../../tests/UnitTests/IsbnNormalizerTests.cs)。
+
+- **Given**：vendored NormalizationTest 15.1 的全部 c1→c4 對（trimmed 檔）；15.1 已指派與未指派的 code point（如 U+1CCF0 OUTLINED DIGIT ZERO 未指派）。
+- **When**：`IsbnNormalizer.ComposeCompatibility`；`EnsureRuntimeUnicodeSupported`。
+- **Then**：所有 c1 的 NFKC 等於 c4；未指派 code point 原樣保留並分段；runtime 的 Unicode 資料至少 15.0。本次 UnitTests 826 項通過。

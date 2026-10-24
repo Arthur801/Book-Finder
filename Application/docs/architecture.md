@@ -16,7 +16,7 @@ Application-level policy 包含 [LibraryService.AddPendingAsync](../Library/Libr
 
 | 責任 | 主要介面/輸出 | Caller與callee |
 |---|---|---|
-| Catalog 寫入端 ISBN | [IsbnNormalizer](../Catalog/IsbnNormalizer.cs) | 純函式；NFKC＋明確 White_Space＋ASCII 大寫，與 crawler 共用 fixture；尚未接上 crawler（PR3） |
+| Catalog 寫入端 ISBN | [IsbnNormalizer](../Catalog/IsbnNormalizer.cs)、[Unicode151Assigned](../Catalog/Unicode151Assigned.cs) | 純函式；NFKC 只套用在 Unicode 15.1 已指派的連續區段（與 runtime 的 Unicode 版本無關，data-model 7.1），＋明確 White_Space＋ASCII 大寫，與 crawler 共用 fixture；`EnsureRuntimeUnicodeSupported` 於 Web 啟動時拒絕 15.0 以前的 runtime；尚未接上 crawler（PR3） |
 | Bestseller | [BestsellerService](../Bestsellers/BestsellerService.cs)、IBestsellerReader → snapshot | 後端保留；#109 後 Web 無呼叫者（`HomeTopCount`/`GetTopAsync` 刻意保留）→ cached EF reader |
 | Catalog | [BookSearchService](../Catalog/BookSearchService.cs)、IBookSearch、IBookDetailReader → page/detail | Search/Books controllers → EF/cache |
 | 書庫（Catalog browse） | [BookBrowseService](../Catalog/BookBrowseService.cs)、IBookBrowse → BookBrowsePage / 隨機樣本 | HomeController、BooksController（#109 M2）→ EF |

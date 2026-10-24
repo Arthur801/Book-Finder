@@ -184,3 +184,10 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter FullyQualifiedNa
 - **When**：Detail 頁與 ISBN、關鍵字搜尋；把 GOOGLE_BOOKS 設為 `enabled=false` 後再開 Detail。
 - **Then**：同值只顯示 `ISBN`；不同值全部顯示；`ABC123` 走關鍵字而不命中 ISBN 類型；disabled provider 既有的來源仍顯示，連結文字為 provider 顯示名稱。
 - **來源與狀態**：[BookDetailViewModelTests](../UnitTests/BookDetailViewModelTests.cs)（單元）、[BookDetailPageTests](../WebIntegration/BookDetailPageTests.cs)、[SearchPageTests](../WebIntegration/SearchPageTests.cs)（WebIntegration）。本次 `dotnet test` 通過。
+
+### TEST-19：NFKC 與 Unicode 15.1 一致性、detail 的 ISBN 順序
+
+- **Given**：vendored NormalizationTest 15.1 的 c1→c4 對；fixture 的未指派 OUTLINED DIGIT 與分段 vector；一本含三種 ISBN 類型與 OTHER 的書。
+- **When**：`NormalizationConformanceTests` 與 `IsbnNormalizerTests`；`EfBookDetailReaderTests` 讀 Detail。
+- **Then**：NFKC 與 15.1 一致；未指派 code point 不被正規化；reader 依 ISBN、ISBN_13、ISBN_10 排序，OTHER 不出現。
+- **來源與狀態**：[NormalizationConformanceTests](../UnitTests/NormalizationConformanceTests.cs)、[Unicode151AssignedTests](../UnitTests/Unicode151AssignedTests.cs)、[EfBookDetailReaderTests](../DatabaseIntegration/EfBookDetailReaderTests.cs)。本次 `dotnet test` UnitTests 826、DatabaseIntegration 123 通過。
