@@ -521,6 +521,8 @@ sudo systemctl disable <SYSTEMD_UNIT>
 - **通過條件**：每一列的 `ok` 都必須是 `true`。標示 `(must be 0)` 的列，`value` 必須為 0；標示 `INFO` 的列恆為 `true`，只供記錄，不算失敗（gate 7 的「不同 Book 有相同 ISBN」）。任一列為 `false` 就不要部署 011，回到 data-model §11.3 與 migration 的 guard。
 - 這個腳本在 011 之後執行會失敗（`source_type` 已不存在），這是預期行為，不是錯誤。
 - 把輸出貼到部署紀錄（issue 或 CD summary），作為 gate 7 的證據。
+- **部署後比對（gate 7「預估的 row 數與 migration 後實際的 row 數一致」）**：011 部署成功後執行 `SELECT count(*) FROM book_identifiers;`，結果必須等於 preflight 的 `estimated book_identifiers rows after` 列；另執行 `SELECT count(*) FROM book_identifiers WHERE identifier_type = 'ISBN';`，必須等於 `estimated ISBN rows after`。不一致時記錄兩個數字並停止後續操作，回到 data-model §11.3。
+- `estimated ISBN rows after` 與 `expected rows removed by ON CONFLICT` 兩列以 DISTINCT 與差值計算，「每個 `(book_id, 'ISBN', value)` 最多一筆」與「消失的只能是同一本 Book、同一個值」在計算上必然成立，因此標為 INFO；真正的檢查是上面的部署後比對。
 
 
 ### 4.5 Gate 9：上一個 release 在 011 上的相容性（本機）

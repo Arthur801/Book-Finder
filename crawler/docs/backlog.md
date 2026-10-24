@@ -53,7 +53,6 @@
 
 - P2；L3；狀態：完成（PR4 M2，`f92a63d`；依賴 migration 011，M1 `5052361`）。
 - 已實作：`IdentifierType` 只剩 `ISBN`，`find_books_by_isbn` 只查 `identifier_type = 'ISBN'`（[data-model §7.2](../../Docs/data/data-model.md)）；R1 正規化、0／1／≥2 判斷、補 NULL、identity 與 touch 不變。
-- 目標：011 之後 crawler 刪除 `ISBN_10`／`ISBN_13`，distinct 查詢只用 `identifier_type = 'ISBN'`（[data-model §7.2](../../Docs/data/data-model.md)）。
 - 前置：011 gate 全部通過（[data-model §11.3](../../Docs/data/data-model.md)），包括 PR3 crawler 在 011 上的相容性測試。
 - 驗收：PR4 的 crawler 測試只建立與查詢 `ISBN`（`test_db_integration.py`、`test_normalize.py`）；PR3 crawler 在 011 schema 上的 DB 測試（Existing Source touch、ISBN 查詢、新 Source、Bestseller 替換）以 pytest 執行通過。§11.3 gate 的實際執行證據與 seed 不屬本項。
 

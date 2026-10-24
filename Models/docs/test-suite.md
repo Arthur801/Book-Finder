@@ -58,7 +58,7 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter 'FullyQualifiedN
 - Given：亂序 ContributorName，Author／Translator／Other；BookDetail 有 ISBN13／10、空白 subjects、空欄、合法來源及 unsafe URL。
 - When：GroupByRole；透過 BookDetailPageTests fixture GET /books/{id}。
 - Then：依 Order 與角色首次出現順序，標籤六角色對應；未知 role 擲 ArgumentOutOfRangeException；來源只留 http(s)，博客來首筆主按鈕，無博客來改第一個合格來源（任一 provider）；空欄略過、簡介／目錄不出現。OTHER identifier 在 view model 被過濾、不顯示（不再拋例外）。
-- 來源：[ContributorDisplayTests](../../tests/UnitTests/ContributorDisplayTests.cs)、[BookDetailPageTests](../../tests/WebIntegration/BookDetailPageTests.cs)；ISBN 去重與主連結細節見 M-T05b。
+- 來源：[ContributorDisplayTests](../../tests/UnitTests/ContributorDisplayTests.cs)、[BookDetailPageTests](../../tests/WebIntegration/BookDetailPageTests.cs)；ISBN 只顯示 `ISBN` 類型並依值排序（PR4 M1 起不再去重），見 `BookDetailViewModelTests.Isbn_values_are_all_shown_as_isbn_ordered_by_value`。
 
 ### M-T06：Library 三態與跨使用者隔離（L3；已有測試，本次未執行）
 
