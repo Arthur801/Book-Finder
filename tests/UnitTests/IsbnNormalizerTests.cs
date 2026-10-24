@@ -40,5 +40,9 @@ public class IsbnNormalizerTests
         Assert.Empty(missing.Select(cp => $"U+{cp:X4}"));
     }
 
+    // The NFKC step must not depend on the runtime's Unicode version: the guard fails fast on a runtime older than 15.0.
+    [Fact]
+    public void Runtime_unicode_data_passes_the_startup_guard() => IsbnNormalizer.EnsureRuntimeUnicodeSupported();
+
     private static string Escape(string value) => string.Concat(value.Select(c => c < 0x20 || c > 0x7e ? $"\\u{(int)c:X4}" : c.ToString()));
 }

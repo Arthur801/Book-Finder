@@ -1,0 +1,5 @@
+Source: https://www.unicode.org/Public/15.1.0/ucd/ (DerivedAge.txt, NormalizationTest.txt), downloaded 2026-10-25.
+DerivedAge.txt and NormalizationTest.txt are unmodified copies of the Unicode files and keep their license header.
+Copyright © Unicode, Inc. Use is subject to https://www.unicode.org/terms_of_use.html.
+NormalizationTest-NFKC.txt is derived from NormalizationTest.txt (columns c1 and c4 only) by .github/scripts/unicode_tables.py.
+Unicode 15.1 generated tables: Application/Catalog/Unicode151Assigned.cs and crawler/books_crawler/unicode_15_1.py.
