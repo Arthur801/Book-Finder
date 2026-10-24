@@ -180,3 +180,4 @@ Git 歷史不證明 runtime 或 CI 已通過。
 | 2026-10-25 | `d9d8948` | feat(catalog): read ISBN, ISBN-13 and ISBN-10 and provider names on detail | `tests/UnitTests/BookDetailViewModelTests.cs`（新增）、`tests/WebIntegration/BookDetailPageTests.cs`（三種類型、去重、disabled provider）、`tests/WebIntegration/SearchPageTests.cs`（ISBN 類型、ABC123） |
 | 2026-10-25 | `df57cbf` | test(db): assert last_seen_at-only UPDATE passes the 010 trigger | `tests/DatabaseIntegration/MultiSourceCatalogSchemaTests.cs`（last_seen_at-only UPDATE 案例） |
 | 2026-10-25 | `bbe0a0a` | refactor(catalog): share ISBN-family types and display priority | `tests/DatabaseIntegration/MultiSourceCatalogSchemaTests.cs`（新增 `Physical_constraints_match_the_expand_contract`，檢查 NOT NULL、check、RESTRICT／CASCADE FK、identifier 值） |
+| 2026-10-25 | `0d3e28f` | test(recommendation): field-sensitive stale detection after a NULL fill | 新增 tests/DatabaseIntegration/EfStaleDetectionTests.cs（TEST-19；plan §4 #15，9 組 §7.4 補值 theory） |

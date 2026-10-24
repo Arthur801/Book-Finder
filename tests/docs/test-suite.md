@@ -184,3 +184,10 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter FullyQualifiedNa
 - **When**：Detail 頁與 ISBN、關鍵字搜尋；把 GOOGLE_BOOKS 設為 `enabled=false` 後再開 Detail。
 - **Then**：同值只顯示 `ISBN`；不同值全部顯示；`ABC123` 走關鍵字而不命中 ISBN 類型；disabled provider 既有的來源仍顯示，連結文字為 provider 顯示名稱。
 - **來源與狀態**：[BookDetailViewModelTests](../UnitTests/BookDetailViewModelTests.cs)（單元）、[BookDetailPageTests](../WebIntegration/BookDetailPageTests.cs)、[SearchPageTests](../WebIntegration/SearchPageTests.cs)（WebIntegration）。本次 `dotnet test` 通過。
+
+### TEST-19：NULL fill 後的 stale 偵測依欄位而定
+
+- **Given**：一本書已有與目前 metadata 相符的 embedding hash 與 profile hash（拋棄式 pgvector container，EF schema 已 migrate 到 head）。
+- **When**：以 SQL 套用 crawler 會做的 §7.4 補值，逐一測試：AUTHOR、subject、description、publisher、table_of_contents、published_date（含精度）、page_count、thumbnail_url、ISBN identifier。
+- **Then**：AUTHOR、subject、description 讓 embedding FindPending 與 profile FindStale 都判定 stale；publisher、table_of_contents 只讓 profile stale；其餘三種 books 欄位與 ISBN identifier 兩者都不 stale。
+- **來源與狀態**：[EfStaleDetectionTests](../DatabaseIntegration/EfStaleDetectionTests.cs)（DatabaseIntegration，9 組 theory）；plan §4 #15。crawler 端的補值與附加由 [crawler/docs/test-suite.md](../../crawler/docs/test-suite.md) 的 Phase B 覆蓋表交叉參照。
