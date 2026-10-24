@@ -1,0 +1,371 @@
+{
+  "description": "Cross-language ISBN normalization protocol fixture (Docs/data/data-model.md 7.1). Shared by the C# unit tests and the crawler pytest; every expected value must match byte-for-byte. Unicode 15.1 NFKC and White_Space. Strings use explicit \\uXXXX escapes.",
+  "unicode_version": "15.1",
+  "vectors": [
+    {
+      "name": "white_space U+0009 removed between digits",
+      "input": "9\t7",
+      "expected": "97"
+    },
+    {
+      "name": "white_space U+0009 alone yields empty",
+      "input": "\t",
+      "expected": ""
+    },
+    {
+      "name": "white_space U+000A removed between digits",
+      "input": "9\n7",
+      "expected": "97"
+    },
+    {
+      "name": "white_space U+000A alone yields empty",
+      "input": "\n",
+      "expected": ""
+    },
+    {
+      "name": "white_space U+000B removed between digits",
+      "input": "9\u000b7",
+      "expected": "97"
+    },
+    {
+      "name": "white_space U+000B alone yields empty",
+      "input": "\u000b",
+      "expected": ""
+    },
+    {
+      "name": "white_space U+000C removed between digits",
+      "input": "9\f7",
+      "expected": "97"
+    },
+    {
+      "name": "white_space U+000C alone yields empty",
+      "input": "\f",
+      "expected": ""
+    },
+    {
+      "name": "white_space U+000D removed between digits",
+      "input": "9\r7",
+      "expected": "97"
+    },
+    {
+      "name": "white_space U+000D alone yields empty",
+      "input": "\r",
+      "expected": ""
+    },
+    {
+      "name": "white_space U+0020 removed between digits",
+      "input": "9 7",
+      "expected": "97"
+    },
+    {
+      "name": "white_space U+0020 alone yields empty",
+      "input": " ",
+      "expected": ""
+    },
+    {
+      "name": "white_space U+0085 removed between digits",
+      "input": "9\u00857",
+      "expected": "97"
+    },
+    {
+      "name": "white_space U+0085 alone yields empty",
+      "input": "\u0085",
+      "expected": ""
+    },
+    {
+      "name": "white_space U+00A0 removed between digits",
+      "input": "9\u00a07",
+      "expected": "97"
+    },
+    {
+      "name": "white_space U+00A0 alone yields empty",
+      "input": "\u00a0",
+      "expected": ""
+    },
+    {
+      "name": "white_space U+1680 removed between digits",
+      "input": "9\u16807",
+      "expected": "97"
+    },
+    {
+      "name": "white_space U+1680 alone yields empty",
+      "input": "\u1680",
+      "expected": ""
+    },
+    {
+      "name": "white_space U+2000 removed between digits",
+      "input": "9\u20007",
+      "expected": "97"
+    },
+    {
+      "name": "white_space U+2000 alone yields empty",
+      "input": "\u2000",
+      "expected": ""
+    },
+    {
+      "name": "white_space U+2001 removed between digits",
+      "input": "9\u20017",
+      "expected": "97"
+    },
+    {
+      "name": "white_space U+2001 alone yields empty",
+      "input": "\u2001",
+      "expected": ""
+    },
+    {
+      "name": "white_space U+2002 removed between digits",
+      "input": "9\u20027",
+      "expected": "97"
+    },
+    {
+      "name": "white_space U+2002 alone yields empty",
+      "input": "\u2002",
+      "expected": ""
+    },
+    {
+      "name": "white_space U+2003 removed between digits",
+      "input": "9\u20037",
+      "expected": "97"
+    },
+    {
+      "name": "white_space U+2003 alone yields empty",
+      "input": "\u2003",
+      "expected": ""
+    },
+    {
+      "name": "white_space U+2004 removed between digits",
+      "input": "9\u20047",
+      "expected": "97"
+    },
+    {
+      "name": "white_space U+2004 alone yields empty",
+      "input": "\u2004",
+      "expected": ""
+    },
+    {
+      "name": "white_space U+2005 removed between digits",
+      "input": "9\u20057",
+      "expected": "97"
+    },
+    {
+      "name": "white_space U+2005 alone yields empty",
+      "input": "\u2005",
+      "expected": ""
+    },
+    {
+      "name": "white_space U+2006 removed between digits",
+      "input": "9\u20067",
+      "expected": "97"
+    },
+    {
+      "name": "white_space U+2006 alone yields empty",
+      "input": "\u2006",
+      "expected": ""
+    },
+    {
+      "name": "white_space U+2007 removed between digits",
+      "input": "9\u20077",
+      "expected": "97"
+    },
+    {
+      "name": "white_space U+2007 alone yields empty",
+      "input": "\u2007",
+      "expected": ""
+    },
+    {
+      "name": "white_space U+2008 removed between digits",
+      "input": "9\u20087",
+      "expected": "97"
+    },
+    {
+      "name": "white_space U+2008 alone yields empty",
+      "input": "\u2008",
+      "expected": ""
+    },
+    {
+      "name": "white_space U+2009 removed between digits",
+      "input": "9\u20097",
+      "expected": "97"
+    },
+    {
+      "name": "white_space U+2009 alone yields empty",
+      "input": "\u2009",
+      "expected": ""
+    },
+    {
+      "name": "white_space U+200A removed between digits",
+      "input": "9\u200a7",
+      "expected": "97"
+    },
+    {
+      "name": "white_space U+200A alone yields empty",
+      "input": "\u200a",
+      "expected": ""
+    },
+    {
+      "name": "white_space U+2028 removed between digits",
+      "input": "9\u20287",
+      "expected": "97"
+    },
+    {
+      "name": "white_space U+2028 alone yields empty",
+      "input": "\u2028",
+      "expected": ""
+    },
+    {
+      "name": "white_space U+2029 removed between digits",
+      "input": "9\u20297",
+      "expected": "97"
+    },
+    {
+      "name": "white_space U+2029 alone yields empty",
+      "input": "\u2029",
+      "expected": ""
+    },
+    {
+      "name": "white_space U+202F removed between digits",
+      "input": "9\u202f7",
+      "expected": "97"
+    },
+    {
+      "name": "white_space U+202F alone yields empty",
+      "input": "\u202f",
+      "expected": ""
+    },
+    {
+      "name": "white_space U+205F removed between digits",
+      "input": "9\u205f7",
+      "expected": "97"
+    },
+    {
+      "name": "white_space U+205F alone yields empty",
+      "input": "\u205f",
+      "expected": ""
+    },
+    {
+      "name": "white_space U+3000 removed between digits",
+      "input": "9\u30007",
+      "expected": "97"
+    },
+    {
+      "name": "white_space U+3000 alone yields empty",
+      "input": "\u3000",
+      "expected": ""
+    },
+    {
+      "name": "kept U+001C",
+      "input": "1\u001c2",
+      "expected": "1\u001c2"
+    },
+    {
+      "name": "kept U+001D",
+      "input": "1\u001d2",
+      "expected": "1\u001d2"
+    },
+    {
+      "name": "kept U+001E",
+      "input": "1\u001e2",
+      "expected": "1\u001e2"
+    },
+    {
+      "name": "kept U+001F",
+      "input": "1\u001f2",
+      "expected": "1\u001f2"
+    },
+    {
+      "name": "kept U+180E",
+      "input": "1\u180e2",
+      "expected": "1\u180e2"
+    },
+    {
+      "name": "kept U+200B",
+      "input": "1\u200b2",
+      "expected": "1\u200b2"
+    },
+    {
+      "name": "kept U+2010",
+      "input": "1\u20102",
+      "expected": "1\u20102"
+    },
+    {
+      "name": "kept U+2013",
+      "input": "1\u20132",
+      "expected": "1\u20132"
+    },
+    {
+      "name": "full-width digits and full-width X",
+      "input": "\uff10\uff11\uff12\uff13\uff14\uff15\uff16\uff17\uff18\uff19\uff38",
+      "expected": "0123456789X"
+    },
+    {
+      "name": "full-width hyphen-minus U+FF0D removed after NFKC",
+      "input": "978\uff0d7\uff0d111",
+      "expected": "9787111"
+    },
+    {
+      "name": "hyphens inside ISBN removed",
+      "input": "978-7-111-12345-6",
+      "expected": "9787111123456"
+    },
+    {
+      "name": "spaces and hyphens mixed",
+      "input": "978-7-111 -12345-6",
+      "expected": "9787111123456"
+    },
+    {
+      "name": "lowercase x uppercased",
+      "input": "155860832x",
+      "expected": "155860832X"
+    },
+    {
+      "name": "ASCII-only uppercase after NFKC (ligature \ufb01)",
+      "input": "\ufb01",
+      "expected": "FI"
+    },
+    {
+      "name": "non-ASCII letter not uppercased",
+      "input": "\u00e9x",
+      "expected": "\u00e9X"
+    },
+    {
+      "name": "sharp s not uppercased",
+      "input": "\u00df",
+      "expected": "\u00df"
+    },
+    {
+      "name": "combining sequence composed by NFKC",
+      "input": "e\u0301",
+      "expected": "\u00e9"
+    },
+    {
+      "name": "U+2011 NON-BREAKING HYPHEN is NFKC to U+2010 and kept",
+      "input": "\u2011",
+      "expected": "\u2010"
+    },
+    {
+      "name": "en dash U+2013 kept",
+      "input": "978\u20137",
+      "expected": "978\u20137"
+    },
+    {
+      "name": "empty input",
+      "input": "",
+      "expected": ""
+    },
+    {
+      "name": "only hyphens and spaces normalizes to empty",
+      "input": "- \u3000-",
+      "expected": ""
+    },
+    {
+      "name": "isbn-13 with full-width mix",
+      "input": "\uff19\uff17\uff18-0\u3000132\uff0d350884",
+      "expected": "9780132350884"
+    },
+    {
+      "name": "ascii isbn-10 unchanged",
+      "input": "0132350882",
+      "expected": "0132350882"
+    }
+  ]
+}
