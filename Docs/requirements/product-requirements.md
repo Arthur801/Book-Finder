@@ -23,7 +23,7 @@
 
 | MVP | 延後 | 本版不做 |
 |---|---|---|
-| 博客來中文書 7 日暢銷總榜 TOP 100 每日爬取（Crawler implementation 保留；production execution 目前因來源阻擋而停用（2026-10-24））| 博客來各分類 TOP 100（分類 7 日榜僅用於補充 Catalog 的新書，不作為分類 Bestseller 榜單、不保存分類排名，見 `crawler.md` §16） | 歷史榜單、排名趨勢 |
+| 博客來中文書 7 日暢銷總榜 TOP 100 每日爬取（Crawler implementation 保留；production execution 目前因來源阻擋而停用（2026-10-24））| 博客來各分類 TOP 100（分類 7 日榜僅用於補充 Catalog 的新書，不作為分類 Bestseller 榜單、不保存分類排名，見 `crawler.md` §15） | 歷史榜單、排名趨勢 |
 | 書庫瀏覽 | AI 搜尋紀錄刪除 | 書籍評論 |
 | 一般書籍搜尋 | Google 帳號註冊 / 登入 | 其他書商、圖書館爬蟲 |
 | Book 詳細頁與外部連結 | Email 驗證帳號 | 各書商比價 |
@@ -42,10 +42,10 @@
 ### 3.1 博客來暢銷榜爬取（CRAWL）
 
 - **CRAWL-01** 每日一次，取得博客來中文書 7 日暢銷總榜 TOP 100 的排名與商品網址。
-- **CRAWL-02** 以博客來商品網址判斷 Book 是否已存在。
-- **CRAWL-03** 只有不存在的 Book 才抓取博客來詳細頁資料；已存在的 Book 不因每日爬取而更新 metadata。
-- **CRAWL-04** 限制級會員登入頁直接跳過，不重試、不算錯誤；其他新書詳細資料抓取失敗時重試，仍失敗則該書在本次榜單中被跳過，保留其他書的原始排名。
-- **CRAWL-05** 完整處理榜單且有跳過時視為部分成功並替換；累計一般錯誤無上限。按排名連續一般錯誤超過 20 本時立即失敗，保留上一份榜單；成功、重用既有書籍或限制級跳過會重設計數。排行榜本身無法完整解析仍整次失敗。
+- **CRAWL-02** 以來源 identity（博客來為商品網址；有 `external_id` 的來源另比對 `external_id`）判斷 **Book Source** 是否已存在。Source 不存在時，再以 ISBN 決定要附加到既有 Book 還是建立新 Book（`data-model.md` §7.2）。
+- **CRAWL-03** Existing Source 不重抓詳細頁，也不因每次爬取而覆寫 Book metadata，只更新 `last_seen_at`。New Source 一定要抓詳細頁，即使最後依 ISBN 附加到既有 Book 也一樣。附加時只補 Book 中是 NULL 的欄位（`data-model.md` §7.4）。
+- **CRAWL-04** 限制級會員登入頁直接跳過，不重試、不算錯誤；其他 New Source 詳細資料抓取失敗時最多嘗試 3 次（含第一次），仍失敗則該排名在本次榜單中被跳過，保留其他書的原始排名。
+- **CRAWL-05** 完整處理榜單且有跳過時視為部分成功並替換；累計一般錯誤無上限。按排名連續一般錯誤超過 20 本時立即失敗，保留上一份榜單。連續計數只依每個排名的 RankingDecision 決定：`ADMITTED`（進入榜單，包括重用既有來源）和 `RESTRICTED_SKIP` 會重設計數；`DUPLICATE_BOOK`（榜內重複）和 `ERROR_SKIP` 會加 1（`crawler.md` §14.2～§14.3）。榜內重複時，Catalog 這一側照常寫入，只有該排名不進入榜單。排行榜本身無法完整解析仍整次失敗。
 - **CRAWL-06** 只保存最新一份 Bestseller。
 
 ### 3.2 暢銷榜瀏覽（BEST）
@@ -67,7 +67,7 @@
 ### 3.4 Book 詳細頁（BOOK）
 
 - **BOOK-01** 顯示 Book 的書名、副標題、作者與其他貢獻者、出版社、出版日期、ISBN、分類、頁數、封面。不顯示簡介與目錄（見 BOOK-05）。
-- **BOOK-02** 每個 Book Source 各提供一個外部連結；有博客來來源時，醒目顯示「在博客來查看完整介紹」，書籍的完整介紹由來源網站提供。只有 Google Books 來源的書則連到 Google Books。
+- **BOOK-02** 每個 Book Source 各提供一個外部連結，連結文字使用該來源提供者（Source Provider）的顯示名稱；有博客來來源時，醒目顯示「在博客來查看完整介紹」，書籍的完整介紹由來源網站提供。沒有博客來來源的書（例如只有 Google Books 來源）則以其第一個來源為主要連結。資料層可容納多家書商的來源，但其他書商的爬蟲與比價仍不在本版範圍（§2）。
 - **BOOK-03** 來源只提供年份或年月的出版日期，依實際精度顯示，不補成完整日期。
 - **BOOK-04** 已登入且該書在 Library 中時，顯示並可直接修改 Reading Status 與評分。
 - **BOOK-05** 書籍簡介與目錄（不論來源）只保存於本地資料庫，供 AI 推薦讀取；不在任何頁面或 API 回應中顯示給使用者。封面以來源網站的圖片網址直接顯示，不轉存。
@@ -118,8 +118,8 @@
 
 ### CRAWL
 
-- **Given** 排行榜可解析 100 筆，其中 3 本新書詳細頁重試後仍失敗，**When** crawler 執行完成，**Then** Bestseller 被替換為 97 筆、保留原始排名，run 記錄為部分成功。
-- **Given** 連續 21 本新書最終失敗，**When** crawler 執行，**Then** run 失敗，上一份 Bestseller 不變。
+- **Given** 排行榜可解析 100 筆，其中 3 個 New Source 的詳細頁重試後仍失敗，**When** crawler 執行完成，**Then** Bestseller 被替換為 97 筆、保留原始排名，run 記錄為部分成功。
+- **Given** 連續 21 個排名的 RankingDecision 都是 `ERROR_SKIP` 或 `DUPLICATE_BOOK`，**When** crawler 執行，**Then** run 失敗，上一份 Bestseller 不變。
 - **Given** 某商品網址已存在於資料庫，**When** crawler 執行，**Then** 不抓取該書詳細頁，Book metadata 不變。
 
 ### BEST

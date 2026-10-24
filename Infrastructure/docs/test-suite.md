@@ -16,7 +16,7 @@ Authority：[test plan](../../Docs/testing/test-plan.md)、[data model](../../Do
 ## INF-T01 — Schema 與 mapping
 
 - 責任／風險／狀態：EF schema，L3，已有測試本次未執行。
-- 規格：data-model §5、§8–10。
+- 規格：data-model §6、§10–12。
 - Given：全新 disposable pgvector DB；無任何應用表。
 - When：fixture 執行 `db.Database.MigrateAsync()`，執行 SchemaTests／ModelSnapshotTests／StoredEnumTests。
 - Then：12 application tables、vector extension、vector(1536)、required／expression indexes、enum／range／NULL／unique／FK／cascade-restrict 均符合；錯誤維度或 rating 越界寫入被拒；不存在 model snapshot drift。Expression indexes 需 constraints.sql，不能只驗 snapshot。
@@ -48,7 +48,7 @@ Authority：[test plan](../../Docs/testing/test-plan.md)、[data model](../../Do
 
 ## INF-T05 — Library 冪等與本人隔離
 
-- 責任／風險／狀態：EF Library，L2（隔離 regression L3），已有測試本次未執行；規格 Library §2–3、data-model §5.10。
+- 責任／風險／狀態：EF Library，L2（隔離 regression L3），已有測試本次未執行；規格 Library §2–3、data-model §6.12。
 - Given：A/B、同 Book、A 已有 Entry；另備不存在 Book 與不存在 user。
 - When：同 composite key 併發 AddIfMissingAsync；依序 UpdateAsync 的 rating keep/clear/set 與 status；用 B 查／改 A Entry；重複 RemoveAsync。
 - Then：只一 row、已存在資料不被新增覆寫；AddedAt 保留、UpdatedAt 更新；B 無法讀改 A；刪除可重複；Book FK 回 null、user FK 仍拋 DB exception，不能誤報 BookNotFound；List 不含私有來源內容。

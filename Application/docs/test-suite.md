@@ -117,7 +117,7 @@ dotnet test tests/WebIntegration/WebIntegration.csproj
 
 ### APP-T12 — Profile disabled、降級與正規化
 
-- 風險／狀態：L3；**測試實作：Implemented；執行：Not executed in this audit**。規格：[recommendation](../../Docs/modules/recommendation.md) §9、data-model §5.6。
+- 風險／狀態：L3；**測試實作：Implemented；執行：Not executed in this audit**。規格：[recommendation](../../Docs/modules/recommendation.md) §9、data-model §6.8。
 - **Given**：Enabled=false；reader throw；missing/fresh/stale source；difficulty0/6；無真目錄卻official；超10章。
 - **When**：ScheduleAsync、ReadAsync、GenerationService.GenerateAsync、BookProfileRules.Normalize。
 - **Then**：disabled不查store不入列；讀失敗空dict加warning；caller取消傳遞；missing/fresh不generator；invalid difficulty=null；無目錄official=false；章節最多10；Upsert正規化profile/hash/model/prompt。

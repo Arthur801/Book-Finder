@@ -33,9 +33,9 @@ sudo python -m playwright install-deps chromium
 
 | 指令（於 `crawler/` 執行） | 用途 | 規則 |
 |---|---|---|
-| `python -m books_crawler` | 每日完整榜單 | `crawler.md` §1～§12 |
-| `../.venv/bin/python -m books_crawler.first_book` | 只匯入排行榜第一名 | `crawler.md` §13.1 |
-| `python -m books_crawler.pages` | 分類榜補書 | `crawler.md` §16 |
+| `python -m books_crawler` | 每日完整榜單 | `crawler.md` §1～§14、§19 |
+| `../.venv/bin/python -m books_crawler.first_book` | 只匯入排行榜第一名 | `crawler.md` §16 |
+| `python -m books_crawler.pages` | 分類榜補書 | `crawler.md` §15 |
 
 ## 執行
 
@@ -62,7 +62,7 @@ Exit code：0 = 第一名成功匯入、已存在或為限制級而直接跳過�
 
 ## 分類榜補書（pages mode）
 
-從博客來各分類的 7 日暢銷榜頁面補充 Catalog 的新書。此模式不是 Bestseller：不寫入 `bestsellers`，不更新 `last_seen_at`，不保存分類排名（`crawler.md` §16）。
+從博客來各分類的 7 日暢銷榜頁面補充 Catalog 的新書。此模式不是 Bestseller：不寫入 `bestsellers`，目前不更新 `last_seen_at`（#113 的目標規格改為會更新，由 PR3 實作），不保存分類排名（`crawler.md` §15）。
 
 ```bash
 cd crawler
@@ -78,7 +78,7 @@ python -m books_crawler.pages
 
 清單在發出任何請求前驗證；有任何不合格的行、檔案無法讀取或清單為空時，log 會列出原因，exit code 為 2。
 
-單一分類頁抓取或解析失敗（抓取重試 3 次後仍失敗，或頁面不是分類榜）會被跳過，其餘分類頁照常處理。只有無法繼續的情況（例如資料庫查詢錯誤、browser 無法啟動，或所有分類頁都失敗）才會 FAILED。Exit code：0 = SUCCESS 或 PARTIAL_SUCCESS，1 = FAILED，2 = 設定錯誤。log 以 `mode=pages` 開頭，格式見 `crawler.md` §16.8。
+單一分類頁抓取或解析失敗（抓取重試 3 次後仍失敗，或頁面不是分類榜）會被跳過，其餘分類頁照常處理。只有無法繼續的情況（例如資料庫查詢錯誤、browser 無法啟動，或所有分類頁都失敗）才會 FAILED。Exit code：0 = SUCCESS 或 PARTIAL_SUCCESS，1 = FAILED，2 = 設定錯誤。log 以 `mode=pages` 開頭，格式見 `crawler.md` §15.8。
 
 ## 查看 Cloudflare 驗證頁
 

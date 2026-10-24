@@ -81,7 +81,7 @@
 | 爬蟲與 migration 的互斥 | `db-maintenance.lock`：deploy 取 exclusive，crawler 取 shared，且先取鎖再讀 state | N3 | 只靠 paused 旗標 | 爬蟲等待上限 7200 秒；兩端預設值需一致（runbook §7.2 #16） |
 | 爬蟲 pause 的範圍 | in-sync 的 crawler 步驟失敗也會 pause（與 N3 原文不同） | runbook §7.1（刻意偏離，已記錄） | 只在 forward pause | 由 `run-crawler.sh` 閘門執行；恢復需 `resume-crawler`（L4） |
 | 健康檢查 | 本機 `127.0.0.1:5000` 先，再 `PUBLIC_URL`；每段 90 秒；送出 `book-finder-deploy/<max>` UA，不跟隨 redirect | machine.py 常數、commit `2fb5e27`（#105） | 只檢查本機 | 公開階段依賴 edge 放行 UA（見 DEP-B02） |
-| 爬蟲 fetcher | curl_cffi（預設）；browser 僅供診斷 | deployment.md §5、crawler.md §15 | — | EC2 的 IP 被博客來封鎖（營運觀察，見 DEP-B01） |
+| 爬蟲 fetcher | curl_cffi（預設）；browser 僅供診斷 | deployment.md §5、crawler.md §12 | — | EC2 的 IP 被博客來封鎖（營運觀察，見 DEP-B01） |
 
 ## 5. 公開 contract 對照
 

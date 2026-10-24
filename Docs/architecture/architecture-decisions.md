@@ -127,3 +127,41 @@ MVP 只有單一 Web instance。Cache 只存可由 PostgreSQL 重建的唯讀資
 | N6 | 第一次 cutover 的 state 由人工 `bootstrap-state` 建立，CD 從不建立 state | 信任假設必須由人確認 |
 | N7 | deploy 以 transient unit 執行，不用 `--pipe`；history 是結果的唯一來源，`indeterminate` 需要人工 `resolve-run` | SSH 斷線與 unit 被回收都不能改變結果 |
 | N8 | pending SQL 來自 target 的 immutable release asset，runner 不重新產生 | 審閱的 SQL 必須與實際執行的 release 一致 |
+
+---
+
+## ADR-007 — Multi-source Catalog：provider registry、Bestseller projection 與 expand-contract migration
+
+**Status**: Accepted（#113；實作分 PR2～PR4，見 `Docs/data/data-model.md` §14）
+
+**Context**：Catalog 原本以 closed enum `SourceType`（`BOOKS_COM_TW`、`GOOGLE_BOOKS`）區分來源，DB 以 check constraint 鎖住；`last_seen_at` 只在 Bestseller 替換 transaction 中更新；ISBN 以 ISBN-13 → ISBN-10 比對並跨 Book unique。產品要讓資料層可接多家書商與價格（實際爬蟲與比價 UI 仍延後）。另外，host 狀態機先跑 forward migration 才切換 web（ADR-006），所以每個 migration 都必須讓目前正在服務的版本在新 schema 上仍能執行。
+
+**Decision**：
+- **Provider registry 取代 closed enum**：新增 `source_providers`（`code` PK），`book_sources`、`book_subjects` 以 `source_code` FK 參照；初始四筆 `BOOKS_COM_TW`、`GOOGLE_BOOKS`、`KINGSTONE`（disabled）、`ESLITE`（disabled）。`enabled` 只控制主動 acquisition，不影響既有資料的讀取與顯示。新增 `book_offers`（只建表）。
+- **Bestseller 是 projection**：Catalog ingestion 在每個 item 各自 commit；榜內重複只讓該排名不進 snapshot（`DUPLICATE_BOOK`），Catalog 端照常寫入。連續錯誤計數只由 `RankingDecision` 決定（`Docs/modules/crawler.md` §14.2）。
+- **`last_seen_at` 看到就更新**：Existing Source 在 discovery 時以獨立 transaction touch，不因後續重複、snapshot 失敗或中止而回滾；New Source 只在成功寫入時設定 `first_seen_at = last_seen_at`；所有 discovery job 適用。
+- **ISBN 不唯一 + 正規化 protocol**：新類型 `ISBN` 不要求跨 Book 唯一；正規化為 Unicode 15.1 NFKC → 刪除 U+002D 與 Unicode 15.1 White_Space → ASCII-only 大寫（兩者都固定在 Unicode 15.1），不驗證長度與 checksum；C# 與 Python 以共用 fixture `tests/Fixtures/isbn-normalization.json` 保證逐 byte 一致。比對以 draft 所有 ISBN 查 distinct Book：0 → 新 Book，1 → 附加並只補 NULL，≥ 2 → ambiguous，建立新 Book。
+- **Single writer**：在跨 process 的序列化完成以前，Catalog identity resolution 只允許一個 writer。這條限制和 migration 的進度無關，PR4 和 011 都不會解除它。目前唯一的 writer 是 crawler。Google Books（#14）或其他 writer 使用同一規則前，必須先依 `data-model.md` §7.5 的 protocol，對 draft「每一個」正規化 ISBN 的 lock key 去重、依數值排序後，依序取 transaction 範圍的 advisory lock 再重新查詢。
+- **Source identity 衝突與 URL 漂移**：以 `external_id` 和 `source_url` 的查詢結果組成完整矩陣（`data-model.md` §7.3）。兩者對到不同 Source，或 URL 命中的 Source 有不同的非 NULL `external_id` 時，回報 `source_identity_conflict`，不寫入任何資料。URL 命中的 Source 的 `external_id` 是 NULL 時，視為 Existing，這個 release 不 backfill；`external_id` 命中但 URL 不同時保留既有 URL、記 WARNING、照常 touch。是否自動更新 URL 待有 adapter 真正提供 `external_id` 時再決定。
+- **Expand-contract**：010（expand）新增 `source_code`、registry、`book_offers`、`ISBN` 類型，保留 `source_type` 與舊 constraint，並以 BEFORE INSERT/UPDATE 雙向 trigger 同步兩欄、不一致即報錯；011（contract）把 `ISBN_10`／`ISBN_13` 轉成 `ISBN`、移除 trigger 與 `source_type`、換 `book_subjects` PK。011 必須通過 `data-model.md` §11.3 的 gate（含 ISBN conversion preflight 與使用者明確關閉 v0.0.4 rollback window）。
+- **相容層級**（`Docs/deployment/deployment.md` §6.1）：v0.0.4 schema／binary 相容到 011；v0.0.4 語意完全相容到新版第一次寫入 `ISBN`；PR2/PR3 runtime 在 010 與 011 上一直可運作。schema 向後相容不等於 CD 自動 rollback：011 之後新 runtime 失敗時依 I5 不自動回滾，但操作者不需還原 snapshot 就能手動恢復到 PR3 並 `resume-crawler`。新版寫入 `ISBN` 之後舊版 crawler 必須保持停用。
+- **Database-only compatibility artifacts（EF model 與實體 schema 的例外）**：010 期間 `source_type` 只存在於實體 schema，EF runtime model 不 mapping、不讀寫；`book_subjects` 的 EF 邏輯 key `(BookId, Subject, SourceCode)` 由 DB UNIQUE 保證，實體 PK 仍是 `(book_id, subject, source_type)`。ModelSnapshot 描述 runtime 目標 model 而非過渡期實體 schema，`has-pending-model-changes` 無法證明實體 schema 正確，因此 010 與 011 都手寫或手改並人工 review 每個 operation，實體 schema 以 DB integration 查 `pg_constraint`、`pg_indexes`、`information_schema` 驗證。
+
+**Alternatives considered**：
+- **繼續擴充 enum / check constraint**：每加一家書商就要 schema migration 與 C#／Python enum 同步，且舊版 runtime 寫不進新值。
+- **010 直接 DROP `source_type`**：v0.0.4 web 與 crawler 在 forward migration 後、切換前就會壞掉，也無法不還原 snapshot 地回退。
+- **ISBN 保持跨 Book unique（DB 強制）**：來源資料可能有錯誤或同 ISBN 不同商品，unique 會讓整筆寫入失敗；改以 distinct 數量判斷，ambiguous 時寧可建立新 Book，不猜測合併。
+- **寫入端驗證 ISBN checksum**：會丟棄來源實際提供、但格式異常的識別碼；搜尋端的 ISBN 判定（長度 10／13）另行保留。
+- **`last_seen_at` 綁在 snapshot transaction**：讓 projection 的成敗決定 Catalog freshness，也讓分類榜與 first_book 無法更新。
+- **立即導入 advisory lock**：目前只有 crawler 一個 writer，它的所有 production 呼叫都必須經過 `run-crawler.sh` 的同一把 `run.lock`（PR3 會把 first_book 也納入，在那之前 production 不可以執行 first_book）。advisory lock 延到第二個 writer 出現（#14）之前再加，避免先做一套無法驗證的並行機制。
+
+**Trade-offs**：
+- 010 期間實體 schema 與 EF model 不一致，必須靠手寫 migration、人工 review 與 DB integration 守住；EF 工具的 pending-change 檢查失去證明力。
+- trigger 讓 011 前不能寫入 `KINGSTONE`、`ESLITE`。
+- ISBN 不唯一可能產生重複 Book（ambiguous 或並行 writer），換得不因髒資料而失敗或錯誤合併。
+- 回退到 v0.0.4 在寫入 `ISBN` 之後會降級 ISBN 搜尋與顯示。
+
+**Migration impact**：
+- 010、011 各自一個 release；010 與 crawler 變更（PR2+PR3）以同一個 release tag 部署，穩定且通過 gate 後才部署 011（PR4，L4）。
+- 每個會成為已發布 schema head 的 migration 都要有 `deploy/migration-test/seeds/<id>.sql`。
+- 011 之後只讀寫 `ISBN`；C# 刪除 `Isbn10`／`Isbn13`，crawler 只查 `ISBN`。

@@ -25,6 +25,27 @@ Debug 證據收集：INF-B04 須保存去識別的 request scheme、來源網段
 - 併發壓測（#109 上線關卡，本機 2884 本書）：首頁每個請求的 DB CPU 約 1.0–1.1 ms；`/books` 第 1 頁約 1.4–1.5 ms，最後一頁約 2.8–4.1 ms。併發從 1 到 16 時，每請求成本大致不變，總 CPU 隨流量線性增加；成本低於既有的一般搜尋（6.7–10 ms）。詳見實作報告〈上線關卡〉。未在 RDS 實測。
 - 入口：[BookBrowseIntegrationTests](../../tests/WebIntegration/BookBrowseIntegrationTests.cs)（功能）。效能量測方法見實作報告，沒有寫成自動化測試。
 
+## INF-B07 — Multi-source schema 與讀取端（#113 PR2／PR4）
+
+- **P1 / L3 / 確認缺口（目標規格已定，未實作）**。
+- 目標：[data-model §6、§11.2～§11.4](../../Docs/data/data-model.md)；migration 010（expand：`source_providers` 四筆、`source_code` 回填與 FK、雙向 trigger、`ISBN` 類型、`book_offers`）手寫或手改，ModelSnapshot 只描述 runtime 目標 model，EF 不 mapping `source_type`；`book_subjects` 的 EF key `(BookId, Subject, SourceCode)` 由 UNIQUE 保證，實體 PK 仍含 `source_type`。
+- 目前差距：[BookSourceConfiguration](../Persistence/Configurations/BookSourceConfiguration.cs)、[BookSubjectConfiguration](../Persistence/Configurations/BookSubjectConfiguration.cs) 以 `SourceType` 建 check 與 key；[BookIdentifierConfiguration](../Persistence/Configurations/BookIdentifierConfiguration.cs) 的 partial unique 只針對 ISBN_10／13（010 保留，011 DROP）；[EfBookSearch](../Persistence/EfBookSearch.cs) 與 [EfBookDetailReader](../Persistence/EfBookDetailReader.cs) 只讀 `Isbn13`／`Isbn10`；Detail 來源未 JOIN `source_providers`。
+- 方向：PR2 寫 010 migration 與 seed、Search／Detail 讀三種 ISBN 類型、Detail 去重（同值 `ISBN` > `ISBN_13` > `ISBN_10`）、`BookDetailSource` 帶 `SourceCode` 與 `ProviderDisplayName`（JOIN 不以 `enabled` 過濾）、C# ISBN 正規化讀共用 fixture。PR4 寫 011（轉換、DROP trigger 與 `source_type`、換 PK），只讀 `ISBN`。
+- 前置決策：`has-pending-model-changes` 不能證明實體 schema（data-model §11.4），每個 migration operation 需人工 review。
+- 驗收：[test-plan §7](../../Docs/testing/test-plan.md) #8～#10、#12、#16、#20 通過；`dotnet build`／`dotnet test` 與 CI compat 通過。
+- 入口：SchemaTests、StoredEnumTests、constraints.sql、BookDetailPageTests、SearchPageTests；新案例待建。
+
+## INF-B08 — Google Books writer 前的跨 process 序列化（#14 前置）
+
+- **P2 / L3 / 待實作前置**，與 INF-B01 相關。
+- 目標：[data-model §7.5](../../Docs/data/data-model.md)：在跨 process 的序列化完成以前，只允許 crawler 一個 writer，PR4 不會解除這個限制；Google Books ingestion 使用 §7.2 比對前，必須依 §7.5 的 protocol：對 draft 每一個正規化 ISBN 算 lock key（SHA-256 前 8 bytes，signed int64），去重並依數值排序後，依序呼叫 `pg_advisory_xact_lock`，再重新查 distinct Book 數量。
+- 目前差距：沒有任何 advisory lock；crawler 也未取鎖（目前靠 host `flock`）。
+- 驗收：
+  - 兩個並行 writer 對同一個 ISBN 只會建立一本 Book。
+  - 兩個 writer 的 ISBN 集合只有部分重疊時（例如 [X, Y] 和 [Y, Z]），結果仍然符合 §7.2 的規則。
+  - 取 lock 的順序固定，依 key 的數值由小到大，交錯執行也不會 deadlock。
+  - lock key 和 crawler 的正規化結果逐 byte 一致。
+
 ## 文件導航
 
 [流程](workflow-diagram.md) · [架構](architecture.md) · [待辦](backlog.md) · [歷史](update-history.md) · [案例](test-suite.md)

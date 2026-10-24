@@ -23,11 +23,11 @@
 | 面向 | 現行依據 | 替代差異（本次分析，非 ADR 決策） | 代價／維護 |
 |---|---|---|---|
 | one-shot batch | ADR-002 | queue／常駐 worker 需新服務與重送協定 | host 排程與觀測；無失敗佇列 |
-| curl 預設、browser 診斷 | crawler §15 核准決策 | browser 資源較高；禁止自動切換規避 | preset 與 HTML fixtures 回歸 |
-| 循序節流與三次 retry | §6／15 | 並行增加來源負載並改 contract | 執行可能久，避免 backoff 重複等待 |
-| URL identity、ISBN13→10 | §5、data-model §6 | 模糊書名合併有 edition 誤判風險，未授權 | 新來源只 attach，不改既有 metadata |
-| 每書與榜單分開交易 | §9／10 | 全 run 長交易會擴大鎖與失敗損失 | FAILED 仍可累積 Catalog |
-| EF 唯一 schema owner | data-model §7 | Python 自管 DDL 造成雙 truth | DB integration 須使用真 EF schema |
+| curl 預設、browser 診斷 | crawler §12 核准決策 | browser 資源較高；禁止自動切換規避 | preset 與 HTML fixtures 回歸 |
+| 循序節流與三次 retry | §13／12 | 並行增加來源負載並改 contract | 執行可能久，避免 backoff 重複等待 |
+| URL identity、ISBN13→10 | §6、data-model §7 | 模糊書名合併有 edition 誤判風險，未授權 | 新來源只 attach，不改既有 metadata |
+| 每書與榜單分開交易 | §9／14.4 | 全 run 長交易會擴大鎖與失敗損失 | FAILED 仍可累積 Catalog |
+| EF 唯一 schema owner | data-model §9 | Python 自管 DDL 造成雙 truth | DB integration 須使用真 EF schema |
 | 兩種 ledger | 程式可見選擇；歷史 refactor 可查 | 混合 I/O 會使政策更難隔離 | 不可把 daily 限制套到 pages |
 | Docker＋host cron | [target deployment §8](https://github.com/Arthur801/Book-Finder/blob/ce7b4f46c0889db6b10216294cac658136796ad7/Docs/deployment/deployment.md) | systemd timer／scheduler 需另案 | 依賴 image 預載、狀態檔、時區與權限 |
 | Deployment/crawler coordination | crawler run.lock → maintenance shared lock → state gate；deploy migration 用同一 lock 的 exclusive mode | 先讀 state 再鎖會讓 pause／migration 與啟動交錯 | shared lock 持有至 Docker 完成；timeout exit 3、paused／dirty exit 6、state 無法解析 exit 2；state 缺少保留 pre-CD gate 行為 |
@@ -44,6 +44,6 @@ Target 的 image 由 CD 依 release.json 管理 GHCR digest，[crawler.conf.exam
 
 SSM 僅取 DB URL，log／JSON 遮罩；HTML 是原始頁面，PNG 可能含畫面資料，不能稱為全面去識別。禁止 stealth、CAPTCHA 代解與 proxy 輪替。
 
-確認字面差距：§16.9 說 pages 不寫任何來源 last_seen_at，但 `_insert_source` 對新建／附加來源 INSERT 初始化 now；既有來源確實不刷新。見 CB-01，未確認功能 bug。artifact 無清理政策實作，deployment 已明示另管，屬 CB-02 改善提案。EC2、SSM／IAM、GHCR／CD、cron 安裝、來源可抓性本次未驗證（CB-03），不能由設定存在推定已部署。
+確認字面差距（#113 前的規格）：舊 §16.9 說 pages 不寫任何來源 last_seen_at，但 `_insert_source` 對新建／附加來源 INSERT 初始化 now；既有來源確實不刷新。見 CB-01，未確認功能 bug。artifact 無清理政策實作，deployment 已明示另管，屬 CB-02 改善提案。EC2、SSM／IAM、GHCR／CD、cron 安裝、來源可抓性本次未驗證（CB-03），不能由設定存在推定已部署。
 
 相關：[流程](workflow-diagram.md)／[架構](architecture.md)／[待辦](backlog.md)／[歷史](update-history.md)／[案例](test-suite.md)。

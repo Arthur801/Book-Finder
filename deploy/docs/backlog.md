@@ -32,6 +32,7 @@
 | DEP-B14 | P2 | L3 | 已發生（營運觀察）＋待驗證 | SSM 連線字串的跳脫問題 |
 | DEP-B15 | P3 | L2 | 改善提案 | `/etc/book-finder` 目錄權限未由程式檢查 |
 | DEP-B17 | P3 | L3 | 改善提案 | exit 3 同時對應 history 的 `drift` 與 `rejected` |
+| DEP-B18 | P1 | L4（部署）／L3（seed 與測試） | 已確認缺口（#113 目標，未實作） | Multi-source migration 010／011 的 seed、gate 與恢復程序 |
 
 ## 2. 項目
 
@@ -40,8 +41,8 @@
 - **優先序／風險**：P1／實作 L2，營運啟用 L4。
 - **狀態**：已確認缺口（營運觀察，2026-10-24 手動試跑失敗）；待決策（替代資料管道）。
 - **證據與影響**：runbook [§7.2 #19](../README.md) 記錄；[deployment.md §8](../../Docs/deployment/deployment.md) 要求「啟用排程前須在 EC2 實測」，被擋下時「不啟用排程，評估授權資料管道」；`run-crawler.sh` 在 `CRAWLER_ENABLED=false` 時於任何鎖之前 exit 0 並輸出 `skipped=disabled`（[run-crawler.sh](../../crawler/deploy/run-crawler.sh) 第 53 行起）。影響：每日榜單不更新，`bestseller` 資料停止新增。
-- **spec／source**：`Docs/deployment/deployment.md` §8；`Docs/modules/crawler.md` §15；[crawler/deploy/README.md §5.1](../../crawler/deploy/README.md)。
-- **調查方向**：(1) 在 EC2 上以唯讀方式執行一次 `run-crawler.sh daily`，記錄是否取得頁面（需授權）；(2) 若仍被擋，需要產品與授權層級的決策：替代資料來源、授權管道、或維持停用。**不得**加入 browser stealth、`navigator.webdriver` 修補、CAPTCHA 代解或代理 IP 輪替（AGENTS §1.3 Crawler 禁止）。
+- **spec／source**：`Docs/deployment/deployment.md` §8；`Docs/modules/crawler.md` §12；[crawler/deploy/README.md §5.1](../../crawler/deploy/README.md)。
+- **調查方向**：(1) 在 EC2 上以唯讀方式執行一次 `run-crawler.sh daily`，記錄是否取得頁面（需授權）；(2) 若仍被擋，需要產品與授權層級的決策：替代資料來源、授權管道、或維持停用。AGENTS §1.3 Crawler 自 `3101dd1`（#108）起已允許 browser stealth、`navigator.webdriver` 修補、CAPTCHA 代解或代理 IP 輪替；是否採用、採用哪一種仍是本項的待決策事項，且真實抓取驗證須有當前任務授權。
 - **前置決策**：是否接受停用期間的榜單缺口；替代資料來源是否需要獨立 ADR（AGENTS §2.4）。
 - **驗收條件**：(a) 在 EC2 手動執行成功並取得 `ranking_count=100`（依 crawler/deploy/README §6）；(b) 將 `CRAWLER_ENABLED` 改為 `true` 後，排程至少觀察一次成功；(c) 若選擇替代管道，有 ADR 與對應規格。
 - **測試入口**：DEP-CRW-GATE-07、DEP-CRW-GATE-08（`CRAWLER_ENABLED` 的 true、false 與非法值）；DEP-PROD-02（營運觀察）。真實抓取測試需當前任務授權。
@@ -203,6 +204,17 @@
 - **前置決策**：使用者與 ADR（history 格式與 public contract）。
 - **驗收條件**：若統一，所有 exit 3 路徑的 `result` 有斷言；runbook §1.5、architecture §5.1 同步更新。
 - **測試入口**：DEP-HIST-03（待補強）。
+
+### DEP-B18 Multi-source migration 010／011 的 seed、gate 與恢復程序
+
+- **優先序／風險**：P1／seed 與 compat 測試 L3，010 與 011 的 production 部署 L4。
+- **狀態**：已確認缺口（#113 目標規格已定，未實作）。
+- **目標**：[data-model §11](../../Docs/data/data-model.md) 與 [deployment §6.1](../../Docs/deployment/deployment.md)：010（expand，含雙向 trigger）與 011（contract）分屬不同 release；每個成為已發布 schema head 的 migration 都有 `deploy/migration-test/seeds/<id>.sql`；011 只在 gate 全部通過、使用者明確關閉 v0.0.4 rollback window 後部署；011 之後若新 runtime 失敗，不還原 snapshot，手動 dispatch PR3 release 並 `resume-crawler`。
+- **目前差距**：`deploy/migration-test/seeds/` 只有到 `Embedding` 的 seed；compat 的 runtime smoke 依 I5 只是 INFO，無法證明「PR3 runtime 在 011 上可運作」與 manual recovery compatibility；runbook 沒有 010／011 專屬的恢復步驟，也沒有「新版寫入 `ISBN` 後舊版 crawler 必須保持停用」的操作提示。
+- **方向**：PR2 新增 010 的 seed（含 v0.0.4 形式的 `source_type`-only 資料，驗證 trigger 回填）；PR4 新增 011 的 seed、ISBN conversion preflight（dry-run SELECT）與 manual recovery compatibility 測試（[test-plan §7](../../Docs/testing/test-plan.md) #13、#14、#20），並在 runbook 補 011 gate checklist 與恢復程序。
+- **前置決策**：011 的部署時間與 rollback window 的關閉由使用者決定（L4）。
+- **驗收條件**：010 與 011 的 compat 在 CI 通過；gate checklist 每項有可檢查的證據；PR3 Web／crawler 在 011 的 smoke 通過且不需 snapshot restore。
+- **測試入口**：待建（PR2：010 seed；PR4：011 seed、preflight、recovery compat）。
 
 ## 3. 已處理（PR #107）
 

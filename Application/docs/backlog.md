@@ -31,6 +31,19 @@
 - 方向：Bestseller 是否長期保留、移除或改由其他功能使用，需另案決定；未決前不得刪除，也不得讓 Bestseller rank 進入推薦排序（AGENTS.md §1.3）。
 - 驗收：決定後同步更新 [bestseller](../../Docs/modules/bestseller.md) 與本文件。
 
+## APP-B04 — Catalog 讀取 contract 改用 provider code（#113 PR2）
+
+- **P1 / L3 / 確認缺口（目標規格已定，未實作）**。
+- 目標：[book-catalog §4](../../Docs/modules/book-catalog.md)：`BookDetailSource` 改為 `{Id, SourceCode, ProviderDisplayName, Url, FirstSeenAt}`；identifier 可為 `ISBN`、`ISBN_13`、`ISBN_10`（011 後只有 `ISBN`）；ISBN 搜尋判定（長度 10／13）不變，與寫入端正規化分開。
+- 目前差距：[BookDetail](../Catalog/BookDetail.cs) 的 `BookDetailSource(Guid Id, SourceType Type, …)` 依賴 Domain 的 closed enum。
+- 驗收：Application 不再引用 `SourceType`；`BookDetailContractTests` 仍守住不含 description／TOC；BookSearchServiceTests 確認 `ABC123` 不走 ISBN 模式。
+
+## APP-B05 — Google Books ingestion 改用新 identity resolution 與補 NULL（#14 前置）
+
+- **P2 / L3 / 規格更新，與 APP-B01 一起實作**。
+- 目標：[book-catalog §6](../../Docs/modules/book-catalog.md)：identity resolution 改為同來源 → distinct ISBN 數量；附加時只補 NULL（取代舊的「博客來 > Google」merge 優先順序）；source identity 衝突與 URL 漂移規則；開始寫入前先有 INF-B08 的 advisory lock。
+- 驗收：同 APP-B01，另加 ISBN 恰好 1 本只補 NULL、≥ 2 本建立新 Book、Volume ID 與 URL 衝突時不寫入。
+
 ## 已修與明確暫緩
 
 `13abf86`已共享dummy hash、`cd17224`已修difficulty讀失敗降級、`0fb9274`已修disabled仍排profile。它們是APP-T03/T12回歸項目，不列未完成。Auth MVP延後與browser E2E依架構文件的authority維持暫緩。效能未量測，不捏造向量/快取瓶頸或平行化收益。

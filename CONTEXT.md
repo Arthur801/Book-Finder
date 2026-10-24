@@ -10,16 +10,28 @@
 系統內一個版本（edition）的書，以內部 ID 識別；外部來源的 ID 只是它的來源識別，不是它本身的 identity。
 _Avoid_: 作品（Work）、商品、Volume
 
+**Source Provider**／來源提供者：
+一個外部資料來源，例如博客來、Google Books，未來的其他書商或圖書館；以穩定的 code（`BOOKS_COM_TW`、`GOOGLE_BOOKS`）識別，登記在 provider registry。新增書商是新增一筆 provider，不是修改 enum。
+_Avoid_: 來源類型（SourceType，舊 enum 名稱）、書商（泛指所有來源時）
+
 **Book Source**／書籍來源：
-一本 Book 在某個外部來源（博客來、Google Books）上的對應紀錄，例如博客來商品網址或 Google Volume ID。
+一本 Book 在某個 Source Provider 上的一筆對應紀錄，例如博客來商品網址或 Google Volume ID。同一本 Book 可以有多個 Book Source，包括同一家書商的多個商品頁。
 _Avoid_: 書籍連結、外部書籍
 
+**Book Offer**／來源報價：
+某個書商（retailer）Book Source 當下可觀察到的公開售價與供貨狀態；屬於來源，不屬於 Book。目前只有資料表，尚未寫入。
+_Avoid_: 書價（當成 Book 屬性時）、價格歷史
+
+**Discovery Job**／探索工作：
+crawler 用來找出值得匯入的來源清單的一種方式，例如每日暢銷總榜、分類榜、first-book 診斷；它決定去哪裡找，不決定 Book identity。
+_Avoid_: 爬蟲模式（指規則時）、排行榜爬蟲（泛稱時）
+
 **Bestseller**／暢銷榜：
-博客來中文書 7 日暢銷總榜目前最新的一份 TOP 100；系統不保留歷史榜單。
+博客來中文書 7 日暢銷總榜目前最新的一份 TOP 100，是由 Catalog 衍生的 projection；它不決定 Book identity，也不控制來源的 `last_seen_at`。系統不保留歷史榜單。
 _Avoid_: 排行榜歷史、榜單快照（指歷史時）
 
 **分類榜**／Category Ranking Page：
-博客來各分類的 7 日暢銷榜頁面。僅用於補充 Catalog 的新書（`crawler.md` §16）；不是 Bestseller，不寫入暢銷榜，也不保存分類排名。
+博客來各分類的 7 日暢銷榜頁面，是一種 Discovery Job 的來源。僅用於補充 Catalog（`crawler.md` §15）；不是 Bestseller，不寫入暢銷榜，也不保存分類排名。
 _Avoid_: 分類 Bestseller、分類暢銷榜
 
 ## 推薦（Recommendation）

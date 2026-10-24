@@ -36,6 +36,13 @@
 - 證據：`Docs/testing/test-plan.md` §2 仍稱 Web 測試為骨架；`book-catalog.md` §4.1 留有 #11 前 Library 空容器敘述。現況已有 Web 測試與 Library 區塊。
 - 驗收：更新現況描述並保留歷史限定語意；不改 endpoint／Library contract；不要把 implementation report 升格為 authority。
 
+### CTL-12 — Book 詳細頁與搜尋在 multi-source 下的回歸（#113 PR2）
+
+- [ ] **P2／待驗證／L2**。Controller 本身預期不需改；資料來源與顯示規則的變更在 Application／Infrastructure／Models。
+- 規格：[book-catalog.md §3、§4](../../Docs/modules/book-catalog.md)。
+- 待辦：PR2 確認 `BooksController` 的 Detail 與 `SearchController` 在 provider registry 與三種 ISBN 類型下行為不變：404、cache（Library 狀態不進 cache）、ISBN 搜尋與分頁重導。
+- 驗收：disabled provider 的來源仍顯示；ISBN、ISBN_13、ISBN_10 皆可搜尋；`ABC123` 走關鍵字模式；既有 WebIntegration 測試通過。
+
 ## 2. Debug 調查與測試補強
 
 ### CTL-05 — 推薦 JSON model binding 邊界

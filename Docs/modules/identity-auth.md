@@ -4,7 +4,7 @@
 > Authority: 註冊、登入、登出、目前使用者、JWT 與 cookie、認證相關安全規則
 > Requirements: AUTH-01～05、LIB-02
 > 相關 ADR：ADR-004（JWT 以 HttpOnly cookie 傳遞）
-> Data contract: `Docs/data/data-model.md` §5.9 `users`
+> Data contract: `Docs/data/data-model.md` §6.11 `users`
 
 ## 1. Scope
 
