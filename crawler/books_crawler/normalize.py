@@ -1,4 +1,4 @@
-"""Pure normalization rules from ``Docs/data/data-model.md`` §2, §2.1, §5.3, §5.4, §5.5.
+"""Pure normalization rules from ``Docs/data/data-model.md`` §2, §2.1, §5.4, §5.5, §7.1 (ISBN).
 
 Every function returns ``None`` (or the documented fallback) instead of guessing when a value
 cannot be interpreted reliably. Nothing here touches the network or the database.
@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import re
+import unicodedata
 from datetime import date
 
 from books_crawler.models import (
@@ -38,9 +39,6 @@ ROLE_MAP: dict[str, ContributorRole] = {
 }
 
 _WHITESPACE = re.compile(r"\s+")
-_ISBN_SEPARATORS = re.compile(r"[\s\-‐-―]")
-_ISBN_10 = re.compile(r"^\d{9}[\dX]$")
-_ISBN_13 = re.compile(r"^97[89]\d{10}$")
 # 2026, 2026/10, 2026/10/11 (also accepts - and . as separators). Anything else is not parsed.
 _DATE = re.compile(r"^(\d{4})(?:[/.\-](\d{1,2})(?:[/.\-](\d{1,2}))?)?$")
 
@@ -80,34 +78,42 @@ def map_contributor_role(raw: str) -> ContributorRole:
     return role
 
 
-def _isbn10_valid(digits: str) -> bool:
-    total = 0
-    for position, char in enumerate(digits):
-        value = 10 if char == "X" else int(char)
-        total += (10 - position) * value
-    return total % 11 == 0
+# data-model §7.1, step 2: every code point of the Unicode 15.1 White_Space property. Written out explicitly on
+# purpose: str.isspace(), \s and char.IsWhiteSpace() disagree with this property (U+001C..U+001F, U+180E, U+200B).
+WHITE_SPACE_CODE_POINTS = frozenset(
+    {
+        0x0009, 0x000A, 0x000B, 0x000C, 0x000D, 0x0020, 0x0085, 0x00A0, 0x1680,
+        *range(0x2000, 0x200B), 0x2028, 0x2029, 0x202F, 0x205F, 0x3000,
+    }
+)  # fmt: skip
+_REMOVED_CODE_POINTS = WHITE_SPACE_CODE_POINTS | {0x002D}  # plus HYPHEN-MINUS (data-model §7.1 step 2)
 
 
-def _isbn13_valid(digits: str) -> bool:
-    total = sum(int(char) * (1 if index % 2 == 0 else 3) for index, char in enumerate(digits))
-    return total % 10 == 0
+def normalize_isbn_value(raw: str) -> str:
+    """The cross-language ISBN key of data-model §7.1 (may be empty).
+
+    1. Unicode NFKC; 2. remove U+002D and the White_Space code points; 3. ASCII a-z to upper case only.
+    No length or checksum validation. The result is what ``book_identifiers`` stores and matches on.
+    """
+    kept: list[str] = []
+    for char in unicodedata.normalize("NFKC", raw):
+        if ord(char) in _REMOVED_CODE_POINTS:
+            continue
+        kept.append(char.upper() if "a" <= char <= "z" else char)
+    return "".join(kept)
 
 
 def normalize_isbn(raw: str | None) -> Identifier | None:
-    """Normalize and validate an ISBN-10 or ISBN-13 (data-model §5.3).
+    """The ``ISBN`` identifier of a draft, or None when there is no value (data-model §7.1, §6.5).
 
-    Removes dashes and whitespace, uppercases, validates the format, and validates the
-    checksum. ISBN-13 must start with 978 or 979. Invalid values return ``None``.
+    The value is not validated: a malformed or checksum-wrong ISBN is stored as it normalizes.
     """
     if raw is None:
         return None
-    cleaned = _ISBN_SEPARATORS.sub("", raw).upper()
-    if len(cleaned) == 10 and _ISBN_10.match(cleaned) and _isbn10_valid(cleaned):
-        return Identifier(IdentifierType.ISBN_10, cleaned)
-    if len(cleaned) == 13 and _ISBN_13.match(cleaned) and _isbn13_valid(cleaned):
-        return Identifier(IdentifierType.ISBN_13, cleaned)
-    log.warning("ignoring invalid ISBN %r", raw.strip())
-    return None
+    value = normalize_isbn_value(raw)
+    if not value:
+        return None
+    return Identifier(IdentifierType.ISBN, value)
 
 
 def parse_published_date(raw: str | None) -> tuple[date | None, PublishedDatePrecision | None]:

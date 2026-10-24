@@ -335,17 +335,17 @@ def test_write_retry_that_finds_an_isbn_used_by_an_earlier_rank_is_skipped_as_du
     ]
     drafts = {row.url: make_draft(row.url) for row in rows}
     drafts[product_url(201)] = make_draft(product_url(201), identifiers=(isbn,))
-    real_find = db.find_book_by_isbn
+    real_find = db.find_books_by_isbn
     failed = {"once": False}
 
-    def flaky_find(conn, identifiers):
+    def flaky_find(conn, values):
         # The first DB call of rank 2's write step fails; the retry's ISBN lookup then succeeds.
-        if identifiers == (isbn,) and not failed["once"]:
+        if list(values) == [isbn.identifier_value] and not failed["once"]:
             failed["once"] = True
             raise psycopg.OperationalError("simulated connection drop during the ISBN lookup")
-        return real_find(conn, identifiers)
+        return real_find(conn, values)
 
-    monkeypatch.setattr(db, "find_book_by_isbn", flaky_find)
+    monkeypatch.setattr(db, "find_books_by_isbn", flaky_find)
     sleep = FakeSleep()
 
     report, fetcher = run(db_url, rows, drafts, sleep=sleep)
@@ -410,21 +410,27 @@ def test_new_source_with_known_isbn_attaches_to_existing_book(db_url, caplog, ra
     assert "attached BOOKS_COM_TW source to existing Book" in caplog.text
 
 
-def test_isbn13_match_takes_priority_over_isbn10_match(db_url):
-    isbn13 = normalize_isbn("978-0-306-40615-7")
-    isbn10_of_other = normalize_isbn("080442957X")
-    _seed_with_identifiers(db_url, {1: (isbn13,), 2: (isbn10_of_other,)})
+def test_draft_whose_isbns_match_two_books_is_ambiguous_and_creates_a_new_book(db_url):
+    isbn_a = normalize_isbn("978-0-306-40615-7")
+    isbn_b = normalize_isbn("080442957X")
+    _seed_with_identifiers(db_url, {1: (isbn_a,), 2: (isbn_b,)})
     book_a = query(db_url, "SELECT book_id FROM book_sources WHERE source_url = %s", (product_url(1),))[0][0]
+    book_b = query(db_url, "SELECT book_id FROM book_sources WHERE source_url = %s", (product_url(2),))[0][0]
+    books_before = count(db_url, "books")
 
     rows = [RankingRow(rank=1, url=product_url(101))] + [RankingRow(rank=rank, url=product_url(rank)) for rank in range(2, 101)]
     drafts = {row.url: make_draft(row.url) for row in rows}
-    # The new source carries the ISBN-10 of book B (rank 2) and the ISBN-13 of book A (rank 1).
-    drafts[product_url(101)] = make_draft(product_url(101), identifiers=(isbn10_of_other, isbn13))
+    # The new source carries the ISBN of Book A and the ISBN of Book B: two distinct Books (data-model §7.2 step 3).
+    drafts[product_url(101)] = make_draft(product_url(101), identifiers=(isbn_a, isbn_b))
 
     report, _ = run(db_url, rows, drafts)
 
     assert report.status is RunStatus.SUCCESS
-    assert bestsellers(db_url)[0][1] == book_a
+    assert (report.new_book_count, report.ambiguous_isbn_count, report.attached_source_count) == (1, 1, 0)
+    new_book = query(db_url, "SELECT book_id FROM book_sources WHERE source_url = %s", (product_url(101),))[0][0]
+    assert new_book not in (book_a, book_b)
+    assert count(db_url, "books") == books_before + 1  # ranks 2..100 are known sources; only the ambiguous rank creates a Book
+    assert query(db_url, "SELECT count(*) FROM book_sources WHERE book_id IN (%s, %s)", (book_a, book_b)) == [(2,)]
 
 
 def test_existing_url_then_new_source_with_same_isbn_skips_the_later_rank(db_url):
@@ -627,8 +633,8 @@ def test_new_book_columns_match_data_model_with_nulls_for_missing_fields(db_url)
         NOW,
     )
     assert query(db_url, "SELECT identifier_type, identifier_value FROM book_identifiers WHERE book_id = %s ORDER BY 1, 2", (book_id,)) == [
-        ("ISBN_10", "0306406152"),
-        ("ISBN_13", "9780306406157"),
+        ("ISBN", "0306406152"),
+        ("ISBN", "9780306406157"),
     ]
     assert query(
         db_url,
@@ -950,3 +956,248 @@ def test_database_error_text_with_a_connection_string_never_reaches_the_log_or_r
         assert "db.internal" not in text
     assert "postgresql://<redacted>" in caplog.text
     assert db_url not in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# Phase B: ISBN matching, NULL fill, last_seen_at touch, identity, source_code (data-model §7, crawler.md §6, §14.4)
+# ---------------------------------------------------------------------------
+
+
+def execute(url: str, sql: str, params: tuple = ()) -> None:
+    with psycopg.connect(url, autocommit=True) as conn:
+        conn.execute(sql, params)
+
+
+def _book_of(url: str, source_url: str) -> uuid.UUID:
+    return query(url, "SELECT book_id FROM book_sources WHERE source_url = %s", (source_url,))[0][0]
+
+
+def test_isbn_draft_with_no_match_imports_a_new_book_with_an_isbn_identifier(db_url):
+    isbn = normalize_isbn("978-0-306-40615-7")
+    rows = ranking_rows(100)
+    drafts = {row.url: make_draft(row.url) for row in rows}
+    drafts[rows[0].url] = make_draft(rows[0].url, identifiers=(isbn,))
+
+    report, _ = run(db_url, rows, drafts)
+
+    assert report.status is RunStatus.SUCCESS
+    assert (report.new_book_count, report.attached_source_count, report.ambiguous_isbn_count) == (100, 0, 0)
+    book = _book_of(db_url, rows[0].url)
+    assert query(db_url, "SELECT identifier_type, identifier_value FROM book_identifiers WHERE book_id = %s", (book,)) == [("ISBN", "9780306406157")]
+
+
+def test_legacy_isbn13_row_and_a_draft_isbn_with_the_same_value_are_the_same_book(db_url):
+    _seed_with_identifiers(db_url, {})
+    legacy_book = _book_of(db_url, product_url(1))
+    # A v0.0.4 identifier row: the value is the same, the type is the legacy ISBN_13.
+    execute(
+        db_url,
+        "INSERT INTO book_identifiers (book_id, identifier_type, identifier_value) VALUES (%s, 'ISBN_13', '9780306406157')",
+        (legacy_book,),
+    )
+    rows = [RankingRow(rank=1, url=product_url(101))] + [RankingRow(rank=rank, url=product_url(rank)) for rank in range(2, 101)]
+    drafts = {row.url: make_draft(row.url) for row in rows}
+    drafts[product_url(101)] = make_draft(product_url(101), identifiers=(normalize_isbn("978-0-306-40615-7"),))
+
+    report, _ = run(db_url, rows, drafts)
+
+    assert (report.attached_source_count, report.new_book_count) == (1, 0)
+    assert _book_of(db_url, product_url(101)) == legacy_book
+
+
+def test_attach_fills_only_null_columns_adds_author_when_missing_and_sets_updated_at(db_url):
+    isbn = normalize_isbn("978-0-306-40615-7")
+    _seed_with_identifiers(db_url, {1: (isbn,)})  # Book A: publisher set, no date, no language, no AUTHOR
+    book_a = _book_of(db_url, product_url(1))
+    updated_before = query(db_url, "SELECT updated_at FROM books WHERE id = %s", (book_a,))[0][0]
+    rows = [RankingRow(rank=1, url=product_url(101))] + [RankingRow(rank=rank, url=product_url(rank)) for rank in range(2, 101)]
+    drafts = {row.url: make_draft(row.url) for row in rows}
+    drafts[product_url(101)] = make_draft(
+        product_url(101),
+        publisher="NEW PUBLISHER",  # already set: must not be overwritten
+        published_date=date(2026, 10, 11),
+        published_date_precision="DAY",
+        language="zh-TW",
+        description="內容簡介",
+        page_count=300,
+        identifiers=(isbn, normalize_isbn("0-306-40615-2")),
+        contributors=(Contributor(order=1, name="作者甲", role=ContributorRole.AUTHOR),),
+        subjects=("文學",),
+    )
+
+    report, _ = run(db_url, rows, drafts, now=LATER)
+
+    assert report.attached_source_count == 1
+    assert query(
+        db_url, "SELECT publisher, published_date, published_date_precision, language, description, page_count, updated_at FROM books WHERE id = %s", (book_a,)
+    ) == [("Original publisher", date(2026, 10, 11), "DAY", "zh-TW", "內容簡介", 300, LATER)]
+    assert query(db_url, "SELECT contributor_order, name, role FROM book_contributors WHERE book_id = %s", (book_a,)) == [(1, "作者甲", "AUTHOR")]
+    assert count(db_url, "book_identifiers") == 2  # the seeded ISBN is not duplicated; the new ISBN is added
+    assert query(db_url, "SELECT subject, source_type, source_code FROM book_subjects WHERE book_id = %s", (book_a,)) == [("文學", "BOOKS_COM_TW", "BOOKS_COM_TW")]
+    assert query(db_url, "SELECT source_code, first_seen_at, last_seen_at FROM book_sources WHERE source_url = %s", (product_url(101),)) == [
+        ("BOOKS_COM_TW", LATER, LATER)
+    ]
+    assert updated_before == NOW
+
+
+def test_attach_that_fills_nothing_leaves_updated_at_unchanged(db_url):
+    isbn = normalize_isbn("978-0-306-40615-7")
+    _seed_with_identifiers(db_url, {1: (isbn,)})
+    book_a = _book_of(db_url, product_url(1))
+    rows = [RankingRow(rank=1, url=product_url(101))] + [RankingRow(rank=rank, url=product_url(rank)) for rank in range(2, 101)]
+    drafts = {row.url: make_draft(row.url) for row in rows}
+    drafts[product_url(101)] = make_draft(product_url(101), identifiers=(isbn,))
+
+    report, _ = run(db_url, rows, drafts, now=LATER)
+
+    assert report.attached_source_count == 1
+    assert query(db_url, "SELECT updated_at FROM books WHERE id = %s", (book_a,)) == [(NOW,)]
+
+
+def test_ambiguous_match_changes_neither_book(db_url):
+    isbn_a = normalize_isbn("978-0-306-40615-7")
+    isbn_b = normalize_isbn("080442957X")
+    _seed_with_identifiers(db_url, {1: (isbn_a,), 2: (isbn_b,)})
+    before = query(
+        db_url, "SELECT id, publisher, updated_at FROM books WHERE id IN (%s, %s) ORDER BY id", (_book_of(db_url, product_url(1)), _book_of(db_url, product_url(2)))
+    )
+    rows = [RankingRow(rank=1, url=product_url(101))] + [RankingRow(rank=rank, url=product_url(rank)) for rank in range(2, 101)]
+    drafts = {row.url: make_draft(row.url) for row in rows}
+    drafts[product_url(101)] = make_draft(product_url(101), publisher="X", identifiers=(isbn_a, isbn_b))
+
+    run(db_url, rows, drafts, now=LATER)
+
+    after = query(
+        db_url, "SELECT id, publisher, updated_at FROM books WHERE id IN (%s, %s) ORDER BY id", (_book_of(db_url, product_url(1)), _book_of(db_url, product_url(2)))
+    )
+    assert after == before
+
+
+def test_existing_sources_are_touched_in_each_run_and_first_seen_is_kept(db_url):
+    _seed_with_identifiers(db_url, {})
+    rows = ranking_rows(100)
+
+    run(db_url, rows, now=LATER)
+
+    assert query(db_url, "SELECT count(*) FROM book_sources WHERE last_seen_at = %s AND first_seen_at = %s", (LATER, NOW)) == [(100,)]
+
+
+def test_replace_bestsellers_does_not_update_last_seen_at(db_url):
+    _seed_with_identifiers(db_url, {})
+    source = query(db_url, "SELECT id, book_id FROM book_sources WHERE source_url = %s", (product_url(1),))[0]
+    later = LATER.replace(year=2027)
+    with db.connect(db_url) as conn:
+        db.replace_bestsellers(conn, [SnapshotRow(rank=1, book_id=source[1], source_id=source[0])], captured_at=later)
+
+    assert query(db_url, "SELECT last_seen_at FROM book_sources WHERE id = %s", (source[0],)) == [(NOW,)]
+
+
+def test_a_touch_that_fails_twice_then_succeeds_is_retried_without_refetching(db_url, monkeypatch):
+    _seed_with_identifiers(db_url, {})
+    real_touch = db.touch_source
+    failures = {"left": 2}
+
+    def flaky_touch(conn, source_id, now):
+        if failures["left"] > 0:
+            failures["left"] -= 1
+            raise psycopg.OperationalError("simulated connection drop during the touch")
+        return real_touch(conn, source_id, now)
+
+    monkeypatch.setattr(db, "touch_source", flaky_touch)
+    rows = ranking_rows(100)
+    sleep = FakeSleep()
+
+    report, fetcher = run(db_url, rows, now=LATER, sleep=sleep)
+
+    assert report.status is RunStatus.SUCCESS
+    assert report.existing_source_count == 100
+    assert sleep.calls == RETRY_SLEEPS
+    assert not [url for url in fetcher.calls if url != RANKING_PAGE_URL]  # no detail page was fetched
+    assert query(db_url, "SELECT count(*) FROM book_sources WHERE last_seen_at = %s", (LATER,)) == [(100,)]
+
+
+def test_a_touch_that_keeps_failing_is_a_database_error_skip_in_the_daily_run(db_url, monkeypatch):
+    _seed_with_identifiers(db_url, {})
+    real_touch = db.touch_source
+    target = product_url(5)
+
+    def broken_for_one(conn, source_id, now):
+        if query(db_url, "SELECT source_url FROM book_sources WHERE id = %s", (source_id,))[0][0] == target:
+            raise psycopg.OperationalError("simulated database failure on touch")
+        return real_touch(conn, source_id, now)
+
+    monkeypatch.setattr(db, "touch_source", broken_for_one)
+    sleep = FakeSleep()
+
+    report, _ = run(db_url, ranking_rows(100), now=LATER, sleep=sleep)
+
+    assert report.status is RunStatus.PARTIAL_SUCCESS
+    assert skipped_ranks(report) == [5]
+    failure = report.skipped[0].failure
+    assert (failure.error_type, failure.attempts) == ("database_error", 3)
+    assert report.existing_source_count == 99  # the failed touch is not counted
+    # Later ranks are admitted, so the streak is reset; the failure counts once in the cumulative errors.
+    assert report.error_count == 1 and report.consecutive_error_count == 0
+    assert sleep.calls == RETRY_SLEEPS
+    assert query(db_url, "SELECT last_seen_at FROM book_sources WHERE source_url = %s", (target,)) == [(NOW,)]  # kept
+    assert 5 not in [row[0] for row in bestsellers(db_url)]
+
+
+def test_url_drift_keeps_the_stored_url_and_matches_by_external_id(db_url):
+    _seed_with_identifiers(db_url, {})
+    execute(db_url, "UPDATE book_sources SET external_id = 'E-1' WHERE source_url = %s", (product_url(1),))
+    book = _book_of(db_url, product_url(1))
+    with db.connect(db_url) as conn:
+        identity = db.resolve_source_identity(conn, "https://www.books.com.tw/drifted", external_id="E-1")
+
+    assert identity.kind.value == "existing"
+    assert identity.ref.book_id == book
+    assert identity.warning is not None and "URL drift" in identity.warning
+    assert query(db_url, "SELECT count(*) FROM book_sources WHERE source_url = %s", ("https://www.books.com.tw/drifted",)) == [(0,)]
+
+
+def test_external_id_and_url_on_different_sources_is_a_conflict_with_no_writes(db_url):
+    _seed_with_identifiers(db_url, {})
+    execute(db_url, "UPDATE book_sources SET external_id = 'E-1' WHERE source_url = %s", (product_url(1),))
+    execute(db_url, "UPDATE book_sources SET external_id = 'E-2' WHERE source_url = %s", (product_url(2),))
+    with db.connect(db_url) as conn:
+        identity = db.resolve_source_identity(conn, product_url(2), external_id="E-1")
+
+    assert identity.kind.value == "conflict"
+    assert identity.reason.startswith("source_identity_conflict")
+    assert query(db_url, "SELECT external_id FROM book_sources WHERE source_url = %s", (product_url(2),)) == [("E-2",)]
+
+
+def test_null_external_id_on_the_url_match_is_existing_without_backfill(db_url):
+    _seed_with_identifiers(db_url, {})
+    with db.connect(db_url) as conn:
+        identity = db.resolve_source_identity(conn, product_url(3), external_id="E-9")
+
+    assert identity.kind.value == "existing"
+    assert query(db_url, "SELECT external_id FROM book_sources WHERE source_url = %s", (product_url(3),)) == [(None,)]
+
+
+def test_writes_through_the_crawler_leave_source_type_equal_to_source_code(db_url):
+    _seed_with_identifiers(db_url, {})
+    assert query(db_url, "SELECT count(*) FROM book_sources WHERE source_type IS DISTINCT FROM source_code") == [(0,)]
+
+    # A v0.0.4 style insert (only source_type) is completed by the trigger from its value.
+    book = _book_of(db_url, product_url(1))
+    execute(
+        db_url,
+        """INSERT INTO book_sources (id, book_id, source_type, external_id, source_url, first_seen_at, last_seen_at)
+           VALUES (gen_random_uuid(), %s, 'BOOKS_COM_TW', NULL, 'https://www.books.com.tw/products/legacy', %s, %s)""",
+        (book, NOW, NOW),
+    )
+    assert query(db_url, "SELECT source_code FROM book_sources WHERE source_url = 'https://www.books.com.tw/products/legacy'") == [("BOOKS_COM_TW",)]
+
+
+def test_provider_enabled_reads_the_registry_row(db_url):
+    assert db.provider_enabled(db_url, "BOOKS_COM_TW") is True
+    assert db.provider_enabled(db_url, "KINGSTONE") is False
+    assert db.provider_enabled(db_url, "NO_SUCH_PROVIDER") is None
+    execute(db_url, "UPDATE source_providers SET enabled = false WHERE code = 'BOOKS_COM_TW'")
+    try:
+        assert db.provider_enabled(db_url, "BOOKS_COM_TW") is False
+    finally:
+        execute(db_url, "UPDATE source_providers SET enabled = true WHERE code = 'BOOKS_COM_TW'")

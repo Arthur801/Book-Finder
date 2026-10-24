@@ -28,8 +28,10 @@ import logging
 import os
 import re
 import sys
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from enum import StrEnum
+
+import psycopg
 
 from books_crawler import db
 from books_crawler.fetcher import (
@@ -38,6 +40,7 @@ from books_crawler.fetcher import (
     FetcherKind,
     create_fetcher,
 )
+from books_crawler.models import ProviderCode
 from books_crawler.page_list import (
     PAGES_FILE_ENV,
     PageListError,
@@ -48,7 +51,9 @@ from books_crawler.parsers import parse_detail_html, parse_ranking_html
 from books_crawler.redact import redact
 from books_crawler.run import RunDependencies, run_first_book, run_once, run_pages
 
+EXIT_FAILED = 1
 EXIT_CONFIG_ERROR = 2
+PROVIDER = ProviderCode.BOOKS_COM_TW
 FETCHER_ENV = "CRAWLER_FETCHER"
 NAVIGATION_TIMEOUT_ENV = "CRAWLER_NAV_TIMEOUT_MS"
 
@@ -84,7 +89,12 @@ def parse_navigation_timeout(raw: str) -> int:
     return milliseconds
 
 
-def main(environ: Mapping[str, str] | None = None, *, mode: CrawlerMode = CrawlerMode.DAILY) -> int:
+def main(
+    environ: Mapping[str, str] | None = None,
+    *,
+    mode: CrawlerMode = CrawlerMode.DAILY,
+    provider_enabled: Callable[[str, ProviderCode], bool | None] | None = None,
+) -> int:
     configure_logging()
     log = logging.getLogger("books_crawler.cli")
     env = os.environ if environ is None else environ
@@ -117,9 +127,17 @@ def main(environ: Mapping[str, str] | None = None, *, mode: CrawlerMode = Crawle
             log.error("%s", redact(str(exc)))
             return EXIT_CONFIG_ERROR
 
-    # TODO(#116 phase B): a disabled provider is a configuration error (exit 2, crawler.md §3.1, §14.5, §15.7, §16).
-    # The check reads source_providers.enabled, which does not exist before migration 010, so it is not faked here.
-    # It belongs right before the fetcher is created: no request may be made for a disabled provider.
+    # A disabled (or unregistered) provider is a configuration error: nothing is fetched (crawler.md §3.1, §14.5).
+    try:
+        check = provider_enabled or db.provider_enabled  # resolved per call so tests can replace it
+        enabled = check(database_url, PROVIDER)
+    except psycopg.Error as exc:
+        log.error("could not read source_providers: %s", redact(str(exc)))
+        return EXIT_FAILED
+    if enabled is not True:
+        log.error("source provider %s is disabled or not registered; nothing was crawled", PROVIDER)
+        return EXIT_CONFIG_ERROR
+
     fetcher = create_fetcher(kind, navigation_timeout_ms=navigation_timeout_ms)
     log.info("using %s fetcher", kind.value)
 

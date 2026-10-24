@@ -257,6 +257,7 @@ def test_skip_reason_values_are_the_stored_vocabulary():
         "database_error",
         "duplicate_book_in_ranking",
         "restricted_book",
+        "source_identity_conflict",
     ]
 
 

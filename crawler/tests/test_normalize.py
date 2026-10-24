@@ -11,41 +11,28 @@ from books_crawler.normalize import (
     parse_published_date,
 )
 
-# ISBN normalization and checksum (data-model §5.3)
+# ISBN normalization (data-model §7.1): no checksum, no length check; stored type ISBN
 
 
 @pytest.mark.parametrize(
     "raw, expected",
     [
-        ("0306406152", Identifier("ISBN_10", "0306406152")),
-        ("0-306-40615-2", Identifier("ISBN_10", "0306406152")),
-        ("080442957X", Identifier("ISBN_10", "080442957X")),
-        ("080442957x", Identifier("ISBN_10", "080442957X")),
-        ("9780306406157", Identifier("ISBN_13", "9780306406157")),
-        ("978-0-306-40615-7", Identifier("ISBN_13", "9780306406157")),
-        (" 978 0 306 40615 7 ", Identifier("ISBN_13", "9780306406157")),
-        ("979-10-90636-07-1", Identifier("ISBN_13", "9791090636071")),
+        ("0306406152", Identifier("ISBN", "0306406152")),
+        ("0-306-40615-2", Identifier("ISBN", "0306406152")),
+        ("080442957x", Identifier("ISBN", "080442957X")),
+        ("9780306406157", Identifier("ISBN", "9780306406157")),
+        ("978-0-306-40615-7", Identifier("ISBN", "9780306406157")),
+        (" 978 0 306 40615 7 ", Identifier("ISBN", "9780306406157")),
+        ("0306406153", Identifier("ISBN", "0306406153")),  # wrong checksum is still stored
+        ("12345", Identifier("ISBN", "12345")),  # wrong length is still stored
     ],
 )
-def test_normalize_isbn_accepts_valid_values(raw, expected):
+def test_normalize_isbn_keeps_every_non_empty_normalized_value(raw, expected):
     assert normalize_isbn(raw) == expected
 
 
-@pytest.mark.parametrize(
-    "raw",
-    [
-        None,
-        "",
-        "abc",
-        "0306406153",  # ISBN-10 wrong checksum
-        "9780306406158",  # ISBN-13 wrong checksum
-        "978030640615",  # 12 digits
-        "08044X957X",  # X only allowed as the last character
-        "9770306406158",  # valid checksum but not a 978/979 ISBN-13 prefix
-        "97803064061570",  # 14 digits
-    ],
-)
-def test_normalize_isbn_rejects_invalid_values(raw):
+@pytest.mark.parametrize("raw", [None, "", "  ", "-", "\u3000", "\uff0d"])
+def test_normalize_isbn_without_a_value_is_not_written(raw):
     assert normalize_isbn(raw) is None
 
 

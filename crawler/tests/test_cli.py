@@ -1,11 +1,18 @@
 """CLI wiring: configuration, exit codes and fetcher lifetime (no browser, no database, no network)."""
 
+import psycopg
 import pytest
 
-from books_crawler import cli
+from books_crawler import cli, db
 from books_crawler.fetcher import DEFAULT_NAVIGATION_TIMEOUT_MS, FetcherKind
 
 DATABASE = {"DATABASE_URL": "postgresql://unused"}
+
+
+@pytest.fixture(autouse=True)
+def _provider_enabled(monkeypatch):
+    """The CLI reads source_providers before the run; these tests have no database, so the provider is enabled."""
+    monkeypatch.setattr(db, "provider_enabled", lambda url, code: True)
 
 
 class FakeRunResult:
@@ -109,3 +116,21 @@ def test_fetcher_is_closed_when_the_run_raises(monkeypatch):
     with pytest.raises(RuntimeError, match="unexpected"):
         cli.main(DATABASE)
     assert seen["fetcher"].closed == 1
+
+
+def test_disabled_provider_exits_2_before_any_fetcher_is_created(monkeypatch, caplog):
+    created = []
+    monkeypatch.setattr(cli, "create_fetcher", lambda *args, **kwargs: created.append(1) or pytest.fail("no fetcher"))
+
+    code = cli.main({"DATABASE_URL": "postgresql://unused"}, provider_enabled=lambda url, code: False)
+
+    assert code == 2
+    assert created == []
+    assert "source provider BOOKS_COM_TW is disabled or not registered" in caplog.text
+
+
+def test_unreadable_provider_registry_is_a_run_failure_not_a_config_error(monkeypatch):
+    def broken(url, code):
+        raise psycopg.OperationalError("could not connect to postgresql://user:pw@host/db")
+
+    assert cli.main({"DATABASE_URL": "postgresql://unused"}, provider_enabled=broken) == 1

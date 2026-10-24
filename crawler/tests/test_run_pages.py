@@ -19,7 +19,8 @@ import pytest
 from books_crawler import cli, db
 from books_crawler.cli import CrawlerMode
 from books_crawler.fetcher import BrowserUnavailableError, FetcherKind, FetchError
-from books_crawler.models import BookDraft, Identifier, IdentifierType, IsbnMatch, RankingRow, RunStatus, SkipReason, SourceRef
+from books_crawler.identity import IdentityKind, SourceIdentity
+from books_crawler.models import BookDraft, Identifier, IdentifierType, RankingRow, RunStatus, SkipReason, SourceRef
 from books_crawler.page_list import PAGES_FILE_ENV
 from books_crawler.parsers import RANKING_PAGE_URL, ParseError, RestrictedBookError
 from books_crawler.run import RunDependencies, run_once, run_pages
@@ -42,6 +43,12 @@ CATEGORY_3 = "https://www.books.com.tw/web/sys_saletopb/books/03/?attribute=7&lo
 DATABASE = {"DATABASE_URL": "postgresql://unused"}
 
 
+@pytest.fixture(autouse=True)
+def _provider_enabled(monkeypatch):
+    """The CLI reads source_providers before the run; these tests have no database, so the provider is enabled."""
+    monkeypatch.setattr(db, "provider_enabled", lambda url, code: True)
+
+
 class FakeStore:
     """In-memory stand-in for the database functions ``run_pages`` calls on a Catalog write."""
 
@@ -49,15 +56,17 @@ class FakeStore:
         self.sources: dict[str, SourceRef] = {}
         self.isbn_owners: dict[str, UUID] = {}  # identifier value -> owning Book
         self.persisted: list[tuple] = []  # (draft, attach_to_book_id)
+        self.touched: list = []
 
-    def find_source(self, conn, source_url):
-        return self.sources.get(source_url)
+    def resolve_source_identity(self, conn, source_url, external_id=None):
+        ref = self.sources.get(source_url)
+        return SourceIdentity(IdentityKind.EXISTING, ref=ref) if ref is not None else SourceIdentity(IdentityKind.NEW)
 
-    def find_book_by_isbn(self, conn, identifiers):
-        for identifier in identifiers:
-            if identifier.identifier_value in self.isbn_owners:
-                return IsbnMatch(book_id=self.isbn_owners[identifier.identifier_value], identifier=identifier)
-        return None
+    def find_books_by_isbn(self, conn, values):
+        return sorted({self.isbn_owners[value] for value in values if value in self.isbn_owners})
+
+    def touch(self, conn, source_id, now):
+        self.touched.append(source_id)
 
     def persist(self, conn, draft, now, attach_to_book_id=None):
         self.persisted.append((draft, attach_to_book_id))
@@ -73,8 +82,9 @@ class FakeStore:
 @pytest.fixture
 def store(monkeypatch) -> FakeStore:
     fake = FakeStore()
-    monkeypatch.setattr(db, "find_source", fake.find_source)
-    monkeypatch.setattr(db, "find_book_by_isbn", fake.find_book_by_isbn)
+    monkeypatch.setattr(db, "resolve_source_identity", fake.resolve_source_identity)
+    monkeypatch.setattr(db, "find_books_by_isbn", fake.find_books_by_isbn)
+    monkeypatch.setattr(db, "touch_source", fake.touch)
     monkeypatch.setattr(db, "persist_new_source", fake.persist)
     # The Catalog import must never touch the bestseller list; an attempt fails the test outright.
     monkeypatch.setattr(db, "replace_bestsellers", lambda *args, **kwargs: pytest.fail("run_pages must not write bestsellers"))
@@ -356,10 +366,10 @@ def test_browser_unavailable_on_a_detail_page_fails_the_run_without_retry(store,
 def test_database_failure_on_the_source_lookup_stops_the_run(store, monkeypatch):
     rows = {CATEGORY_1: ranking_rows(1), CATEGORY_2: ranking_rows(1, offset=1)}
 
-    def broken_lookup(conn, source_url):
+    def broken_lookup(conn, source_url, external_id=None):
         raise psycopg.OperationalError("database is down")
 
-    monkeypatch.setattr(db, "find_source", broken_lookup)
+    monkeypatch.setattr(db, "resolve_source_identity", broken_lookup)
 
     report, deps = crawl(monkeypatch, rows)
 
@@ -779,3 +789,26 @@ def test_a_secret_in_a_rejected_page_list_line_never_reaches_the_log(monkeypatch
     assert "s3cret-pass" not in logged
     assert "db.internal" not in logged
     assert "line 1" in logged
+
+
+def test_pages_row_whose_touch_keeps_failing_is_skipped_and_the_run_goes_on(store, monkeypatch):
+    rows = {CATEGORY_1: ranking_rows(3), CATEGORY_2: ranking_rows(1, offset=10)}
+    crawl(monkeypatch, rows)  # first pass creates the Sources
+    target = ranking_rows(3)[1].url
+    real_touch = store.touch
+
+    def touch_down_for_target(conn, source_id, now):
+        if source_id == store.sources[target].source_id:
+            raise psycopg.OperationalError("touch down")
+        return real_touch(conn, source_id, now)
+
+    monkeypatch.setattr(db, "touch_source", touch_down_for_target)
+
+    report, _ = crawl(monkeypatch, rows)
+
+    assert report.status is RunStatus.PARTIAL_SUCCESS
+    assert report.exit_code == 0
+    assert [item.url for item in report.skipped] == [target]
+    assert (report.skipped[0].failure.error_type, report.skipped[0].failure.attempts) == ("database_error", 3)
+    assert report.existing_book_count == 3  # two rows touched, the failed one is not counted
+    assert report.existing_source_count == 3

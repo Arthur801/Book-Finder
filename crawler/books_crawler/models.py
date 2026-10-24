@@ -13,7 +13,9 @@ from enum import StrEnum
 from uuid import UUID
 
 
-class SourceType(StrEnum):
+class ProviderCode(StrEnum):
+    """``source_providers.code`` values this crawler writes (data-model §7, crawler.md §3.1)."""
+
     BOOKS_COM_TW = "BOOKS_COM_TW"
 
 
@@ -24,7 +26,8 @@ class PublishedDatePrecision(StrEnum):
 
 
 class IdentifierType(StrEnum):
-    ISBN_10 = "ISBN_10"
+    ISBN = "ISBN"  # data-model §6.5: the normalized value of §7.1; the only type written from now on
+    ISBN_10 = "ISBN_10"  # legacy rows, read for matching until migration 011
     ISBN_13 = "ISBN_13"
 
 
@@ -51,6 +54,7 @@ class SkipReason(StrEnum):
     DATABASE_ERROR = "database_error"
     DUPLICATE_BOOK_IN_RANKING = "duplicate_book_in_ranking"
     RESTRICTED_BOOK = "restricted_book"
+    SOURCE_IDENTITY_CONFLICT = "source_identity_conflict"  # data-model §7.3: not retried, not written
 
 
 class JobName(StrEnum):
@@ -61,7 +65,7 @@ class JobName(StrEnum):
     CATEGORY_PAGES = "category-pages"
 
 
-PROVIDER_CODE = "BOOKS_COM_TW"  # the provider of every row this crawler writes (crawler.md §3.1); logged as provider_code
+PROVIDER_CODE = ProviderCode.BOOKS_COM_TW  # the provider of every row this crawler writes (crawler.md §3.1); logged as provider_code
 
 
 class CatalogResolution(StrEnum):
@@ -219,11 +223,12 @@ class ResolvedRow:
 
 
 @dataclass(frozen=True)
-class IsbnMatch:
-    """An existing Book whose identifier equals one of a new source's identifiers."""
+class SourceRecord:
+    """A ``book_sources`` row as the identity lookup sees it (data-model §7.3)."""
 
+    source_id: UUID
     book_id: UUID
-    identifier: Identifier
+    external_id: str | None
 
 
 @dataclass(frozen=True)

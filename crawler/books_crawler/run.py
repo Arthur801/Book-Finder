@@ -44,17 +44,18 @@ from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
+from uuid import UUID
 
 import psycopg
 
 from books_crawler import db
 from books_crawler.fetcher import Fetcher, FetchError
+from books_crawler.identity import IdentityKind
 from books_crawler.ledger import PagesLedger, RunLedger, RunReport
 from books_crawler.models import (
     BookDraft,
     CatalogResolution,
     Failure,
-    IsbnMatch,
     JobName,
     RankingRow,
     ResolvedRow,
@@ -87,10 +88,11 @@ class _RestrictedPage:
 
 @dataclass(frozen=True)
 class _WrittenSource:
-    """Write step outcome: the new source was written, attached to ``match`` or to a new Book."""
+    """Write step outcome: the new source was written, with its Catalog resolution (data-model §7.2)."""
 
     ref: SourceRef
-    match: IsbnMatch | None
+    resolution: CatalogResolution
+    matched_book_ids: tuple[UUID, ...]
 
 
 def utc_now() -> datetime:
@@ -248,32 +250,52 @@ def _fetch_and_parse(
         return _failure(SkipReason.PARSE_ERROR, str(exc), attempt)
 
 
+def _touch_with_retries(conn: psycopg.Connection, row: RankingRow, source_id: UUID, deps: RunDependencies) -> Failure | None:
+    """``last_seen_at`` touch of an existing Source (crawler.md §6.1): DB retry rule, no detail refetch.
+
+    Returns None on success, or the database failure after the last attempt.
+    """
+    last_failure: Failure | None = None
+    for attempt in _attempts(deps):
+        try:
+            db.touch_source(conn, source_id, deps.clock())
+            return None
+        except psycopg.Error as exc:
+            last_failure = _failure(SkipReason.DATABASE_ERROR, str(exc), attempt)
+            _log_attempt_failed(row, attempt, last_failure)
+    assert last_failure is not None  # the loop runs at least once and only continues on failure
+    return last_failure
+
+
 def _write_new_source(
     conn: psycopg.Connection,
     draft: BookDraft,
     deps: RunDependencies,
     attempt: int,
 ) -> _WrittenSource | Failure:
-    """ISBN lookup and the Book transaction for one parsed draft. Database errors are retryable.
+    """ISBN match and the Book transaction for one parsed draft (data-model §7.2). Database errors are retryable.
 
-    The Source is written even when its Book is already used by an earlier rank: that decision is
-    the ledger's (``DUPLICATE_BOOK``), made after the Catalog side has been committed (crawler.md §14.2).
+    Exactly one matching Book attaches the source (ISBN_ATTACHED, with gap filling); none creates a
+    Book (IMPORTED); two or more create a Book (AMBIGUOUS_CREATED). The source is written even when its
+    Book is already used by an earlier rank: that decision is the ledger's (crawler.md §14.2).
     """
+    values = [item.identifier_value for item in draft.identifiers]
     try:
-        match = db.find_book_by_isbn(conn, draft.identifiers)
+        matches = db.find_books_by_isbn(conn, values)
     except psycopg.Error as exc:
         return _failure(SkipReason.DATABASE_ERROR, str(exc), attempt)
 
+    if len(matches) == 1:
+        resolution = CatalogResolution.ISBN_ATTACHED
+        attach_to = matches[0]
+    else:
+        resolution = CatalogResolution.AMBIGUOUS_CREATED if len(matches) >= 2 else CatalogResolution.IMPORTED
+        attach_to = None
     try:
-        ref = db.persist_new_source(
-            conn,
-            draft,
-            deps.clock(),
-            attach_to_book_id=match.book_id if match is not None else None,
-        )
+        ref = db.persist_new_source(conn, draft, deps.clock(), attach_to_book_id=attach_to)
     except psycopg.Error as exc:
         return _failure(SkipReason.DATABASE_ERROR, str(exc), attempt)
-    return _WrittenSource(ref, match)
+    return _WrittenSource(ref, resolution, tuple(matches))
 
 
 def _resolve_row(
@@ -287,10 +309,19 @@ def _resolve_row(
     ``SkippedRow`` (``RESTRICTED`` or ``FAILED``). Whether a resolved Book may be ranked is decided by
     ``RunLedger``, not here.
     """
-    existing = db.find_source(conn, row.url)
-    if existing is not None:
-        # The detail page is never fetched for a known URL, so no attempt was made (attempts = 0).
-        return ResolvedRow(rank=row.rank, url=row.url, source_ref=existing, resolution=CatalogResolution.EXISTING)
+    identity = db.resolve_source_identity(conn, row.url)
+    if identity.kind is IdentityKind.CONFLICT:
+        log.warning("rank %d source identity conflict, not written: %s: %s", row.rank, row.url, identity.reason)
+        return _skipped(row, _failure(SkipReason.SOURCE_IDENTITY_CONFLICT, identity.reason or "", attempts=0))
+    if identity.kind is IdentityKind.EXISTING:
+        # The detail page is never fetched for a known URL (attempts = 0); the touch is its only write.
+        assert identity.ref is not None
+        if identity.warning is not None:
+            log.warning("rank %d %s: %s", row.rank, row.url, identity.warning)
+        touch_failure = _touch_with_retries(conn, row, identity.ref.source_id, deps)
+        if touch_failure is not None:
+            return _skipped(row, touch_failure)
+        return ResolvedRow(rank=row.rank, url=row.url, source_ref=identity.ref, resolution=CatalogResolution.EXISTING)
 
     draft: BookDraft | None = None
     last_failure: Failure | None = None
@@ -312,28 +343,27 @@ def _resolve_row(
             _log_attempt_failed(row, attempt, written)
             continue
 
-        if written.match is None:
-            return ResolvedRow(
-                rank=row.rank,
-                url=row.url,
-                source_ref=written.ref,
-                resolution=CatalogResolution.IMPORTED,
-                attempts=attempt,
+        if written.resolution is CatalogResolution.ISBN_ATTACHED:
+            log.info(
+                "attached BOOKS_COM_TW source to existing Book: rank=%d url=%s matched=ISBN:%s book_id=%s",
+                row.rank,
+                row.url,
+                ",".join(item.identifier_value for item in draft.identifiers),
+                written.matched_book_ids[0],
             )
-        match = written.match
-        log.info(
-            "attached BOOKS_COM_TW source to existing Book: rank=%d url=%s matched=%s:%s book_id=%s",
-            row.rank,
-            row.url,
-            match.identifier.identifier_type,
-            match.identifier.identifier_value,
-            match.book_id,
-        )
+        elif written.resolution is CatalogResolution.AMBIGUOUS_CREATED:
+            log.info(
+                "ambiguous ISBN match, created a new Book: rank=%d url=%s isbn=%s matched_book_ids=%s",
+                row.rank,
+                row.url,
+                ",".join(item.identifier_value for item in draft.identifiers),
+                ",".join(str(item) for item in written.matched_book_ids),
+            )
         return ResolvedRow(
             rank=row.rank,
             url=row.url,
             source_ref=written.ref,
-            resolution=CatalogResolution.ISBN_ATTACHED,
+            resolution=written.resolution,
             attempts=attempt,
         )
 
