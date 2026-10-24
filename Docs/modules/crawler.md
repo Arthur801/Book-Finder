@@ -88,6 +88,8 @@ ESLITE         disabled（future）
 
 - Crawler 只處理有 crawler adapter 的 provider。
 - `enabled = false` 只代表不允許主動 acquisition：crawler 對 disabled provider 啟動 job 時，以設定錯誤拒絕執行（**exit 2**），不建立 fetcher、不發出請求。它不影響既有資料的讀取。
+- 未登錄（查無 `source_providers` row）與 disabled 同樣是設定錯誤（**exit 2**）。
+- 讀取 `source_providers` 的資料庫錯誤**不是**設定錯誤：run 以 FAILED 結束（**exit 1**），記一行 ERROR `could not read source_providers: <redacted>`，同樣不建立 fetcher、不發出請求。
 
 ### 3.2 Source Adapter
 

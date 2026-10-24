@@ -144,7 +144,7 @@ python -m pytest tests/test_fetcher.py tests/test_curl_fetcher.py tests/test_pla
 - 責任／規格：§7／11；data-model；風險 L3；狀態：已有測試但本次未執行。
 - Given：有效／錯誤 ISBN、完整／年月日期、未知語言、缺 optional、分類多層與多貢獻者 HTML。
 - When：parse_detail_html → BookDraft → persist_new_source。
-- Then：ISBN format／checksum 正確，日期保存實際精度、未知語言 NULL 並 log，subtitle NULL、optional 不推測，分類去重，角色正規化；不寫 embedding／AI tables。公開 API 排除簡介／目錄另由 Web 案例驗證。
+- Then：ISBN 依 §7.1 正規化後以 `ISBN` 類型保存（不驗 checksum、不驗長度），日期保存實際精度、未知語言 NULL 並 log，subtitle NULL、optional 不推測，分類去重，角色正規化；不寫 embedding／AI tables。公開 API 排除簡介／目錄另由 Web 案例驗證。
 - 現有測試或擴充入口：[test_normalize.py](../tests/test_normalize.py)、[test_parsers_real_fixtures.py](../tests/test_parsers_real_fixtures.py)、[test_e2e_real_fixtures.py](../tests/test_e2e_real_fixtures.py)。
 
 ### CR-T15 — first-book 不改榜與冪等

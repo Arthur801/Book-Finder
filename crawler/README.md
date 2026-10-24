@@ -41,7 +41,7 @@ sudo python -m playwright install-deps chromium
 
 限制級會員登入頁直接跳過、不重試；log 另列 `restricted_book_count`，不計入 `error_count`，並重設 `consecutive_error_count`；累計錯誤沒有上限，連續 21 本一般錯誤才中止。排名不重新編號。其他 HTTP／解析／DB 錯誤仍遵守重試和榜單保護規則。
 
-計數分兩層（`crawler.md` §3.5）：Catalog 軸由 `CatalogResolution` 計 `existing_book_count`、`new_book_count`、`attached_source_count`、`existing_source_count`、`new_source_count`、`ambiguous_isbn_count`；排行榜軸由 `RankingDecision` 決定 skipped、error、restricted 與連續錯誤。同一本 Book 第二次出現在榜內時，Catalog 側照常寫入，該排名記為 `duplicate_book_in_ranking`（DUPLICATE_BOOK），不重試。既有 Source 的 `last_seen_at` 在逐項處理時獨立 transaction 更新（重試規則同 DB 寫入）。`source_providers.enabled` 為 false 或未登錄的 BOOKS_COM_TW 會在建立 fetcher 前以 exit 2 拒絕執行。`offer_updated_count` 目前固定為 0。解析、DB 工作與 retry backoff 計入隨機等待目標；工作超過目標時實際間隔可能超過 30 秒。
+計數分兩層（`crawler.md` §3.5）：Catalog 軸由 `CatalogResolution` 計 `existing_book_count`、`new_book_count`、`attached_source_count`、`existing_source_count`、`new_source_count`、`ambiguous_isbn_count`；排行榜軸由 `RankingDecision` 決定 skipped、error、restricted 與連續錯誤。同一本 Book 第二次出現在榜內時，Catalog 側照常寫入，該排名記為 `duplicate_book_in_ranking`（DUPLICATE_BOOK），不重試。既有 Source 的 `last_seen_at` 在逐項處理時獨立 transaction 更新（重試規則同 DB 寫入）。`source_providers.enabled` 為 false 或未登錄的 BOOKS_COM_TW 會在建立 fetcher 前以 exit 2 拒絕執行；讀取 `source_providers` 時的資料庫錯誤則以 exit 1 結束（FAILED），同樣不發出請求（`crawler.md` §3.1）。`offer_updated_count` 目前固定為 0。解析、DB 工作與 retry backoff 計入隨機等待目標；工作超過目標時實際間隔可能超過 30 秒。
 
 ```bash
 cd crawler

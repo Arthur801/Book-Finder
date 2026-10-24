@@ -911,7 +911,7 @@ External verification references：
 
 ## 14. Implementation compatibility note
 
-本文件描述 multi-source 的目標 contract（#113）。查核基準 `a448b82` 時的程式仍是：
+以下三點是 #113 之前的程式基準（`a448b82`），**已由 #116 取代，不是現行行為**，只保留作為歷史對照：
 
 - C# `SourceType` enum（BooksComTw / GoogleBooks）與 `book_sources.source_type`、`book_subjects.source_type` 的 check constraint；Python crawler 也有 `SourceType.BOOKS_COM_TW`。
 - `IdentifierType` 只有 `Isbn10`／`Isbn13`／`Other`；ISBN 以 partial unique 跨 Book 唯一；crawler 寫入前驗證格式與 checksum（`crawler/books_crawler/normalize.py`），不合格的值被丟棄。
