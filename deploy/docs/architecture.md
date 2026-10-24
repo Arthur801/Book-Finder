@@ -2,6 +2,7 @@
 
 > 目標：`deploy/`（EC2 host 程式、release 內容、CI/CD 來源、compat 與整合測試），外加分散的 CD 來源（見 §2）。
 > 查核基準：2026-10-24，HEAD `01db2d7`（tag `v0.0.4`）。工作樹 clean（僅既存未追蹤 `.venv`）。
+> 文件修正：PR #107 依程式對照修正 C1 至 C7（見 §8）；程式未改動。
 > 營運觀察（2026-10-24 operator 工作階段）以「營運觀察，非本次驗證」標示；本文件未在 EC2、AWS、GHCR 或 Cloudflare 上執行任何指令。
 
 ## 1. authority 與名詞路由
@@ -93,7 +94,7 @@
 | 0 | OK | `success` | `OK` |
 | 1 | ROLLED_BACK | `rolled-back` | `ROLLED_BACK` |
 | 2 | BAD_INPUT | `rejected` | `BAD_INPUT` |
-| 3 | DRIFT | `rejected`（部分路徑寫 `drift`，見 `_deploy_locked` 的 `RESULT_BY_EXIT`） | `DRIFT` |
+| 3 | DRIFT | `drift` 或 `rejected`，依發生點（對照見 [README §1.5](../README.md)） | `DRIFT` |
 | 4 | FAILED_MIGRATION | `failed-migration` | `FAILED_MIGRATION` |
 | 5 | FAILED_DOWN | `failed-down` | `FAILED_DOWN` |
 | 6 | DIRTY | `rejected` | `DIRTY` |
@@ -102,7 +103,7 @@
 
 `status` 固定退出碼 0；部署結果看 JSON 的 `status`。`deploy --detach` 成功接手時輸出 `launched` 與 exit 0，不是結果。
 
-**觀察到的不一致**：`exit_codes.py` 的 `RESULT_BY_EXIT` 把 exit 3 對應為 `rejected`，但 `_deploy_locked` 的 drift 路徑（如 state 不存在）寫 `drift`。`README §1.5` 的表格寫 exit 3 對應 `drift`。這是 result 字串的實際寫入值，需以 history 驗證（見 [test-suite.md](test-suite.md) 的 DEP-HIST-03）。
+**exit 3 與 `result` 的對應（現行行為，文件已對齊）**：`RESULT_BY_EXIT[DRIFT]` 為 `rejected`，用於 gate 失敗（`GateFailure`）；狀態機的 `_Stop(DRIFT, "drift", …)`、unit 本體的 lock 逾時與 state 不存在寫 `drift`；SSH 入口與 `plan` 的 exit 3 不寫 history；`resolve-run --result drift` 也寫 `drift`。完整對照見 [README §1.5](../README.md) 的「exit 3 的 history 對照」。程式未改動；兩種 `result` 是否統一列為 DEP-B17。
 
 ### 5.2 history 紀錄（JSON Lines，單行）
 
@@ -163,8 +164,8 @@
 
 | 項目 | 值 | 來源 |
 |---|---|---|
-| 本機健康探測（step 1） | 3 次，逾時 5 秒，間隔 1 秒 | `machine.py` `PROBE_TRIES`、`PROBE_TIMEOUT_S`、`PROBE_INTERVAL_S` |
-| 切換後與回滾後的健康預算 | 本機 90 秒，再 `PUBLIC_URL` 90 秒 | `HEALTH_BUDGET_S` |
+| 本機健康探測（step 1） | 最多 3 次，每次逾時 5 秒，次之間等 1 秒；3 次都失敗即 drift（未改動） | `machine.py` `PROBE_TRIES`、`PROBE_TIMEOUT_S`、`PROBE_INTERVAL_S` |
+| 切換後與回滾後的健康預算 | 本機 90 秒，再 `PUBLIC_URL` 90 秒（各自到期判定；每次請求逾時 5 秒，請求間隔 2 秒，到期時最後一次回應即判定） | `machine.py` `HEALTH_BUDGET_S`、`HEALTH_INTERVAL_S`、`PROBE_TIMEOUT_S` |
 | `deploy --detach` 等待接手 | 最多 60 秒；`not-started` 寬限 30 秒 | `commands.DETACH_ACK_TIMEOUT_S`、`NOT_STARTED_GRACE_S` |
 | 不帶 `--detach` 的跟隨 | 預設 6000 秒（`FOLLOW_TIMEOUT_S`） | host.conf 預設值 |
 | CD 跟隨 | 每 30 秒，最多 160 分鐘；`not-started` 寬限 120 秒 | `cd_release.py` 常數，`test_follow_budget_is_160_minutes_and_fits_the_180_minute_job` |
@@ -187,23 +188,23 @@
 - **爬蟲在 EC2 不可用**：博客來封鎖 EC2 IP，`CRAWLER_ENABLED=false`（營運觀察）。（DEP-B01）
 - **公開健康檢查**：User-Agent 修正（#106 已合併）需在 EC2 的 host 程式與 edge 規則生效；營運觀察未記錄 EC2 上 host 程式的版本。（DEP-B02）
 - **回滾下限**：`DB_CA_BUNDLE` 啟用後，`v0.0.1` 與 `v0.0.2` 不可作為回滾目標（已以 git tree 確認這兩個 tag 沒有 `compose.ca-bundle.yaml`）。（DEP-B03）
-- **runbook 待確認項目**：§7.2 的 #4、#5、#8、#10、#12 仍待確認；#1 至 #3 的營運證據可能已更新，但 runbook 未同步。（DEP-B13）
+- **runbook 待確認項目**：§7.2 的 #1 至 #5、#11、#17 已由 2026-10-24 營運觀察確認（PR #107 同步，見 DEP-B16）；其餘（如 #6 至 #10、#12、#15、#16、#18、#20）仍待確認或待決定。
 - **結構性**：`operator_cli.py` 1061 行、`cd_release.py` 1005 行、`commands.py` 703 行、`machine.py` 702 行；`cd.yml` 的 SSH 設定重複兩次。（DEP-B09、DEP-B11）
 
 ## 8. 文件與程式衝突
 
-以下衝突已在本次閱讀中核對。未修改任何文件；修正屬於後續待辦（backlog）。
+以下衝突已於 2026-10-24 逐項對照程式與 git，並由 PR #107 處理。處理欄只描述文件變更；**程式未改動**。
 
-| # | 位置 | 衝突 | 程式或 git 證據 | 嚴重度 |
-|---|---|---|---|---|
-| C1 | [deploy/README.md §3.4](../README.md) step 3 | 寫「三次，每次 5 秒」，語意不清 | `machine.py`：3 次探測，逾時 5 秒，探測間隔 1 秒 | 低（文件措辭） |
-| C2 | [deploy/README.md §1.5](../README.md) exit 6 | 只寫 `run-crawler.sh` 以 exit 6 跳過 `dirty` | `run-crawler.sh` 對 `paused` 與 `dirty` 都 exit 6；deployment.md §8 也寫兩者 | 低（文件遺漏） |
-| C3 | [deploy/README.md §1.5](../README.md) exit 3 與 `history` result | 表格寫 exit 3 對應 `drift`；`RESULT_BY_EXIT` 寫 `rejected` | `exit_codes.py`、`commands._deploy_locked` 的 `RESULT_BY_EXIT[...]` 與直接寫入的 `drift` 並存 | 中（需以 history 實測確認，見 DEP-HIST-03） |
-| C4 | [deploy/README.md §5](../README.md) 與程式 | 文件說明 exit 8 會擋下 operator operation；未提到損壞的 history 尾端。實作中 operator CLI 對損壞尾端回 exit 3，plan 與 unit 回 exit 8 | `operator_cli._refuse_while_indeterminate`（DRIFT）；`test_plan_blocked_by_corrupt_history_tail_exits_8` | 中（不一致） |
-| C5 | [deploy/README.md §7.2](../README.md) #2、#3 | 仍寫「system manager 未驗證，待確認」；營運觀察記錄 cutover run 40078171943 以 transient unit 完成並寫入 completed | 僅營運觀察，非本次驗證 | 低（文件可能過時） |
-| C6 | [deploy/README.md §3.1](../README.md) 第 5 項 | 寫 `v0.0.1` 尚未支援 `CRAWLER_ENABLED`，建議發布 `v0.0.2`；git 確認 `v0.0.2` 已包含（`3637cff` 是其祖先） | `git merge-base --is-ancestor 3637cff v0.0.2` 成立 | 低（操作指引已過時） |
-| C7 | [deploy/README.md §2.5](../README.md) 與程式 | 文件要求 `/etc/book-finder` 為 0755，程式不檢查目錄權限（只檢查 CA 檔案） | `config.check_ca_bundle` 只檢查檔案 | 低（文件要求未自動化） |
-| C8 | [Docs/deployment/deployment.md §3.1](../../Docs/deployment/deployment.md) | 仍有「原生發布」段落，已標示為被取代 | 內文自述 | 無（已標示） |
+| # | 位置 | 衝突 | 程式或 git 證據 | 嚴重度 | 處理 |
+|---|---|---|---|---|---|
+| C1 | [deploy/README.md §3.4](../README.md) step 3 與 step 7 | 寫「三次，每次 5 秒」，語意不清 | `machine.py`：step 1 探測最多 3 次，每次逾時 5 秒，次之間等 1 秒（`PROBE_TRIES`、`PROBE_TIMEOUT_S`、`PROBE_INTERVAL_S`）；健康預算 90 秒（`HEALTH_BUDGET_S`），輪詢間隔 2 秒（`HEALTH_INTERVAL_S`） | 低（文件措辭） | 已修正文件（PR #107）：step 3 改為逐項的次數、逾時與間隔；step 7 補上判定預算與請求參數；§6 的時間預算表同步 |
+| C2 | [deploy/README.md §1.5](../README.md) exit 6 | 只寫 `run-crawler.sh` 以 exit 6 跳過 `dirty` | `run-crawler.sh`：`paused` 與 `dirty` 都 exit 6；`CRAWLER_ENABLED=false` 為 exit 0（`skipped=disabled`）；非法值與非法 `DB_CA_BUNDLE` 為 exit 2 | 低（文件遺漏） | 已修正文件（PR #107）：exit 6 列出 paused 與 dirty；新增 `run-crawler.sh` 退出碼表 |
+| C3 | [deploy/README.md §1.5](../README.md) exit 3 與 history `result` | 表格寫 exit 3 對應 `drift`；`RESULT_BY_EXIT` 寫 `rejected` | `exit_codes.py` 的 `RESULT_BY_EXIT[DRIFT]` 為 `rejected`，用於 gate 失敗；`commands.py` 的 unit 本體（lock 逾時、state 不存在）與 `machine.py` 的 `_Stop(DRIFT, "drift")` 直接寫 `drift`；`resolve-run` 也可寫 `drift` | 中 | 已修正文件（PR #107）：README §1.5 新增「exit 3 的 history 對照」表，列出每個發生點寫入的 `result` 與不寫 history 的路徑；說明 `status` 使用者要一起看 `exit_code` 與 `result`。**程式未改**；統一列為 DEP-B17 |
+| C4 | [deploy/README.md §5.1](../README.md) 與 §1.5 | 文件未說明損壞的 history 尾端；實作中 operator 指令回 exit 3，plan 與 unit 本體回 exit 8 | `operator_cli._refuse_while_indeterminate`（`DRIFT`）；`runs.indeterminate_reasons` 與 `commands.run_deploy_unit`（`INDETERMINATE`）；測試 `test_plan_blocked_by_corrupt_history_tail_exits_8` | 中 | 已修正文件（PR #107）：§1.5 的 exit 8 與 exit 3 說明補上尾端情況；§5.1 說明差異與修復（`resolve-run`，碎片保存到 sidecar）。**程式未改**；統一與否仍為 DEP-B08（待決策） |
+| C5 | [deploy/README.md §7.2](../README.md) #1 至 #5、#11、#17 | 仍寫「待確認」；營運觀察已有證據 | 僅營運觀察（非本次驗證）：run `40078171943` 以 transient unit 完成並寫入 `completed:success`；plan key `status 1-1` 回傳 `not-started`；host `plan` 讀取 RDS 的 migration 歷史；Compose 5.6.1 的 raw env_file probe 通過；`Confirm the web/crawler release tag` 對 v0.0.1 至 v0.0.4 通過；Immutable Releases 的 release 為 `immutable=true` | 低（文件可能過時） | 已修正文件（PR #107）：上述 7 項標示「已由營運確認（2026-10-24）」並附證據；其餘保持待確認。營運觀察不是自動化測試 |
+| C6 | [deploy/README.md §3.1](../README.md) 第 5 項 | 寫 `v0.0.1` 尚未支援 `CRAWLER_ENABLED`，建議發布 `v0.0.2` | `git merge-base --is-ancestor 3637cff v0.0.2` 成立；`v0.0.2` 的 `run-crawler.sh` 含 `CRAWLER_ENABLED`；`DB_CA_BUNDLE` 自 `v0.0.3`（`compose.ca-bundle.yaml`）；UA 修正（`2fb5e27`）是 `v0.0.4` 的祖先 | 低（操作指引已過時） | 已修正文件（PR #107）：改為現行版本說明（`CRAWLER_ENABLED` 自 v0.0.2、`DB_CA_BUNDLE` 自 v0.0.3、目前 production 為 v0.0.4），移除「請發布 v0.0.2」的建議 |
+| C7 | [deploy/README.md §2.5](../README.md) 與程式 | 文件要求 `/etc/book-finder` 為 0755，程式不檢查目錄權限 | `config.check_ca_bundle` 只檢查 CA 檔案（`lstat`、一般檔案、others 可讀、大小） | 低（文件要求未自動化） | 已修正文件（PR #107）：§2.5 明確說明目錄權限為操作者要求、程式不檢查，並給出 `stat -c %a /etc/book-finder`。**程式未改**；自動檢查列為改善提案 DEP-B15 |
+| C8 | [Docs/deployment/deployment.md §3.1](../../Docs/deployment/deployment.md) | 仍有「原生發布」段落，已標示為被取代 | 內文自述 | 無（已標示） | 無變更 |
 
 ## 9. 維護重點
 

@@ -66,19 +66,56 @@ flowchart LR
 
 ### 1.5 退出碼對照
 
-`plan`、`deploy` 與人工指令使用下列退出碼。`status` 指令只要查詢本身成功，固定回傳 exit 0；部署狀態看 JSON 的 `status` 欄位，例如 `completed:success`、`running`、`indeterminate` 或 `not-started`，**不要用 `status` 的 exit code 判斷部署是否成功**。`history result` 是寫入 history 的 `result` 欄位，只適用於有 `completed` 紀錄的部署或人工操作；`plan` 不寫 history，回 exit 0 時也沒有 `result`。
+`plan`、`deploy` 與人工指令使用下列退出碼。`status` 指令只要查詢本身成功，固定回傳 exit 0；部署狀態看 JSON 的 `status` 欄位，例如 `completed:success`、`running`、`indeterminate` 或 `not-started`，**不要用 `status` 的 exit code 判斷部署是否成功**。`history result` 是寫入 history 的 `result` 欄位，只適用於有 `completed` 紀錄的部署或人工操作；`plan` 不寫 history，回 exit 0 時也沒有 `result`。判讀部署結果時，`status` 回報的 `completed:<result>` 與 completed 紀錄的 `exit_code` 要一起看：同一個退出碼（例如 3）可能對應不同 `result`，見下方「exit 3 的 history 對照」。
 
 | 碼 | 名稱 | 常見原因 | history result | 操作者要做什麼 |
 |---|---|---|---|---|
 | 0 | OK | plan 可以部署；或 deploy 成功：web 已切換到目標 release；crawler 符合該 chain 的預期狀態（in-sync / forward 更新至目標 crawler，schema-ahead 維持目前的 crawler） | `success` | 無 |
 | 1 | ROLLED_BACK | in-sync 或 schema-ahead 的 web 切換失敗，已回到舊 runtime | `rolled-back` | 看 journal 的健康檢查失敗原因，修正後再 dispatch。不需要 reconcile |
 | 2 | BAD_INPUT | 參數或 SSH 指令格式錯誤；release metadata 或內容不合格；`divergent`；`release_api` 超出 host 支援範圍；schema-ahead 的 `crawler_digest` 不是目前的；cutover 條件不符；compose 不支援 `format: raw`；設定檔錯誤；人工指令的確認值不符 | `rejected` | 不要重試同一組參數；依 stderr 的原因修正 |
-| 3 | DRIFT | state 不存在（需 bootstrap）；runtime 或 schema 與 state 不符；CAS 失敗（revision 過期）；deploy 或 db-maintenance lock 逾時；目前 runtime 健康檢查失敗（未改動）；snapshot 失敗（未 migrate，crawler 已恢復）；run id 已使用；unit 已存在；crawler 仍 paused；互動式 deploy 的跟隨逾時（回報 `running`；CD 使用 `--detach`，不會遇到此項） | `drift` | 依原因處理。未改動時修正後重新 plan，再 dispatch |
+| 3 | DRIFT | state 不存在（需 bootstrap）；runtime 或 schema 與 state 不符；CAS 失敗（revision 過期）；deploy 或 db-maintenance lock 逾時；目前 runtime 健康檢查失敗（未改動）；snapshot 失敗（未 migrate，crawler 已恢復）；run id 已使用；unit 已存在；crawler 仍 paused；互動式 deploy 的跟隨逾時（回報 `running`；CD 使用 `--detach`，不會遇到此項）；operator 指令遇到損壞的 history 尾端（§5.1）。`result` 依發生點而異，見下方「exit 3 的 history 對照」 | `drift` 或 `rejected`（依發生點） | 依原因處理。未改動時修正後重新 plan，再 dispatch |
 | 4 | FAILED_MIGRATION | efbundle 結束碼非 0，或 DB 的 migration id 與目標不符 | `failed-migration` | schema 保持 dirty、crawler 保持 paused。走 §5.2 與 §5.3 |
 | 5 | FAILED_DOWN | forward 之後 web 失敗（I5：不自動回滾）；或回滾本身失敗 | `failed-down` | 人工恢復（L4）。crawler 保持 paused |
-| 6 | DIRTY | schema 為 dirty，plan 與 deploy 都拒絕。`run-crawler.sh` 也會以 exit 6 跳過（`skipped=dirty`） | `rejected` | 走 §5.2 `reconcile-schema --mark-clean` |
+| 6 | DIRTY | schema 為 dirty，plan 與 deploy 都拒絕。`run-crawler.sh` 以 exit 6 跳過：`skipped=paused`（crawler 已暫停）或 `skipped=dirty`（schema dirty），兩者都不啟動容器 | `rejected`（deploy）；crawler 不寫 history | dirty：走 §5.2 `reconcile-schema --mark-clean`；paused：走 §5.3 `resume-crawler` |
 | 7 | PARTIAL_CRAWLER | web 已是目標版本，但 crawler 更新失敗；crawler 保持（或變成）paused | `partial-crawler` | 查 history 的 `crawler_substeps` 與 journal，再走 §5.3 `resume-crawler` |
-| 8 | INDETERMINATE | 有未解決的 indeterminate run 或 operator operation；本次結果無法證明（例如 started 之後發生未預期例外） | `blocked-indeterminate`（被擋下時）或無 completed | **不要重新 dispatch**。走 §5.1 `resolve-run` |
+| 8 | INDETERMINATE | 有未解決的 indeterminate run 或 operator operation；本次結果無法證明（例如 started 之後發生未預期例外）；history 最後一行不完整時，plan、SSH 端 deploy 與 deploy unit 本體也以 exit 8 拒絕（operator 指令則為 exit 3，見 §5.1） | `blocked-indeterminate`（被擋下時）或無 completed | **不要重新 dispatch**。走 §5.1 `resolve-run` |
+
+### exit 3 的 history 對照
+
+同為 exit 3，寫入 history 的 `result` 依發生點不同。下表是現行程式的行為（本次只修正文件，程式未改；統一與否見 DEP-B17）：
+
+| 發生點 | history 寫入 | `result` |
+|---|---|---|
+| deploy unit：deploy lock 逾時（`commands.run_deploy_unit`，started 之後） | completed | `drift` |
+| deploy unit：state 不存在（N6，需 bootstrap） | completed | `drift` |
+| deploy unit：gate 失敗（revision CAS、runtime／schema 預期、chain、cutover 條件、systemd 仍 active、observed drift；經 `RESULT_BY_EXIT[DRIFT]`） | completed | `rejected` |
+| 狀態機 step 0：crawler 仍 paused | completed | `drift` |
+| 狀態機 step 1：目前 runtime 健康檢查失敗（未改動） | completed | `drift` |
+| 狀態機 step 2 至 3：release 目錄不可用或內容取出失敗、同 digest 的 compose 不同、SSM 讀取或 env 檔寫入失敗 | completed | `drift` |
+| forward：db-maintenance lock 逾時；snapshot 失敗（未 migrate，crawler 已恢復） | completed | `drift` |
+| `resolve-run --result drift`（operator 記錄） | completed | `drift` |
+| operator 指令：驗證為「未改變」的失敗（指令仍 exit 3） | operator-completed | `failed` |
+| 不寫 history：unit 本體的 run id 已使用（在 started 之前拒絕） | 無 | — |
+| 不寫 history：SSH 入口的 run id 已使用、unit 已存在、`systemd-run` 失敗、unit 狀態無法讀取 | 無 | — |
+| 不寫 history：`plan` 的 drift、state 不存在或 lock 忙碌（`plan` 不寫 history） | 無 | — |
+| 不寫 history：operator 指令的 lock 忙碌、history 尾端損壞（§5.1）、operator-started 寫入失敗 | 無 | — |
+| 不寫 history：`deploy --detach` 的 not-started 寬限到期（unit 從未寫入 started）；不帶 `--detach` 的跟隨逾時（回報 `running`，run 仍在執行） | 無 | — |
+
+判讀：`status` 回報 `completed:<result>` 時，請同時看 completed 紀錄的 `exit_code`。`rejected` 表示 gate 在改動前拒絕；`drift` 的來源多樣（lock、step 0、step 1、migration 前的 snapshot 等），需依 journal 的原因判斷是否已改動系統。
+
+### run-crawler.sh 的退出碼
+
+cron 入口 `run-crawler.sh`（`crawler/deploy/run-crawler.sh`）的退出碼如下；它不寫 deploy 的 history。
+
+| 碼 | 條件 |
+|---|---|
+| 0 | `CRAWLER_ENABLED=false`（輸出 `skipped=disabled`，在任何鎖之前）；`pages` 未到 72 小時（`schedule=not-due`）；crawler 容器以 0 結束 |
+| 1 | `CRAWLER_IMAGE`、`AWS_REGION` 或 `DATABASE_URL_PARAMETER` 未設定（shell 的 `:?` 檢查） |
+| 2 | 用法錯誤；`DB_CA_BUNDLE` 不合法（字元、symlink、非一般檔案、非 0644、超過 1 MiB）；`CRAWLER_ENABLED` 不是 `true` 或 `false`（空值也拒絕）；state 存在但無法讀取（fail closed）；`pages-last-success` 內容不合法；SSM 的 DB URL 為空或含換行 |
+| 3 | db-maintenance lock 等待逾時（`DB_MAINTENANCE_WAIT_S`，預設 7200 秒），輸出 `maintenance=busy` |
+| 6 | state 的 `crawler.paused` 不為 null（`skipped=paused`），或 `schema.dirty` 為 true（`skipped=dirty`）；都不啟動容器 |
+| 其他 | crawler 容器的結束碼原樣傳回（`exit "$result"`）；容器內的 2 為 crawler 的設定錯誤，數字與上表的 2 相同 |
+
 
 CD 端的判定（`.github/scripts/cd_release.py`）：plan 的退出碼非 0 直接失敗；deploy 的 `completed:success` 才算成功；`indeterminate` 與其他失敗結果都要人工處理；`not-started` 在 120 秒寬限後才判定為「未動，可重新 dispatch」。CD 的 deploy job 以 `--detach` 啟動（見下），之後由 `deploy-follow` 每 30 秒呼叫 `status`，最多跟隨 160 分鐘（`FOLLOW_TIMEOUT_S`，job timeout 180 分鐘）。ssh 退出碼 255（連線失敗或中斷）視為沒有回應，繼續輪詢；其他非零退出碼的 `status` 失敗會讓 job 失敗，結果寫為 `unknown`，操作者需以 `status <run_id>` 手動查詢。
 
@@ -234,6 +271,8 @@ CRAWLER_IMAGE_REPOSITORY=ghcr.io/arthur801/book-finder-crawler
 
 檢查：`stat -c '%a %U:%G %n' /etc/book-finder /etc/book-finder/global-bundle.pem` 應分別為 `755` 與 `644`。若目錄或檔案權限不符，請用 `sudo chmod` 修正並記錄原因，不要重新執行 `install -d`。
 
+**目錄權限是操作者的要求，程式不檢查**：`config.check_ca_bundle` 只檢查 CA 檔案本身（一般檔案、非 symlink、others 可讀、不超過 1 MiB），不檢查 `/etc/book-finder` 是否可讓服務使用者穿越（DEP-B15）。只讀的單行檢查：`stat -c %a /etc/book-finder`（應為 `755`）。
+
 `/opt/book-finder/releases`、`/run/book-finder` 由程式建立（`makedirs`）。`/var/lib/book-finder/crawler` 由 `run-crawler.sh` 建立。
 
 ### 2.6 `deployer` 使用者、SSH key、sudoers、Security Group
@@ -342,7 +381,7 @@ sudo python3 <checkout>/deploy/host/book-finder-admin install-host \
 2. 爬蟲腳本與排程已安裝：`run-crawler.sh` 到 `CRAWLER_RUNNER`、`crawler.cron` 到 `CRON_FILE`（bootstrap 會讀取並計算兩者的雜湊，缺任一個就拒絕）。`crawler.conf` 的 `CRAWLER_IMAGE=` 必須已設定為 `<CRAWLER_IMAGE_REPOSITORY>@<crawler digest>`（例如 `ghcr.io/arthur801/book-finder-crawler@sha256:<digest>`），並已 `docker pull`（爬蟲以 `--pull=never` 執行）。bootstrap-state 會讀取並驗證此值，與 `--crawler-digest` 不一致時拒絕；`resume-crawler` 也會檢查。
 3. 目標 release 的 tag 已發布。`bootstrap-state --release` 與 `--web-digest` 必須指向同一個已發布 release：程式只檢查 tag 的格式，**不驗證 tag 與 digest 的對應**，由操作者確認（對照 GitHub Release 的 `release.json`）。
 4. `docker pull <PSQL_IMAGE>` 已完成。
-5. 若 EC2 無法從來源網站取得頁面（博客來封鎖 EC2 IP），在安裝 `crawler.cron` 之前於 `crawler.conf` 加上 `CRAWLER_ENABLED=false`。`bootstrap-state` 要求 `crawler.cron` 存在，因此不能略過安裝；設為 `false` 後 cron 仍會觸發，但每次都以 `skipped=disabled` 立即結束（`crawler/deploy/README.md` §5.1）。此開關跨部署保留；要恢復時改為 `true`。注意：`v0.0.1` 內的 `run-crawler.sh` 尚未支援此開關，需先發布新 release（例如 `v0.0.2`）並部署後，此設定才會生效。
+5. 若 EC2 無法從來源網站取得頁面（博客來封鎖 EC2 IP），在安裝 `crawler.cron` 之前於 `crawler.conf` 加上 `CRAWLER_ENABLED=false`。`bootstrap-state` 要求 `crawler.cron` 存在，因此不能略過安裝；設為 `false` 後 cron 仍會觸發，但每次都以 `skipped=disabled` 立即結束（`crawler/deploy/README.md` §5.1）。此開關跨部署保留；要恢復時改為 `true`。版本：`CRAWLER_ENABLED` 自 `v0.0.2` 起由 `run-crawler.sh` 支援（`v0.0.1` 的 `run-crawler.sh` 不認得此設定，會照常執行）。部署時使用的 release 必須含此設定；目前 production 為 `v0.0.4`（營運觀察），已包含。`DB_CA_BUNDLE` 自 `v0.0.3` 起可用（§2.4）。
 
 ### 3.2 `bootstrap-state`（N6，L4）
 
@@ -380,11 +419,11 @@ sudo /opt/book-finder/host/book-finder-admin bootstrap-state \
 
 1. 取得 deploy lock、CAS 檢查 revision、runtime、schema；schema dirty 則 exit 6。
 2. 用 `docker compose` 的 probe 確認 raw env_file 支援，失敗 exit 2。
-3. 健康檢查：`http://127.0.0.1:5000/`（`X-Forwarded-Proto: https`）三次，每次 5 秒。所有健康檢查請求都帶 `User-Agent: book-finder-deploy/<HOST_API_RANGE 的 max>`（例如 `book-finder-deploy/1`），不使用 urllib 預設的 `Python-urllib/3.x`。
+3. 健康檢查：`http://127.0.0.1:5000/`（`X-Forwarded-Proto: https`）最多 3 次，每次請求逾時 5 秒，失敗後等 1 秒再試；3 次都不是 200 即以 drift（exit 3）結束，且尚未改動 runtime。所有健康檢查請求都帶 `User-Agent: book-finder-deploy/<HOST_API_RANGE 的 max>`（例如 `book-finder-deploy/1`），不使用 urllib 預設的 `Python-urllib/3.x`。
 4. 把 target release 的檔案複製到 `RELEASES_DIR/<web digest hex>/`（若已存在，compose 檔的雜湊必須相同）。
 5. 從 SSM 讀取三個 secret，寫入 `RUN_DIR/web-<run_id>.env`（600）。
 6. **cutover**：先 `systemctl stop <SYSTEMD_UNIT>`（它占用 5000 埠），再 `docker compose -p book-finder up -d --remove-orphans`。
-7. 健康檢查：本機 `127.0.0.1:5000` 與 `PUBLIC_URL`，每個 90 秒內都要回 200（不跟隨 redirect；每個請求都帶上面的 `User-Agent`）。**edge（host nginx、WAF、CDN）的規則必須放行 `book-finder-deploy/*`**；若 edge 依 User-Agent 拒絕，公開階段會一直得到 403，即使應用程式正常（見 §7.2 第 21 項）。
+7. 健康檢查：先檢查本機 `127.0.0.1:5000`，通過後檢查 `PUBLIC_URL`；兩段各以 90 秒為判定預算，都要回 200（不跟隨 redirect；每個請求都帶上面的 `User-Agent`）。每次請求逾時 5 秒，請求之間等 2 秒；預算到期時的最後一次回應即為判定，因此實際可能超出預算約 5 秒。**edge（host nginx、WAF、CDN）的規則必須放行 `book-finder-deploy/*`**；若 edge 依 User-Agent 拒絕，公開階段會一直得到 403，即使應用程式正常（見 §7.2 第 7 項）。
 8. 成功：更新 crawler（pull、smoke、安裝 `run-crawler.sh`、`crawler.cron`、改寫 `crawler.conf`），然後 `runtime=docker`、`previous_runtime=systemd`，寫 completed。
 9. 失敗（web）：先把診斷寫入 deploy unit 的 journal（見 §3.6），再回滾。systemd 舊 runtime 的回滾是 `compose down`，再 `systemctl start <SYSTEMD_UNIT>`；docker 舊 release 的回滾是 `compose up` 舊的 compose 檔。回滾後的健康檢查與第 7 步使用同一個函式與同樣的預算（本機 90 秒，再 `PUBLIC_URL` 90 秒）。
 
@@ -499,6 +538,7 @@ sudo /opt/book-finder/host/book-finder-admin resolve-run <run_id> --result <結�
 - 程式會拒絕：run 仍在執行中（unit active）、run 已有 completed、run 從未 started。
 - 若 history 最後一行損壞但完整，會拒絕並要求人工檢查檔案。
 - 若最後一行不完整（沒有換行），程式會把碎片保存到 `<HISTORY_FILE>.tail-<時間>-<run_id>`（權限 600），記下 sha256，再重寫 history；修復紀錄寫在 operator-completed 的 `tail_repair` 欄位。
+- **history 尾端損壞時的退出碼（DEP-B08）**：`plan`、SSH 端的 deploy 與 deploy unit 本體因 history 最後一行不完整而以 exit 8 拒絕，不寫入。人工指令（`resolve-run` 以外，如 `reconcile-schema`、`resume-crawler`）以 exit 3 拒絕，訊息為 `history final line is incomplete; resolve-run repairs it …`，同樣不寫入。修復方式是對碎片所屬的 run 或 operator operation 執行下列 `resolve-run`：修復時先把碎片保存到 sidecar，再重寫 history。若 `resolve-run` 因找不到對應的 started 而拒絕（`never started`），表示無法自動判斷，停止並由使用者決定，不要手動編輯 `history.jsonl`。
 - 解除後程式會提醒 dirty 與 paused 仍需要 §5.2 與 §5.3 處理。
 
 處理 operator operation（`op-<yyyymmddHHMMSS>-<4 hex>`）：
@@ -705,23 +745,23 @@ Journal 是**輔助資訊**，不是結果的來源。結果以 history 為準�
 
 | # | 項目 | 狀態 | 驗證方式 |
 |---|---|---|---|
-| 1 | **sudoers 的 `env_keep` 行是否生效**（§2.6） | **待確認，上線前必要** | 以 plan key 執行 `status 1-1`，必須回傳 `not-started`（見 §2.6） |
-| 2 | `systemd-run` 以 root 執行 transient unit，`INVOCATION_ID` 是否由 systemd 設定 | 待確認。`systemd-run` 只以 `--user` manager 在本機驗證過（`--collect` 且不加 `--pipe` 時，launcher 被 kill -9 後 unit 仍會跑完；unit 回收後 `systemctl show` 回傳 `inactive`/`success`，與不存在的 unit 相同，因此結果以 history 為準）；system manager 未驗證 | 第一次正式部署前，用 system manager 的一次性 unit 驗證 |
-| 3 | SSH 斷線後 unit 是否仍會完成 | 本機只以 `--user` manager 驗證；system manager 未在本機驗證，**待確認** | 同上 |
-| 4 | psql 容器能否連到 RDS（docker 預設 bridge 網路到 RDS 端點） | 待確認 | 操作者在 EC2 上以 `docker run --rm --pull=never -e DATABASE_URL <PSQL_IMAGE> …` 做唯讀查詢。URL 從 shell 環境注入，不寫進命令列 |
-| 5 | Compose 的 `env_file: format: raw` 在 EC2 的 Docker Compose 版本是否支援 | 程式內有 probe，不支援會 exit 2。**版本號待記錄** | `docker compose version`，記錄於此處 |
+| 1 | **sudoers 的 `env_keep` 行是否生效**（§2.6） | **已由營運確認（2026-10-24）** | 營運觀察：以 plan key 執行 `status 1-1` 回傳 `not-started`，CD 的 plan job 也已能到達 host。非自動化測試 |
+| 2 | `systemd-run` 以 root 執行 transient unit，`INVOCATION_ID` 是否由 systemd 設定 | **已由營運確認（2026-10-24）**（營運觀察，非本次驗證） | cutover run `40078171943` 以 transient unit `book-finder-deploy-40078171943-1` 完成，並寫入 `completed:success`（system manager 執行）。本機 `--user` 驗證屬於補充證據 |
+| 3 | SSH 斷線後 unit 是否仍會完成 | **已由營運確認（2026-10-24）**（營運觀察，非本次驗證） | 以 SSH `--detach` 啟動的 cutover run `40078171943`，其 unit 仍完成並寫入 `completed:success` |
+| 4 | psql 容器能否連到 RDS（docker 預設 bridge 網路到 RDS 端點） | **已由營運確認（2026-10-24）**（營運觀察，非本次驗證） | host 的 `plan` 經 psql 容器讀取 RDS 的 `__EFMigrationsHistory`，結果 in-sync、9 個 migration |
+| 5 | Compose 的 `env_file: format: raw` 在 EC2 的 Docker Compose 版本是否支援 | **已由營運確認（2026-10-24）**（營運觀察，非本次驗證） | 程式內 probe 在 Docker Compose 5.6.1 上通過（不支援時 exit 2）。其他 Compose 版本未驗證 |
 | 6 | `docker cp`（不帶 `-L`）遇到 symlink 只複製連結本身 | 本機實測：不帶 `-L` 的 `docker cp` 複製出的是連結本身（`/opt/release/migrations.txt -> /etc/shadow` 複製後仍指向 host 的 `/etc/shadow`）。EC2 上的 Docker 版本未驗證 | 程式的 release 檢查會拒絕 symlink，不依賴此行為的正確性；**待確認** |
 | 7 | host nginx 設定（不在本 repository）：是否把 `PUBLIC_URL` 的請求轉發到 `127.0.0.1:5000` 並加上 `X-Forwarded-Proto`，且不依 User-Agent 拒絕 `book-finder-deploy/*`（§3.4） | 待確認 | `curl -sI <PUBLIC_URL>` 回 200，且 web 能辨識為 HTTPS；`curl -sI -A 'book-finder-deploy/1' <PUBLIC_URL>` 也回 200 |
 | 8 | Web 的 `ForwardedHeaders__KnownNetworks__0`（`172.31.250.0/24`）是否涵蓋 host nginx 經 docker-proxy 的來源位址 | 待確認（compose 註解的推論） | 健康檢查與登入 cookie 的 `Secure` 行為 |
 | 9 | 爬蟲的 `docker run --pull=never`：image 是否已由 host 拉取 | 程式在 `_update_crawler` 會 pull；bootstrap 前需手動 pull | `docker image inspect <CRAWLER_IMAGE>` |
 | 10 | GHCR package 是否 public；若 private，host 的登入方式 | 待確認（§2.8） | `docker pull` 不需登入即可成功 |
-| 11 | 確認 repository 已啟用 Immutable Releases（GA 日期 2025-10-28，見 §2.8） | 第一次正式 release 前需在 repository 設定中啟用 | Settings → Releases；發布後 `gh release verify <tag>` |
+| 11 | 確認 repository 已啟用 Immutable Releases（GA 日期 2025-10-28，見 §2.8） | **已由營運確認（2026-10-24）**（營運觀察） | 各 release 的 `immutable=true` |
 | 12 | 客戶管理 KMS key 是否使用（影響 `kms:Decrypt`） | 待確認 | SSM 參數的 key 設定 |
 | 13 | 不變式編號 `S1`、`S2` | 已在 v5 併入其他不變式：S1 → N7（transient unit 不用 `--pipe`），S2 → I6（GC 保留被引用的 image 與目錄）。ADR-006 保留編號說明 | 無須額外處理 |
 | 14 | `google-books-api-key`（`deployment.md` §5） | 在 #14（Google Books fallback）實作時才使用；目前程式未讀取，host 也不注入 | 不屬於本次部署；實作 #14 時再納入 host.conf 與 SSM 設定 |
 | 15 | `production-plan` 是否設 reviewer | 待決定（程式不依賴） | — |
 | 16 | 爬蟲與 host 的 `DB_MAINTENANCE_LOCK` 預設值相同（程式以預設值一致） | 若 host.conf 改了 `DB_MAINTENANCE_LOCK`，爬蟲的環境變數也要改，否則兩者不會互斥 | 比對兩處的設定 |
-| 17 | **第一個正式 release 在 GHCR 上的 end-to-end 確認**（§1.6） | **第一次正式 release 前必要**。Docker 的 `imagetools create` 行為本身已不是未知：本機 registry 的 round trip 由 CI 的 `imagetools-roundtrip.sh` 驗證（見 §1.6） | 第一次 release 的 `Confirm the web release tag` 與 `Confirm the crawler release tag` 步驟必須通過（GHCR 上 release tag 解析到 attest 的 digest）。若失敗，release tag 指向未 attest 的 digest：先依 §1.6 在 GHCR 刪除該版本，確認後才 rerun（L4 等級） |
+| 17 | **第一個正式 release 在 GHCR 上的 end-to-end 確認**（§1.6） | **已由營運確認（2026-10-24）**（營運觀察，非本次驗證） | `Confirm the web/crawler release tag` 步驟對 v0.0.1 至 v0.0.4 皆通過（來源為 GitHub runner 上的單一 manifest）。若日後的 release 失敗，仍依 §1.6 處理（L4） |
 | 18 | Build 留下的 staging tag（`build-<run_id>-<run_attempt>`）的 GHCR 清理 | 待確認（GHCR 網頁的確切路徑） | 依 §1.6：只刪除版本上所有 tag 都是 `build-*` 的版本；有 `v*` tag 的版本不得刪除 |
 | 19 | **EC2 被博客來擋下，crawler 停用**（2026-10-24 手動試跑失敗） | 已知限制。在修正之前，crawler 以 `CRAWLER_ENABLED=false` 停用（`crawler/deploy/README.md` §5.1）；需發布支援此開關的 release 後才會生效。恢復前須確認 EC2 可取得頁面，或採用替代資料管道（`Docs/deployment/deployment.md` §8） | 在 EC2 手動執行 `run-crawler.sh daily` 取得成功結果後，將 `CRAWLER_ENABLED` 改為 `true` 並觀察一次排程 |
 | 20 | **2026-10-24 production 500（`/etc/book-finder` 權限被改動）** | 已修正文件（§2.5 只建立不存在的目錄，並說明 0755 與 0644 的原因）；`DB_CA_BUNDLE`（§2.4）讓 web、efbundle、psql 與 crawler 容器以唯讀方式掛載同一個 CA 路徑，verify-full 不需放寬為 `Require`（#103）。尚未在 EC2 上啟用 `DB_CA_BUNDLE`，待上線時確認 | 設定 `DB_CA_BUNDLE` 後，`stat` 檢查 §2.5 的權限，並以 `docker compose … config` 確認 web 有唯讀掛載（見 `deploy/tests/test_release_files.py`） |

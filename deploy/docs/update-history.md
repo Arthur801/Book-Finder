@@ -99,7 +99,7 @@ git log --reverse --no-merges --format='@@%h' --numstat -- <同上路徑>
 | 2026-10-23 | `33d167e` | feat(deploy): classify the compat plan per migration relation (#92) | `compat_plan.sh`（+38）、`test_compat_plan.py`（+87）、`ci.yml`（+1/-1） | compat 依 chain 分類規劃 |
 | 2026-10-23 | `dd41a2d` | fix(deploy): never run the target bundle on a schema-ahead database (#92) | `compat.sh`（+79/-9） | schema-ahead 時不執行目標 bundle（避免降級） |
 | 2026-10-23 | `e3fa9cd` | ci: run the migration compat check when the checker changes (#92) | `ci.yml`（+19/-8） | compat 的 PR 條件納入 checker 檔案變更 |
-| 2026-10-23 | `faf6d2b` | fix(deploy): fail the schema gate when pg_dump fails or prints nothing (#92) | `schema_dump.sh`（+58）、`compat.sh`（+15/-6）、`test_schema_dump.py`（+100） | pg_dump 失敗或空輸出視為錯誤（已修正，見 backlog §3） |
+| 2026-10-23 | `faf6d2b` | fix(deploy): fail the schema gate when pg_dump fails or prints nothing (#92) | `schema_dump.sh`（+58）、`compat.sh`（+15/-6）、`test_schema_dump.py`（+100） | pg_dump 失敗或空輸出視為錯誤（已修正，見 backlog §4） |
 
 ### 3.4 #92 host 核心（M3a 的主題）
 
@@ -242,7 +242,7 @@ git log --reverse --no-merges --format='@@%h' --numstat -- <同上路徑>
 - **營運事件的時間**：2026-10-24 的 production 事件（cutover、403、`/etc/book-finder` 權限）只見於 runbook 與 commit message，不在本文件的日期推算範圍內。
 - **merge commit**：排除於上列命令之外。`01db2d7` 是 PR #106 的 merge commit。
 - **compat 與 GHCR 的實際結果**：本文件不推定 `Confirm` 步驟或 GHCR 上的結果（見 backlog DEP-B06）。
-- **已修復的歷史問題不列為待辦**：見 [backlog.md §3](backlog.md)。
+- **已修復的歷史問題不列為待辦**：見 [backlog.md §4](backlog.md)。
 
 ## 7. 重跑與驗證
 

@@ -31,7 +31,7 @@
 | DEP-B13 | P2 | L3 | 待驗證（repo 內無證據） | Cloudflare 與 `CF-Connecting-IP`（issue #27） |
 | DEP-B14 | P2 | L3 | 已發生（營運觀察）＋待驗證 | SSM 連線字串的跳脫問題 |
 | DEP-B15 | P3 | L2 | 改善提案 | `/etc/book-finder` 目錄權限未由程式檢查 |
-| DEP-B16 | P3 | L1 | 文件衝突（待修正） | runbook 與程式的措辭與營運狀態不同步 |
+| DEP-B17 | P3 | L3 | 改善提案 | exit 3 同時對應 history 的 `drift` 與 `rejected` |
 
 ## 2. 項目
 
@@ -50,8 +50,8 @@
 
 - **優先序／風險**：P1／L4。
 - **狀態**：待驗證。
-- **證據與影響**：營運觀察中，兩次 cutover 都因公開階段 403 而 `failed-down`；原因是 urllib 預設的 `Python-urllib/3.x`。修正 commit `2fb5e27`（#105）讓 `RealHttp` 送出 `book-finder-deploy/<HOST_API_RANGE max>`（[adapters.py](../host/bookfinder_host/adapters.py) 的 `RealHttp`、[config.py](../host/bookfinder_host/config.py) 的 `host_user_agent`），`2fb5e27` 是 `v0.0.4` 的祖先（已確認）。未確認的部分：(1) EC2 上 host 程式是否以含此修正的版本安裝（host 程式由 `install-host` 安裝，與 release tag 獨立；營運觀察未記錄安裝來源）；(2) Cloudflare 或 nginx 的規則是否放行 `book-finder-deploy/*`（runbook §7.2 #7、#21 待確認）；(3) 自訂 UA 可能被 WAF 規則誤擋（營運觀察提醒）。
-- **spec／source**：runbook §3.4 step 3 與 step 7、§3.6、§7.2 #7、#21；`test-suite` 的 DEP-HTTP 系列。
+- **證據與影響**：營運觀察中，兩次 cutover 都因公開階段 403 而 `failed-down`；原因是 urllib 預設的 `Python-urllib/3.x`。修正 commit `2fb5e27`（#105）讓 `RealHttp` 送出 `book-finder-deploy/<HOST_API_RANGE max>`（[adapters.py](../host/bookfinder_host/adapters.py) 的 `RealHttp`、[config.py](../host/bookfinder_host/config.py) 的 `host_user_agent`），`2fb5e27` 是 `v0.0.4` 的祖先（已確認）。未確認的部分：(1) EC2 上 host 程式是否以含此修正的版本安裝（host 程式由 `install-host` 安裝，與 release tag 獨立；營運觀察未記錄安裝來源）；(2) Cloudflare 或 nginx 的規則是否放行 `book-finder-deploy/*`（runbook §7.2 #7 待確認）；(3) 自訂 UA 可能被 WAF 規則誤擋（營運觀察提醒）。
+- **spec／source**：runbook §3.4 step 3 與 step 7、§3.6、§7.2 #7；`test-suite` 的 DEP-HTTP 系列。
 - **調查方向**：(a) 在 EC2 以 `host-versions` 的 `HOST_API_RANGE` 或 `book-finder-admin` 版本資訊確認安裝來源（唯讀）；(b) 由 EC2 執行 `curl -sI -A 'book-finder-deploy/1' <PUBLIC_URL>`，同時比對瀏覽器 UA；(c) 若 edge 依 UA 拒絕，應在 edge 設定放行規則，而不是改用偽裝瀏覽器 UA。
 - **前置決策**：edge 規則由誰維護（使用者）；是否需要不依 UA 的替代健康端點（新功能，需要 ADR 與規格）。
 - **驗收條件**：(a) `curl -sI -A 'book-finder-deploy/1' <PUBLIC_URL>` 回 200；(b) 下一次 deploy 或 rollback 的 journal 不含 `stage=public status=403`；(c) 記錄 host 程式的版本與安裝時間於 runbook 或 state 外的部署紀錄。
@@ -113,7 +113,7 @@
 ### DEP-B08 損壞的 history 尾端：operator 回 exit 3，plan 與 unit 回 exit 8
 
 - **優先序／風險**：P2／L3。
-- **狀態**：已確認不一致（程式閱讀）；待驗證（缺少測試覆蓋）。
+- **狀態**：已確認不一致（程式閱讀）；待驗證（缺少測試覆蓋）。文件已於 PR #107 依現行行為對齊（runbook §1.5、§5.1），程式行為的統一仍待決策。
 - **證據與影響**：`operator_cli._refuse_while_indeterminate` 在 `records.tail_corrupt` 時以 `DRIFT`（3）拒絕，訊息要求先執行 `resolve-run`。`plan` 與 `run_deploy_unit` 在相同情況下以 `INDETERMINATE`（8）拒絕或不寫入。runbook §1.5 的 exit 8 定義為「有未解決的 indeterminate run 或 operator operation」，沒有列出 operator 的尾端情況。影響：操作者看到的退出碼與文件不一致，可能誤判為 drift 並嘗試重新 plan。
 - **spec／source**：runbook §1.5、§5（「若只有 started 沒有 completed」）；`operator_cli.py` 的 `_refuse_while_indeterminate`；`commands.py` 的 `run_deploy_unit`；ADR-006 S8、S10。
 - **調查方向**：(a) 寫出一個 operator 指令在損壞尾端下的測試，預期結果以 runbook 為準；(b) 若決定統一為 8，修改 operator 路徑並更新 runbook §1.5。
@@ -187,34 +187,40 @@
 ### DEP-B15 `/etc/book-finder` 目錄權限未由程式檢查
 
 - **優先序／風險**：P3／L2。
-- **狀態**：改善提案。事件本身已由文件與 DB_CA_BUNDLE 檢查處理（runbook §2.5）。
+- **狀態**：改善提案。事件本身已由文件與 DB_CA_BUNDLE 檢查處理（runbook §2.5）；PR #107 已把「目錄權限由操作者負責、程式不檢查」寫入 runbook §2.5 並附檢查指令。程式檢查仍為改善提案。
 - **證據與影響**：營運觀察中，`install -d` 把既有目錄從 0755 改成 0750，導致 web 服務使用者無法讀取 CA bundle（500）。runbook 已禁止重新執行 `install -d`。`config.check_ca_bundle` 只檢查 CA 檔案本身（一般檔案、非 symlink、others 可讀），不檢查目錄是否可穿越。
 - **spec／source**：runbook §2.5、§7.2 #20；`config.py` 的 `check_ca_bundle`。
 - **調查方向**：評估是否檢查 CA 路徑每一層目錄的穿越權限（others 的 execute bit）。
 - **驗收條件**：若採用，目錄權限不足時在任何變更前以 exit 2 拒絕，並有測試。
 - **測試入口**：DEP-CFG-02（`test_check_ca_bundle_accepts_a_public_regular_file_up_to_one_mebibyte`，已有）；目錄檢查為待建（DEP-CFG-03）。
 
-### DEP-B16 runbook 與程式、營運狀態不同步
+### DEP-B17 exit 3 同時對應 history 的 `drift` 與 `rejected`
 
-- **優先序／風險**：P3／L1。
-- **狀態**：文件衝突（待修正）。詳見 [architecture.md §8](architecture.md) 的 C1、C2、C5、C6。
-- **證據與影響**：(C1) §3.4 step 3 的健康探測描述含糊；(C2) §1.5 exit 6 沒有列出 `paused` 的跳過；(C5) §7.2 #2、#3 仍為「待確認」，營運觀察顯示 cutover run 40078171943 以 transient unit 完成並寫入 completed（營運觀察，非本次驗證）；(C6) §3.1 第 5 項的 `v0.0.2` 建議已過時。
-- **spec／source**：runbook §1.5、§3.1、§3.4、§7.2。
-- **調查方向**：修正措辭；§7.2 的狀態需由使用者決定是否依營運觀察更新（需要證據）。
-- **驗收條件**：C1、C2、C6 修正；C5 的狀態依證據更新並註明日期與來源。
-- **測試入口**：文件檢查為待建（DEP-DOC-01，人工審閱）。
+- **優先序／風險**：P3／L3（`result` 字串是磁碟上 history 的格式，`exit_codes.py` 註明為 on-disk format）。
+- **狀態**：改善提案。PR #107 已在 runbook §1.5 列出現行對照，文件與程式不再不一致。
+- **證據與影響**：`exit_codes.RESULT_BY_EXIT[DRIFT]` 為 `rejected`，用於 gate 失敗；`commands.run_deploy_unit` 的 lock 逾時與 state 不存在、`machine._execute` 的 step 0 與 step 1 失敗、`machine` 的 `_Stop(DRIFT, "drift", …)` 直接寫 `drift`；`operator_cli._resolve_run` 以 `RESOLVE_EXIT` 寫 `drift`。影響：同為 exit 3，以 `result` 篩選 history 的人會得到不同集合。
+- **調查方向**：決定是否統一。統一會改變已寫入 history 的解讀（需要說明），或把 gate 路徑改寫 `drift`。
+- **前置決策**：使用者與 ADR（history 格式與 public contract）。
+- **驗收條件**：若統一，所有 exit 3 路徑的 `result` 有斷言；runbook §1.5、architecture §5.1 同步更新。
+- **測試入口**：DEP-HIST-03（待補強）。
 
-## 3. 已列為歷史、不列為待辦的項目
+## 3. 已處理（PR #107）
+
+| 項目 | 處理 |
+|---|---|
+| DEP-B16：runbook 與程式、營運狀態不同步（C1、C2、C5、C6） | 已於 PR #107 修正：C1 健康探測的次數、逾時與間隔；C2 exit 6 與 `run-crawler.sh` 退出碼；C5 營運觀察證據（標示為營運觀察，非自動化測試）；C6 版本指引（移除過時的「發布 v0.0.2」建議）。同次 PR 也對齊了 C3、C4、C7 的文件說明，新的程式問題分別列為 DEP-B17、DEP-B08、DEP-B15 |
+
+## 4. 已列為歷史、不列為待辦的項目
 
 | 項目 | 處理 |
 |---|---|
 | pg_dump 失敗或空輸出被當成相等（`faf6d2b`） | 已修正，`test_failing_pg_dump_is_an_error_with_its_stderr` 等覆蓋 |
-| `sudo` 的 `env_keep` 行（`0bcbfe7`、`6106d82`） | 文件與錯誤訊息已修正；runbook §2.6 仍有「待確認」驗證步驟，列入 DEP-B16 的文件同步 |
+| `sudo` 的 `env_keep` 行（`0bcbfe7`、`6106d82`） | 文件與錯誤訊息已修正；營運觀察已確認 plan key 的 `status 1-1` 回傳 `not-started`（runbook §7.2 #1，PR #107 同步） |
 | 健康檢查的 urllib 預設 User-Agent（`2fb5e27`） | 程式已修正；在 production 的生效列為 DEP-B02 |
 | `DB_CA_BUNDLE` 的容器權限與 `install -d` 事件（`439b80e`、`222c7ce`） | 功能與文件已修正；程式未檢查目錄權限列為 DEP-B15 |
 | `CRAWLER_ENABLED` 不被 `run-crawler.sh` 支援（`3637cff`） | 已實作；`v0.0.2` 起包含。停用本身列為 DEP-B01 |
 
-## 4. 不列為待辦的候選項目
+## 5. 不列為待辦的候選項目
 
 - **Migration 的交易邊界**：CI 的 `check_migrations.py` 禁止 `suppressTransaction` 與 `CONCURRENTLY`（已有測試），不是缺口。
 - **compat 的 runtime smoke**：依 test-plan §6.1 只供參考，不阻擋部署，這是規格而非缺陷。

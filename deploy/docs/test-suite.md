@@ -184,7 +184,7 @@
 | DEP-ST-06 | 任何 run | `status`（經 entry） | JSON 為 exit 0；部署結果只看 `status` 欄位 | `test_entry.py::test_status_of_unknown_run_is_not_started`（只斷言 `not-started`） | 待補強（缺 exit 0 的明確斷言） |
 | DEP-HIST-01 | 新 history 檔 | append 一筆 | 單行 JSON，權限 0600 | `test_history.py::test_append_writes_one_json_line_with_mode_0600` | 已有測試但本次未執行（M） |
 | DEP-HIST-02 | 紀錄長度達 PIPE_BUF | append | 拒絕 | `test_history.py::test_append_refuses_a_record_at_or_above_pipe_buf` | 已有測試但本次未執行（M） |
-| DEP-HIST-03 | exit 3 的 drift 路徑（例如 state 不存在）與 gate 失敗路徑 | 寫 completed | result 字串與 `RESULT_BY_EXIT` 或直接寫入值一致；兩者不一致時需以文件為準 | 待建（現有測試未斷言 exit 3 對應的 result 字串） | 待補強（C3，見 architecture §8） |
+| DEP-HIST-03 | exit 3 的各發生點（drift 路徑與 gate 失敗路徑） | 寫 completed | `result` 與 README §1.5「exit 3 的 history 對照」一致：gate 失敗為 `rejected`，lock 逾時、state 不存在、step 0 與 step 1 失敗為 `drift`。文件已對齊（PR #107），程式未統一，見 DEP-B17 | 待建（現有測試未斷言 exit 3 的 result 字串） | 待補強（文件已對齊；程式統一見 DEP-B17） |
 | DEP-HIST-04 | 最後一行無換行 | `read` | 標為 tail corrupt，不列入 records | `test_history.py::test_last_line_without_newline_is_tail_corrupt_and_excluded` | 已有測試但本次未執行（M） |
 | DEP-HIST-05 | completed 與 active unit 同時存在 | `status` | completed 勝出 | `test_history.py::test_completed_wins_even_when_unit_reports_active` | 已有測試但本次未執行（M） |
 | DEP-HIST-06 | started 與不在執行中的 unit，無 completed | `status` | `indeterminate` | `test_history.py::test_started_with_dead_unit_is_indeterminate` | 已有測試但本次未執行（M） |
@@ -234,7 +234,7 @@
 | DEP-OP-11 | 確認值與顯示值不符 | 執行 | 拒絕，不變更 | `test_operator_cli.py::test_confirmation_must_match_the_value_shown` | 已有測試但本次未執行（M） |
 | DEP-OP-12 | 確認期間 state 被改變 | 執行 | CAS 衝突，不變更 | `test_operator_cli.py::test_state_changed_during_confirmation_is_a_cas_conflict` | 已有測試但本次未執行（M） |
 | DEP-OP-13 | history 最後一行不完整，有 started | `resolve-run` | 修復尾端（保存 sidecar）並寫入結果 | `test_operator_cli.py::test_resolve_repairs_an_incomplete_history_tail` | 已有測試但本次未執行（M） |
-| DEP-OP-14 | history 最後一行不完整，執行 `reconcile-schema` 或 `resume-crawler` | 執行 | 退出碼與 runbook §1.5 一致（應為 8，見 DEP-B08） | 待建（現有測試只涵蓋 plan 與 deploy） | 待補強（DEP-B08） |
+| DEP-OP-14 | history 最後一行不完整，執行 `reconcile-schema` 或 `resume-crawler` | 執行 | 退出碼與 runbook §1.5、§5.1 一致（現行為 exit 3，見 DEP-B08） | 待建（現有測試只涵蓋 plan 與 deploy） | 待補強（統一與否見 DEP-B08） |
 | DEP-OP-15 | operator operation 為 started 而無 completed | 執行任一人工指令（除 resolve-run） | 全部拒絕，exit 8 | `test_operator_cli.py::test_open_operation_refuses_every_operator_command_but_resolve` | 已有測試但本次未執行（M） |
 | DEP-OP-16 | operation 寫入後失敗且無法證明未變更 | 執行 | 保持 open，不寫 failed | `test_operator_cli.py::test_failed_completion_after_a_real_change_stays_indeterminate` | 已有測試但本次未執行（M） |
 | DEP-OP-PROTO-01 | 需要 drift 修復指令（DEP-B07） | — | — | 待建（尚無此指令） | 明確暫緩（待決策，見 DEP-B07） |
@@ -336,10 +336,12 @@
 |---|---|---|---|
 | DEP-PROD-01 | cutover 的 run 40078171943 完成，state revision 2，runtime docker `v0.0.4` | operator 工作階段（2026-10-24） | 營運觀察，非本次驗證 |
 | DEP-PROD-02 | crawler 以 `CRAWLER_ENABLED=false` 停用，因博客來封鎖 EC2 IP | 同上；runbook §7.2 #19 | 營運觀察，非本次驗證 |
-| DEP-PROD-03 | 兩次 cutover 在公開階段得到 403（urllib UA），之後 `failed-down` | 同上；runbook §7.2 #21 | 營運觀察，非本次驗證（修正後的結果未記錄） |
+| DEP-PROD-03 | 兩次 cutover 在公開階段得到 403（urllib UA），之後 `failed-down` | 同上；runbook §3.4 第 7 步、§7.2 #7 | 營運觀察，非本次驗證（修正後的結果未記錄） |
 | DEP-PROD-04 | `/etc/book-finder` 權限被改為 0750，web 出現 500 | 同上；runbook §2.5、§7.2 #20 | 營運觀察，非本次驗證 |
 | DEP-PROD-05 | SSM 連線字串跳脫問題 | 同上 | 營運觀察，非本次驗證（DEP-B14） |
-| DEP-PROD-06 | GitHub releases v0.0.1 至 v0.0.4 存在；本地 git tag 也存在 | 本次 `git tag` 查核（本地），GitHub 狀態未查 | 本地 git 證據；GitHub 端待確認 |
+| DEP-PROD-06 | GitHub releases v0.0.1 至 v0.0.4 存在；本地 git tag 也存在 | 本次 `git tag` 查核（本地），GitHub 狀態未查 | 本地 git 證據；GitHub 端見 DEP-PROD-08（營運觀察） |
+| DEP-PROD-07 | cutover 的 run `40078171943` 以 transient unit `book-finder-deploy-40078171943-1` 完成（以 SSH `--detach` 啟動），寫入 `completed:success` | operator 工作階段（2026-10-24） | 營運觀察，非本次驗證（runbook §7.2 #2、#3） |
+| DEP-PROD-08 | Immutable Releases 已啟用（release 為 `immutable=true`）；`Confirm the web/crawler release tag` 對 v0.0.1 至 v0.0.4 通過 | 同上 | 營運觀察，非本次驗證（runbook §7.2 #11、#17） |
 
 ## 4. 覆蓋摘要與缺口
 
@@ -348,4 +350,4 @@
 - **失敗恢復**：回滾（DEP-ROLL 系列）、forward 失敗（DEP-FWD-02 到 06）、indeterminate（DEP-HIST-06、DEP-LAUNCH-06）。
 - **隔離**：unit body 拒絕 SSH 來源（DEP-LAUNCH-07）、plan key 拒絕 deploy（DEP-GATE-16）、測試 hook 拒絕 root。
 - **待補強與未實作**（與 backlog 對應）：DEP-ST-06、DEP-HIST-03、DEP-OP-14、DEP-CFG-03、DEP-CFG-04、DEP-REL-07、DEP-WEB-FH-02、DEP-SEC-02、DEP-SEC-03、DEP-CI-01、DEP-CI-02、DEP-OP-PROTO-01（明確暫緩）。
-- **沒有任何測試覆蓋的 production 路徑**：systemd system manager 的 transient unit（runbook §7.2 #2、#3）、真實 SSM 與 RDS、真實 nginx 與 Cloudflare、真實 GHCR 的 `imagetools`。這些只能以 I 或 O 類別證據處理，不能列為通過。
+- **沒有任何測試覆蓋的 production 路徑**：systemd system manager 的 transient unit（runbook §7.2 #2、#3；營運觀察已有證據，見 DEP-PROD-07，但仍不是自動化測試）、真實 SSM 與 RDS、真實 nginx 與 Cloudflare、真實 GHCR 的 `imagetools`。這些只能以 I 或 O 類別證據處理，不能列為通過。
