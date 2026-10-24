@@ -111,5 +111,6 @@ Workflow／architecture／CR-T12 的 host 現況引用 [target wrapper](https://
 | 2026-10-25 | `1051d6e` | Arthur801 | fix(crawler): review fixes for identity logging, provider constant and docstrings | M crawler/books_crawler/{db,identity,ledger,models,cli,run}.py；M crawler/tests/{test_identity,test_run_pages,test_first_book}.py |
 | 2026-10-25 | `0fa845d` | Arthur801 | docs: remove stale pre-#116 statements and document provider read exits | M Docs/data/data-model.md；M Docs/modules/crawler.md；M crawler/README.md；M crawler/docs/{architecture,test-suite}.md |
 | 2026-10-25 | `0d3e28f` | Arthur801 | test(recommendation): field-sensitive stale detection after a NULL fill | A tests/DatabaseIntegration/EfStaleDetectionTests.cs；M crawler/docs/test-suite.md |
+| 2026-10-25 | `118eb5b` | Arthur801 | feat(crawler): pin ISBN NFKC to Unicode 15.1 with segmented runs | M crawler/books_crawler/{normalize,cli}.py；A crawler/books_crawler/unicode_15_1.py（由 `.github/scripts/unicode_tables.py` 產生）；A crawler/tests/test_unicode_nfkc_conformance.py |
 
 行為轉折：ISBN 不再驗證 checksum，所有非空正規化值都以 `ISBN` 寫入；既有 Source 每次出現都更新 `last_seen_at`；`replace_bestsellers` 不再更新 `last_seen_at`；停用的 provider 以 exit 2 拒絕執行。新 DB 測試依 migration 010 的 trigger 驗證 `source_type = source_code`。

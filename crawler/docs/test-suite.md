@@ -185,3 +185,10 @@ Phase B（#116）覆蓋：
 | [EfStaleDetectionTests.cs](../../tests/DatabaseIntegration/EfStaleDetectionTests.cs)（C#，`dotnet test tests/DatabaseIntegration`） | 9 種 §7.4 補值：AUTHOR、subject、description 讓 embedding pending 且 profile stale；publisher、table_of_contents 只讓 profile stale；published_date、page_count、thumbnail_url、ISBN 兩者皆不變 | plan §4 #15 |
 
 尚未覆蓋：migration 011（PR4）；C# 端 fixture（#115 的測試範圍）；stale 偵測屬 Web 端（#115）。
+
+### Unicode 15.1 NFKC 一致性（data-model §7.1）
+
+- **Given**：vendored `tests/Fixtures/unicode-15.1/NormalizationTest-NFKC.txt`（19074 組 c1→c4）；`tests/Fixtures/isbn-normalization.json` 含未指派 OUTLINED DIGIT 與混合分段的 vector。
+- **When**：對每組 c1 執行分段 NFKC；對 U+1CCF0 與混合字串執行 `normalize_isbn_value`；以 `ensure_runtime_unicode_supported` 模擬舊 runtime。
+- **Then**：每組結果與 c4 逐字相同；未指派 code point 原樣保留並分段；舊 runtime 啟動時 exit 2。
+- **來源與狀態**：[test_unicode_nfkc_conformance.py](../tests/test_unicode_nfkc_conformance.py)、[test_isbn_fixture.py](../tests/test_isbn_fixture.py)、[test_cli.py](../tests/test_cli.py)；CI `unicode_tables.py --check` 檢查產生檔沒有漂移。
