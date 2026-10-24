@@ -182,5 +182,6 @@ Phase B（#116）覆蓋：
 | [test_first_book.py](../tests/test_first_book.py) | touch 最後仍失敗 → FAILED exit 1，不重抓 detail | plan §4 #17 |
 | [test_run_pages.py](../tests/test_run_pages.py) | touch 最後仍失敗 → 只跳過該列，其餘照常 | plan §4 #17 |
 | [test_cli.py](../tests/test_cli.py) | 停用 provider → exit 2 且不建立 fetcher；讀 registry 失敗 → exit 1 | crawler.md §3.1 |
+| [EfStaleDetectionTests.cs](../../tests/DatabaseIntegration/EfStaleDetectionTests.cs)（C#，`dotnet test tests/DatabaseIntegration`） | 9 種 §7.4 補值：AUTHOR、subject、description 讓 embedding pending 且 profile stale；publisher、table_of_contents 只讓 profile stale；published_date、page_count、thumbnail_url、ISBN 兩者皆不變 | plan §4 #15 |
 
 尚未覆蓋：migration 011（PR4）；C# 端 fixture（#115 的測試範圍）；stale 偵測屬 Web 端（#115）。
