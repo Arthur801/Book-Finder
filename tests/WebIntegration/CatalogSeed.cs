@@ -8,6 +8,8 @@ namespace WebIntegration;
 // PublishedDatePrecision together, and do not reuse an ISBN across Books (it is unique per type).
 public sealed record BookSeed(string Title)
 {
+    // Left out means a new random Id. Give it when a test needs a known Id, such as an ordering tie-break.
+    public Guid? Id { get; init; }
     public string? Subtitle { get; init; }
     public string? Publisher { get; init; }
     public DateOnly? PublishedDate { get; init; }
@@ -53,7 +55,7 @@ public static class CatalogSeed
 
         foreach (var item in books)
         {
-            var bookId = Guid.NewGuid();
+            var bookId = item.Id ?? Guid.NewGuid();
             db.Books.Add(new Book
             {
                 Id = bookId,

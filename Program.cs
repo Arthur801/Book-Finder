@@ -43,6 +43,10 @@ builder.Services.AddScoped<IBookDetailReader>(provider => new CachedBookDetailRe
 builder.Services.AddScoped<IBookSearch, EfBookSearch>();
 builder.Services.AddScoped<BookSearchService>();
 
+// 書庫 (Catalog browse): paged list and random home sample, local database only. Bestseller registrations above stay as they are.
+builder.Services.AddScoped<IBookBrowse, EfBookBrowse>();
+builder.Services.AddScoped<BookBrowseService>();
+
 // AI recommendation: one Recommendation Search per request, EF candidate search and store (recommendation.md §3).
 builder.Services.AddScoped<ICandidateSearch, EfCandidateSearch>();
 builder.Services.AddScoped<IRecommendationStore, EfRecommendationStore>();
