@@ -18,8 +18,8 @@ Debug 證據收集：INF-B04 須保存去識別的 request scheme、來源網段
 
 ## INF-B06 — 書庫隨機樣本的整表排序成本
 
-- **P3 / L2 / 已知成本，未量測**：首頁隨機樣本（`EfBookBrowse.SampleAsync`）以 `OrderBy(EF.Functions.Random())` 排序整個 Catalog 後才取前 10 筆，資料量增加後成本隨書籍數線性增加。
-- 證據：[EfBookBrowse.cs](../Persistence/EfBookBrowse.cs)；#109 M1 尚未量測成本，baseline 將記錄於 #109 實作報告。[system architecture §168](../../Docs/architecture/system-architecture.md) 未定義 SLO。
+- **P3 / L2 / 已量測（#109 M3 baseline）**：首頁隨機樣本（`EfBookBrowse.SampleAsync`）以 `OrderBy(EF.Functions.Random())` 排序整個 Catalog 後才取前 10 筆，資料量增加後成本隨書籍數線性增加。
+- 證據：[EfBookBrowse.cs](../Persistence/EfBookBrowse.cs)；基準見 [#109 實作報告 Query plan baseline](../../Docs/Implementation-Report/issue-109-book-browse.md)：開發庫 2884 筆時，樣本查詢 EXPLAIN ANALYZE 約 1.6–1.9 ms（Seq Scan + top-N heapsort），僅為單點觀察。[system architecture §168](../../Docs/architecture/system-architecture.md) 未定義 SLO，因此不設門檻。
 - 方向：若基準顯示成本不可接受，再評估以 TABLESAMPLE、主鍵隨機區段或預先快取的隨機種子取代；需先依 AGENTS.md §2.4／§2.5 判斷是否為架構或產品行為變更。
 - 驗收：有量測前後資料量與耗時；不改變「只從 Local DB 取樣、不讀 Bestseller rank」的規則。
 - 入口：[BookBrowseIntegrationTests](../../tests/WebIntegration/BookBrowseIntegrationTests.cs)（功能），效能量測待建。
