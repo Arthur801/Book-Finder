@@ -5,8 +5,8 @@ namespace Book_Finder.Application.Catalog;
 // One page of the 書庫 (Catalog browse). Page is 1-based; a page past the end has no items but keeps the true TotalCount.
 public sealed record BookBrowsePage(IReadOnlyList<BookBrowseItem> Items, int TotalCount, int Page, int PageSize)
 {
-    // Zero when the Catalog is empty, so the pager can hide itself.
-    public int TotalPages => TotalCount == 0 ? 0 : (TotalCount + PageSize - 1) / PageSize;
+    // Zero when the Catalog is empty, so the pager can hide itself. Computed as long so the rounding-up sum cannot overflow.
+    public int TotalPages => TotalCount == 0 ? 0 : (int)(((long)TotalCount + PageSize - 1) / PageSize);
 }
 
 // Only what the browse list and the home sample show. Description and table of contents are never part of a browse item
