@@ -23,6 +23,7 @@
 - **檔案分離**：web 的 env file 維持原本的三個值；migration 值只寫入 `migrate-<run_id>.env`，efbundle 讀取此檔。未設定時 efbundle 讀 web env file，與之前相同。
 - **清除**：`_discard_env` 在 `finally` 中刪除兩個路徑（路徑為空時略過）。
 - **輸出**：failed-migration 的分支在 `raise` 之前呼叫 `_journal_efbundle_output`，輸出經 `_mask` 遮蔽（與切換失敗診斷使用相同的 `r.secrets`，其中包含 migration 值與其 `Password=` 部分）。exit code、history 結果與 `FAILED_MIGRATION` 的語意都沒有變更。
+- **回滾不讀 migration 參數（協調者決定）**：回滾只發生在非 forward chain，這些部署不執行 efbundle，因此 migration 連線不需要。`_render_env(r, include_migration=False)` 只重寫 web env file，不讀也不寫 `migrate-*`；migrate 檔仍是步驟 3 寫入的那一份，於 `_discard_env` 刪除。`r.secrets` 取先前值與新讀取的 web 值的聯集，因此先前的遮蔽不會因重新渲染而失效。讀取失敗不會再把自動回滾變成 `failed-down`。
 
 ## 執行紀錄（Log）
 
@@ -30,12 +31,14 @@
 - `5563d80` feat(host): migration connection file for efbundle and journal failed efbundle output（TDD：先寫 machine 與 adapter 測試，確認失敗後實作）
 - 測試過程中修正了兩處測試本身的錯誤：tail 行數的 off-by-one（80 行尾端從第 23 行開始），以及讀取失敗的測試把 step 2 的 `docker.extract`（唯讀）誤列為變更。
 - `1642e7c` docs(deploy): document SSM_MIGRATION_CONNECTION and the v0.0.6 migration incident (#121)
+- `a3c4b11` fix(host): rollback does not read SSM_MIGRATION_CONNECTION again（TDD：先寫兩個回滾測試，確認在目前程式下失敗，再實作 `include_migration=False` 與 `r.secrets` 聯集）
+- `ed12a74` 測試套件與 update-history 的回滾修正紀錄；本報告於下一個 commit 更新。
 - 本報告為獨立的 commit。
 
 ## 驗證結果
 
-- `.venv/bin/python -m pytest deploy/tests -q`：`645 passed, 7 skipped`（基準為 `632 passed, 7 skipped`）
-- `uv run --no-project --python 3.12 --with pytest==9.1.1 python -m pytest deploy/tests -q`：`645 passed, 7 skipped`
+- `.venv/bin/python -m pytest deploy/tests -q`：`647 passed, 7 skipped`（基準為 `632 passed, 7 skipped`；回滾修正後為 647）
+- `uv run --no-project --python 3.12 --with pytest==9.1.1 python -m pytest deploy/tests -q`：`647 passed, 7 skipped`
 - `uvx ruff@0.17.2 check --config deploy/ruff.toml deploy`：`All checks passed!`
 - `uvx ruff@0.17.2 format --check --config deploy/ruff.toml deploy`：`51 files already formatted`
 - `.venv/bin/python -m pytest .github/scripts -q`：`78 passed`
@@ -43,10 +46,9 @@
 
 ## 未解決事項
 
-1. **rollback 會重新執行 `_render_env`**，因此也會重新讀取 `SSM_MIGRATION_CONNECTION`。若讀取在 rollback 期間失敗，會得到 `failed-down`（說明為 rollback 無法渲染環境）。這個情況機率很低，但不是零。目前沒有改動，因為 rollback 的 env 渲染需要同時更新 web 與 migrate 檔（遮蔽所需的 secrets 也要一致）。待 review 決定是否改為只重讀 web 值。
-2. **EC2 上的實際權限行為未驗證**：`ALTER DEFAULT PRIVILEGES` 的設定屬於 RDS 管理者的操作，程式無法檢查；設定後的第一次 forward migration 需要營運觀察。
-3. **host.conf 順序**：加入 `SSM_MIGRATION_CONNECTION` 前必須先 `install-host`。程式無法在 host.conf 中偵測舊版 host，只能靠文件警告（§2.4）。
-4. **efbundle 輸出的遮蔽只做字面替換**：若 EF 或 Npgsql 把密碼以不同的編碼（例如 URL 編碼）印出，不會被遮蔽。這是既有機制的限制，本次沒有擴充遮蔽方式。
+1. **EC2 上的實際權限行為未驗證**：`ALTER DEFAULT PRIVILEGES` 的設定屬於 RDS 管理者的操作，程式無法檢查；設定後的第一次 forward migration 需要營運觀察。
+2. **host.conf 順序**：加入 `SSM_MIGRATION_CONNECTION` 前必須先 `install-host`。程式無法在 host.conf 中偵測舊版 host，只能靠文件警告（§2.4）。
+3. **efbundle 輸出的遮蔽只做字面替換**：若 EF 或 Npgsql 把密碼以不同的編碼（例如 URL 編碼）印出，不會被遮蔽。這是既有機制的限制，本次沒有擴充遮蔽方式。
 
 ## Code Review 與修正
 
