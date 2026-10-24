@@ -210,3 +210,4 @@ Spec 軸沒有發現 scope creep，也沒有發現實作錯誤。排序、long o
 |---|---|---|---|
 | U1 | 首頁的 `ORDER BY random()` 和 `/books` 的 COUNT／排序在 production 上的 DB 成本，應該當作上線的關卡，合併時不用擋 | 屬實；baseline 只有單次查詢，沒有量併發 | 以本機併發壓測補上，見〈上線關卡：本機併發壓測〉 |
 | U2 | `BookBrowsePage.TotalPages` 的 `TotalCount + PageSize - 1` 在接近 `int.MaxValue` 時會 overflow | 屬實；修正前的紅燈值是 -107374181 | `2a646b7` 改用 long 計算，加上 `BookBrowsePageTotalPagesTests`，再 merge 到 M2、M3 |
+| U3 | `book-catalog.md` 的 Authority header 沒有列「書庫瀏覽」，但同一份文件的 Requirements 和 Scope 已經納入書庫（#112 review） | 屬實。同一行的 Requirements 也漏列了 BOOK-05 | `8835001` 補上 Authority 的「書庫瀏覽」與 Requirements 的 BOOK-05 |
