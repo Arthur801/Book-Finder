@@ -77,6 +77,7 @@ from books_crawler.parsers import (
 )
 from books_crawler.ranking import validate_ranking
 from books_crawler.redact import redact
+from books_crawler.session import DatabaseSession
 
 log = logging.getLogger("books_crawler.run")
 
@@ -255,15 +256,24 @@ def _fetch_and_parse(
         return _failure(SkipReason.PARSE_ERROR, str(exc), attempt)
 
 
-def _touch_with_retries(conn: psycopg.Connection, row: RankingRow, source_id: UUID, deps: RunDependencies) -> Failure | None:
+@dataclass(frozen=True)
+class _WriteFailure:
+    """A failed write step. ``maybe_committed``: the Book transaction may have committed before the client saw it (§13.1)."""
+
+    failure: Failure
+    maybe_committed: bool
+
+
+def _touch_with_retries(session: DatabaseSession, row: RankingRow, source_id: UUID, deps: RunDependencies) -> Failure | None:
     """``last_seen_at`` touch of an existing Source (crawler.md §6.1): DB retry rule, no detail refetch.
 
+    Each attempt uses the run's session, which reconnects when the connection is broken (crawler.md §13.1).
     Returns None on success, or the database failure after the last attempt.
     """
     last_failure: Failure | None = None
     for attempt in _attempts(deps):
         try:
-            db.touch_source(conn, source_id, deps.clock())
+            db.touch_source(session.conn, source_id, deps.clock())
             return None
         except psycopg.Error as exc:
             last_failure = _failure(SkipReason.DATABASE_ERROR, str(exc), attempt)
@@ -273,11 +283,11 @@ def _touch_with_retries(conn: psycopg.Connection, row: RankingRow, source_id: UU
 
 
 def _write_new_source(
-    conn: psycopg.Connection,
+    session: DatabaseSession,
     draft: BookDraft,
     deps: RunDependencies,
     attempt: int,
-) -> _WrittenSource | Failure:
+) -> _WrittenSource | _WriteFailure:
     """ISBN match and the Book transaction for one parsed draft (data-model §7.2). Database errors are retryable.
 
     Exactly one matching Book attaches the source (ISBN_ATTACHED, with gap filling); none creates a
@@ -286,9 +296,9 @@ def _write_new_source(
     """
     values = [item.identifier_value for item in draft.identifiers]
     try:
-        matches = db.find_books_by_isbn(conn, values)
+        matches = db.find_books_by_isbn(session.conn, values)
     except psycopg.Error as exc:
-        return _failure(SkipReason.DATABASE_ERROR, str(exc), attempt)
+        return _WriteFailure(_failure(SkipReason.DATABASE_ERROR, str(exc), attempt), maybe_committed=False)
 
     if len(matches) == 1:
         resolution = CatalogResolution.ISBN_ATTACHED
@@ -297,14 +307,14 @@ def _write_new_source(
         resolution = CatalogResolution.AMBIGUOUS_CREATED if len(matches) >= 2 else CatalogResolution.IMPORTED
         attach_to = None
     try:
-        ref = db.persist_new_source(conn, draft, deps.clock(), attach_to_book_id=attach_to)
+        ref = db.persist_new_source(session.conn, draft, deps.clock(), attach_to_book_id=attach_to)
     except psycopg.Error as exc:
-        return _failure(SkipReason.DATABASE_ERROR, str(exc), attempt)
+        return _WriteFailure(_failure(SkipReason.DATABASE_ERROR, str(exc), attempt), maybe_committed=True)
     return _WrittenSource(ref, resolution, tuple(matches))
 
 
 def _resolve_row(
-    conn: psycopg.Connection,
+    session: DatabaseSession,
     row: RankingRow,
     deps: RunDependencies,
 ) -> ResolvedRow | SkippedRow:
@@ -313,8 +323,12 @@ def _resolve_row(
     Returns a ``ResolvedRow`` with its ``CatalogResolution`` (the Catalog side is committed), or a
     ``SkippedRow`` (``RESTRICTED`` or ``FAILED``). Whether a resolved Book may be ranked is decided by
     ``RunLedger``, not here.
+
+    The source identity lookup is not retried (crawler.md §6.1): a connection error there fails the run.
+    Retries after a write re-resolve the identity first (crawler.md §13.1): if the earlier attempt had
+    committed, the Source is reported as EXISTING and is not inserted again.
     """
-    identity = db.resolve_source_identity(conn, row.url)
+    identity = db.resolve_source_identity(session.conn, row.url)
     if identity.kind is IdentityKind.CONFLICT:
         log.warning("rank %d source identity conflict, not written: %s: %s", row.rank, row.url, identity.reason)
         return _skipped(row, _failure(SkipReason.SOURCE_IDENTITY_CONFLICT, identity.reason or "", attempts=0))
@@ -323,13 +337,14 @@ def _resolve_row(
         assert identity.ref is not None
         if identity.warning is not None:
             log.warning("rank %d %s: %s", row.rank, row.url, identity.warning)
-        touch_failure = _touch_with_retries(conn, row, identity.ref.source_id, deps)
+        touch_failure = _touch_with_retries(session, row, identity.ref.source_id, deps)
         if touch_failure is not None:
             return _skipped(row, touch_failure)
         return ResolvedRow(rank=row.rank, url=row.url, source_ref=identity.ref, resolution=CatalogResolution.EXISTING)
 
     draft: BookDraft | None = None
     last_failure: Failure | None = None
+    maybe_committed = False
     for attempt in _attempts(deps):
         if draft is None:
             fetched = _fetch_and_parse(row, deps, attempt)
@@ -342,10 +357,33 @@ def _resolve_row(
                 continue
             draft = fetched
 
-        written = _write_new_source(conn, draft, deps, attempt)
-        if isinstance(written, Failure):
-            last_failure = written
-            _log_attempt_failed(row, attempt, written)
+        if maybe_committed:
+            # An earlier write may have committed before the client saw the result. Look again before writing.
+            try:
+                committed = db.resolve_source_identity(session.conn, row.url)
+            except psycopg.Error as exc:
+                last_failure = _failure(SkipReason.DATABASE_ERROR, str(exc), attempt)
+                _log_attempt_failed(row, attempt, last_failure)
+                continue
+            if committed.kind is IdentityKind.EXISTING:
+                # Reported as EXISTING: the original resolution is not stored, so it cannot be recovered (§13.1).
+                # The NULL fill was in the same transaction and is not repeated.
+                assert committed.ref is not None
+                log.info("rank %d: the Source was committed by an earlier attempt; not inserted again: %s", row.rank, row.url)
+                return ResolvedRow(
+                    rank=row.rank,
+                    url=row.url,
+                    source_ref=committed.ref,
+                    resolution=CatalogResolution.EXISTING,
+                    attempts=attempt,
+                )
+            maybe_committed = False
+
+        written = _write_new_source(session, draft, deps, attempt)
+        if isinstance(written, _WriteFailure):
+            last_failure = written.failure
+            maybe_committed = written.maybe_committed
+            _log_attempt_failed(row, attempt, last_failure)
             continue
 
         isbn_text = ",".join(item.identifier_value for item in draft.identifiers)
@@ -392,8 +430,8 @@ def run_first_book(deps: RunDependencies, run_id: str | None = None) -> RunRepor
         rows = validate_ranking(deps.parse_ranking(_fetch_page_with_retries(deps, RANKING_PAGE_URL)))
         ranking_count = len(rows)
         row = rows[0]
-        with deps.connect() as conn:
-            outcome = _resolve_row(conn, row, deps)
+        with DatabaseSession(deps.connect) as session:
+            outcome = _resolve_row(session, row, deps)
         ledger.record(outcome)
         if isinstance(outcome, ResolvedRow):
             ref = outcome.source_ref
@@ -425,13 +463,13 @@ def run_once(deps: RunDependencies, run_id: str | None = None) -> RunReport:
         rows = validate_ranking(deps.parse_ranking(html))
         ranking_count = len(rows)
 
-        with deps.connect() as conn:
+        with DatabaseSession(deps.connect) as session:
             for row in rows:
-                ledger.record(_resolve_row(conn, row, deps))
+                ledger.record(_resolve_row(session, row, deps))
                 if ledger.aborted:
                     break
             if not ledger.aborted:
-                db.replace_bestsellers(conn, ledger.snapshot, captured_at=deps.clock())
+                db.replace_bestsellers(session.conn, ledger.snapshot, captured_at=deps.clock())
     except Exception as exc:  # noqa: BLE001 - any failure fails the run; the previous bestsellers are untouched
         error = redact(f"{type(exc).__name__}: {exc}")
 
@@ -464,7 +502,7 @@ def run_pages(deps: RunDependencies, page_urls: Sequence[str], run_id: str | Non
     ledger = PagesLedger()
     error: str | None = None
     try:
-        with deps.connect() as conn:
+        with DatabaseSession(deps.connect) as session:
             for page_url in page_urls:
                 log.info("importing page: %s", page_url)
                 try:
@@ -480,7 +518,7 @@ def run_pages(deps: RunDependencies, page_urls: Sequence[str], run_id: str | Non
                 ledger.record_page_ok()
                 for row in rows:
                     # No ranking decision on pages: the same Book may appear on several pages.
-                    ledger.record(_resolve_row(conn, row, deps))
+                    ledger.record(_resolve_row(session, row, deps))
     except Exception as exc:  # noqa: BLE001 - the run cannot continue; the Catalog keeps what was already committed
         error = redact(f"{type(exc).__name__}: {exc}")
 

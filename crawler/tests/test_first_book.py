@@ -54,8 +54,8 @@ def test_import_only_first_book_and_retry_database_without_refetch(monkeypatch):
     report = run_first_book(deps)
     assert report.status is RunStatus.SUCCESS
     assert report.new_book_count == 1
-    assert lookups == [first]
     assert deps.fetcher.calls == [RANKING_PAGE_URL, first]
+    assert lookups == [first, first]  # the write retry re-resolves the identity first (crawler.md §13.1)
     assert writes[0] is writes[1]
     assert deps.sleep.calls == [1.0]
 
