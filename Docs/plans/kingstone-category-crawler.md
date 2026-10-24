@@ -347,112 +347,184 @@ global disable只阻止新run，不停止in-flight container。找出該run cont
 
 ### Step 1 — 完成來源 contract 與前置清單
 
-Purpose: 消除來源假設與責任未決。  
-Files / Components: authoritative crawler／data docs、fixtures manifest、PR3／011 evidence。  
-Change: 凍結targets、sort、URL、scope/cursor、activation owner；以fixture計算並寫入T_limit／P_limit；數值取輸入計畫的`max(ceil(T*1.5),T+20)`、`max(ceil(Pmax*2),Pmax+20)`作上限提案，驗證合理性。  
-Dependencies: PR2／PR3、fixtures；011列DB gate。  
-Failure considerations: 來源無證據／契約衝突時停止該部分。  
-Tests: manifest hash、代表頁與反例對照。  
-Observability: evidence map標注取得方式與UNKNOWN。  
-Deployment considerations: registry activation另有owner。  
+Purpose: 消除來源假設與責任未決。
+
+Files / Components: authoritative crawler／data docs、fixtures manifest、PR3／011 evidence。
+
+Change: 凍結targets、sort、URL、scope/cursor、activation owner；以fixture計算並寫入T_limit／P_limit；數值取輸入計畫的`max(ceil(T*1.5),T+20)`、`max(ceil(Pmax*2),Pmax+20)`作上限提案，驗證合理性。
+
+Dependencies: PR2／PR3、fixtures；011列DB gate。
+
+Failure considerations: 來源無證據／契約衝突時停止該部分。
+
+Tests: manifest hash、代表頁與反例對照。
+
+Observability: evidence map標注取得方式與UNKNOWN。
+
+Deployment considerations: registry activation另有owner。
+
 Done when: Gate A具備；未決數值／語意不留給實作者猜。
 
 ### Step 2 — 凍結共用 seam 與最小抽取
 
-Purpose: 重用PR3 core。  
-Files / Components: PR3 models／ingestion／DB／retry、現有Fetcher與tests。  
-Change: 列出真實function/type；transport從provider classifier分離，保留博客來get→str外部contract；core不import adapter。  
-Dependencies: Step1。  
-Failure considerations: 缺DB safe-outcome／deadline能力先開shared prerequisite，不造金石堂DB層。  
-Tests: 博客來unit＋fixture＋DB回歸、fake第二provider共用contract。  
-Observability: 保留既有summary欄位與redact。  
-Deployment considerations: 既有入口不變。  
+Purpose: 重用PR3 core。
+
+Files / Components: PR3 models／ingestion／DB／retry、現有Fetcher與tests。
+
+Change: 列出真實function/type；transport從provider classifier分離，保留博客來get→str外部contract；core不import adapter。
+
+Dependencies: Step1。
+
+Failure considerations: 缺DB safe-outcome／deadline能力先開shared prerequisite，不造金石堂DB層。
+
+Tests: 博客來unit＋fixture＋DB回歸、fake第二provider共用contract。
+
+Observability: 保留既有summary欄位與redact。
+
+Deployment considerations: 既有入口不變。
+
 Done when: 共用介面有測試，沒有兩套identity／persistence。
 
 ### Step 3 — 金石堂 URL 與 pure parsing
 
-Purpose: raw HTML→targets／observations／draft。  
-Files / Components: `kingstone/urls.py`、`parsers.py`、fixture tests。  
-Change: root tree、selected sort、next link、detail mapping、strict decode；通用ISBN／日期規則委派core。  
-Dependencies: Step1、2。  
-Failure considerations: identity不一致、invalid page、required缺失、空頁。  
-Tests: 原始＋derived fixtures、URL矩陣、optional NULL／date precision。  
-Observability: 可判讀parse reason，不記完整內容。  
-Deployment considerations: 無HTTP／DBside effect。  
+Purpose: raw HTML→targets／observations／draft。
+
+Files / Components: `kingstone/urls.py`、`parsers.py`、fixture tests。
+
+Change: root tree、selected sort、next link、detail mapping、strict decode；通用ISBN／日期規則委派core。
+
+Dependencies: Step1、2。
+
+Failure considerations: identity不一致、invalid page、required缺失、空頁。
+
+Tests: 原始＋derived fixtures、URL矩陣、optional NULL／date precision。
+
+Observability: 可判讀parse reason，不記完整內容。
+
+Deployment considerations: 無HTTP／DBside effect。
+
 Done when: parser無DB／runner依賴，fixtures完整通過。
 
 ### Step 4 — Transport 與金石堂 response adapter
 
-Purpose: 有界fetch與分類。  
-Files / Components: shared transport、`kingstone/fetcher.py`、tests。  
-Change: raw response、stream ceiling、timeout、pacing；adapter決定encoding／ResponseDecision。  
-Dependencies: Step2、3的page-kind contract。  
-Failure considerations: 429／Retry-After／3xx／5xx／blocked／oversize／decode。  
-Tests: fake session/clock、chunked／compressed ceiling、exact attempts、無provider真網路。  
-Observability: request stage/status/duration／diagnostic quota。  
-Deployment considerations: 不加新依賴，保留TLS／nonroot。  
+Purpose: 有界fetch與分類。
+
+Files / Components: shared transport、`kingstone/fetcher.py`、tests。
+
+Change: raw response、stream ceiling、timeout、pacing；adapter決定encoding／ResponseDecision。
+
+Dependencies: Step2、3的page-kind contract。
+
+Failure considerations: 429／Retry-After／3xx／5xx／blocked／oversize／decode。
+
+Tests: fake session/clock、chunked／compressed ceiling、exact attempts、無provider真網路。
+
+Observability: request stage/status/duration／diagnostic quota。
+
+Deployment considerations: 不加新依賴，保留TLS／nonroot。
+
 Done when: bytes在stream時限額、retry只有一個owner、博客來回歸通過。
 
 ### Step 5 — Batch selector 與 run state
 
-Purpose: deterministic有限探索與可解釋進度。  
-Files / Components: `kingstone/discovery.py`、pure state tests。  
-Change: category selection、visited pages、exact observations dedup、cursor／incomplete、budget／circuit與run status。  
-Dependencies: Step3、4。  
-Failure considerations: budget replay starvation、missing cursor、loop、zero progress、tail no-work。  
-Tests: §4所有transitions；中斷後下一run選後續分類；不宣稱分類內完整續傳。  
-Observability: category states／cursor／scope reason。  
-Deployment considerations: 無新checkpoint storage。  
+Purpose: deterministic有限探索與可解釋進度。
+
+Files / Components: `kingstone/discovery.py`、pure state tests。
+
+Change: category selection、visited pages、exact observations dedup、cursor／incomplete、budget／circuit與run status。
+
+Dependencies: Step3、4。
+
+Failure considerations: budget replay starvation、missing cursor、loop、zero progress、tail no-work。
+
+Tests: §4所有transitions；中斷後下一run選後續分類；不宣稱分類內完整續傳。
+
+Observability: category states／cursor／scope reason。
+
+Deployment considerations: 無新checkpoint storage。
+
 Done when: state tests覆蓋所有terminal state與優先序。
 
 ### Step 6 — Offline composition 與 Catalog integration
 
-Purpose: 完成金石堂→共用ingestion。  
-Files / Components: `kingstone/__main__.py`、composition、unit／integration tests。  
-Change: provider check後才建立fetch session，注入runner；不新增business rule。  
-Dependencies: Step2～5；DB verification須Gate B。  
-Failure considerations: 重跑、attach／ambiguous、partial commit、unknown commit fail closed。  
-Tests: 真fixture＋真DB全流程、E/U矩陣、0／1／≥2、NULL／AUTHOR／touch、Bestseller不變。  
-Observability: shared counts＋logical item counters一次計數。  
-Deployment considerations: 010禁止金石堂寫入。  
+Purpose: 完成金石堂→共用ingestion。
+
+Files / Components: `kingstone/__main__.py`、composition、unit／integration tests。
+
+Change: provider check後才建立fetch session，注入runner；不新增business rule。
+
+Dependencies: Step2～5；DB verification須Gate B。
+
+Failure considerations: 重跑、attach／ambiguous、partial commit、unknown commit fail closed。
+
+Tests: 真fixture＋真DB全流程、E/U矩陣、0／1／≥2、NULL／AUTHOR／touch、Bestseller不變。
+
+Observability: shared counts＋logical item counters一次計數。
+
+Deployment considerations: 010禁止金石堂寫入。
+
 Done when: offline verified，Gate B後全部DB測試通過。
 
 ### Step 7 — CLI 與設定驗證
 
-Purpose: operator取得明確有限scope。  
-Files / Components: 金石堂CLI／config tests、README。  
-Change: 支援無cursor sweep、`--start-after-category CODE [--max-categories N]`、`--category CODE [--max-items N]`；targeted必須從完整targets驗證membership。  
-Dependencies: Step5、6。  
-Failure considerations: duplicate/unknown flags、missing value、invalid integers、互斥flags、`--scheduled`一律exit2。  
-Tests: CLI矩陣；設定在HTTP前驗證；未silent clamp。  
-Observability: sanitized config reason、selected scope。  
-Deployment considerations: host驗證上限並傳到container，直接container入口亦驗證。  
+Purpose: operator取得明確有限scope。
+
+Files / Components: 金石堂CLI／config tests、README。
+
+Change: 支援無cursor sweep、`--start-after-category CODE [--max-categories N]`、`--category CODE [--max-items N]`；targeted必須從完整targets驗證membership。
+
+Dependencies: Step5、6。
+
+Failure considerations: duplicate/unknown flags、missing value、invalid integers、互斥flags、`--scheduled`一律exit2。
+
+Tests: CLI矩陣；設定在HTTP前驗證；未silent clamp。
+
+Observability: sanitized config reason、selected scope。
+
+Deployment considerations: host驗證上限並傳到container，直接container入口亦驗證。
+
 Done when: configured ceilings與CLI一致，cursor／no-work輸出完整。
 
 設定預設／範圍：category page limit2（1..10）、max categories1（1..10）、run seconds1500（300..1500）、max canary items50（1..500）。`--max-items`僅targeted且不超設定上限；flags互斥同輸入計畫。不得以normal sweep item cap控制進度。
 
 ### Step 8 — Runner lifecycle 與 packaging
 
-Purpose: production序列化與可停止。  
-Files / Components: `run-crawler.sh`、Dockerfile、config example、cron（若需schedule switches）、deploy tests。  
-Change: safe argv array傳遞flags／limits、打包kingstone、container ID追蹤、deadline／signal cleanup；schedule switches若加入，同步改daily cron。  
-Dependencies: Step7。  
-Failure considerations: writer存活時client退出、daemon unavailable、SSM timeout、maintenance wait、cleanup失敗。  
-Tests: wrapper fakes＋process-level鎖／kill測試＋Docker離線smoke；CA／secret／exit／既有jobs回歸。  
-Observability: container ID、lock wait、signal／deadline／cleanup結果。  
-Deployment considerations: runner/image/config配對；release provenance核對。  
+Purpose: production序列化與可停止。
+
+Files / Components: `run-crawler.sh`、Dockerfile、config example、cron（若需schedule switches）、deploy tests。
+
+Change: safe argv array傳遞flags／limits、打包kingstone、container ID追蹤、deadline／signal cleanup；schedule switches若加入，同步改daily cron。
+
+Dependencies: Step7。
+
+Failure considerations: writer存活時client退出、daemon unavailable、SSM timeout、maintenance wait、cleanup失敗。
+
+Tests: wrapper fakes＋process-level鎖／kill測試＋Docker離線smoke；CA／secret／exit／既有jobs回歸。
+
+Observability: container ID、lock wait、signal／deadline／cleanup結果。
+
+Deployment considerations: runner/image/config配對；release provenance核對。
+
 Done when: 所有入口同鎖、沒有孤兒writer導致下一writer啟動。
 
 ### Step 9 — 文件與完整驗收
 
-Purpose: 交付可review結果。  
-Files / Components: `crawler/docs/*`五份、README／deploy README、test reports。  
-Change: workflow兩家adapter、architecture ownership、test-suite案例與boundary、backlog未解事項、真實git history；audit authority references。  
-Dependencies: Step6 DB通過、Step8。  
-Failure considerations: 不把unit／synthetic／DB證據混作production驗證。  
-Tests: 全crawler／.NET／受影響deploy／lint／offline image smoke；schema diff零變更。  
-Observability: 每重要failure有log／操作定位方法；指定rollout觀測owner。  
-Deployment considerations: Gate C另外核准，實作AC不綁定live canary。  
+Purpose: 交付可review結果。
+
+Files / Components: `crawler/docs/*`五份、README／deploy README、test reports。
+
+Change: workflow兩家adapter、architecture ownership、test-suite案例與boundary、backlog未解事項、真實git history；audit authority references。
+
+Dependencies: Step6 DB通過、Step8。
+
+Failure considerations: 不把unit／synthetic／DB證據混作production驗證。
+
+Tests: 全crawler／.NET／受影響deploy／lint／offline image smoke；schema diff零變更。
+
+Observability: 每重要failure有log／操作定位方法；指定rollout觀測owner。
+
+Deployment considerations: Gate C另外核准，實作AC不綁定live canary。
+
 Done when: AC1～5全有證據，未解L4事項單列，不擴大scope。
 
 ## 13. Dependency Order
