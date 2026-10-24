@@ -1,8 +1,8 @@
 # Book Catalog Module
 
 > Path: `Docs/modules/book-catalog.md`
-> Authority: 一般搜尋、Book 詳細頁、Google Books 書目寫入
-> Requirements: SEARCH-01～04、BOOK-01～04、BROWSE-01～04
+> Authority: 一般搜尋、書庫瀏覽、Book 詳細頁、Google Books 書目寫入
+> Requirements: SEARCH-01～04、BOOK-01～05、BROWSE-01～04
 > Data contract: `Docs/data/data-model.md`
 
 ## 1. Scope
