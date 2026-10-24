@@ -2,6 +2,7 @@
 
 > PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR4 M3（#120）補記：2026-10-25 更新；程式變更以 `d249c07`、`6e70e93`、`b99b368` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+> PR4 M4（#120）補記：2026-10-25 更新；gate 9 與 manual recovery smoke 的程式變更以 `89d983e`、`7c8899d` 記入 update-history §3.13。原查核基準保留，未重新審查其餘內容。
 
 > 目標：`deploy/` 與分散的 CD 來源（見 [architecture.md §2](architecture.md)）。
 > 查核基準：2026-10-24，HEAD `01db2d7`（tag `v0.0.4`）。證據來自程式、測試、git 與 runbook；營運觀察以「營運觀察，非本次驗證」標示。
@@ -217,7 +218,7 @@
 - **方向**：PR2 新增 010 的 seed（含 v0.0.4 形式的 `source_type`-only 資料，驗證 trigger 回填）；PR4 新增 011 的 seed、ISBN conversion preflight（dry-run SELECT）與 manual recovery compatibility 測試（[test-plan §7](../../Docs/testing/test-plan.md) #13、#14、#20），並在 runbook 補 011 gate checklist 與恢復程序。
 - **前置決策**：011 的部署時間與 rollback window 的關閉由使用者決定（L4）。
 - **驗收條件**：010 與 011 的 compat 在 CI 通過；gate checklist 每項有可檢查的證據；PR3 Web／crawler 在 011 的 smoke 通過且不需 snapshot restore。
-- **測試入口**：010 seed 已建（`deploy/migration-test/seeds/20261024160045_MultiSourceCatalog.sql`）；011 seed、preflight（`deploy/migration-test/preflight/`）與 contract allowance（`deploy/migration-test/contract/`）已於 M3 建立。recovery compat 仍待建（test-plan §7 #14）。
+- **測試入口**：010 seed 已建（`deploy/migration-test/seeds/20261024160045_MultiSourceCatalog.sql`）；011 seed、preflight（`deploy/migration-test/preflight/`）與 contract allowance（`deploy/migration-test/contract/`）已於 M3 建立。recovery compat 已由 PR4 M4 在本機建立（`prev-release-on-contract.sh`，test-plan §7 #13、#14），尚未納入 CI；是否納入 CI 待決策。
 
 ## 3. 已處理（PR #107）
 

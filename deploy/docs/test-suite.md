@@ -64,6 +64,7 @@
 | `deploy/migration-test/preflight/20261025120000_ContractMultiSourceCatalog.sql`（011 gate 7，唯讀） | production 在 010 時由操作者執行（`deploy/README.md` §4.4）。不由 CI 執行 | `ContractMigration011PreflightTests`（test-plan row 20） |
 | `deploy/migration-test/seeds/20261024160045_MultiSourceCatalog.sql`（010 head seed）| compat 在 applied 為 010 時必須有此 seed；本次只以 Testcontainers 驗證可載入並列數（`book_sources` 5 筆、`book_subjects` 3 筆、`book_offers` 2 筆） | 待 CI compat 證據 |
 | `bash deploy/migration-test/compat.sh --rebuild-image IMG --target-image IMG [--runtime-image IMG\|none] --applied FILE --seeds-dir DIR --report OUT.json` | CD `compat` job；`ci.yml` 在 PR 條件下執行 | 需 Docker 與 GHCR digest；拋棄式 DB | 已有測試但本次未執行 |
+| `BOOKFINDER_IT=1 python -m pytest deploy/tests/integration/test_prev_release_on_contract.py -m integration -q -s`，或 `bash deploy/migration-test/prev-release-on-contract.sh --target-image IMG --prev-web-image IMG --prev-crawler-image IMG` | gate 9 與 manual recovery（`deploy/README.md` §4.5）；不在 CI | 需 Docker；建立並移除 `bf-prev-*` 的容器、內部網路與 volume；離線（不連博客來）；前一個 release 的 image 以 digest 指定 | 本次已執行（M4，見 update-history §3.13） |
 | `ssh -i <plan key> -o IdentitiesOnly=yes deployer@<EC2_HOST> "status 1-1"`（預期 `not-started`，exit 0） | runbook §2.6（上線前驗證） | 只讀；不改變 state | 營運觀察（上線前驗證的結果未記錄） |
 
 **未在 CI 或 runbook 中找到的命令**：`actionlint`。`ci.yml` 沒有呼叫它；只有 `Docs/Implementation-Report/` 的歷史報告提到（DEP-CI-01 列為未實作）。
@@ -354,6 +355,30 @@
 | DEP-PROD-06 | GitHub releases v0.0.1 至 v0.0.4 存在；本地 git tag 也存在 | 本次 `git tag` 查核（本地），GitHub 狀態未查 | 本地 git 證據；GitHub 端見 DEP-PROD-08（營運觀察） |
 | DEP-PROD-07 | cutover 的 run `40078171943` 以 transient unit `book-finder-deploy-40078171943-1` 完成（以 SSH `--detach` 啟動），寫入 `completed:success` | operator 工作階段（2026-10-24） | 營運觀察，非本次驗證（runbook §7.2 #2、#3） |
 | DEP-PROD-08 | Immutable Releases 已啟用（release 為 `immutable=true`）；`Confirm the web/crawler release tag` 對 v0.0.1 至 v0.0.4 通過 | 同上 | 營運觀察，非本次驗證（runbook §7.2 #11、#17） |
+
+### 3.20 Gate 9：上一個 release 在 011 上（類別 I，本機，需 `BOOKFINDER_IT=1`）
+
+Gate 9（`Docs/data/data-model.md` §11.3）與 test-plan §7 #13、#14。Given：目標 bundle 建置的 image、拋棄式 pgvector DB、v0.0.6 的 Web 與 crawler image（digest 固定）。When：`deploy/migration-test/prev-release-on-contract.sh` 執行。Then：下列 15 項都輸出 `PASS`，exit 0。測試位置：`deploy/tests/integration/test_prev_release_on_contract.py::test_previous_release_runs_on_the_011_contract_schema`（要求全部 15 項的名稱都出現在 PASS 行）。
+
+| ID | 檢查（script 輸出的名稱） | 證明 | 狀態 |
+|---|---|---|---|
+| DEP-G9-01 | `migrate: efbundle applied to 011 on an empty database` | 目標 bundle 從空 DB 升到 011，exit 0，history 的最後一筆是 011 | 本次已執行（M4） |
+| DEP-G9-02 | `migrate: migration history ends at 011 and source_type is gone` | `source_type` 在 `book_sources`、`book_subjects` 都不存在 | 本次已執行（M4） |
+| DEP-G9-03 | `seed: 011 seed loaded` | 011 seed 載入，`books` 4 筆 | 本次已執行（M4） |
+| DEP-G9-04 | `web: GET / -> 200` | v0.0.6 Web 在 011 上健康（`X-Forwarded-Proto: https`） | 本次已執行（M4） |
+| DEP-G9-05 | `web: GET /books -> 200` | 書庫頁可讀 | 本次已執行（M4） |
+| DEP-G9-06 | `web: keyword search finds the seeded Book` | 關鍵字 Search 找到 seed 的 Book（`/books/…0004`） | 本次已執行（M4） |
+| DEP-G9-07 | `web: hyphenated ISBN search finds the seeded Book` | `978-626-3100-002` 正規化後走 ISBN 模式，找到同一本 Book | 本次已執行（M4） |
+| DEP-G9-08 | `web: detail shows the ISBN and the books.com.tw source link` | Detail 同時顯示 ISBN 值與 `books.com.tw` 來源連結 | 本次已執行（M4） |
+| DEP-G9-09 | `web: no unhandled exception in the container log` | container log 沒有 unhandled exception | 本次已執行（M4） |
+| DEP-G9-10 | `crawler: existing Source resolves by URL and touch advances last_seen_at` | v0.0.6 `resolve_source_identity` 以 URL 找到 Existing Source；`touch_source` 使 `last_seen_at` 前進 | 本次已執行（M4） |
+| DEP-G9-11 | `crawler: ISBN row matches the draft, the Source is attached and no Book is created` | `find_books_by_isbn`（`identifier_type = ANY(ISBN, ISBN_10, ISBN_13)`）對到既有 `ISBN`；`persist_new_source` 附加到該 Book，不建立新 Book | 本次已執行（M4） |
+| DEP-G9-12 | `crawler: new Source with a fresh ISBN creates a Book with source_code BOOKS_COM_TW` | 無匹配時建立 Book；`book_sources.source_code` 為 `BOOKS_COM_TW`、`external_id` 為 NULL；寫入 `ISBN` 列 | 本次已執行（M4） |
+| DEP-G9-13 | `crawler: 100-row ranking validates and replaces the bestsellers` | `validate_ranking` 接受 100 筆；`replace_bestsellers` 替換整份清單（rank 1..100，seed 的 Bestseller 消失） | 本次已執行（M4） |
+| DEP-G9-14 | `crawler: incomplete ranking is rejected` | 99 筆的榜單被 `RankingValidationError` 拒絕（負面案例） | 本次已執行（M4） |
+| DEP-G9-15 | `crawler: Source of another Book is rejected and the bestseller list is unchanged` | 來源屬於其他 Book 時 `SnapshotValidationError`，清單仍為 100 筆且 rank 1 不變（負面案例） | 本次已執行（M4） |
+
+負面驗證：把 crawler image 換成 Web image 時，script 輸出 `FAIL crawler: driver`、`RESULT FAIL`，exit 1，且容器、網路與 volume 都被移除（M4 本機執行）。
 
 ## 4. 覆蓋摘要與缺口
 

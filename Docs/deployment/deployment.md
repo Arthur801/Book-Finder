@@ -118,6 +118,7 @@ Schema 規則見 `Docs/data/data-model.md` §11；決策理由見 ADR-007。010 
 - 新版開始寫入 `ISBN` 類型之後，若 web 回退到 v0.0.4，ISBN 搜尋與顯示會降級。**舊版（v0.0.4）crawler 必須保持停用**：它只比對 `ISBN_10`／`ISBN_13`，對新寫入的 `ISBN` 資料比對不到，可能重複建立 Book。
 - 011 只能在 `data-model.md` §11.3 的 gate 全部通過後套用；部署屬 L4，需使用者明確授權並逐項確認 gate checklist。
 - PR2（010）與 PR3（crawler）以同一個 release tag 部署；010 之前 crawler 不得寫 `source_code`。
+- gate 9 的本機證據：`deploy/migration-test/prev-release-on-contract.sh` 以目標 bundle 升到 011，再以 v0.0.6 的 Web 與 crawler 執行 Search、Detail、Existing Source touch、ISBN 附加、新 Source 與 Bestseller 替換（`deploy/README.md` §4.5）。這是本機驗證，不是 production 的 gate 核准。
 
 ## 7. 部署步驟
 

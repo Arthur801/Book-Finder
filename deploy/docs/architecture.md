@@ -27,7 +27,7 @@
 | host 程式 | [deploy/host/](../host/)：`deploy-entry`、`book-finder-admin`、`bookfinder_host/*.py`、`bookfinder_host/HOST_API_RANGE`（內容 `1 1`） | EC2 上的狀態機與人工指令（stdlib-only，靜態 import 掃描確認） |
 | release 內容 | [deploy/release/](../release/)：`compose.prod.yaml`、`compose.ca-bundle.yaml`、`build-manifest.sh` | 隨 web image 的 `/opt/release/` 發布，host 以 `docker create` + `docker cp` 取出 |
 | 共用 shell 函式庫 | [deploy/lib/](../lib/)：`manifest.sh`、`smoke.sh`、`schema_dump.sh`、`compat_plan.sh`、`contract_allowance.sh` | compat 與 smoke 的共用函式；contract allowance 的解析與判定 |
-| compat | [deploy/migration-test/](../migration-test/)：`compat.sh`、`seeds/*.sql`、`contract/<migration-id>/`（reviewed allowance：`allow.tsv`、`verify.sql`）、`preflight/*.sql`（011 gate 7，唯讀） | 在拋棄式 DB 上驗證 migration；契約型 migration 的豁免與 production 前的唯讀檢查 |
+| compat | [deploy/migration-test/](../migration-test/)：`compat.sh`、`seeds/*.sql`、`contract/<migration-id>/`（reviewed allowance：`allow.tsv`、`verify.sql`）、`preflight/*.sql`（011 gate 7，唯讀）、`prev-release-on-contract.sh` 與 `prev_crawler_driver.py`（gate 9 與 manual recovery，本機） | 在拋棄式 DB 上驗證 migration；契約型 migration 的豁免與 production 前的唯讀檢查 |
 | smoke | [deploy/smoke/web-smoke.sh](../smoke/web-smoke.sh) | web image 的 HTTP 煙霧測試 |
 | 整合測試 | [deploy/integration/](../integration/)：`run-local.sh`、`edge_stub.py`、`imagetools-roundtrip.sh` | 真實 docker、替身 AWS 與 nginx |
 | 測試 | [deploy/tests/](../tests/)：`host/`（unit）、`integration/`（`BOOKFINDER_IT=1`）、`test_*.py` | pytest |

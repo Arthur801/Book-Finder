@@ -2,6 +2,7 @@
 
 > PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR4 M3（#120）補記：2026-10-25 更新；程式變更以 `d249c07`、`6e70e93`、`b99b368` 記入本文件 §3.12。原查核基準保留，未重新審查其餘內容。
+> PR4 M4（#120）補記：2026-10-25 更新；gate 9 與 manual recovery smoke 記入本文件 §3.13。原查核基準保留，未重新審查其餘內容。
 
 > 查核日期：2026-10-24。查核基準 HEAD：`01db2d7`（merge PR #106；tag `v0.0.4`；`origin/main` 同一 commit）。
 > 工作樹：clean，僅有既存的未追蹤 `.venv`（不屬於本文件，也不屬於 `deploy/`）。本文件是新增的未追蹤檔案，尚未提交。
@@ -230,6 +231,41 @@ git log --reverse --no-merges --format='@@%h' --numstat -- <同上路徑>
 | 2026-10-25 | `b99b368` | test(db): cover 011 verify.sql, the 011 seed and the preflight files | `tests/DatabaseIntegration/ContractMigration011VerifyTests.cs`（新增）、`RepositoryPath.cs`（新增） | verify.sql 對每種違規回傳一列；011 seed 能在 011 上載入並保持 011 形狀 |
 
 本地 compat（M3 驗證）：base 為 `347e5b0`（`git merge-base origin/main HEAD`），target 為本分支的 `book-finder-web:ci`，指令與 `ci.yml` 相同，結果 `compat checks passed (forward_ok=true)`。報告中的 allowance 為 `20261025120000_ContractMultiSourceCatalog`，dropped columns 為 `book_sources.source_type`、`book_subjects.source_type`，rewritten table 為 `book_identifiers`，verify 0 列。
+
+### 3.13 #120 PR4 M4：gate 9 與 manual recovery smoke（2026-10-25）
+
+| 日期 | SHA | 主旨 | 影響檔案（+/-） | diff 摘要 |
+|---|---|---|---|---|
+| 2026-10-25 | `89d983e` | test(deploy): gate 9 check that the previous release runs on 011 | `deploy/tests/integration/test_prev_release_on_contract.py`（新增） | opt-in 整合測試（`BOOKFINDER_IT=1`）：建置或接受 `PREV_RELEASE_TARGET_IMAGE`，執行 script，要求 15 個指定名稱都出現在 PASS 行 |
+| 2026-10-25 | `7c8899d` | feat(deploy): gate 9 script for the previous release on the 011 schema | `deploy/migration-test/prev-release-on-contract.sh`（新增）、`deploy/migration-test/prev_crawler_driver.py`（新增） | 拋棄式 pgvector DB → 目標 efbundle 升到 011（不帶 migration 參數，與 production 相同）→ 011 seed → v0.0.6 Web（HTTP 與 log 檢查，環境與 web-smoke 相同）→ v0.0.6 crawler 內的離線 driver（`PYTHONPATH=/app/crawler`，只用 v0.0.6 的 `db`、`identity`、`models`、`ranking` API）；每項一行 PASS／FAIL；僅建立的容器、網路與 volume 會被移除 |
+| 2026-10-25 | 本 commit（文件） | docs(deploy): gate 9 in README, test suite, update history | `deploy/README.md`（§4.5）、`deploy/docs/test-suite.md`（§2 命令、§3.20）、`deploy/docs/architecture.md`、`deploy/docs/backlog.md`、`deploy/docs/update-history.md`、`Docs/testing/test-plan.md`（§7 #13、#14）、`Docs/data/data-model.md`（§11.3 gate 9）、`Docs/deployment/deployment.md`（§6.1） | 說明用途（gate 9 證據，同時是 manual recovery smoke）、執行方式、預期輸出與安全範圍（本機、離線、不在 CI） |
+
+**驗證（本機，2026-10-25）**
+
+- 目標 image：`docker build -t bf-m4-target .`（本 branch），驗證後已移除。
+- 前一個 release：web `ghcr.io/arthur801/book-finder-web@sha256:38fc701f…`（本機已有）；crawler `ghcr.io/arthur801/book-finder-crawler@sha256:8675e6a7…`（本機原本沒有，本次以 digest `docker pull` 取得；digest 與文件一致）。
+- `bash deploy/migration-test/prev-release-on-contract.sh ...` 全部 PASS：
+  - `PASS migrate: efbundle applied to 011 on an empty database`（11 個 migration）
+  - `PASS migrate: migration history ends at 011 and source_type is gone`
+  - `PASS seed: 011 seed loaded`
+  - `PASS web: GET / -> 200`、`PASS web: GET /books -> 200`
+  - `PASS web: keyword search finds the seeded Book`、`PASS web: hyphenated ISBN search finds the seeded Book`
+  - `PASS web: detail shows the ISBN and the books.com.tw source link`、`PASS web: no unhandled exception in the container log`
+  - `PASS crawler: existing Source resolves by URL and touch advances last_seen_at`（`last_seen_at` 2026-01-05 → 2026-10-24 UTC 的執行時間）
+  - `PASS crawler: ISBN row matches the draft, the Source is attached and no Book is created`
+  - `PASS crawler: new Source with a fresh ISBN creates a Book with source_code BOOKS_COM_TW`
+  - `PASS crawler: 100-row ranking validates and replaces the bestsellers`
+  - `PASS crawler: incomplete ranking is rejected`
+  - `PASS crawler: Source of another Book is rejected and the bestseller list is unchanged`
+  - `RESULT PASS 15/15`，exit 0
+- 負面驗證：crawler 參數換成 web image，輸出 `FAIL crawler: driver` 與 `RESULT FAIL: 9 passed, 1 failed`，exit 1，無殘留的 `bf-prev-*` 容器、網路或 volume。
+- 過程中的修正：第一次執行時 history 查詢欄位寫成 `migration_id`（EF 的欄位是 `"MigrationId"`），屬於本 script 的錯誤，已修正；未發現 v0.0.6 的相容性問題（crawler 沒有使用 `source_type`、沒有寫入 `ISBN_13`；Web 的 Search、Detail 都能讀 011 的 `ISBN`）。
+- `.venv/bin/python -m pytest deploy/tests -q`：655 passed, 8 skipped。Python 3.12（`uv run --python 3.12`）：655 passed, 8 skipped。
+- `BOOKFINDER_IT=1 … -m integration -q -s`（Python 3.12）：8 passed（含本次的 gate 9 測試；本地 scenario a–e、probe、imagetools 維持通過）。
+- `uvx ruff@0.17.2 check --config deploy/ruff.toml deploy` 與 `format --check`：通過。`shellcheck -x deploy/migration-test/prev-release-on-contract.sh`：通過。
+- `.venv/bin/python -m pytest .github/scripts -q`：78 passed。
+
+本 M4 未修改 CI workflow，也未在 production 或 RDS 執行任何操作。
 
 ## 4. 目前工作樹與未提交差異
 

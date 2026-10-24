@@ -522,6 +522,26 @@ sudo systemctl disable <SYSTEMD_UNIT>
 - 這個腳本在 011 之後執行會失敗（`source_type` 已不存在），這是預期行為，不是錯誤。
 - 把輸出貼到部署紀錄（issue 或 CD summary），作為 gate 7 的證據。
 
+
+### 4.5 Gate 9：上一個 release 在 011 上的相容性（本機）
+
+- **用途**：`Docs/data/data-model.md` §11.3 gate 9 的證據，對應 `Docs/testing/test-plan.md` §7 #13（PR3 Web 與 crawler 在 011 上）與 #14（manual recovery compatibility）。同一個 script 同時是 manual recovery 的 smoke：011 的 DB 搭配上一個 release 的 Web 與 crawler，正是手動恢復（§5.3、§5.4）會得到的狀態。
+- **內容**：`deploy/migration-test/prev-release-on-contract.sh` 以目標 bundle 把拋棄式 pgvector DB 升到 011、載入 011 seed，再以 v0.0.6（`ghcr.io/arthur801/book-finder-web@sha256:38fc701f…`、`book-finder-crawler@sha256:8675e6a7…`）檢查 Web（首頁、書庫、Search 關鍵字與帶連字號的 ISBN、Detail 的 ISBN 與來源連結、container log）與 crawler（`prev_crawler_driver.py`：Existing Source 與 touch、ISBN 附加、新 Source 建立 Book、100 筆 Bestseller 驗證與替換，以及兩個負面案例）。
+- **執行**（需要 Docker，會建立並移除 `bf-prev-*` 的容器、內部網路與 volume）：
+
+  ```bash
+  docker build -t bf-m4-target .
+  bash deploy/migration-test/prev-release-on-contract.sh \
+    --target-image bf-m4-target \
+    --prev-web-image ghcr.io/arthur801/book-finder-web@sha256:38fc701f9b652640c24a28aa207bdbaf078febed34ab2cec1c86fd068328c441 \
+    --prev-crawler-image ghcr.io/arthur801/book-finder-crawler@sha256:8675e6a7f43db669a931e74a1ada96a9a9c89d3172ad7b28c75989661446217b
+  ```
+
+  或以 `BOOKFINDER_IT=1 .venv/bin/python -m pytest deploy/tests/integration/test_prev_release_on_contract.py -m integration -q -s` 執行（未設定 `PREV_RELEASE_TARGET_IMAGE` 時會自行建置目標 image）。
+- **預期輸出**：每項檢查一行 `PASS <名稱>`（共 15 行），最後一行 `RESULT PASS 15/15`，exit 0。任何一項 `FAIL` 都 exit 1，並附原因；細節以 `INFO` 開頭，不是檢查結果。
+- **安全範圍**：離線。crawler 以 `--network` 內部網路執行，不連博客來；secrets 為每次隨機產生的 placeholder，只以變數名稱傳入。不在 CI 執行（`ci.yml` 未納入），也不接觸 production、RDS、SSM 或 GHCR 的寫入權限。
+- **風險等級**：本機驗證（L3 的 integration 驗證要求：DB schema、migration 與 crawler 寫入路徑），不屬於部署。它不能取代 gate 8 的 backup 與 recovery 檢查，也不能取代 production 上的 gate 核准（L4）。
+
 ---
 
 ## 5. 人工程序（每一項都是 L4）
