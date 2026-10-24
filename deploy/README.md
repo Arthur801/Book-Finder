@@ -432,7 +432,7 @@ state.json 是 production state，只在影響復原語意的轉換（pause、di
 ### 3.5 驗證
 
 - `curl -sI https://<your-domain>/` 回 200（host 會自動檢查，人工再確認一次）。
-- 瀏覽器確認：首頁、登入、暢銷榜頁面正常。
+- 瀏覽器確認：首頁、登入、書庫頁面正常。
 - `sudo cat /var/lib/book-finder/state.json`：`runtime.kind` 為 `docker`，`previous_runtime.kind` 為 `systemd`。
 - `sudo tail /var/lib/book-finder/history.jsonl`：最後一筆 completed 的 `result` 為 `success`。
 
@@ -477,7 +477,7 @@ sudo systemctl disable <SYSTEMD_UNIT>
    - `compat` 的結果（`Docs/testing/test-plan.md` §6.1）；
    - 若 `classification` 是 `forward`，注意 snapshot 會被建立，且 host 會等待它變成 available。
 5. 在 `production` 環境核准，`deploy` job 才會連到 host。
-6. `deploy` job 先執行 `deploy … --detach`，host 確認 run 已被接手（最多 60 秒）後即返回 `launched`。接著 `deploy-follow` 每 30 秒呼叫 `status <run_id>`，直到 history 出現結果；job timeout 為 180 分鐘。觀察該 job 的輸出，直到它回報結果。成功後檢查 §3.5 的項目（首頁、登入、暢銷榜）。
+6. `deploy` job 先執行 `deploy … --detach`，host 確認 run 已被接手（最多 60 秒）後即返回 `launched`。接著 `deploy-follow` 每 30 秒呼叫 `status <run_id>`，直到 history 出現結果；job timeout 為 180 分鐘。觀察該 job 的輸出，直到它回報結果。成功後檢查 §3.5 的項目（首頁、登入、書庫）。
 
 結果判讀：
 
