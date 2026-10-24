@@ -33,7 +33,7 @@ from tests.fakes import (
 
 NOW = datetime(2026, 10, 11, 4, 0, tzinfo=UTC)
 LATER = datetime(2026, 10, 12, 4, 0, tzinfo=UTC)
-RETRY_SLEEPS = [1.0, 2.0]  # the backoff between the three attempts of one row (crawler.md §6)
+RETRY_SLEEPS = [1.0, 2.0]  # the backoff between the three attempts of one row (crawler.md §13.1)
 
 
 def query(url: str, sql: str, params: tuple = ()) -> list[tuple]:
@@ -362,7 +362,7 @@ def test_write_retry_that_finds_an_isbn_used_by_an_earlier_rank_is_skipped_as_du
 
 
 # ---------------------------------------------------------------------------
-# ISBN attach policy (crawler.md §5, data-model §6)
+# ISBN attach policy (crawler.md §6.3, data-model §6)
 # ---------------------------------------------------------------------------
 
 
@@ -683,7 +683,7 @@ def test_failed_snapshot_replacement_keeps_previous_list_and_last_seen(db_url):
 
 @pytest.mark.parametrize("case", ["another_books_source", "google_books_source", "missing_source"])
 def test_replacement_rejects_a_source_that_is_not_the_books_own_books_com_tw_source(db_url, case):
-    """crawler.md §10: checked inside the replacement transaction, before the current list is deleted."""
+    """crawler.md §14.4: checked inside the replacement transaction, before the current list is deleted."""
     run(db_url, ranking_rows(100))
     previous = bestsellers(db_url)
     snapshot = [SnapshotRow(rank=rank, book_id=book_id, source_id=source_id) for rank, book_id, source_id, _ in previous]
@@ -719,7 +719,7 @@ def test_replacement_rejects_a_source_that_is_not_the_books_own_books_com_tw_sou
 
 
 def test_an_empty_snapshot_still_replaces_the_list(db_url):
-    """crawler.md §10: no minimum row count, even when every rank was skipped."""
+    """crawler.md §14.4: no minimum row count, even when every rank was skipped."""
     run(db_url, ranking_rows(100), now=NOW)
     seen_before = query(db_url, "SELECT id, last_seen_at FROM book_sources ORDER BY id")
 
@@ -763,7 +763,7 @@ def test_failed_run_leaves_last_seen_unchanged(db_url):
 
 
 # ---------------------------------------------------------------------------
-# Consecutive error threshold (crawler.md §6, §11; CRAWL-05) and run log (crawler.md §12)
+# Consecutive error threshold (crawler.md §13.1, §14.3; CRAWL-05) and run log (crawler.md §19.2)
 # ---------------------------------------------------------------------------
 
 
@@ -804,7 +804,7 @@ def test_abort_keeps_previous_data_and_scattered_errors_still_replace(db_url, ca
         assert query(db_url, "SELECT source_url, last_seen_at FROM book_sources WHERE source_url = ANY(%s) ORDER BY source_url", (old_urls,)) == seen_before
         assert f"aborted_at_rank={abort_rank}" in caplog.text
         assert report.error.startswith(f"run aborted at rank {abort_rank} after 21 consecutive error(s) (limit 20): fetch_error: ")
-        # One ERROR line per failed run, with the same prefix as every other failure (crawler.md §11).
+        # One ERROR line per failed run, with the same prefix as every other failure (crawler.md §14.6).
         assert [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR] == [f"run failed: {report.error}"]
         # Successfully committed new books before a late abort remain in Catalog.
         assert count(db_url, "books") == 100 + processed - len(expected_errors)
@@ -887,7 +887,7 @@ def test_run_log_has_the_required_fields_and_no_database_url(db_url, caplog):
 
 
 # ---------------------------------------------------------------------------
-# Early abort, browser failures, and redaction (crawler.md §6, §12; code review A1/A3/D3/D15)
+# Early abort, browser failures, and redaction (crawler.md §12.1, §14.3, §19.3; code review A1/A3/D3/D15)
 # ---------------------------------------------------------------------------
 
 

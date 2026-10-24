@@ -1,4 +1,4 @@
-"""One crawler run: ranking → resolve sources to Books → replace bestsellers (crawler.md §3, §11).
+"""One crawler run: ranking → resolve sources to Books → replace bestsellers (crawler.md §5, §14).
 
 Resolution of a discovery item gives a ``CatalogResolution`` (crawler.md §6):
 1. Known BOOKS_COM_TW Book Source URL → reuse its Book, no detail request (``EXISTING``).
@@ -7,14 +7,14 @@ Resolution of a discovery item gives a ``CatalogResolution`` (crawler.md §6):
       BOOKS_COM_TW Book Source to that Book; the Book's metadata is not changed (``ISBN_ATTACHED``);
    b. otherwise → create a new Book (``IMPORTED``).
 
-Retry and skip (crawler.md §6). A new source gets at most ``MAX_ATTEMPTS`` attempts in total:
+Retry and skip (crawler.md §13.1). A new source gets at most ``MAX_ATTEMPTS`` attempts in total:
 
 - a fetch or parse failure is retried from the detail request (the page is fetched again);
 - a failure of the database write (ISBN lookup or the Book transaction) is retried with the
   already-parsed draft; the detail page is not fetched again.
 
 A row that still fails is skipped: no rows are written for it, and the snapshot keeps the other
-ranks' numbers. The ranking page is retried on fetch failure only and is never skipped (crawler.md §4).
+ranks' numbers. The ranking page is retried on fetch failure only and is never skipped (crawler.md §14.1).
 
 The resolver always commits the Catalog side of an item (its Source, its gap filling, its touch). It does
 not decide whether the item may be ranked: a Book may appear at most once in a ranking
@@ -74,13 +74,13 @@ from books_crawler.redact import redact
 
 log = logging.getLogger("books_crawler.run")
 
-MAX_ATTEMPTS = 3  # crawler.md §6: total attempts, first try included
+MAX_ATTEMPTS = 3  # crawler.md §13.1: total attempts, first try included
 BACKOFF_BASE_SECONDS = 1.0  # sleep before attempt n (n = 2, 3) is 1s, then 2s
 
 
 @dataclass(frozen=True)
 class _RestrictedPage:
-    """Detail step outcome: a restricted member page. Skipped without retry (crawler.md §6)."""
+    """Detail step outcome: a restricted member page. Skipped without retry (crawler.md §13.2)."""
 
     message: str
 
@@ -98,7 +98,7 @@ def utc_now() -> datetime:
 
 
 def backoff_seconds(attempt: int) -> float:
-    """Seconds to wait before ``attempt`` (2 or 3): 1s, then 2s (crawler.md §6)."""
+    """Seconds to wait before ``attempt`` (2 or 3): 1s, then 2s (crawler.md §13.1)."""
     return BACKOFF_BASE_SECONDS * 2 ** (attempt - 2)
 
 
@@ -201,7 +201,7 @@ def _skipped(row: RankingRow, failure: Failure) -> SkippedRow:
 
 
 def _fetch_page_with_retries(deps: RunDependencies, url: str, label: str = "ranking page") -> str:
-    """Fetch a ranking-style page with the shared retry loop (crawler.md §4, §16).
+    """Fetch a ranking-style page with the shared retry loop (crawler.md §14.1, §15.4).
 
     Returns the HTML, or raises FetchError after MAX_ATTEMPTS failed attempts. What that
     error means is up to the caller: the daily and first-book runs fail on it, pages mode skips the
@@ -244,7 +244,7 @@ def _fetch_and_parse(
         return _RestrictedPage(str(exc))
     except ValueError as exc:
         # Classification: ParseError (e.g. missing title or product container) and BookDraft
-        # validation both raise ValueError; they are a retryable parse_error (crawler.md §6).
+        # validation both raise ValueError; they are a retryable parse_error (crawler.md §13.1).
         return _failure(SkipReason.PARSE_ERROR, str(exc), attempt)
 
 
@@ -414,10 +414,10 @@ def run_once(deps: RunDependencies, run_id: str | None = None) -> RunReport:
 
 
 def run_pages(deps: RunDependencies, page_urls: Sequence[str], run_id: str | None = None) -> RunReport:
-    """Supplement the Catalog from category 7-day ranking pages (crawler.md §16, pages mode).
+    """Supplement the Catalog from category 7-day ranking pages (crawler.md §15, pages mode).
 
     The pages are not the bestseller ranking: nothing is written to ``bestsellers`` and no
-    ``last_seen_at`` is updated. Rows are resolved with the rules of the daily run (§5, §6), but a
+    ``last_seen_at`` is updated. Rows are resolved with the rules of the daily run (§6, §13), but a
     row failure never stops the run. A page that cannot be fetched (after ``MAX_ATTEMPTS``) or
     parsed is recorded as a skipped page and the run goes on. The run fails only when it cannot
     continue: an error escaping row resolution (for example the database), ``BrowserUnavailableError``,

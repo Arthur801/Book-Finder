@@ -28,7 +28,7 @@ LANGUAGE_MAP: dict[str, str] = {
     "韓文": "ko",
 }
 
-# crawler.md §8: 博客來 contributor label → role. Unknown labels → OTHER.
+# crawler.md §11.1: 博客來 contributor label → role. Unknown labels → OTHER.
 ROLE_MAP: dict[str, ContributorRole] = {
     "作者": ContributorRole.AUTHOR,
     "原文作者": ContributorRole.ORIGINAL_AUTHOR,

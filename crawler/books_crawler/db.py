@@ -33,7 +33,7 @@ from books_crawler.models import (
 
 
 class SnapshotValidationError(Exception):
-    """A snapshot row's source is not a BOOKS_COM_TW Book Source of that row's Book (crawler.md §10)."""
+    """A snapshot row's source is not a BOOKS_COM_TW Book Source of that row's Book (crawler.md §14.4)."""
 
 
 def connect(database_url: str) -> psycopg.Connection:
@@ -145,7 +145,7 @@ def persist_new_source(
 
 
 def replace_bestsellers(conn: psycopg.Connection, rows: Sequence[SnapshotRow], captured_at: datetime) -> None:
-    """Replace the whole bestseller list and mark its sources as seen, in one transaction (crawler.md §10).
+    """Replace the whole bestseller list and mark its sources as seen, in one transaction (crawler.md §14.4).
 
     First, every row's ``source_id`` must be a BOOKS_COM_TW Book Source of that row's own Book, or
     ``SnapshotValidationError`` is raised before the current list is touched. The other snapshot

@@ -1,4 +1,4 @@
-"""Category page list file for pages mode (crawler.md §16, pages mode). No network, no database."""
+"""Category page list file for pages mode (crawler.md §15, pages mode). No network, no database."""
 
 import logging
 from pathlib import Path

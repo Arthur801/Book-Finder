@@ -1,18 +1,18 @@
 """Command-line entry point: ``python -m books_crawler`` (run from the ``crawler`` directory).
 
 Modes (one entry point each):
-    python -m books_crawler              daily run: 7-day overall TOP 100 Bestseller (crawler.md §3)
-    python -m books_crawler.first_book   first-book import: rank 1 only, no Bestseller write (crawler.md §13.1)
-    python -m books_crawler.pages        pages import: category 7-day ranking pages, Catalog only (crawler.md §16)
+    python -m books_crawler              daily run: 7-day overall TOP 100 Bestseller (crawler.md §14)
+    python -m books_crawler.first_book   first-book import: rank 1 only, no Bestseller write (crawler.md §16)
+    python -m books_crawler.pages        pages import: category 7-day ranking pages, Catalog only (crawler.md §15)
 
 Environment:
     DATABASE_URL            PostgreSQL connection URL of the shared database (required; secret, never logged).
-    CRAWLER_FETCHER         Page fetcher: ``curl`` (default, Chrome fingerprint, crawler.md §15)
+    CRAWLER_FETCHER         Page fetcher: ``curl`` (default, Chrome fingerprint, crawler.md §12)
                             or ``browser`` (Playwright; diagnostics only).
     CRAWLER_NAV_TIMEOUT_MS  Browser navigation timeout in milliseconds (1..300000; default 30000).
                             Empty means the default. Only used by the browser fetcher.
     CRAWLER_PAGES_FILE      Pages mode only: the category page list (default ``crawler/category-pages.txt``,
-                            crawler.md §16). Read and validated before any request; ignored by the other modes.
+                            crawler.md §15.3). Read and validated before any request; ignored by the other modes.
 
 Exit codes:
     daily and first-book: 0 = SUCCESS or PARTIAL_SUCCESS (bestsellers replaced, or Catalog import done),
@@ -117,6 +117,9 @@ def main(environ: Mapping[str, str] | None = None, *, mode: CrawlerMode = Crawle
             log.error("%s", redact(str(exc)))
             return EXIT_CONFIG_ERROR
 
+    # TODO(#116 phase B): a disabled provider is a configuration error (exit 2, crawler.md §3.1, §14.5, §15.7, §16).
+    # The check reads source_providers.enabled, which does not exist before migration 010, so it is not faked here.
+    # It belongs right before the fetcher is created: no request may be made for a disabled provider.
     fetcher = create_fetcher(kind, navigation_timeout_ms=navigation_timeout_ms)
     log.info("using %s fetcher", kind.value)
 

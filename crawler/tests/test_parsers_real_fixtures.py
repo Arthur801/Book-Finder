@@ -239,7 +239,7 @@ def test_detail_parser_accepts_tracking_url_and_canonicalizes_it():
 
 
 # ---------------------------------------------------------------------------
-# Restricted books (crawler.md §6): the logged-out member gate vs. the logged-in page
+# Restricted books (crawler.md §13.2): the logged-out member gate vs. the logged-in page
 # ---------------------------------------------------------------------------
 
 

@@ -1,4 +1,4 @@
-"""The fetcher module's own interface: building a fetcher and classifying a fetched page (crawler.md §15)."""
+"""The fetcher module's own interface: building a fetcher and classifying a fetched page (crawler.md §12)."""
 
 import subprocess
 import sys

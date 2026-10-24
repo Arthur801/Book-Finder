@@ -35,7 +35,7 @@ from tests.fakes import (
 )
 
 NOW = datetime(2026, 10, 11, 4, 0, tzinfo=UTC)
-RETRY_SLEEPS = [1.0, 2.0]  # backoff before attempts 2 and 3 (crawler.md §6)
+RETRY_SLEEPS = [1.0, 2.0]  # backoff before attempts 2 and 3 (crawler.md §13.1)
 CATEGORY_1 = "https://www.books.com.tw/web/sys_saletopb/books/01/?attribute=7&loc=P_0002_002"
 CATEGORY_2 = "https://www.books.com.tw/web/sys_saletopb/books/02/?attribute=7&loc=P_0002_003"
 CATEGORY_3 = "https://www.books.com.tw/web/sys_saletopb/books/03/?attribute=7&loc=P_0002_004"

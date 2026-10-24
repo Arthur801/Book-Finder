@@ -78,7 +78,7 @@ def test_unmapped_language_label_is_logged_and_stored_as_null(caplog):
     assert "unmapped language label '德文'" in caplog.text
 
 
-# Contributor role mapping (crawler.md §8)
+# Contributor role mapping (crawler.md §11.1)
 
 
 @pytest.mark.parametrize(

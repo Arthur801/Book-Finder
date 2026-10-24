@@ -1,7 +1,7 @@
-"""Ranking validation (crawler.md §4).
+"""Ranking validation (crawler.md §14.1).
 
 The ranking page is all-or-nothing: any violation raises and the run fails without touching the
-current bestsellers. Skipping applies only to new detail pages (run.py, crawler.md §6); it never
+current bestsellers. Skipping applies only to new detail pages (run.py, crawler.md §13.1, §14.2); it never
 relaxes ``validate_ranking``.
 
 Product URLs are canonicalized once, by the ranking parser (``parsers.parse_ranking_html``), so
@@ -22,7 +22,7 @@ class RankingValidationError(Exception):
 
 
 def _has_exact_ranks(ranks: Iterable[int]) -> bool:
-    """True when the ranks are exactly 1..100, each once (crawler.md §4)."""
+    """True when the ranks are exactly 1..100, each once (crawler.md §14.1)."""
     return sorted(ranks) == list(range(1, EXPECTED_RANKING_COUNT + 1))
 
 

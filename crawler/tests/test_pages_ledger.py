@@ -1,4 +1,4 @@
-"""Accounting for pages mode (``ledger.PagesLedger``, crawler.md §16, pages mode). Pure: no database, no fetcher."""
+"""Accounting for pages mode (``ledger.PagesLedger``, crawler.md §15, pages mode). Pure: no database, no fetcher."""
 
 import logging
 from datetime import UTC, datetime

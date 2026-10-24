@@ -44,7 +44,7 @@ class RunStatus(StrEnum):
 
 
 class SkipReason(StrEnum):
-    """Why a ranking row was skipped (crawler.md §6, §12). Stored and logged as these values."""
+    """Why a row was skipped (crawler.md §13, §14.2). Stored and logged as these values."""
 
     FETCH_ERROR = "fetch_error"
     PARSE_ERROR = "parse_error"
@@ -113,7 +113,7 @@ class Failure:
 
 @dataclass(frozen=True)
 class SkippedRow:
-    """A ranking row left out of the snapshot (crawler.md §6)."""
+    """A discovery item left out of the snapshot (crawler.md §14.2)."""
 
     rank: int
     url: str
@@ -132,7 +132,7 @@ class SkippedRow:
 
 @dataclass(frozen=True)
 class SkippedPage:
-    """A category ranking page skipped in pages mode because it could not be fetched or parsed (crawler.md §16)."""
+    """A category ranking page skipped in pages mode because it could not be fetched or parsed (crawler.md §15.4)."""
 
     url: str
     failure: Failure

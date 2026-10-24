@@ -5,7 +5,7 @@ user on 2026-10-11, browser "HTML only"). If a field is not reliably present it 
 None (with a log line); nothing is guessed. Parsers raise ``ParseError`` when the page is not the
 expected kind: wrong ranking tab, missing product container, missing title, unreadable rank.
 A ranking-page parse error fails the run. A product-page parse error is retried and then the row is
-skipped (crawler.md §4, §6), so it never produces a partially wrong Book.
+skipped (crawler.md §13.2, §14.1), so it never produces a partially wrong Book.
 
 Ranking page (``ranking_books_7d_top100.html``):
 - The 7-day chart is the selected item of ``ul.sub_list`` (the page also has other ``li.here``).
@@ -67,14 +67,14 @@ class ParseError(ValueError):
     """The page is not the expected kind of page.
 
     On the ranking page the run fails. On a product detail page the row is retried and then skipped
-    (crawler.md §4, §6).
+    (crawler.md §13.2, §14.1).
     """
 
 
 class RestrictedBookError(Exception):
     """The source explicitly requires an adult member login to view this product.
 
-    Not a ``ParseError``: a restricted page is skipped without retry and is not an error (crawler.md §6).
+    Not a ``ParseError``: a restricted page is skipped without retry and is not an error (crawler.md §13.2).
     """
 
 

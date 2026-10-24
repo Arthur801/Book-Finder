@@ -1,4 +1,4 @@
-"""The category page list for pages mode: which 7-day category ranking pages to import (crawler.md §16, pages mode).
+"""The category page list for pages mode: which 7-day category ranking pages to import (crawler.md §15, pages mode).
 
 File format: one URL per line; lines starting with ``#`` are comments; blank lines are ignored;
 surrounding whitespace is trimmed. Duplicate URLs are kept once, in first-seen order.
@@ -41,7 +41,7 @@ def load_page_urls(path: Path) -> list[str]:
         if not line or line.startswith("#"):
             continue
         if not is_category_ranking_url(line):
-            # The line itself is not echoed: it may carry credentials (crawler.md §12).
+            # The line itself is not echoed: it may carry credentials (crawler.md §19.3).
             raise PageListError(f"{path} line {number}: not a books.com.tw category 7-day ranking URL")
         if line in seen:
             log.info("dropped duplicate category page URL at %s line %d: %s", path, number, line)
