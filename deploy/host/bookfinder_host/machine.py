@@ -418,9 +418,10 @@ def _read_secret(r: _Run, env_name: str, parameter: str) -> str:
     return value
 
 
-def _render_env(r: _Run) -> None:
+def _render_env(r: _Run, *, include_migration: bool = True) -> None:
     # Why the migration connection is read here, with the web secrets, even for a deploy that runs no migration: one
     # place reads and validates every SSM value, and a failing read is drift before anything is written.
+    # Rollback passes include_migration=False: it only follows non-forward chains, which never run efbundle.
     sources = (
         ("ConnectionStrings__DefaultConnection", r.settings.ssm_db_connection),
         ("OPENAIAPI_KEY", r.settings.ssm_openai_key),
@@ -428,9 +429,10 @@ def _render_env(r: _Run) -> None:
     )
     web = [(env_name, _read_secret(r, env_name, parameter)) for env_name, parameter in sources]
     migration = None
-    if r.settings.ssm_migration_connection is not None:
+    if include_migration and r.settings.ssm_migration_connection is not None:
         migration = _read_secret(r, MIGRATION_ENV_NAME, r.settings.ssm_migration_connection)
-    r.secrets = _secret_strings([value for _, value in web] + ([migration] if migration is not None else []))
+    # Union, not replacement: secrets masked earlier in the run stay masked even when this call reads fewer of them.
+    r.secrets = _secret_strings([*r.secrets, *(value for _, value in web), *([migration] if migration is not None else [])])
     r.env_path = os.path.join(r.settings.run_dir, f"web-{r.run_id}.env")
     try:
         r.effects.files.ensure_dir(r.settings.run_dir, 0o700)
@@ -581,7 +583,7 @@ def _rollback(r: _Run, reason: str) -> None:
                     f"{reason}; the previous release has no {COMPOSE_CA_BUNDLE} but DB_CA_BUNDLE is configured; rollback not possible",
                 )
             try:
-                _render_env(r)
+                _render_env(r, include_migration=False)
             except _Stop as stop:
                 raise _Stop(FAILED_DOWN, "failed-down", f"rollback could not render its environment: {stop.reason}") from stop
             old_ref = f"{r.settings.web_image_repository}@{previous.web_digest}"

@@ -20,6 +20,7 @@ from bookfinder_host import machine
 from bookfinder_host import state as st
 from bookfinder_host.exit_codes import BAD_INPUT, DRIFT, FAILED_DOWN, FAILED_MIGRATION, OK, PARTIAL_CRAWLER, ROLLED_BACK
 from bookfinder_host.manifest import Migration
+from bookfinder_host.ports import EffectFailed
 from bookfinder_host.release_content import COMPOSE_FILE
 from bookfinder_host.testing import CONTAINER_ID, FAKE_COMPOSE, sample_state, write_release
 from worlds import (
@@ -1266,3 +1267,50 @@ def test_failed_migration_with_wrong_ids_also_journals_the_efbundle_output(tmp_p
     assert code == FAILED_MIGRATION
     assert "efbundle output, last 1 lines:" in err.splitlines()
     assert "migration applied partially" in err.splitlines()
+
+
+# Rollback never reads SSM_MIGRATION_CONNECTION again: it is read once, in step 3 (rollback only follows non-forward chains)
+
+
+def only_the_first_migration_read_succeeds(world) -> list[str]:
+    reads: list[str] = []
+    real = world.fx.ssm.get_parameter
+
+    def get_parameter(name: str) -> str:
+        if name == MIGRATION_PARAMETER:
+            reads.append(name)
+            if len(reads) > 1:
+                raise EffectFailed(f"parameter {name} unavailable on the second read")
+        return real(name)
+
+    world.fx.ssm.get_parameter = get_parameter
+    return reads
+
+
+def test_rollback_succeeds_without_reading_the_migration_parameter_again(tmp_path):
+    world = in_sync_world(tmp_path)
+    with_old_release(world)
+    with_migration_connection(world)
+    reads = only_the_first_migration_read_succeeds(world)
+    phased_health(world, switch=503, switch_url=LOCAL)
+    code, _out, err = world.run_unit(deploy_text(world))
+    assert code == ROLLED_BACK, err
+    assert "restored the previous runtime" in err
+    assert reads == [MIGRATION_PARAMETER]
+    assert completed_records(world)[-1]["result"] == "rolled-back"
+    assert not env_path(world).exists() and not migrate_env_path(world).exists()
+
+
+def test_masking_still_covers_the_migration_secret_after_a_rollback(tmp_path):
+    world = in_sync_world(tmp_path)
+    with_old_release(world)
+    with_migration_connection(world)
+    only_the_first_migration_read_succeeds(world)
+    world.fx.docker.logs_text = f"connecting with {MIGRATION_VALUE}\nplain line\n"
+    phased_health(world, switch=503, switch_url=LOCAL)
+    code, out, err = world.run_unit(deploy_text(world))
+    assert code == ROLLED_BACK, err
+    assert "connecting with ***" in err.splitlines() and "plain line" in err.splitlines()
+    history = Path(world.settings.history_file).read_text()
+    for text in (out, err, history):
+        assert MIGRATION_VALUE not in text and "pw-MIG-1" not in text
