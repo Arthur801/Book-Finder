@@ -2,6 +2,7 @@
 
 > PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR4 M1（#120）補記：2026-10-25 更新；程式變更以 `5052361`、`d864acc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+> PR4 M3（#120）補記：2026-10-25 更新；程式變更以 `d249c07`、`6e70e93`、`b99b368` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 > 2026-10-24；HEAD `91333c3`。已有測試均為「已有測試但本次未執行」。本次只查核來源，沒有通過結果；文字案例不授權執行外部連線、部署或 migration 至正式資料庫。
 
@@ -206,3 +207,10 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter FullyQualifiedNa
 - **When**：migrate 到 011；Down 案例 011 → 010；含 KINGSTONE 的 Down。
 - **Then**：row 8（同 Book 的 `ISBN_13 X` + `ISBN X` 只剩一筆、ISBN_10 轉 ISBN、共用 Z 兩本都保留）；gate 4 與 gate 5 拋錯且資料庫仍在 010；Down 還原 010 物理 schema；含 KINGSTONE 時 Down 拒絕。
 - **來源與狀態**：[ContractMigration011Tests](../DatabaseIntegration/ContractMigration011Tests.cs)、[MultiSourceCatalogSchemaTests](../DatabaseIntegration/MultiSourceCatalogSchemaTests.cs)（011 physical schema 與寫入規則）。`d864acc`、`5052361` 後 DatabaseIntegration 通過。
+
+### TEST-22：011 的 gate 7 preflight、contract verify 與 011 seed（PR4 M3）
+
+- **Given**：[ContractMigration011PreflightTests](../DatabaseIntegration/ContractMigration011PreflightTests.cs) 在 010 寫入 ISBN_13 X + ISBN X 的同一本 Book、ISBN_10 Y、共用 ISBN Z 的兩本 Book；[ContractMigration011VerifyTests](../DatabaseIntegration/ContractMigration011VerifyTests.cs) 在 010 寫入同樣形狀並建立 `compat_before` 複本。
+- **When**：執行 `deploy/migration-test/preflight/` 的 SQL（READ ONLY，ROLLBACK）；migrate 到 011；對 011 改寫資料（新增一筆、刪除 OTHER、刪除 ISBN_10 的 ISBN 列），每個情況在交易內 rollback。
+- **Then**：預估 ISBN 4 筆、預期去重 1 筆、預估總數 5 筆、共用 ISBN 的 INFO 列 ok 為 true、所有 gate 列 ok 為 true，preflight 不改變 history；升級後實際列數等於預估。`verify.sql` 乾淨時 0 列，每種違規各回傳一列（rule a、b、c）。011 seed 能在 011 上載入，沒有 `source_type`，identifier 只有 ISBN 與 OTHER，含 KINGSTONE。
+- **來源與狀態**：test-plan §7 row 20；`d249c07`、`6e70e93`、`b99b368` 之後的本地 DatabaseIntegration 全量通過（144 項）。

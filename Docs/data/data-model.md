@@ -824,6 +824,7 @@ Multi-source 變更採 **expand（010）→ contract（011）** 兩階段。理�
    - 因 `ON CONFLICT DO NOTHING` 而消失的資料，只能是同一本 Book、同一個值的預期去重。
    - 預估的 row 數與 migration 後實際的 row 數一致。
    - 不同 Book 有相同的 ISBN 是允許的，只做統計並記 INFO，**不算失敗**。
+   - 檢查 SQL：`deploy/migration-test/preflight/20261025120000_ContractMultiSourceCatalog.sql`（唯讀，在 `BEGIN READ ONLY` 內執行並 ROLLBACK）。操作方式與通過條件見 `deploy/README.md` §4.4；每一列的 `ok` 都必須為 `true`。
 8. compat 通過，並確認 backup 與 recovery 都可用。
 9. PR3 runtime 在 011 上的相容性驗證通過（PR3 Web：Search、Detail 含去重、health；PR3 crawler：Existing Source 查詢與 touch、ISBN 查詢、寫入新 Source、Bestseller 驗證與替換），以及 manual recovery compatibility（011 的 DB 搭配上一個 release 的 Web 與 crawler，手動恢復所需的 smoke 全部通過）。CD compat 的 runtime smoke 依 ADR-006 I5 仍只供參考，這項由 PR4 另外以測試證明（`Docs/testing/test-plan.md` §7）。
 

@@ -145,7 +145,18 @@ schema-ahead 的檢查：`applied history unchanged by target`（T 的 web 啟�
 
 Runtime smoke（目前在 production 運行的版本，對升級後的 DB 執行）對所有分類都只是 INFO，不會讓 compat 失敗。它的結果寫入 report 的 `runtime_smoke`，供 reviewer 參考。
 
-Report：`compat-report.json`（`schema_version: 1`）包含 `classification`、`pending`、`checks`（每項的 `name`、`result`、`detail`）、`forward_ok` 與 `runtime_smoke`。CI 與 CD 都會在 job summary 顯示逐項結果，並上傳為 artifact。
+contract allowance（reviewed，`deploy/migration-test/contract/<migration-id>/`）：契約型 migration 會故意丟欄位或改寫資料，`data preserved` 會因此失敗，所以只有 pending 的 migration 才能用它豁免。
+
+- `allow.tsv`：`drop-column<TAB>table<TAB>column` 與 `rewrite<TAB>table`，`#` 註解與空行允許；其他指令、欄位數錯誤或非小寫 identifier 會在連到資料庫前失敗（`deploy/lib/contract_allowance.sh`）。
+- `verify.sql`：升級後必須回傳 0 列（`contract verify <id>`）。它可以讀 `compat_before.<table>`，這是升級前對每個 `rewrite` table 做的複本（`contract snapshot`）。
+- 不是 pending 的 migration 的 allowance 會被忽略，記為 INFO（`contract allowance <id>`）。
+- `drop-column` 的欄位不存在時允許，但仍存在、或升級前就不存在，都會失敗。該 table 的其他欄位照常比對，row count 仍須相同。
+- `rewrite` 的 table 必須存在；其 row 與欄位 checksum 不比對，改由 `verify.sql` 判定。
+- `compat_before` 在升級後的 `data preserved` 與 `verify` 之後、schema 比對之前移除（`contract scratch removed`），不會進入 schema dump。
+- report 的 `contract_allowances` 記錄每個使用中的 allowance（migration、dropped columns、rewritten tables、verify 結果）；CI summary 另有一節列出。
+- 目前只有 `20261025120000_ContractMultiSourceCatalog`（011）：移除 `book_sources.source_type` 與 `book_subjects.source_type`，改寫 `book_identifiers`（ISBN_10/13 → ISBN、同一 Book 同值去重、OTHER 保留）。`verify.sql` 檢查 (a) ISBN 類的每筆都有對應的 ISBN、(b) OTHER 不變、(c) 升級後沒有無法由升級前推導的列、(d) ISBN_10/13 已不存在。
+
+Report：`compat-report.json`（`schema_version: 1`）包含 `classification`、`pending`、`checks`（每項的 `name`、`result`、`detail`）、`contract_allowances`、`forward_ok` 與 `runtime_smoke`。CI 與 CD 都會在 job summary 顯示逐項結果，並上傳為 artifact。
 
 ### 6.2 本機整合測試（`BOOKFINDER_IT=1`）
 
@@ -190,7 +201,7 @@ Report：`compat-report.json`（`schema_version: 1`）包含 `classification`、
 | 17 | touch 失敗：暫時性錯誤重試後成功；最後仍失敗時每日榜單為 `ERROR_SKIP` + `database_error` 且 run 繼續、分類榜只有該筆失敗、first_book FAILED exit 1；三種模式 `existing_source_count` 不加 1、`last_seen_at` 維持原值 | Crawler（DB） | PR3 |
 | 18 | C# 與 Python 讀同一份 `tests/Fixtures/isbn-normalization.json`（完整 `White_Space` 與反例），結果逐 byte 一致 | Unit + Crawler | PR2（C# 與 fixture）／PR3（Python） C# 部分已實作：`IsbnNormalizerTests`（fixture 全部 vector 與 White_Space 覆蓋）；Python 部分仍為 PR3 |
 | 19 | Source identity 矩陣（`data-model.md` §7.3）：以下兩種情況都回報 `source_identity_conflict`，而且不寫入任何資料：E 和 U 對到不同的 Source；E 沒有命中，但 U 命中的 Source 有不同的非 NULL `external_id`。E 沒有命中、U 命中的 Source 的 `external_id` 是 NULL 時，視為 Existing 並 touch，不 backfill。URL 漂移時保留既有 URL、記 WARNING，照常 touch | Crawler（DB） | PR3 |
-| 20 | 011 ISBN conversion preflight：不同 Book 有相同 ISBN 時仍通過、只回報統計；同一本 Book 的重複值正確去重，預估 row 數與實際一致 | Integration（DB） | PR4 |
+| 20 | 011 ISBN conversion preflight：不同 Book 有相同 ISBN 時仍通過、只回報統計；同一本 Book 的重複值正確去重，預估 row 數與實際一致 | Integration（DB） | PR4 M3 已實作：`ContractMigration011PreflightTests.Preflight_estimates_match_the_011_conversion_and_the_migration_result`（對 010 的資料跑 `deploy/migration-test/preflight/` 的 SQL，再升級到 011 比對實際 row 數）；`ContractMigration011VerifyTests`（contract allowance 的 `verify.sql` 對每種違規回傳列，011 seed 可在 011 上載入）|
 | 21 | 每個 PR：`dotnet build`、`dotnet test`、crawler pytest（含 DB integration）、`deploy/tests`、CI compat | 全部 | PR2／PR3／PR4 |
 
 另外：disabled provider 的既有 Book Source 仍出現在 Detail（PR2，已實作：`BookDetailPageTests.Source_of_a_disabled_provider_is_still_shown_with_its_provider_display_name`）；crawler 對 disabled provider 啟動 job 時 exit 2（PR3）。

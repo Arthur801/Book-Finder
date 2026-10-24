@@ -101,7 +101,7 @@ Crawler 非機密環境變數（`crawler/README.md`）：
 - 已套用的 migration 不自動回滾（I5）。舊版 web 可能不認識新 schema。
 - 每個 migration 在自己的 transaction 中執行。本專案禁止 `suppressTransaction` 與 `CONCURRENTLY`（`.github/scripts/check_migrations.py`），這個前提才成立。
 - Migration 應向後相容（先擴充、後收縮）。這是規則，不是程式強制；它的理由是 schema-ahead 部署時舊版 web 會在較新的 schema 上運行（S6）。
-- 部署前的驗證由 **compat check** 負責（CI 的 `Docker image` job 與 CD 的 `compat` job），在拋棄式 DB 上執行：以 `schema.rebuild` 的 bundle 重建目前的 schema、載入 seed、用目標 bundle 升級、驗證資料與 schema，並跑 forward smoke。細節見 `Docs/testing/test-plan.md` §6。
+- 部署前的驗證由 **compat check** 負責（CI 的 `Docker image` job 與 CD 的 `compat` job），在拋棄式 DB 上執行：以 `schema.rebuild` 的 bundle 重建目前的 schema、載入 seed、用目標 bundle 升級、驗證資料與 schema，並跑 forward smoke。契約型 migration（011）只能透過 `deploy/migration-test/contract/` 的 reviewed allowance 豁免資料檢查，且 `verify.sql` 必須回傳 0 列。細節見 `Docs/testing/test-plan.md` §6.1。011 部署前的 gate 7 唯讀 preflight 見 `deploy/README.md` §4.4。
 - 只有 DB 的 migration 歷史與 state 不一致（drift 或 divergent）時，CD 才會拒絕，不會自動修正。
 
 ### 6.1 Multi-source migration 010／011 的相容性（#113）

@@ -1,6 +1,7 @@
 # deploy/ 修改歷史（Git 證據）
 
 > PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+> PR4 M3（#120）補記：2026-10-25 更新；程式變更以 `d249c07`、`6e70e93`、`b99b368` 記入本文件 §3.12。原查核基準保留，未重新審查其餘內容。
 
 > 查核日期：2026-10-24。查核基準 HEAD：`01db2d7`（merge PR #106；tag `v0.0.4`；`origin/main` 同一 commit）。
 > 工作樹：clean，僅有既存的未追蹤 `.venv`（不屬於本文件，也不屬於 `deploy/`）。本文件是新增的未追蹤檔案，尚未提交。
@@ -219,6 +220,16 @@ git log --reverse --no-merges --format='@@%h' --numstat -- <同上路徑>
 | 2026-10-24 | `5e68d6e` | docs(deploy): record the User-Agent incident and edge requirement (#105) | `deploy/README.md`（+6/-4） | 文件：記錄事件與 edge 需求 |
 
 **`01db2d7`**（HEAD）是 PR #106 的 merge commit，不是非 merge commit，因此不在 102 個列表中。它的第二個父 commit 是 `5e68d6e`。
+
+### 3.12 #120 PR4 M3：contract allowance、011 seed 與 gate 7 preflight（2026-10-25）
+
+| 日期 | SHA | 主旨 | 影響檔案（+/-） | diff 摘要 |
+|---|---|---|---|---|
+| 2026-10-25 | `d249c07` | feat(compat): reviewed contract allowance for migration 011 | `deploy/lib/contract_allowance.sh`（新增）、`deploy/migration-test/compat.sh`、`deploy/migration-test/contract/`（新增，011 的 `allow.tsv`、`verify.sql`）、`deploy/tests/test_contract_allowance.py`（新增）、`.github/workflows/ci.yml`（summary 與 shellcheck 清單） | 只有 pending 的 migration 能使用 allowance；rewrite table 在升級前複製到 `compat_before`，升級後 `verify.sql` 必須 0 列，升級後 schema 比對前移除複本；drop-column 的欄位仍存在或不存在都失敗；report 增加 `contract_allowances` |
+| 2026-10-25 | `6e70e93` | test(compat): 011 seed and gate 7 preflight with its DB test | `deploy/migration-test/seeds/20261024160045_MultiSourceCatalog.sql`（+1，Book 1 同時有 ISBN_13 與 ISBN）、`seeds/20261025120000_ContractMultiSourceCatalog.sql`（新增）、`deploy/migration-test/preflight/20261025120000_ContractMultiSourceCatalog.sql`（新增）、`tests/DatabaseIntegration/ContractMigration011PreflightTests.cs`（新增） | 010 seed 讓 compat 的 011 升級同時驗證轉換與去重；011 seed 為 011 形狀；preflight 是唯讀的 gate 7 檢查，測試對 010 資料比對估計值並與升級後的實際列數一致 |
+| 2026-10-25 | `b99b368` | test(db): cover 011 verify.sql, the 011 seed and the preflight files | `tests/DatabaseIntegration/ContractMigration011VerifyTests.cs`（新增）、`RepositoryPath.cs`（新增） | verify.sql 對每種違規回傳一列；011 seed 能在 011 上載入並保持 011 形狀 |
+
+本地 compat（M3 驗證）：base 為 `347e5b0`（`git merge-base origin/main HEAD`），target 為本分支的 `book-finder-web:ci`，指令與 `ci.yml` 相同，結果 `compat checks passed (forward_ok=true)`。報告中的 allowance 為 `20261025120000_ContractMultiSourceCatalog`，dropped columns 為 `book_sources.source_type`、`book_subjects.source_type`，rewritten table 為 `book_identifiers`，verify 0 列。
 
 ## 4. 目前工作樹與未提交差異
 

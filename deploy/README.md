@@ -506,6 +506,22 @@ sudo systemctl disable <SYSTEMD_UNIT>
 - 舊版 crawler 不會更新（S7）。理由：crawler 的 smoke 不連 DB，無法證明舊版 crawler 能在較新的 schema 上運作。
 - compat 的 `runtime` smoke 對所有分類都只供參考，不會阻擋部署。
 
+### 4.4 011 的 gate 7 preflight（部署 011 前，唯讀）
+
+`deploy/migration-test/preflight/20261025120000_ContractMultiSourceCatalog.sql` 是 `Docs/data/data-model.md` §11.3 gate 7 的檢查。它在 production 仍為 010 時執行，確認 ISBN 轉換的預估與 gate 4、5 的結果。
+
+- **L4 安全**：整個腳本在 `BEGIN READ ONLY; … ROLLBACK;` 內執行，只有 SELECT，不改資料、不改 `__EFMigrationsHistory`，也不取得寫入鎖。它仍需要 production 的連線，因此由操作者以自己的權限執行；連線字串不要寫進 repo 或 shell history。
+- 執行（操作者以 `$DATABASE_URL` 指向 production 的 010 database）：
+
+  ```bash
+  psql "$DATABASE_URL" -X -f deploy/migration-test/preflight/20261025120000_ContractMultiSourceCatalog.sql
+  ```
+
+- 輸出每個指標一列（`check`、`value`、`ok`），依序為：各類 legacy 筆數、參與轉換的筆數、預估的 ISBN 筆數、預期因 `ON CONFLICT` 消失的筆數、轉換前後的 `book_identifiers` 總數、未知 identifier 類型、gate 4 與 gate 5 的不一致筆數、不同 Book 共用同一 ISBN 的統計。
+- **通過條件**：每一列的 `ok` 都必須是 `true`。標示 `(must be 0)` 的列，`value` 必須為 0；標示 `INFO` 的列恆為 `true`，只供記錄，不算失敗（gate 7 的「不同 Book 有相同 ISBN」）。任一列為 `false` 就不要部署 011，回到 data-model §11.3 與 migration 的 guard。
+- 這個腳本在 011 之後執行會失敗（`source_type` 已不存在），這是預期行為，不是錯誤。
+- 把輸出貼到部署紀錄（issue 或 CD summary），作為 gate 7 的證據。
+
 ---
 
 ## 5. 人工程序（每一項都是 L4）
@@ -729,6 +745,7 @@ Journal 是**輔助資訊**，不是結果的來源。結果以 history 為準�
 
 - CD 的 `compat` job 上傳 `compat-report` artifact（JSON），summary 有逐項結果。
 - PR 的 `Docker image` job 在 `Migrations/`、`deploy/`、`Dockerfile` 等路徑有變動時執行 compat。
+- compat 使用中的 contract allowance（只有 011）會列在 summary 的 `Contract allowances` 節，含 dropped columns、rewritten tables 與 `verify.sql` 的列數（`Docs/testing/test-plan.md` §6.1）。
 
 ---
 

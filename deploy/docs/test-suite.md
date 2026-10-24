@@ -1,6 +1,7 @@
 # deploy/ 測試案例庫（AI 可操作的文字案例）
 
 > PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+> PR4 M3（#120）補記：2026-10-25 更新；程式變更以 `d249c07`、`6e70e93`、`b99b368` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 > 目標：`deploy/`（host 程式、CD 腳本、compat、整合測試）與分散的 CD 來源。
 > 查核基準：2026-10-24，HEAD `01db2d7`。本次文件任務**沒有執行任何測試命令**；狀態「已有測試」只表示測試存在，不表示本次通過。
@@ -53,12 +54,14 @@
 | `cd crawler && pytest` | `ci.yml` 的 `crawler` job | 需 `requirements.txt`；Playwright 測試需 Chromium，否則跳過 | 已有測試但本次未執行 |
 | `cd crawler && pytest tests/test_deploy.py -q` | 同上（單檔） | 同上 | 已有測試但本次未執行 |
 | `ruff check --config deploy/ruff.toml deploy` 與 `ruff format --check --config deploy/ruff.toml deploy` | `ci.yml` `lint` job | ruff 版本依 `crawler/requirements.txt` 固定 | 已有檢查但本次未執行 |
-| `shellcheck deploy/release/build-manifest.sh deploy/smoke/web-smoke.sh deploy/lib/manifest.sh deploy/lib/smoke.sh deploy/lib/schema_dump.sh deploy/lib/compat_plan.sh deploy/migration-test/compat.sh deploy/integration/imagetools-roundtrip.sh` | `ci.yml` `lint` job | 需 shellcheck | 已有檢查但本次未執行 |
+| `shellcheck deploy/release/build-manifest.sh deploy/smoke/web-smoke.sh deploy/lib/manifest.sh deploy/lib/smoke.sh deploy/lib/schema_dump.sh deploy/lib/compat_plan.sh deploy/lib/contract_allowance.sh deploy/migration-test/compat.sh deploy/integration/imagetools-roundtrip.sh` | `ci.yml` `lint` job | 需 shellcheck | 已有檢查但本次未執行 |
 | `python .github/scripts/check_version_sync.py` | `ci.yml` `lint` job | 讀取 `global.json`、`Dockerfile`、compose | 已有檢查但本次未執行 |
 | `python .github/scripts/check_migrations.py [--released-manifest FILE]` | `ci.yml` `lint` job | 比對已發布的 `migrations.txt` | 已有檢查但本次未執行 |
 | `BOOKFINDER_IT=1 bash deploy/integration/run-local.sh` | test-plan §6.2 與 runbook | 需本機 Docker；建立 `bf-it-*` 容器；使用 port 5000；**不在 CI** | 已有測試但本次未執行（不列為 production 證據） |
 | `docker build --build-arg GIT_COMMIT=… -t book-finder-web:ci .` 與 `bash deploy/smoke/web-smoke.sh book-finder-web:ci`（含 `--control-no-keys`） | `ci.yml` `docker` job | 需 Docker；內部網路；placeholder secrets | 已有測試但本次未執行 |
 | `bash deploy/integration/imagetools-roundtrip.sh` | `ci.yml` `docker` job | 需 Docker 與本機 registry（`127.0.0.1`） | 已有測試但本次未執行 |
+| `deploy/migration-test/contract/20261025120000_ContractMultiSourceCatalog/`（allow.tsv、verify.sql）| 011 的 reviewed allowance；只在 011 為 pending 時套用。`verify.sql` 必須回傳 0 列 | `test_contract_allowance.py`（解析、非 pending 忽略、drop-column 仍存在、判定）；`ContractMigration011VerifyTests`（每種違規都回傳一列）；本地 compat 通過（見 update-history） |
+| `deploy/migration-test/preflight/20261025120000_ContractMultiSourceCatalog.sql`（011 gate 7，唯讀） | production 在 010 時由操作者執行（`deploy/README.md` §4.4）。不由 CI 執行 | `ContractMigration011PreflightTests`（test-plan row 20） |
 | `deploy/migration-test/seeds/20261024160045_MultiSourceCatalog.sql`（010 head seed）| compat 在 applied 為 010 時必須有此 seed；本次只以 Testcontainers 驗證可載入並列數（`book_sources` 5 筆、`book_subjects` 3 筆、`book_offers` 2 筆） | 待 CI compat 證據 |
 | `bash deploy/migration-test/compat.sh --rebuild-image IMG --target-image IMG [--runtime-image IMG\|none] --applied FILE --seeds-dir DIR --report OUT.json` | CD `compat` job；`ci.yml` 在 PR 條件下執行 | 需 Docker 與 GHCR digest；拋棄式 DB | 已有測試但本次未執行 |
 | `ssh -i <plan key> -o IdentitiesOnly=yes deployer@<EC2_HOST> "status 1-1"`（預期 `not-started`，exit 0） | runbook §2.6（上線前驗證） | 只讀；不改變 state | 營運觀察（上線前驗證的結果未記錄） |
@@ -273,6 +276,12 @@
 | DEP-COMPAT-01 | applied 與 target 的關係為 forward 或 in-sync | 規劃 compat | 執行全部升級檢查 | `test_compat_plan.py::test_forward_and_in_sync_run_every_upgrade_check` | 已有測試但本次未執行（M） |
 | DEP-COMPAT-02 | schema-ahead | 規劃 | 不執行 target bundle | `test_compat_plan.py::test_schema_ahead_never_runs_the_target_bundle` | 已有測試但本次未執行（M） |
 | DEP-COMPAT-03 | 未規劃的分類 | 規劃 | 拒絕 | `test_compat_plan.py::test_unplanned_classification_is_rejected` | 已有測試但本次未執行（M） |
+| DEP-COMPAT-04 | allow.tsv 含未知指令、欄位數錯誤或非小寫 identifier | 解析 | 失敗，並附行號，不輸出任何指令 | `test_contract_allowance.py::test_unknown_or_malformed_directives_fail_with_the_line_number` | 已有測試（M3，本次執行 pytest） |
+| DEP-COMPAT-05 | allowance 的 migration 不在 pending | 選擇 | 忽略（INFO），不解析 | `test_contract_allowance.py::test_an_allowance_for_a_migration_that_is_not_pending_is_ignored` | 已有測試（M3，本次執行 pytest） |
+| DEP-COMPAT-06 | allowed drop-column 升級後仍存在，或升級前就不存在 | 判定 | 失敗 | `test_contract_allowance.py::test_drop_problems_report_an_allowed_column_that_still_exists` 與 `…::test_drop_problems_report_an_allowance_for_a_column_that_never_existed` | 已有測試（M3，本次執行 pytest） |
+| DEP-COMPAT-07 | verify.sql 回傳 1 列以上 | 判定 | fail | `test_contract_allowance.py::test_verify_passes_only_with_zero_rows` | 已有測試（M3，本次執行 pytest） |
+| DEP-COMPAT-08 | 升級後的 schema 比對 | 順序 | compat_before 在 schema 比對前移除（靜態檢查 main 的順序，失敗路徑也會繼續到移除） | `test_contract_allowance.py::test_compat_before_is_dropped_before_the_schema_comparison_even_when_the_data_check_fails` | 已有測試（M3，本次執行 pytest） |
+| DEP-COMPAT-09 | 011 allowance 與 verify | 本地 compat（需 Docker） | `compat checks passed`；allowance 與 verify 都在報告中 | 本地 `deploy/migration-test/compat.sh`（M3 的 update-history 記錄結果） | 本次已執行（M3，見 update-history） |
 | DEP-MAN-01 | 有效與無效的 manifest | 以 Python 與 bash 同時驗證 | 接受與拒絕結果一致 | `host/test_manifest_parity.py::test_valid_and_invalid_manifests_agree_on_acceptance` | 已有測試但本次未執行（M） |
 | DEP-MAN-02 | 相同 manifest | 計算 digest | Python 與 bash 的 digest 相同 | `host/test_manifest_parity.py::test_digest_matches_bash_for_every_valid_manifest` | 已有測試但本次未執行（M） |
 | DEP-MAN-03 | applied 落後 target 一個 id | classify | forward；同 id 不同 hash 為 divergent | `host/test_manifest.py`（`classify` 系列）與 `test_manifest_lib.py::test_classify_same_id_different_hash_is_divergent` | 已有測試但本次未執行（M） |
