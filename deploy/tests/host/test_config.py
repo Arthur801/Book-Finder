@@ -271,3 +271,27 @@ def test_make_psql_query_mounts_the_bundle_only_when_configured(tmp_path):
     configured = psql_argv(f"DB_CA_BUNDLE={bundle}\n")
     assert configured[configured.index("--mount") + 1] == f"type=bind,src={bundle},dst={bundle},readonly"
     assert configured[: configured.index("--mount")] == unset[: configured.index("--mount")]
+
+
+MIGRATION_PARAMETER = "/book-finder/prod/migration-connection"
+
+
+def test_ssm_migration_connection_is_unset_by_default_and_taken_when_given():
+    assert cfg.parse_settings(VALID).ssm_migration_connection is None
+    assert cfg.parse_settings(VALID + f"SSM_MIGRATION_CONNECTION={MIGRATION_PARAMETER}\n").ssm_migration_connection == MIGRATION_PARAMETER
+
+
+@pytest.mark.parametrize("value", ["", "/book-finder/prod/migration connection", "/book-finder/$(id)"])
+def test_ssm_migration_connection_empty_or_unsafe_value_is_refused(value):
+    with pytest.raises(cfg.ConfigError, match="SSM_MIGRATION_CONNECTION"):
+        cfg.parse_settings(VALID + f"SSM_MIGRATION_CONNECTION={value}\n")
+
+
+def test_ssm_migration_connection_duplicate_key_is_refused():
+    with pytest.raises(cfg.ConfigError, match="duplicate"):
+        cfg.parse_settings(VALID + f"SSM_MIGRATION_CONNECTION={MIGRATION_PARAMETER}\nSSM_MIGRATION_CONNECTION={MIGRATION_PARAMETER}\n")
+
+
+def test_unknown_key_is_still_refused_next_to_the_migration_key():
+    with pytest.raises(cfg.ConfigError, match="unknown key"):
+        cfg.parse_settings(VALID + f"SSM_MIGRATION_CONNECTIONS={MIGRATION_PARAMETER}\n")

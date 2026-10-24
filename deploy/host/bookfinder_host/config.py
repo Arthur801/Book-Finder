@@ -64,7 +64,8 @@ _PATH_KEYS = (
 # The psql container runs one fixed command; the SQL is passed as a single argv element and never interpolated.
 _PSQL_SCRIPT = 'psql -X -At -v ON_ERROR_STOP=1 "$DATABASE_URL" -c "$1"'
 # Optional, with no default: absent means the bundle is not mounted anywhere (the behaviour before DB_CA_BUNDLE existed).
-_OPTIONAL_UNSET = {"DB_CA_BUNDLE"}
+# SSM_MIGRATION_CONNECTION names a role that owns the schema objects; efbundle alone uses it (deploy/README.md §2.4).
+_OPTIONAL_UNSET = {"DB_CA_BUNDLE", "SSM_MIGRATION_CONNECTION"}
 # The path goes into a --mount option and a compose variable, so only characters with no separator meaning are allowed.
 _CA_PATH_RE = re.compile(r"/[A-Za-z0-9._/-]{1,512}")
 CA_BUNDLE_MAX_BYTES = 1 << 20
@@ -103,6 +104,8 @@ class Settings:
     aws_cli: str = "aws"
     # Public CA bundle for verify-full; mounted read-only at the same path in every container that connects to RDS.
     db_ca_bundle: str | None = None
+    # SSM parameter name of the connection string that efbundle uses; None keeps the web connection for migrations.
+    ssm_migration_connection: str | None = None
 
 
 def _positive_finite_seconds(values: dict[str, str], key: str) -> float:
@@ -183,6 +186,7 @@ def parse_settings(text: str) -> Settings:
         cron_file=values["CRON_FILE"],
         aws_cli=values["AWS_CLI"],
         db_ca_bundle=values.get("DB_CA_BUNDLE"),
+        ssm_migration_connection=values.get("SSM_MIGRATION_CONNECTION"),
     )
 
 
