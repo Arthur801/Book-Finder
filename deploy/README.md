@@ -380,13 +380,13 @@ sudo /opt/book-finder/host/book-finder-admin bootstrap-state \
 
 1. 取得 deploy lock、CAS 檢查 revision、runtime、schema；schema dirty 則 exit 6。
 2. 用 `docker compose` 的 probe 確認 raw env_file 支援，失敗 exit 2。
-3. 健康檢查：`http://127.0.0.1:5000/`（`X-Forwarded-Proto: https`）三次，每次 5 秒。
+3. 健康檢查：`http://127.0.0.1:5000/`（`X-Forwarded-Proto: https`）三次，每次 5 秒。所有健康檢查請求都帶 `User-Agent: book-finder-deploy/<HOST_API_RANGE 的 max>`（例如 `book-finder-deploy/1`），不使用 urllib 預設的 `Python-urllib/3.x`。
 4. 把 target release 的檔案複製到 `RELEASES_DIR/<web digest hex>/`（若已存在，compose 檔的雜湊必須相同）。
 5. 從 SSM 讀取三個 secret，寫入 `RUN_DIR/web-<run_id>.env`（600）。
 6. **cutover**：先 `systemctl stop <SYSTEMD_UNIT>`（它占用 5000 埠），再 `docker compose -p book-finder up -d --remove-orphans`。
-7. 健康檢查：本機 `127.0.0.1:5000` 與 `PUBLIC_URL`，每個 90 秒內都要回 200（不跟隨 redirect）。
+7. 健康檢查：本機 `127.0.0.1:5000` 與 `PUBLIC_URL`，每個 90 秒內都要回 200（不跟隨 redirect；每個請求都帶上面的 `User-Agent`）。**edge（host nginx、WAF、CDN）的規則必須放行 `book-finder-deploy/*`**；若 edge 依 User-Agent 拒絕，公開階段會一直得到 403，即使應用程式正常（見 §7.2 第 21 項）。
 8. 成功：更新 crawler（pull、smoke、安裝 `run-crawler.sh`、`crawler.cron`、改寫 `crawler.conf`），然後 `runtime=docker`、`previous_runtime=systemd`，寫 completed。
-9. 失敗（web）：回滾。systemd 舊 runtime 的回滾是 `compose down`，再 `systemctl start <SYSTEMD_UNIT>`，並檢查健康。
+9. 失敗（web）：先把診斷寫入 deploy unit 的 journal（見 §3.6），再回滾。systemd 舊 runtime 的回滾是 `compose down`，再 `systemctl start <SYSTEMD_UNIT>`；docker 舊 release 的回滾是 `compose up` 舊的 compose 檔。回滾後的健康檢查與第 7 步使用同一個函式與同樣的預算（本機 90 秒，再 `PUBLIC_URL` 90 秒）。
 
 state.json 是 production state，只在影響復原語意的轉換（pause、dirty、migrated、promote、resume）時以 CAS 寫入；執行紀錄是 history.jsonl（started/completed）。
 
@@ -399,8 +399,15 @@ state.json 是 production state，只在影響復原語意的轉換（pause、di
 
 ### 3.6 切換失敗與回滾
 
-- **切換後健康檢查失敗、回滾成功**：結果 `rolled-back`（exit 1）。systemd 已恢復，state 沒有改變（仍是 systemd）。可以修正後重新 dispatch。
-- **回滾也失敗**：結果 `failed-down`（exit 5）。此時 web 可能沒有在運行，需要人工：
+- **切換後健康檢查失敗、回滾成功**：結果 `rolled-back`（exit 1）。回滾後的健康檢查與切換後相同，會等到預算內恢復（本機 90 秒，再 `PUBLIC_URL` 90 秒）才算成功。systemd 已恢復，state 沒有改變（仍是 systemd）。可以修正後重新 dispatch。
+- **切換失敗的診斷**：健康檢查失敗後，在 `compose down` 或回滾之前，deploy unit 的 journal 會寫入三件事：
+  - 失敗的階段：`health check failed at the local stage` 或 `… at the public stage`；
+  - 最後一次的狀態碼（`0 (no response)` 表示沒有收到回應）；
+  - 若失敗的是公開階段且狀態碼為 4xx，另寫一行 `stage=public status=403 — the edge refused the request; check nginx/WAF rules for the User-Agent`。這表示本機正常、是 edge 拒絕了請求，不是應用程式故障；
+  - web container log 的最後 80 行（`web container log, last N lines:` 之後）。
+  
+  回滾的健康檢查失敗時，journal 只寫階段與最後狀態碼（`rollback health check failed at the … stage`）。env 檔中三個 secret 的值，以及連線字串中 `Password=` 的值，都會先以 `***` 取代才寫入；env 檔內容從不寫入。`docker logs` 失敗時只寫一行 `container log unavailable: …`，不影響回滾。
+- **回滾也失敗**：結果 `failed-down`（exit 5）。只有在預算內 web 都沒有恢復時才會是這個結果。此時 web 可能沒有在運行，需要人工：
   - 檢查 `docker ps -a --filter label=com.docker.compose.project=book-finder`。
   - 嘗試 `systemctl start <SYSTEMD_UNIT>`（L4）。
   - 不要修改 state.json；把 history 中的 run id、journal 與狀態交給後續的人工判斷。
@@ -439,7 +446,7 @@ sudo systemctl disable <SYSTEMD_UNIT>
 |---|---|---|
 | `completed:success` | 成功 | 驗證 |
 | `completed:rejected` / `drift` | 未改動 | 依 §1.5 修正後重新 dispatch |
-| `completed:rolled-back` | web 已回滾 | 查 journal，修正後重新 dispatch |
+| `completed:rolled-back` | web 已回滾 | 查 journal 的失敗階段、狀態碼與 container log 尾端（§3.6），修正後重新 dispatch |
 | `completed:failed-migration` / `failed-down` / `partial-crawler` | 需人工 | §5 |
 | `indeterminate` | 結果無法證明 | **不要重新 dispatch**，走 §5.1 |
 | `not-started` | 未改動 | 可以重新 dispatch（會得到新的 run id） |
@@ -676,7 +683,7 @@ sudo /opt/book-finder/host/book-finder-admin resume-crawler --crawler-digest sha
 | web container | `docker ps --filter label=com.docker.compose.project=book-finder` |
 | 爬蟲 log | `/var/log/book-finder/crawler-*.log`（見 `crawler/deploy/README.md` §7） |
 
-Journal 是**輔助資訊**，不是結果的來源。結果以 history 為準（N7）。
+Journal 是**輔助資訊**，不是結果的來源。結果以 history 為準（N7）。切換失敗時，journal 另外含有失敗的健康檢查階段、最後狀態碼與 web container log 最後 80 行（secret 已遮蔽，見 §3.6），這些在 container 被回滾刪除之前寫入。
 
 ### 6.1 CI 與 compat 的 log
 
@@ -704,7 +711,7 @@ Journal 是**輔助資訊**，不是結果的來源。結果以 history 為準�
 | 4 | psql 容器能否連到 RDS（docker 預設 bridge 網路到 RDS 端點） | 待確認 | 操作者在 EC2 上以 `docker run --rm --pull=never -e DATABASE_URL <PSQL_IMAGE> …` 做唯讀查詢。URL 從 shell 環境注入，不寫進命令列 |
 | 5 | Compose 的 `env_file: format: raw` 在 EC2 的 Docker Compose 版本是否支援 | 程式內有 probe，不支援會 exit 2。**版本號待記錄** | `docker compose version`，記錄於此處 |
 | 6 | `docker cp`（不帶 `-L`）遇到 symlink 只複製連結本身 | 本機實測：不帶 `-L` 的 `docker cp` 複製出的是連結本身（`/opt/release/migrations.txt -> /etc/shadow` 複製後仍指向 host 的 `/etc/shadow`）。EC2 上的 Docker 版本未驗證 | 程式的 release 檢查會拒絕 symlink，不依賴此行為的正確性；**待確認** |
-| 7 | host nginx 設定（不在本 repository）：是否把 `PUBLIC_URL` 的請求轉發到 `127.0.0.1:5000` 並加上 `X-Forwarded-Proto` | 待確認 | `curl -sI <PUBLIC_URL>` 回 200，且 web 能辨識為 HTTPS |
+| 7 | host nginx 設定（不在本 repository）：是否把 `PUBLIC_URL` 的請求轉發到 `127.0.0.1:5000` 並加上 `X-Forwarded-Proto`，且不依 User-Agent 拒絕 `book-finder-deploy/*`（§3.4） | 待確認 | `curl -sI <PUBLIC_URL>` 回 200，且 web 能辨識為 HTTPS；`curl -sI -A 'book-finder-deploy/1' <PUBLIC_URL>` 也回 200 |
 | 8 | Web 的 `ForwardedHeaders__KnownNetworks__0`（`172.31.250.0/24`）是否涵蓋 host nginx 經 docker-proxy 的來源位址 | 待確認（compose 註解的推論） | 健康檢查與登入 cookie 的 `Secure` 行為 |
 | 9 | 爬蟲的 `docker run --pull=never`：image 是否已由 host 拉取 | 程式在 `_update_crawler` 會 pull；bootstrap 前需手動 pull | `docker image inspect <CRAWLER_IMAGE>` |
 | 10 | GHCR package 是否 public；若 private，host 的登入方式 | 待確認（§2.8） | `docker pull` 不需登入即可成功 |
@@ -718,3 +725,4 @@ Journal 是**輔助資訊**，不是結果的來源。結果以 history 為準�
 | 18 | Build 留下的 staging tag（`build-<run_id>-<run_attempt>`）的 GHCR 清理 | 待確認（GHCR 網頁的確切路徑） | 依 §1.6：只刪除版本上所有 tag 都是 `build-*` 的版本；有 `v*` tag 的版本不得刪除 |
 | 19 | **EC2 被博客來擋下，crawler 停用**（2026-10-24 手動試跑失敗） | 已知限制。在修正之前，crawler 以 `CRAWLER_ENABLED=false` 停用（`crawler/deploy/README.md` §5.1）；需發布支援此開關的 release 後才會生效。恢復前須確認 EC2 可取得頁面，或採用替代資料管道（`Docs/deployment/deployment.md` §8） | 在 EC2 手動執行 `run-crawler.sh daily` 取得成功結果後，將 `CRAWLER_ENABLED` 改為 `true` 並觀察一次排程 |
 | 20 | **2026-10-24 production 500（`/etc/book-finder` 權限被改動）** | 已修正文件（§2.5 只建立不存在的目錄，並說明 0755 與 0644 的原因）；`DB_CA_BUNDLE`（§2.4）讓 web、efbundle、psql 與 crawler 容器以唯讀方式掛載同一個 CA 路徑，verify-full 不需放寬為 `Require`（#103）。尚未在 EC2 上啟用 `DB_CA_BUNDLE`，待上線時確認 | 設定 `DB_CA_BUNDLE` 後，`stat` 檢查 §2.5 的權限，並以 `docker compose … config` 確認 web 有唯讀掛載（見 `deploy/tests/test_release_files.py`） |
+| 21 | **2026-10-24 兩次 cutover 都 `failed-down`：公開健康檢查的 User-Agent 被 edge 擋下（403）** | 已修正（issue #105 的 User-Agent 修正）。健康檢查原本使用 urllib 的 `Python-urllib/3.x`，production 站台對它回 403（EC2 上 `RealHttp.status(PUBLIC_URL)` 得 403；`curl -A 'Python-urllib/3.12'` 也得 403；一般 curl 得 200）。本機階段（只檢查 port）一直通過，所以公開階段從未在 production 通過，兩次 cutover 都在切換後的健康檢查失敗、回滾後 `failed-down`。修正後 host 送出 `book-finder-deploy/<max>`；edge 必須放行此 UA | 在 EC2 執行 `curl -sI -A 'book-finder-deploy/1' <PUBLIC_URL>` 回 200，且 journal 不再出現 `stage=public status=403` 那一行 |

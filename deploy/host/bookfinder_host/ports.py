@@ -54,6 +54,12 @@ class Docker(Protocol):
     def smoke_crawler(self, reference: str) -> int:
         """Returns the exit code of the crawler import smoke test (no network)."""
 
+    def web_containers(self, project: str) -> list[str]:
+        """The ids of the project's web containers, stopped ones included; raises EffectFailed."""
+
+    def logs(self, container: str, tail: int) -> str:
+        """The last tail lines of a container's logs, stdout and stderr together; raises EffectFailed."""
+
 
 class Compose(Protocol):
     def version(self) -> str:

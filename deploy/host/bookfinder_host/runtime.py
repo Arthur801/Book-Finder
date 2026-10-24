@@ -32,8 +32,8 @@ class ObservedRuntime:
     containers: int = 1
 
 
-def observe_docker(runner: Runner, project: str = "book-finder", service: str = "web") -> ObservedRuntime:
-    """Finds the web container by compose labels.
+def web_container_ids(runner: Runner, project: str = "book-finder", service: str = "web") -> list[str]:
+    """The ids of the service's containers, found by compose labels; raises ObservationError.
 
     Why: labels identify the service without needing the compose file on the host, and stopped containers are listed
     too (-a) so a leftover container is counted rather than silently ignored.
@@ -57,6 +57,11 @@ def observe_docker(runner: Runner, project: str = "book-finder", service: str = 
     for container in containers:
         if _CONTAINER_ID_RE.fullmatch(container) is None:
             raise ObservationError("docker ps returned an unexpected container id")
+    return containers
+
+
+def observe_docker(runner: Runner, project: str = "book-finder", service: str = "web") -> ObservedRuntime:
+    containers = web_container_ids(runner, project, service)
     if not containers:
         return ObservedRuntime(kind="docker", running=False, image_id=None, containers=0)
     if len(containers) > 1:

@@ -9,9 +9,10 @@ import http.server
 import os
 import stat
 import threading
+from typing import ClassVar
 
 import pytest
-from bookfinder_host import adapters
+from bookfinder_host import adapters, config
 from bookfinder_host.ports import CommandResult, EffectFailed
 
 
@@ -54,6 +55,27 @@ def test_crawler_smoke_runs_without_network_and_imports_the_stack():
     assert argv[argv.index("--network") + 1] == "none"
     assert argv[argv.index("--entrypoint") + 1] == "python"
     assert "load_page_urls(DEFAULT_PAGES_FILE)" in argv[-1]
+
+
+def test_web_logs_are_read_by_container_id_with_a_tail_limit_and_both_streams_kept():
+    runner = Recorder(stdout="out line\n", stderr="err line\n")
+    text = adapters.RealDocker(runner).logs("0123456789ab", 80)
+    assert runner.calls[0][0] == ["docker", "logs", "--tail", "80", "0123456789ab"]
+    assert text == "out line\nerr line\n"
+
+
+def test_failed_web_logs_raise_effect_failed_with_a_short_message():
+    with pytest.raises(EffectFailed, match="docker logs failed"):
+        adapters.RealDocker(Recorder(returncode=1, stderr="no such container")).logs("0123456789ab", 80)
+
+
+def test_web_containers_are_found_by_compose_labels_and_a_bad_listing_is_an_effect_failure():
+    runner = Recorder(stdout="0123456789ab\n")
+    assert adapters.RealDocker(runner).web_containers("book-finder") == ["0123456789ab"]
+    argv = runner.calls[0][0]
+    assert "label=com.docker.compose.project=book-finder" in argv and "label=com.docker.compose.service=web" in argv
+    with pytest.raises(EffectFailed, match="unexpected container id"):
+        adapters.RealDocker(Recorder(stdout="not-an-id\n")).web_containers("book-finder")
 
 
 def test_extract_release_creates_without_starting_copies_without_follow_and_always_removes():
@@ -161,6 +183,62 @@ def test_http_probe_reports_a_redirect_as_its_own_status_instead_of_following_it
 
 def test_http_probe_reports_a_redirect_path_as_301_without_following(local_server):
     assert adapters.RealHttp().status(local_server + "/redirect", {}, 5) == 301
+
+
+class _Recording(http.server.BaseHTTPRequestHandler):
+    seen: ClassVar[list[dict[str, str]]] = []
+
+    def do_GET(self):
+        _Recording.seen.append({name.lower(): value for name, value in self.headers.items()})
+        self.send_response(200)
+        self.end_headers()
+
+    def log_message(self, *args):
+        pass
+
+
+@pytest.fixture
+def recording_server():
+    _Recording.seen = []
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Recording)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_address[1]}", _Recording.seen
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_http_probe_sends_the_host_user_agent_not_the_urllib_default(recording_server):
+    url, seen = recording_server
+    assert adapters.RealHttp(user_agent="book-finder-deploy/7").status(url + "/", {}, 5) == 200
+    assert seen[0]["user-agent"] == "book-finder-deploy/7"
+
+
+def test_default_http_probe_user_agent_is_the_host_api_max(recording_server):
+    url, seen = recording_server
+    assert adapters.RealHttp().status(url + "/", {}, 5) == 200
+    _, high = config.read_host_api_range()
+    assert seen[0]["user-agent"] == f"book-finder-deploy/{high}"
+    assert "python-urllib" not in seen[0]["user-agent"].lower()
+
+
+def test_http_probe_keeps_a_caller_provided_user_agent_in_any_case(recording_server):
+    url, seen = recording_server
+    adapters.RealHttp(user_agent="book-finder-deploy/7").status(url + "/", {"user-agent": "custom/1"}, 5)
+    adapters.RealHttp(user_agent="book-finder-deploy/7").status(url + "/", {"User-Agent": "custom/2"}, 5)
+    assert [entry["user-agent"] for entry in seen] == ["custom/1", "custom/2"]
+
+
+def test_http_probe_keeps_the_no_redirect_rule_with_the_user_agent(local_server):
+    assert adapters.RealHttp(user_agent="book-finder-deploy/7").status(local_server + "/", {}, 5) == 307
+
+
+def test_host_user_agent_names_the_product_and_the_highest_supported_release_api(tmp_path):
+    range_file = tmp_path / "HOST_API_RANGE"
+    range_file.write_text("1 4\n")
+    assert config.host_user_agent(range_file) == "book-finder-deploy/4"
 
 
 def test_http_probe_returns_zero_when_nothing_listens():

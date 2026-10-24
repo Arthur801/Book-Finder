@@ -21,7 +21,7 @@ from bookfinder_host import state as st
 from bookfinder_host.exit_codes import BAD_INPUT, DRIFT, FAILED_DOWN, FAILED_MIGRATION, OK, PARTIAL_CRAWLER, ROLLED_BACK
 from bookfinder_host.manifest import Migration
 from bookfinder_host.release_content import COMPOSE_FILE
-from bookfinder_host.testing import FAKE_COMPOSE, sample_state, write_release
+from bookfinder_host.testing import CONTAINER_ID, FAKE_COMPOSE, sample_state, write_release
 from worlds import (
     CRAWLER,
     CRAWLER2,
@@ -929,3 +929,233 @@ def test_configured_bundle_rolls_back_to_a_release_that_ships_the_override(tmp_p
     code, _, _err = world.run_unit(deploy_text(world))
     assert code == ROLLED_BACK
     assert len(world.fx.compose.up_calls) == 2
+
+
+# Rollback health uses the post-switch budget (step 5 and step 7, deploy/README.md §3.6)
+
+
+def rollback_started(world) -> bool:
+    return len(world.fx.compose.up_calls) >= 2 or any(t.startswith("systemd.start") for t in world.fx.trace)
+
+
+def phased_health(world, *, switch: int = 200, switch_url: str = LOCAL, rollback: dict[str, list[int]] | None = None):
+    """Scripts health answers by phase. The step 1 probe answers 200, the post-switch checks answer `switch` on switch_url,
+    and once the rollback starts each URL walks its own list (the last value repeats). Returns the rollback polls per URL.
+    """
+    rollback = rollback or {}
+    polls: dict[str, list[int]] = {LOCAL: [], PUBLIC: []}
+
+    def respond(url: str) -> int:
+        if rollback_started(world):
+            sequence = rollback.get(url, [200])
+            seen = polls.setdefault(url, [])
+            seen.append(sequence[min(len(seen), len(sequence) - 1)])
+            return seen[-1]
+        if url == LOCAL and sum(1 for called, _ in world.fx.http.calls if called == LOCAL) == 1:
+            return 200
+        return switch if url == switch_url else 200
+
+    world.fx.http.responder = respond
+    return polls
+
+
+def full_budget_polls() -> int:
+    return int(machine.HEALTH_BUDGET_S // machine.HEALTH_INTERVAL_S) + 1
+
+
+def test_docker_rollback_is_rolled_back_when_local_answers_on_a_later_poll(tmp_path):
+    world = in_sync_world(tmp_path)
+    with_old_release(world)
+    only_web_failures_on_target(world)
+    polls = phased_health(world, rollback={LOCAL: [503, 503, 200]})
+    code, _, err = world.run_unit(deploy_text(world))
+    assert code == ROLLED_BACK, err
+    assert polls[LOCAL] == [503, 503, 200]
+    assert polls[PUBLIC] == [200]
+    assert completed_records(world)[-1]["result"] == "rolled-back"
+
+
+def test_docker_rollback_that_never_answers_polls_the_full_budget_then_fails_down(tmp_path):
+    world = in_sync_world(tmp_path)
+    with_old_release(world)
+    only_web_failures_on_target(world)
+    polls = phased_health(world, rollback={LOCAL: [503]})
+    code, _, err = world.run_unit(deploy_text(world))
+    assert code == FAILED_DOWN and "manual recovery required" in err
+    assert len(polls[LOCAL]) == full_budget_polls()
+    assert polls[PUBLIC] == []  # the public URL is checked only after the local port answers
+    assert "rollback health check failed at the local stage; last status 503" in err
+    assert completed_records(world)[-1]["result"] == "failed-down"
+
+
+def test_docker_rollback_waits_for_the_public_url_within_its_own_budget(tmp_path):
+    world = in_sync_world(tmp_path)
+    with_old_release(world)
+    only_web_failures_on_target(world)
+    polls = phased_health(world, rollback={PUBLIC: [503, 503, 200]})
+    code, _, err = world.run_unit(deploy_text(world))
+    assert code == ROLLED_BACK, err
+    assert polls[PUBLIC] == [503, 503, 200]
+
+
+def test_docker_rollback_public_url_that_never_answers_fails_down_at_the_public_stage(tmp_path):
+    world = in_sync_world(tmp_path)
+    with_old_release(world)
+    only_web_failures_on_target(world)
+    polls = phased_health(world, rollback={PUBLIC: [503]})
+    code, _, err = world.run_unit(deploy_text(world))
+    assert code == FAILED_DOWN
+    assert len(polls[PUBLIC]) == full_budget_polls()
+    assert "rollback health check failed at the public stage; last status 503" in err
+
+
+def test_cutover_rollback_is_rolled_back_when_systemd_answers_on_a_later_poll(tmp_path):
+    world = cutover_world(tmp_path)
+    world.fx.compose.up_failures = 1
+    polls = phased_health(world, rollback={LOCAL: [503, 503, 503, 200]})
+    code, _, err = world.run_unit(deploy_text(world, cutover=True))
+    assert code == ROLLED_BACK, err
+    assert len(polls[LOCAL]) == 4
+    assert isinstance(world.load_state().runtime, st.SystemdRuntime)
+    assert completed_records(world)[-1]["result"] == "rolled-back"
+
+
+def test_cutover_rollback_that_never_answers_polls_the_full_budget_then_fails_down(tmp_path):
+    world = cutover_world(tmp_path)
+    world.fx.compose.up_failures = 1
+    polls = phased_health(world, rollback={LOCAL: [503]})
+    code, _, err = world.run_unit(deploy_text(world, cutover=True))
+    assert code == FAILED_DOWN and "manual recovery required" in err
+    assert len(polls[LOCAL]) == full_budget_polls()
+    assert completed_records(world)[-1]["result"] == "failed-down"
+
+
+# Diagnostics: written to the journal before compose down or the rollback tears the failed runtime down
+
+
+def test_failed_switch_journals_stage_status_and_log_tail_before_the_rollback(tmp_path):
+    world = in_sync_world(tmp_path)
+    with_old_release(world)
+    world.fx.docker.logs_text = "".join(f"line {number}\n" for number in range(1, 101))
+    phased_health(world, switch=503, switch_url=LOCAL)
+    code, _, err = world.run_unit(deploy_text(world))
+    assert code == ROLLED_BACK, err
+    lines = err.splitlines()
+    assert "health check failed at the local stage; last status 503" in lines
+    assert "line 100" in lines and "line 21" in lines
+    assert "line 20" not in lines  # only the last 80 lines
+    assert world.fx.docker.logs_calls == [(CONTAINER_ID, 80)]
+    ups = [index for index, call in enumerate(world.fx.trace) if call.startswith("compose.up")]
+    assert index_of(world.fx.trace, "docker.logs") < ups[1]
+
+
+def test_failed_public_check_is_journaled_with_the_public_stage(tmp_path):
+    world = in_sync_world(tmp_path)
+    with_old_release(world)
+    phased_health(world, switch=503, switch_url=PUBLIC)
+    code, _, err = world.run_unit(deploy_text(world))
+    assert code == ROLLED_BACK
+    assert "health check failed at the public stage; last status 503" in err.splitlines()
+
+
+def test_public_403_is_journaled_with_the_edge_hint(tmp_path):
+    world = in_sync_world(tmp_path)
+    with_old_release(world)
+    phased_health(world, switch=403, switch_url=PUBLIC)
+    code, _, err = world.run_unit(deploy_text(world))
+    assert code == ROLLED_BACK
+    lines = err.splitlines()
+    assert "health check failed at the public stage; last status 403" in lines
+    assert "stage=public status=403 \u2014 the edge refused the request; check nginx/WAF rules for the User-Agent" in lines
+
+
+def test_public_4xx_on_rollback_is_journaled_with_the_edge_hint(tmp_path):
+    world = in_sync_world(tmp_path)
+    with_old_release(world)
+    phased_health(world, switch=503, switch_url=PUBLIC, rollback={PUBLIC: [403]})
+    code, _, err = world.run_unit(deploy_text(world))
+    assert code == FAILED_DOWN
+    assert "rollback health check failed at the public stage; last status 403" in err.splitlines()
+    assert any(line.startswith("stage=public status=403 ") for line in err.splitlines())
+
+
+def test_local_or_5xx_failures_do_not_get_the_edge_hint(tmp_path):
+    world = in_sync_world(tmp_path)
+    with_old_release(world)
+    phased_health(world, switch=503, switch_url=PUBLIC)
+    code, _, err = world.run_unit(deploy_text(world))
+    assert code == ROLLED_BACK
+    assert "the edge refused" not in err
+
+
+def test_no_response_is_journaled_as_status_zero(tmp_path):
+    world = in_sync_world(tmp_path)
+    with_old_release(world)
+    phased_health(world, switch=0, switch_url=LOCAL)
+    code, _, err = world.run_unit(deploy_text(world))
+    assert code == ROLLED_BACK
+    assert "health check failed at the local stage; last status 0 (no response)" in err.splitlines()
+
+
+def test_cutover_failed_switch_journals_before_systemd_is_started_again(tmp_path):
+    world = cutover_world(tmp_path)
+    world.fx.docker.logs_text = "crash on boot\n"
+    phased_health(world, switch=503, switch_url=LOCAL)
+    code, _, err = world.run_unit(deploy_text(world, cutover=True))
+    assert code == ROLLED_BACK, err
+    assert "health check failed at the local stage; last status 503" in err.splitlines()
+    assert "crash on boot" in err.splitlines()
+    trace = world.fx.trace
+    assert index_of(trace, "docker.logs") < index_of(trace, "compose.down")
+    assert index_of(trace, "compose.down") < index_of(trace, f"systemd.start {SYSTEMD_UNIT}")
+
+
+def test_secret_values_are_masked_in_the_container_log_and_never_printed(tmp_path):
+    world = in_sync_world(tmp_path)
+    with_old_release(world)
+    db_connection = "Host=db.internal;Database=book_finder;Username=app;Password=pw-LEAK-123"
+    world.fx.ssm.values.update(
+        {
+            world.settings.ssm_db_connection: db_connection,
+            world.settings.ssm_openai_key: "sk-LEAK-456",
+            world.settings.ssm_jwt_key: "jwt-LEAK-789",
+        }
+    )
+    world.fx.docker.logs_text = f"connecting with {db_connection}\npassword is pw-LEAK-123\nopenai sk-LEAK-456 jwt jwt-LEAK-789\nplain line\n"
+    phased_health(world, switch=503, switch_url=LOCAL)
+    code, out, err = world.run_unit(deploy_text(world))
+    assert code == ROLLED_BACK, err
+    secrets = (db_connection, "pw-LEAK-123", "sk-LEAK-456", "jwt-LEAK-789")
+    history = Path(world.settings.history_file).read_text()
+    for text in (out, err, history):
+        for secret in secrets:
+            assert secret not in text
+    lines = err.splitlines()
+    assert "connecting with ***" in lines
+    assert "password is ***" in lines
+    assert "openai *** jwt ***" in lines
+    assert "plain line" in lines
+    assert not env_path(world).exists()
+
+
+def test_failed_docker_logs_is_a_one_line_note_and_the_rollback_still_runs(tmp_path):
+    world = in_sync_world(tmp_path)
+    with_old_release(world)
+    world.fx.docker.logs_error = "docker logs failed: no such container"
+    phased_health(world, switch=503, switch_url=LOCAL)
+    code, _, err = world.run_unit(deploy_text(world))
+    assert code == ROLLED_BACK, err
+    notes = [line for line in err.splitlines() if "container log unavailable" in line]
+    assert len(notes) == 1 and "no such container" in notes[0]
+    assert len(world.fx.compose.up_calls) == 2
+
+
+def test_more_than_one_web_container_is_noted_instead_of_guessing_which_one_to_read(tmp_path):
+    world = in_sync_world(tmp_path)
+    with_old_release(world)
+    world.fx.docker.container_ids = [CONTAINER_ID, "fedcba987654"]
+    phased_health(world, switch=503, switch_url=LOCAL)
+    code, _, err = world.run_unit(deploy_text(world))
+    assert code == ROLLED_BACK
+    assert "container log unavailable: found 2 web containers" in err.splitlines()
+    assert world.fx.docker.logs_calls == []

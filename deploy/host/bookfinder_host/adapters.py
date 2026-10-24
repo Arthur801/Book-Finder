@@ -14,6 +14,7 @@ import urllib.request
 from collections.abc import Mapping
 
 from bookfinder_host import config as cfg
+from bookfinder_host import runtime as rt
 from bookfinder_host.manifest import CONTAINER_RELEASE_DIR
 from bookfinder_host.ports import EffectFailed, Effects, Runner
 from bookfinder_host.release_content import COMPOSE_CA_BUNDLE
@@ -87,6 +88,18 @@ class RealDocker:
             ]
         )
         return result.returncode
+
+    def web_containers(self, project: str) -> list[str]:
+        try:
+            return rt.web_container_ids(self._runner, project)
+        except rt.ObservationError as exc:
+            raise EffectFailed(str(exc)) from exc
+
+    def logs(self, container: str, tail: int) -> str:
+        # docker logs replays the container's stdout and stderr on separate streams; both are returned, and the caller keeps the last lines.
+        result = self._runner.run(["docker", "logs", "--tail", str(tail), container])
+        _checked(result, "docker logs")
+        return result.stdout + result.stderr
 
 
 class RealCompose:
@@ -209,9 +222,17 @@ _OPENER = urllib.request.build_opener(_NoRedirect)
 
 
 class RealHttp:
+    def __init__(self, user_agent: str | None = None) -> None:
+        # Why: urllib otherwise sends "Python-urllib/3.x", which the production edge answers with 403. Every request names the
+        # host explicitly; a caller that sets its own User-Agent keeps it.
+        self._user_agent = user_agent if user_agent is not None else cfg.host_user_agent()
+
     def status(self, url: str, headers: Mapping[str, str], timeout_s: float) -> int:
+        sent = dict(headers)
+        if not any(name.lower() == "user-agent" for name in sent):
+            sent["User-Agent"] = self._user_agent
         # A redirect is reported as its own status: following it could turn a broken app into a passing check.
-        request = urllib.request.Request(url, headers=dict(headers), method="GET")
+        request = urllib.request.Request(url, headers=sent, method="GET")
         try:
             with _OPENER.open(request, timeout=timeout_s) as response:
                 return response.status

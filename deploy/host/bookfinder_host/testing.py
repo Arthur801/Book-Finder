@@ -237,6 +237,11 @@ class FakeDocker:
         self.efbundle_hook: Callable[[str, str], None] | None = None
         self.smoke_rc = 0
         self.env_files_seen: list[str] = []
+        # What the health diagnostics find: the web container ids, and the output docker logs returns for them.
+        self.container_ids: list[str] = [CONTAINER_ID]
+        self.logs_text = ""
+        self.logs_error: str | None = None
+        self.logs_calls: list[tuple[str, int]] = []
 
     def pull(self, reference: str) -> None:
         self.fx.trace.append(f"docker.pull {reference}")
@@ -266,6 +271,16 @@ class FakeDocker:
     def smoke_crawler(self, reference: str) -> int:
         self.fx.trace.append(f"docker.smoke {reference}")
         return self.smoke_rc
+
+    def web_containers(self, project: str) -> list[str]:
+        return list(self.container_ids)
+
+    def logs(self, container: str, tail: int) -> str:
+        self.fx.trace.append(f"docker.logs {container}")
+        self.logs_calls.append((container, tail))
+        if self.logs_error is not None:
+            raise EffectFailed(self.logs_error)
+        return self.logs_text
 
 
 class FakeCompose:

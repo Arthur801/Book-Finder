@@ -253,6 +253,17 @@ def load_settings(path: str | Path = DEFAULT_CONFIG_PATH) -> Settings:
     return settings
 
 
+# The host's own requests (health checks) identify themselves with this product name. Edge rules that block the default
+# "Python-urllib" agent (the 2026-10-24 production 403) must let this one through; see deploy/README.md §7.2.
+HOST_USER_AGENT_PRODUCT = "book-finder-deploy"
+
+
+def host_user_agent(path: str | Path = HOST_API_RANGE_PATH) -> str:
+    """The User-Agent the host sends: the product name and the highest HOST_API release_api this host supports."""
+    _, high = read_host_api_range(path)
+    return f"{HOST_USER_AGENT_PRODUCT}/{high}"
+
+
 def read_host_api_range(path: str | Path = HOST_API_RANGE_PATH) -> tuple[int, int]:
     """The host supports release_api values from min through max inclusive (N4: a release outside the range is refused before anything changes)."""
     try:
