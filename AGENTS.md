@@ -96,7 +96,7 @@ Docs/
 - 博客來來源（Book Source）以商品 URL 判斷是否已存在；新來源依正規化 ISBN 對到的 distinct Book 數量決定附加或建立新 Book（`Docs/data/data-model.md` §7）。
 - 既有 Book 不因每日榜單刷新重新抓完整 metadata。
 - 排行榜頁必須完整解析 100 筆，否則整次失敗。
-- 新書詳細頁最多嘗試 3 次（含第一次）仍失敗則跳過；限制級會員頁直接跳過、不重試、不算錯誤；連續一般錯誤超過 20 本才中止；進入榜單（含重用）與限制級均重設計數，榜內重複算一般錯誤，非連續錯誤無累計上限（`Docs/modules/crawler.md` §14.2～§14.3）。
+- New Source 詳細頁最多嘗試 3 次（含第一次）仍失敗則跳過；限制級會員頁直接跳過、不重試、不算錯誤；連續一般錯誤超過 20 本才中止；進入榜單（含重用）與限制級均重設計數，榜內重複算一般錯誤，非連續錯誤無累計上限（`Docs/modules/crawler.md` §14.2～§14.3）。
 - Bestseller 只保留最新榜單，rank 保留博客來原始排名，被跳過的排名缺號、不重新編號。
 - 新榜單尚未成功驗證前，不應先破壞上一份有效榜單。
 - Fetcher 預設使用 curl_cffi Chrome fingerprint（使用者於 2026-10-11 核准），循序請求且每次請求含重試的隨機等待目標為 3～30 秒（`Docs/modules/crawler.md` §12）；保留 Playwright 診斷入口。其他 browser stealth、`navigator.webdriver` 修補、CAPTCHA 代解或代理 IP 輪替也可以使用。測試不連線博客來；真實抓取驗證須有當前任務授權。

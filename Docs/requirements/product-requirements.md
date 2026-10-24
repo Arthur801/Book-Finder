@@ -44,7 +44,7 @@
 - **CRAWL-01** 每日一次，取得博客來中文書 7 日暢銷總榜 TOP 100 的排名與商品網址。
 - **CRAWL-02** 以來源 identity（博客來為商品網址；有 `external_id` 的來源另比對 `external_id`）判斷 **Book Source** 是否已存在。Source 不存在時，再以 ISBN 決定要附加到既有 Book 還是建立新 Book（`data-model.md` §7.2）。
 - **CRAWL-03** Existing Source 不重抓詳細頁，也不因每次爬取而覆寫 Book metadata，只更新 `last_seen_at`。New Source 一定要抓詳細頁，即使最後依 ISBN 附加到既有 Book 也一樣。附加時只補 Book 中是 NULL 的欄位（`data-model.md` §7.4）。
-- **CRAWL-04** 限制級會員登入頁直接跳過，不重試、不算錯誤；其他新書詳細資料抓取失敗時重試，仍失敗則該書在本次榜單中被跳過，保留其他書的原始排名。
+- **CRAWL-04** 限制級會員登入頁直接跳過，不重試、不算錯誤；其他 New Source 詳細資料抓取失敗時最多嘗試 3 次（含第一次），仍失敗則該排名在本次榜單中被跳過，保留其他書的原始排名。
 - **CRAWL-05** 完整處理榜單且有跳過時視為部分成功並替換；累計一般錯誤無上限。按排名連續一般錯誤超過 20 本時立即失敗，保留上一份榜單。連續計數只依每個排名的 RankingDecision 決定：`ADMITTED`（進入榜單，包括重用既有來源）和 `RESTRICTED_SKIP` 會重設計數；`DUPLICATE_BOOK`（榜內重複）和 `ERROR_SKIP` 會加 1（`crawler.md` §14.2～§14.3）。榜內重複時，Catalog 這一側照常寫入，只有該排名不進入榜單。排行榜本身無法完整解析仍整次失敗。
 - **CRAWL-06** 只保存最新一份 Bestseller。
 
@@ -118,7 +118,7 @@
 
 ### CRAWL
 
-- **Given** 排行榜可解析 100 筆，其中 3 本新書詳細頁重試後仍失敗，**When** crawler 執行完成，**Then** Bestseller 被替換為 97 筆、保留原始排名，run 記錄為部分成功。
+- **Given** 排行榜可解析 100 筆，其中 3 個 New Source 的詳細頁重試後仍失敗，**When** crawler 執行完成，**Then** Bestseller 被替換為 97 筆、保留原始排名，run 記錄為部分成功。
 - **Given** 連續 21 本新書最終失敗，**When** crawler 執行，**Then** run 失敗，上一份 Bestseller 不變。
 - **Given** 某商品網址已存在於資料庫，**When** crawler 執行，**Then** 不抓取該書詳細頁，Book metadata 不變。
 

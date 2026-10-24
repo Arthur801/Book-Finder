@@ -571,10 +571,11 @@ NFKC 與 White_Space 都固定在 **Unicode 15.1**。runtime 內建的 Unicode d
 ### 7.2 Identity matching
 
 ```text
-1. 同一個來源：
-   (source_code, external_id)   -- external_id 存在時
-   → (source_code, source_url)
-   命中 → Existing Source（不做 ISBN 比對）
+1. Source identity resolution：完全依 §7.3（唯一 authority）
+   item 同時有 external_id 和 source_url 時，兩者都必須查，不得在其中一個命中時就提早 return
+   結果 = Existing → 停止，不做 ISBN 比對
+   結果 = Conflict → source_identity_conflict，FAILED
+   結果 = New Source → 進入步驟 2
 
 2. 用 draft 的「所有」正規化 ISBN 一起查 distinct book_id：
    SELECT DISTINCT book_id FROM book_identifiers
@@ -625,7 +626,8 @@ ambiguous（≥ 2）或新建 Book 時不補任何既有 Book。
 ### 7.5 並行：single writer
 
 - **在跨 process 的序列化完成之前**，Catalog identity resolution 只允許**一個 writer**。這條限制和 migration 的進度無關，PR4 和 011 都不會解除它。
-- 目前唯一的 writer 是 crawler（host 的 `flock` 已經保證 crawler 不會並行執行，見 `Docs/deployment/deployment.md` §8）。
+- 目前唯一的 writer 是 crawler。但 crawler 有三個 entrypoint，**所有連到 production DB 執行 Catalog ingestion 的 crawler 呼叫，都必須經過同一把 host serialization lock**，也就是 `run-crawler.sh` 的 `run.lock`（`Docs/deployment/deployment.md` §8）。production 上不可以直接執行 container 或 module 來繞過 runner。
+- 現況的缺口：`run-crawler.sh` 目前只接受 `daily` 和 `pages`，`first_book` 沒有經過 `run.lock`。PR3 讓 first_book 套用新的 identity resolution 之前，必須先把 runner 擴充到支援 `first_book`（手動執行），讓 production 的 first_book 也受到同一把 lock 保護。在這之前，不可以在 production 執行 first_book。
 - Google Books（#14）或其他 writer 要開始使用本節規則之前，必須先加入跨 process 的序列化：依 §7.1 正規化後的 ISBN 取得 transaction 範圍的 PostgreSQL advisory lock，然後在 lock 內重新查詢 distinct Book 數量（§7.2）。
 - 因為 `ISBN` 不是 unique（§6.5），沒有序列化時兩個 writer 可能各自建立同一本書。
 

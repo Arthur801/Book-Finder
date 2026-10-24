@@ -153,7 +153,7 @@ MVP 只有單一 Web instance。Cache 只存可由 PostgreSQL 重建的唯讀資
 - **ISBN 保持跨 Book unique（DB 強制）**：來源資料可能有錯誤或同 ISBN 不同商品，unique 會讓整筆寫入失敗；改以 distinct 數量判斷，ambiguous 時寧可建立新 Book，不猜測合併。
 - **寫入端驗證 ISBN checksum**：會丟棄來源實際提供、但格式異常的識別碼；搜尋端的 ISBN 判定（長度 10／13）另行保留。
 - **`last_seen_at` 綁在 snapshot transaction**：讓 projection 的成敗決定 Catalog freshness，也讓分類榜與 first_book 無法更新。
-- **立即導入 advisory lock**：目前只有一個 writer，host `flock` 已序列化；延到第二個 writer 出現（#14）前再加，避免先做無法驗證的並行機制。
+- **立即導入 advisory lock**：目前只有 crawler 一個 writer，它的所有 production 呼叫都必須經過 `run-crawler.sh` 的同一把 `run.lock`（PR3 會把 first_book 也納入，在那之前 production 不可以執行 first_book）。advisory lock 延到第二個 writer 出現（#14）之前再加，避免先做一套無法驗證的並行機制。
 
 **Trade-offs**：
 - 010 期間實體 schema 與 EF model 不一致，必須靠手寫 migration、人工 review 與 DB integration 守住；EF 工具的 pending-change 檢查失去證明力。

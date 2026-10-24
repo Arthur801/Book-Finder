@@ -399,7 +399,7 @@ bestsellers
 
 失敗則 rollback 該 item，依 §13 重試 / 跳過；不得留下半套 Book / Source / Offer。
 
-**Single writer**：在跨 process 的序列化完成以前，Catalog identity resolution 只允許一個 writer。PR4 不會解除這個限制。目前唯一的 writer 是 crawler（data-model §7.5）。host `flock` 保證每日與分類榜不並行；crawler 目前不取 advisory lock。
+**Single writer**：在跨 process 的序列化完成以前，Catalog identity resolution 只允許一個 writer。PR4 不會解除這個限制。目前唯一的 writer 是 crawler（data-model §7.5）。所有連到 production DB 的 crawler 呼叫都必須經過 `run-crawler.sh` 的 `run.lock`，production 上不可以直接執行 container 或 module。目前 runner 只序列化 `daily` 和 `pages`；PR3 在 first_book 套用新的 identity resolution 之前，必須先讓 runner 支援 `first_book`（data-model §7.5）。crawler 目前不取 advisory lock。
 
 ---
 

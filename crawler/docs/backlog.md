@@ -45,7 +45,7 @@
 
 - P1；L3；狀態：確認缺口（目標規格已定，未實作）。
 - 目標：[crawler §3.5、§6.1、§10.2、§14.2～§14.4、§19.2](../../Docs/modules/crawler.md)：`CatalogResolution` 與 `RankingDecision` 分層；連續錯誤只由 `RankingDecision` 決定；榜內重複時 Catalog 照常 commit；Existing Source 在 discovery 時以獨立 transaction touch，touch 失敗依各模式 policy；`replace_bestsellers` 不再更新 `last_seen_at`；log 新增 `provider_code`、`job_name`、`items_seen`、`existing_source_count`、`new_source_count`、`ambiguous_isbn_count`、`offer_updated_count`。
-- 目前差距：[run.py](../books_crawler/run.py) 的 `_DuplicateBook` 在寫入前就跳過重複；[ledger](../books_crawler/ledger.py) 只有單層 `Resolution`，`Existing` 一律重設計數；[db.replace_bestsellers](../books_crawler/db.py) 在 snapshot transaction 內更新 `last_seen_at`；pages 與 first_book 不更新既有來源；程式 docstring 的 `crawler.md §…` 仍是舊編號。
+- 目前差距：[run.py](../books_crawler/run.py) 的 `_DuplicateBook` 在寫入前就跳過重複；[ledger](../books_crawler/ledger.py) 只有單層 `Resolution`，`Existing` 一律重設計數；[db.replace_bestsellers](../books_crawler/db.py) 在 snapshot transaction 內更新 `last_seen_at`；pages 與 first_book 不更新既有來源；[run-crawler.sh](../deploy/run-crawler.sh) 只接受 `daily`／`pages`，first_book 不經過 `run.lock`（data-model §7.5 要求 PR3 讓 runner 支援 first_book，production 不得繞過 runner）；程式 docstring 的 `crawler.md §…` 仍是舊編號。
 - 驗收：[test-plan §7](../../Docs/testing/test-plan.md) #5～#7、#11、#17 通過；CRAWL-05 的 ledger 測試改依 RankingDecision；`crawler/docs/*` 與 `crawler/README.md` 同步（plan §2 docs-sync 規則）。
 - 測試入口：[test_ledger.py](../tests/test_ledger.py)、[test_pages_ledger.py](../tests/test_pages_ledger.py)、[test_run_unit.py](../tests/test_run_unit.py)、[test_run_pages.py](../tests/test_run_pages.py)、[test_first_book_integration.py](../tests/test_first_book_integration.py)。
 

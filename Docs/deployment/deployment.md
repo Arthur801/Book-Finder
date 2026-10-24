@@ -147,6 +147,7 @@ Crawler 每日 **04:00 (GMT+8)** 執行完整榜單，分類補書每三天執�
 - Exit 0 為 SUCCESS 或 PARTIAL_SUCCESS，1 為 FAILED，2 為設定錯誤；Docker／AWS 等啟動錯誤另依其 exit code 記錄。不能只靠 exit 0 判斷所有書都成功，需檢查 summary。
 - 分類補書每天台灣時間 05:00 檢查：距上次 exit 0 的 run 啟動時間至少 72 小時才執行，第一次沒有紀錄即執行；非 0 在下一個每日檢查時再試。手動成功執行 pages 也更新紀錄。紀錄保存於 `/var/lib/book-finder/crawler/pages-last-success`，跨月與重啟保留；關機期間不補跑，等待下一次 cron 檢查。
 - 兩種模式共用 host `flock`，等待前一次完成才開始。若等待鎖或 EC2 停機，實際開始時間可延後。cron day-of-month `*/3` 不作為三天間隔。
+- **Single writer（`data-model.md` §7.5）**：所有連到 production DB 執行 Catalog ingestion 的 crawler 呼叫，都必須經過 `run-crawler.sh` 的同一把 `run.lock`。production 上不可以直接執行 container 或 module 繞過 runner。目前 runner 只支援 `daily` 和 `pages`；在 #113 PR3 讓 runner 支援 `first_book` 之前，production 不執行 first_book。
 - **與 CD 的協調（N3）**：`run-crawler.sh` 先取得 `db-maintenance.lock`（shared，等待上限 `DB_MAINTENANCE_WAIT_S`，預設 7200 秒），才讀取 state。state 的 `crawler.paused` 或 `schema.dirty` 為真時，以 exit 6 跳過並記錄 `skipped=paused` 或 `skipped=dirty`。state 不存在（尚未 bootstrap）時照舊執行；state 無法讀取時 exit 2（fail closed）。forward migration 期間持有 exclusive lock 的 deploy 會讓爬蟲等待，不會與 migration 交錯。
 - **Image 與設定由 CD 管理**：CD 的部署會把 `crawler.conf` 的 `CRAWLER_IMAGE=` 改寫為 GHCR 的 digest，並安裝該 release 的 `run-crawler.sh` 與 `crawler.cron`（release 未附上時跳過）。不要手動改 image tag；手動修改後需以 `resume-crawler` 檢查（`deploy/README.md` §5.3）。
 - **啟用排程前須在 EC2 上實測**：手動執行一次 crawler，確認預設 curl fetcher 從 EC2 能取得排行榜頁與商品頁，沒有停在 Cloudflare challenge（`crawler.md` §12）。若被擋下，不啟用排程，評估授權資料管道等替代方案。停用排程時在 `crawler.conf` 設 `CRAWLER_ENABLED=false`，它不會阻擋部署（`crawler/deploy/README.md` §5.1）。
