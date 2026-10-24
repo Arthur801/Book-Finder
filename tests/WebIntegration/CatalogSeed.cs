@@ -29,15 +29,15 @@ public sealed record IdentifierSeed(IdentifierType Type, string Value);
 
 public sealed record ContributorSeed(short ContributorOrder, string Name, ContributorRole Role);
 
-public sealed record SubjectSeed(string Subject, SourceType SourceType = SourceType.BooksComTw);
+public sealed record SubjectSeed(string Subject, string SourceCode = SourceCodes.BooksComTw);
 
 // SourceUrl left out is derived from the source's own id (or the Google Books external id), so every
 // source gets a unique URL, even two sources of the same type on one Book. FirstSeenAt left out means "now"
 // (UTC); give it when a test depends on which source was seen first (it must be a UTC DateTime).
 public sealed record SourceSeed(
-    SourceType SourceType, string? SourceUrl = null, string? ExternalId = null, DateTime? FirstSeenAt = null);
+    string SourceCode, string? SourceUrl = null, string? ExternalId = null, DateTime? FirstSeenAt = null);
 
-public sealed record SeededSource(Guid Id, SourceType SourceType, string SourceUrl);
+public sealed record SeededSource(Guid Id, string SourceCode, string SourceUrl);
 
 public sealed record SeededBook(Guid BookId, IReadOnlyList<SeededSource> Sources);
 
@@ -93,19 +93,19 @@ public static class CatalogSeed
             }
             foreach (var subject in item.Subjects)
             {
-                db.BookSubjects.Add(new BookSubject { BookId = bookId, Subject = subject.Subject, SourceType = subject.SourceType });
+                db.BookSubjects.Add(new BookSubject { BookId = bookId, Subject = subject.Subject, SourceCode = subject.SourceCode });
             }
 
             var sources = new List<SeededSource>();
-            foreach (var source in item.Sources ?? [new SourceSeed(SourceType.BooksComTw)])
+            foreach (var source in item.Sources ?? [new SourceSeed(SourceCodes.BooksComTw)])
             {
                 var sourceId = Guid.NewGuid();
-                var seededSource = new SeededSource(sourceId, source.SourceType, source.SourceUrl ?? DefaultUrl(source, sourceId));
+                var seededSource = new SeededSource(sourceId, source.SourceCode, source.SourceUrl ?? DefaultUrl(source, sourceId));
                 db.BookSources.Add(new BookSource
                 {
                     Id = seededSource.Id,
                     BookId = bookId,
-                    SourceType = source.SourceType,
+                    SourceCode = source.SourceCode,
                     ExternalId = source.ExternalId,
                     SourceUrl = seededSource.SourceUrl,
                     FirstSeenAt = source.FirstSeenAt ?? now,
@@ -127,7 +127,7 @@ public static class CatalogSeed
         await using var db = fixture.CreateContext();
         foreach (var (rank, book) in bookByRank)
         {
-            var source = book.Sources.FirstOrDefault(x => x.SourceType == SourceType.BooksComTw)
+            var source = book.Sources.FirstOrDefault(x => x.SourceCode == SourceCodes.BooksComTw)
                 ?? throw new InvalidOperationException($"Book {book.BookId} has no Books.com.tw source, so it cannot be ranked.");
             db.Bestsellers.Add(new Bestseller
             {
@@ -151,10 +151,10 @@ public static class CatalogSeed
         return ranked;
     }
 
-    private static string DefaultUrl(SourceSeed source, Guid sourceId) => source.SourceType switch
+    private static string DefaultUrl(SourceSeed source, Guid sourceId) => source.SourceCode switch
     {
-        SourceType.BooksComTw => $"https://www.books.com.tw/products/{sourceId:N}",
-        SourceType.GoogleBooks => $"https://books.google.com/books?id={source.ExternalId ?? sourceId.ToString("N")}",
+        SourceCodes.BooksComTw => $"https://www.books.com.tw/products/{sourceId:N}",
+        SourceCodes.GoogleBooks => $"https://books.google.com/books?id={source.ExternalId ?? sourceId.ToString("N")}",
         _ => throw new ArgumentOutOfRangeException(nameof(source), source, "Unknown source type")
     };
 }

@@ -11,9 +11,11 @@ public sealed class PostgresFixture : IAsyncLifetime
 {
     private readonly PostgreSqlContainer container = new PostgreSqlBuilder("pgvector/pgvector:0.8.7-pg17").Build();
 
+    public string ConnectionString => container.GetConnectionString();
+
     // Interceptors are optional: only tests that count the SQL a query sends pass one.
     public AppDbContext CreateContext(params IInterceptor[] interceptors) => new(new DbContextOptionsBuilder<AppDbContext>()
-        .UseNpgsql(container.GetConnectionString(), pg => pg.UseVector())
+        .UseNpgsql(ConnectionString, pg => pg.UseVector())
         .AddInterceptors(interceptors)
         .Options);
 

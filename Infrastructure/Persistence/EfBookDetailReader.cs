@@ -59,7 +59,7 @@ internal sealed class EfBookDetailReader(AppDbContext db) : IBookDetailReader
             .Where(source => source.BookId == bookId)
             .OrderBy(source => source.FirstSeenAt)
             .ThenBy(source => source.Id)
-            .Select(source => new BookDetailSource(source.Id, source.SourceType, source.SourceUrl, source.FirstSeenAt))
+            .Select(source => new BookDetailSource(source.Id, source.SourceCode, source.SourceUrl, source.FirstSeenAt))
             .ToListAsync(cancellationToken);
 
         return new BookDetail(

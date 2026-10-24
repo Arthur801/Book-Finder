@@ -114,9 +114,9 @@ public class EfBookProfileStoreTests(PostgresFixture fixture)
         AddContributor(db, book.Id, 1, "Zed", ContributorRole.Translator);
         AddContributor(db, book.Id, 0, "Amy", ContributorRole.Author);
         AddContributor(db, book.Id, 2, "Ivy", ContributorRole.Illustrator);
-        AddSubject(db, book.Id, "Fiction", SourceType.GoogleBooks);
-        AddSubject(db, book.Id, "Fiction", SourceType.BooksComTw);
-        AddSubject(db, book.Id, "Classic", SourceType.GoogleBooks);
+        AddSubject(db, book.Id, "Fiction", SourceCodes.GoogleBooks);
+        AddSubject(db, book.Id, "Fiction", SourceCodes.BooksComTw);
+        AddSubject(db, book.Id, "Classic", SourceCodes.GoogleBooks);
         await db.SaveChangesAsync();
 
         var source = await NewStore(db).LoadSourceAsync(book.Id, CancellationToken.None);
@@ -336,13 +336,13 @@ public class EfBookProfileStoreTests(PostgresFixture fixture)
         });
     }
 
-    private static void AddSubject(AppDbContext db, Guid bookId, string subject, SourceType sourceType = SourceType.GoogleBooks)
+    private static void AddSubject(AppDbContext db, Guid bookId, string subject, string sourceCode = SourceCodes.GoogleBooks)
     {
         db.BookSubjects.Add(new BookSubject
         {
             BookId = bookId,
             Subject = subject,
-            SourceType = sourceType,
+            SourceCode = sourceCode,
         });
     }
 

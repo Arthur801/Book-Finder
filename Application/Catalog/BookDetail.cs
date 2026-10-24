@@ -21,4 +21,4 @@ public sealed record BookDetailContributor(short Order, string Name, Contributor
 
 public sealed record BookDetailIdentifier(IdentifierType Type, string Value);
 
-public sealed record BookDetailSource(Guid Id, SourceType Type, string Url, DateTime FirstSeenAt);
+public sealed record BookDetailSource(Guid Id, string SourceCode, string Url, DateTime FirstSeenAt);

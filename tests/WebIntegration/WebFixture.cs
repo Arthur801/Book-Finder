@@ -39,14 +39,15 @@ public sealed class WebFixture : IAsyncLifetime
     // A new host per test: IMemoryCache lives in the app instance, so a fresh host keeps cached snapshots from leaking between tests.
     public BookFinderFactory CreateFactory() => new(container.GetConnectionString());
 
-    // Empties every application table (the migration history stays). Tests run serially in one collection, so this
-    // is the only isolation needed; tables added by later migrations are picked up without changing this method.
+    // Empties every application table except the migration history and source_providers. The provider registry is
+    // reference data seeded by migration 010 (Docs/data/data-model.md 6.1), and book_sources refers to it. Tests run
+    // serially in one collection, so this is the only isolation needed; tables added by later migrations are picked up.
     public async Task ResetDatabaseAsync()
     {
         await using var db = CreateContext();
         var tables = await db.Database.SqlQueryRaw<string>(
                 "SELECT table_name AS \"Value\" FROM information_schema.tables " +
-                "WHERE table_schema = 'public' AND table_type = 'BASE TABLE' AND table_name <> '__EFMigrationsHistory'")
+                "WHERE table_schema = 'public' AND table_type = 'BASE TABLE' AND table_name NOT IN ('__EFMigrationsHistory', 'source_providers')")
             .ToListAsync();
         if (tables.Count == 0)
             return;

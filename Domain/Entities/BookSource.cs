@@ -4,7 +4,7 @@ public class BookSource
 {
     public Guid Id { get; set; }
     public Guid BookId { get; set; }
-    public required SourceType SourceType { get; set; }
+    public required string SourceCode { get; set; }
     public string? ExternalId { get; set; }
     public required string SourceUrl { get; set; }
     public DateTime FirstSeenAt { get; set; }
