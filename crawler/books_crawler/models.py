@@ -1,7 +1,7 @@
 """Plain data types shared by parsers, the DB layer and the run orchestration.
 
 Values are already normalized (see ``normalize.py``). The enums are ``StrEnum`` whose values are
-exactly the stored vocabulary of ``Docs/data/data-model.md`` (``BOOKS_COM_TW``, ``ISBN_13``,
+exactly the stored vocabulary of ``Docs/data/data-model.md`` (``BOOKS_COM_TW``, ``ISBN``,
 ``AUTHOR``, ``DAY`` ...), so they can be passed to SQL and compared with plain strings.
 """
 
@@ -26,9 +26,7 @@ class PublishedDatePrecision(StrEnum):
 
 
 class IdentifierType(StrEnum):
-    ISBN = "ISBN"  # data-model §6.5: the normalized value of §7.1; the only type written from now on
-    ISBN_10 = "ISBN_10"  # legacy rows, read for matching until migration 011
-    ISBN_13 = "ISBN_13"
+    ISBN = "ISBN"  # data-model §6.5: the normalized value of §7.1; the only ISBN type since migration 011
 
 
 class ContributorRole(StrEnum):

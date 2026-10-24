@@ -5,8 +5,8 @@ Rules:
   and ``bestsellers`` are written (data-model §7). No DDL is ever executed here.
 - Connections use autocommit mode; every write goes through an explicit ``conn.transaction()``
   block, so a failure always rolls back exactly that unit of work.
-- The crawler writes and reads ``source_code`` only. The migration 010 trigger keeps the legacy
-  ``source_type`` column filled, so SQL here never names it.
+- The crawler writes and reads ``source_code`` only. Migration 011 removed the legacy ``source_type``
+  column and its sync triggers, so SQL here never names them.
 - The schema is owned by EF Core and has no DB defaults, so UUIDs and timestamps come from here.
 - Decisions (which Book a new source belongs to, whether a Book may be ranked twice) are made by
   the caller (``run``) and by ``identity``. This module only looks up and writes.
@@ -32,9 +32,6 @@ from books_crawler.models import (
     SourceRecord,
     SourceRef,
 )
-
-# data-model §7.2: the ISBN types that count for matching (011 leaves only 'ISBN').
-MATCHING_IDENTIFIER_TYPES = (IdentifierType.ISBN, IdentifierType.ISBN_10, IdentifierType.ISBN_13)
 
 
 class SnapshotValidationError(Exception):
@@ -77,15 +74,18 @@ def touch_source(conn: psycopg.Connection, source_id: UUID, now: datetime) -> No
 
 
 def find_books_by_isbn(conn: psycopg.Connection, values: Sequence[str]) -> list[UUID]:
-    """Distinct Books owning any of the normalized ISBN values (data-model §7.2 step 2), sorted for stable logs."""
+    """Distinct Books owning any of the normalized ISBN values (data-model §7.2 step 2), sorted for stable logs.
+
+    Only the ``ISBN`` identifier type matches: migration 011 converted the legacy ISBN_10 / ISBN_13 rows to ``ISBN``.
+    """
     if not values:
         return []
     rows = conn.execute(
         """
         SELECT DISTINCT book_id FROM book_identifiers
-        WHERE identifier_value = ANY(%s) AND identifier_type = ANY(%s)
+        WHERE identifier_value = ANY(%s) AND identifier_type = %s
         """,
-        (list(values), [str(item) for item in MATCHING_IDENTIFIER_TYPES]),
+        (list(values), IdentifierType.ISBN),
     ).fetchall()
     return sorted(row[0] for row in rows)
 
@@ -127,7 +127,7 @@ def _insert_book(conn: psycopg.Connection, book_id: UUID, draft: BookDraft, now:
 
 
 def _write_identifiers(conn: psycopg.Connection, book_id: UUID, draft: BookDraft) -> None:
-    # Always stored as the ISBN type: the value is the §7.1 key, and the legacy types are read-only (§7.2).
+    # Always stored as the ISBN type: the value is the §7.1 key (data-model §6.5, §7.2).
     values = list(dict.fromkeys(item.identifier_value for item in draft.identifiers))
     with conn.cursor() as cursor:
         cursor.executemany(

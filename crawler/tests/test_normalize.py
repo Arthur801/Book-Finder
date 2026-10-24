@@ -3,7 +3,7 @@ from datetime import date
 
 import pytest
 
-from books_crawler.models import Identifier
+from books_crawler.models import Identifier, IdentifierType
 from books_crawler.normalize import (
     map_contributor_role,
     map_language,
@@ -109,3 +109,8 @@ def test_parse_published_date_keeps_precision(raw, expected):
 )
 def test_parse_published_date_never_guesses(raw):
     assert parse_published_date(raw) == (None, None)
+
+
+def test_identifier_type_vocabulary_after_migration_011_has_only_isbn():
+    # data-model 6.5 / 11.3: ISBN_10 and ISBN_13 are legacy values removed by migration 011; the crawler writes and reads ISBN only.
+    assert [item.value for item in IdentifierType] == ["ISBN"]
