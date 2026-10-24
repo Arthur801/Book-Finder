@@ -231,6 +231,8 @@ class FakeDocker:
         self.pull_error: str | None = None
         self.extract_error: str | None = None
         self.efbundle_rc = 0
+        # The output efbundle prints; the host journals its last lines when the migration fails.
+        self.efbundle_output = ""
         self.efbundle_raises: BaseException | None = None
         # Database ids that the database reports after efbundle runs; None leaves them unchanged.
         self.efbundle_db_ids: list[str] | None = None
@@ -257,7 +259,7 @@ class FakeDocker:
         # copytree with symlinks=True mirrors docker cp without -L: links are copied as links.
         shutil.copytree(self.release_tree, dest, symlinks=True)
 
-    def run_efbundle(self, reference: str, env_file: str) -> int:
+    def run_efbundle(self, reference: str, env_file: str) -> tuple[int, str]:
         self.fx.trace.append(f"docker.efbundle {reference}")
         self.env_files_seen.append(env_file)
         if self.efbundle_hook is not None:
@@ -266,7 +268,7 @@ class FakeDocker:
             raise self.efbundle_raises
         if self.efbundle_db_ids is not None:
             self.host.db_ids = list(self.efbundle_db_ids)
-        return self.efbundle_rc
+        return self.efbundle_rc, self.efbundle_output
 
     def smoke_crawler(self, reference: str) -> int:
         self.fx.trace.append(f"docker.smoke {reference}")

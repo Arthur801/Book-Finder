@@ -40,7 +40,9 @@ PROBE_TIMEOUT_S = 5.0
 PROBE_INTERVAL_S = 1.0
 HEALTH_BUDGET_S = 90.0  # step 5: the new runtime gets 90 s to answer
 HEALTH_INTERVAL_S = 2.0
-LOG_TAIL_LINES = 80  # a failed switch journals the last lines of the web container log
+LOG_TAIL_LINES = 80  # the last lines journaled after a failed switch (web container log) or failed migration (efbundle)
+# efbundle reads its connection from this variable, in the migration env file; the web env file uses the same name.
+MIGRATION_ENV_NAME = "ConnectionStrings__DefaultConnection"
 # A connection string's Password= part is masked on its own too, because the same password can appear outside the string.
 _PASSWORD_PART = re.compile(r"(?i)password\s*=\s*([^;]*)")
 CRAWLER_KEY = "CRAWLER_IMAGE="
@@ -107,6 +109,8 @@ class _Run:
     release_dir: Path | None = None
     compose_sha256: str = ""
     env_path: str = ""
+    # Only set when SSM_MIGRATION_CONNECTION is configured: efbundle then reads this file instead of env_path.
+    migrate_env_path: str = ""
     snapshot_id: str | None = None
     crawler_substeps: dict[str, str] | str | None = None
     # Every secret string rendered into this run's env file, longest first; diagnostics mask them before anything is written.
@@ -318,6 +322,14 @@ def _journal_container_log(r: _Run) -> None:
         r.err.write(line + "\n")
 
 
+def _journal_efbundle_output(r: _Run, output: str) -> None:
+    """The last lines of efbundle's output, masked like the container log. Without it a failed migration has no cause in the journal."""
+    lines = _mask(output, r.secrets).splitlines()[-LOG_TAIL_LINES:]
+    r.err.write(f"efbundle output, last {len(lines)} lines:\n")
+    for line in lines:
+        r.err.write(line + "\n")
+
+
 def _secret_strings(values: list[str]) -> tuple[str, ...]:
     found = set()
     for value in values:
@@ -395,36 +407,46 @@ def _fsync_directory(path: Path) -> None:
 # Step 3
 
 
+def _read_secret(r: _Run, env_name: str, parameter: str) -> str:
+    try:
+        value = r.effects.ssm.get_parameter(parameter)
+    except EffectFailed as exc:
+        raise _Stop(DRIFT, "drift", f"reading {parameter} failed: {exc}") from exc
+    # Values are never logged; only the variable name appears in the reason.
+    if not value or any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in value):
+        raise _Stop(BAD_INPUT, "rejected", f"{env_name} must be a non-empty single-line value")
+    return value
+
+
 def _render_env(r: _Run) -> None:
+    # Why the migration connection is read here, with the web secrets, even for a deploy that runs no migration: one
+    # place reads and validates every SSM value, and a failing read is drift before anything is written.
     sources = (
         ("ConnectionStrings__DefaultConnection", r.settings.ssm_db_connection),
         ("OPENAIAPI_KEY", r.settings.ssm_openai_key),
         ("Jwt__SigningKey", r.settings.ssm_jwt_key),
     )
-    lines = []
-    values = []
-    for env_name, parameter in sources:
-        try:
-            value = r.effects.ssm.get_parameter(parameter)
-        except EffectFailed as exc:
-            raise _Stop(DRIFT, "drift", f"reading {parameter} failed: {exc}") from exc
-        # Values are never logged; only the variable name appears in the reason.
-        if not value or any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in value):
-            raise _Stop(BAD_INPUT, "rejected", f"{env_name} must be a non-empty single-line value")
-        lines.append(f"{env_name}={value}\n")
-        values.append(value)
-    r.secrets = _secret_strings(values)
+    web = [(env_name, _read_secret(r, env_name, parameter)) for env_name, parameter in sources]
+    migration = None
+    if r.settings.ssm_migration_connection is not None:
+        migration = _read_secret(r, MIGRATION_ENV_NAME, r.settings.ssm_migration_connection)
+    r.secrets = _secret_strings([value for _, value in web] + ([migration] if migration is not None else []))
     r.env_path = os.path.join(r.settings.run_dir, f"web-{r.run_id}.env")
     try:
         r.effects.files.ensure_dir(r.settings.run_dir, 0o700)
-        r.effects.files.write_atomic(r.env_path, "".join(lines).encode("utf-8"), 0o600)
+        r.effects.files.write_atomic(r.env_path, "".join(f"{name}={value}\n" for name, value in web).encode("utf-8"), 0o600)
+        if migration is not None:
+            # A separate file: the migration connection never reaches the web container's environment.
+            r.migrate_env_path = os.path.join(r.settings.run_dir, f"migrate-{r.run_id}.env")
+            r.effects.files.write_atomic(r.migrate_env_path, f"{MIGRATION_ENV_NAME}={migration}\n".encode(), 0o600)
     except (EffectFailed, OSError) as exc:
-        raise _Stop(DRIFT, "drift", f"writing the web environment file failed: {exc}") from exc
+        raise _Stop(DRIFT, "drift", f"writing the environment files failed: {exc}") from exc
 
 
 def _discard_env(r: _Run) -> None:
-    if r.env_path:
-        r.effects.files.remove(r.env_path)
+    for path in (r.env_path, r.migrate_env_path):
+        if path:
+            r.effects.files.remove(path)
 
 
 # Step 4
@@ -456,13 +478,16 @@ def _migrate_locked(r: _Run) -> None:
     r.save(st.mark_dirty(r.state, release=r.tag, now=r.deps.clock.now()))
     # 4e: success requires both the exit code and the database ids.
     try:
-        exit_code: int | None = r.effects.docker.run_efbundle(r.web_ref, r.env_path)
+        exit_code: int | None
+        output: str
+        exit_code, output = r.effects.docker.run_efbundle(r.web_ref, r.migrate_env_path or r.env_path)
     except EffectFailed:
-        exit_code = None
+        exit_code, output = None, ""
     applied = _applied_ids_or_none(r)
     if exit_code == 0 and applied == [m.id for m in r.target.migrations]:
         r.save(st.mark_migrated(r.state, r.tag, r.command.web_digest, r.target.migrations))
         return
+    _journal_efbundle_output(r, output)
     # Dirty and paused stay set; only the human reconcile-schema and resume-crawler commands clear them (N2, N3: a person must verify the schema and the crawler first).
     raise _Stop(
         FAILED_MIGRATION,

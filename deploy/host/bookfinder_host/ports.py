@@ -48,8 +48,8 @@ class Docker(Protocol):
     def extract_release(self, reference: str, dest: Path) -> None:
         """Copies /opt/release out of the image into dest, which must not exist yet."""
 
-    def run_efbundle(self, reference: str, env_file: str) -> int:
-        """Returns the exit code of the migration container."""
+    def run_efbundle(self, reference: str, env_file: str) -> tuple[int, str]:
+        """Returns (exit code, stdout and stderr of the migration container)."""
 
     def smoke_crawler(self, reference: str) -> int:
         """Returns the exit code of the crawler import smoke test (no network)."""
