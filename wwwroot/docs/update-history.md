@@ -39,3 +39,13 @@ git show 66ecf55 f0e1f0f b2c72a0 -- wwwroot/js
 上述 commits 同時涉及 Views、Controller／測試等，這裡只將 wwwroot diff 當直接歷史；API、View DOM、Program 靜態路由是相關依賴現況，沒有全量追蹤它們的歷史。不由 subject 推定 vendor 已升級，也不由程式存在推定 browser 測試或正式發布成功。完整 author／committer 時刻可用 git show --format=fuller SHA。
 
 相關：[流程](workflow-diagram.md)／[架構](architecture.md)／[待辦](backlog.md)／[歷史](update-history.md)／[案例](test-suite.md)。
+
+## #109 M2 書庫 Web 呈現（新增紀錄）
+
+本段是 #109 實作的紀錄，不改寫上方查核表。
+
+| 分支／提交 | Subject | 影響 |
+|---|---|---|
+| `a8a5077` | feat(web): show 書庫 on home and /books in place of the bestseller ranking | wwwroot 無程式變更；文件中的前往榜單描述改為前往書庫 |
+| `2642182` | test(web): cover 書庫 paging, home sample and the /bestsellers redirect | 無 wwwroot 變更 |
+| 本 M2 docs commit | docs(web): record 書庫 Web presentation in folder docs | 更新 wwwroot test-suite 的空態連結描述 |

@@ -6,11 +6,24 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace Book_Finder.Controllers;
 
-public class BooksController(IBookDetailReader books, LibraryService library) : Controller
+public class BooksController(IBookDetailReader books, BookBrowseService browse, LibraryService library) : Controller
 {
     // The key the Detail view reads the Library section from. The section is per user, so it is passed beside the
     // catalog model (which stays cached and catalog-only) instead of being added to BookDetailViewModel.
     public const string LibrarySectionKey = "LibrarySection";
+
+    // 書庫: the Catalog in browse order. Rank-independent and Local Database only.
+    [HttpGet("/books")]
+    public async Task<IActionResult> Index(string? page, CancellationToken cancellationToken)
+    {
+        var result = await browse.ListAsync(PageNumber.Parse(page), cancellationToken);
+
+        // A page past the last one moves to the last page, as on /search. An empty Catalog has no last page, so it is shown as empty.
+        if (result.TotalCount > 0 && result.Page > result.TotalPages)
+            return Redirect(BookBrowseViewModel.UrlFor(result.TotalPages));
+
+        return View(BookBrowseViewModel.From(result));
+    }
 
     [HttpGet("/books/{id}")]
     public async Task<IActionResult> Detail(string id, CancellationToken cancellationToken)

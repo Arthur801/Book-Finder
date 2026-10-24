@@ -1,16 +1,17 @@
 using System.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
-using Book_Finder.Application.Bestsellers;
+using Book_Finder.Application.Catalog;
 using Book_Finder.Models;
 
 namespace Book_Finder.Controllers;
 
-public class HomeController(BestsellerService bestsellers) : Controller
+public class HomeController(BookBrowseService browse) : Controller
 {
+    // A random sample of the 書庫, not the Bestseller ranking: the home page no longer shows rank.
     public async Task<IActionResult> Index(CancellationToken cancellationToken)
     {
-        var snapshot = await bestsellers.GetTopAsync(BestsellerService.HomeTopCount, cancellationToken);
-        return View(BestsellerListViewModel.From(snapshot));
+        var items = await browse.SampleHomeAsync(cancellationToken);
+        return View(HomeViewModel.From(items));
     }
 
     [ResponseCache(Duration = 0, Location = ResponseCacheLocation.None, NoStore = true)]

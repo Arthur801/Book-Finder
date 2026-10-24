@@ -15,36 +15,7 @@
 
 @if (Model.HasItems)
 {
-    <ol class="list-unstyled search-results mb-0">
-        @foreach (var item in Model.Items)
-        {
-            <li class="search-result d-flex align-items-center gap-3 py-2 border-bottom" data-book-id="@item.BookId">
-                @if (item.ThumbnailUrl is not null)
-                {
-                    <img class="cover" src="@item.ThumbnailUrl" alt="" width="48" height="68" loading="lazy" style="object-fit: cover;" />
-                }
-                else
-                {
-                    <span class="cover cover-placeholder text-muted small" style="width: 48px;">無封面</span>
-                }
-                <div class="flex-grow-1">
-                    <a class="book-title" href="/books/@item.BookId">@item.Title</a>
-                    @if (item.Authors is not null)
-                    {
-                        <div class="authors text-muted small">@item.Authors</div>
-                    }
-                    @if (item.Publisher is not null)
-                    {
-                        <div class="publisher text-muted small">@item.Publisher</div>
-                    }
-                    @if (item.PublishedDate is not null)
-                    {
-                        <div class="published-date text-muted small">@item.PublishedDate</div>
-                    }
-                </div>
-            </li>
-        }
-    </ol>
+    <partial name="_BookList" model="Model.Items" />
 }
 else
 {

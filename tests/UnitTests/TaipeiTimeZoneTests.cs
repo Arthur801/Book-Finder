@@ -1,5 +1,4 @@
 using Book_Finder.Application.Common;
-using Book_Finder.Models;
 
 namespace UnitTests;
 
@@ -95,13 +94,13 @@ public sealed class TaipeiTimeZoneTests
     }
 
     [Fact]
-    public void Captured_at_is_shown_in_taipei_time_with_the_fallback_zone()
+    public void Captured_at_converts_to_taipei_time_with_the_fallback_zone()
     {
         var fallback = TaipeiTimeZone.Resolve(_ => throw new TimeZoneNotFoundException());
         var capturedAt = new DateTime(2026, 10, 10, 20, 3, 0, DateTimeKind.Utc);
 
-        var text = BestsellerListViewModel.FormatUpdatedAt(capturedAt, fallback);
+        var local = TimeZoneInfo.ConvertTimeFromUtc(capturedAt, fallback);
 
-        Assert.Equal("2026-10-11 04:03 更新", text);
+        Assert.Equal(new DateTime(2026, 10, 11, 4, 3, 0), local);
     }
 }

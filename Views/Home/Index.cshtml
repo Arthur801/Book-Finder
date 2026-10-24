@@ -1,4 +1,4 @@
-@model Book_Finder.Models.BestsellerListViewModel
+@model Book_Finder.Models.HomeViewModel
 @{
     ViewData["Title"] = "首頁";
 }
@@ -17,10 +17,17 @@
 
 <section>
     <div class="d-flex justify-content-between align-items-baseline mb-2">
-        <h2 class="h4 mb-0">暢銷榜前 10 名</h2>
-        <a href="/bestsellers">查看完整榜單</a>
+        <h2 class="h4 mb-0">從書庫挑幾本</h2>
+        <a href="/books">查看完整書庫</a>
     </div>
-    <partial name="_BestsellerEntries" model="Model" />
+    @if (Model.IsEmpty)
+    {
+        <p class="text-muted">書庫還沒有書</p>
+    }
+    else
+    {
+        <partial name="_BookList" model="Model.Items" />
+    }
 </section>
 
 @section Scripts {

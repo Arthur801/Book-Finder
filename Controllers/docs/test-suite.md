@@ -35,17 +35,22 @@
 
 PIPE-03／PIPE-06 證據分層（均未在本次執行）：[AuthPipelineTests](../../tests/WebIntegration/AuthPipelineTests.cs) 主要驗證 test-only endpoint 的 HTTP status／ProblemDetails。production [RecommendationApiTests](../../tests/WebIntegration/RecommendationApiTests.cs) 的 `Not_signed_in_returns_401_and_calls_no_external_service`、`Signed_in_request_without_antiforgery_header_returns_400_and_calls_no_external_service` 斷言 parser／embedding／ranker Calls 為零，未直接斷言 Search DB rows 或 spy service 入口。[LibraryApiTests](../../tests/WebIntegration/LibraryApiTests.cs) 的 `Not_signed_in_returns_401_and_saves_nothing`、`Signed_in_add_without_antiforgery_header_returns_400_and_saves_nothing` 斷言 Entry count 為零；`Patch_and_delete_without_antiforgery_header_return_400_and_change_nothing` 讀回既有 Entry rating 未變。這些局部斷言不等於所有資料／依賴皆無副作用。
 
-## 3. HomeController 與 BestsellersController
+## 3. HomeController、書庫與 BestsellersController
 
-依據：bestseller §2–7。入口：`BestsellerPageTests.cs`、`LayoutAndHomeTests.cs`、`CachedBestsellerReaderTests.cs`（UnitTests）。
+依據：book-catalog §3、ui-flow、bestseller §2–7（榜單後端）。入口：`BookBrowsePageTests.cs`、`LayoutAndHomeTests.cs`、`CachedBestsellerReaderTests.cs`（UnitTests）、`BestsellerReaderIntegrationTests.cs`。
 
 | ID / 狀態 | Given / When | Then |
 |---|---|---|
-| BEST-01／已有測試 | seed 100 筆 rank；GET `/` 與 `/bestsellers` | 首頁前 10 筆，完整頁 100 筆、不分頁；皆依 rank 原值排序。 |
-| BEST-02／已有測試 | 前十名內缺一 rank、仍有 rank 11；讀兩頁 | 首頁仍取排序後 10 筆，包含 11；缺號保留、不重編。 |
-| BEST-03／已有測試 | 空榜；讀兩頁 | 200、顯示「榜單尚未建立」，不變成伺服器錯誤。 |
-| BEST-04／已有測試 | 作者／譯者混排、固定 captured_at；讀榜單 | 僅 AUTHOR 依 contributor_order 顯示；書連到 detail，時間顯示 Taipei。 |
-| BEST-05／已有測試 | 在 reader unit test 用 fake clock 暖快取並改底層資料 | 非空 1 小時、空榜 5 分鐘；到期重新讀；Controller 不另維護一份 cache。 |
+| BROWSE-01／已有測試 | 有日期（新、舊）、同日兩本與無日期書，以反向 Id 插入；GET `/books` | 有日期新到舊、無日期在後，同日依 Id；不依插入順序。 |
+| BROWSE-02／已有測試 | 25 本；讀 `page=1` 與 `page=2` | 第 1 頁 20 筆、第 2 頁 5 筆；摘要「共 25 本，第 1／2 頁」與「第 2／2 頁」；兩頁合計為全部 Id、無重複。 |
+| BROWSE-03／已有測試 | 25 本；`page=abc`、`0`、`-1` | 200，顯示第 1 頁。 |
+| BROWSE-04／已有測試 | 25 本；`page=3`、`2147483648`、`99999999999999999999`；不自動跟隨重導 | 302，Location `/books?page=2`；超大數字不溢位。 |
+| BROWSE-05／已有測試 | 空 Catalog；GET `/books?page=5` | 200，顯示「書庫還沒有書」；無摘要、無分頁，不重導。 |
+| BROWSE-06／已有測試 | 書有 description 與 table of contents 哨兵文字；GET `/books` | 列表 HTML 不含兩段文字（BOOK-05、AGENTS §1.3）。 |
+| BROWSE-07／已有測試 | 無自動跟隨；GET `/bestsellers` | 301，Location `/books`；不再顯示榜單。 |
+| HOME-02／已有測試 | 15 本；GET `/` | 最多 10 筆、不重複、皆來自 seed；不顯示 rank。 |
+| HOME-03／已有測試 | 空 Catalog；GET `/` | 200，顯示「書庫還沒有書」；連結 `/books`「查看完整書庫」。 |
+| BEST-05／已有測試（後端） | 在 reader unit test 用 fake clock 暖快取並改底層資料 | 非空 1 小時、空榜 5 分鐘；到期重新讀；後端保留，Web 無呼叫端。 |
 | HOME-01／待補強 | 直接讀 `/Home/Error`；另在非 Development host 注入頁面 action 例外 | 兩者分開記錄 status；Error 有 RequestId、NoStore，不回傳 stack trace；原始例外由 exception handler 處理。 |
 
 ## 4. SearchController
@@ -104,7 +109,7 @@ AUTH-03 的 cookie 屬性與 max-age 證據為 [AuthCookieTests](../../tests/Uni
 
 | ID / 狀態 | Given / When | Then |
 |---|---|---|
-| LIB-01／已有測試 | A、B 各有 Entry；GET `/library` | 只有 A 資料，updated_at 新到舊、不分頁；空時有「還沒有加入任何書」與榜單連結。 |
+| LIB-01／已有測試 | A、B 各有 Entry；GET `/library` | 只有 A 資料，updated_at 新到舊、不分頁；空時有「還沒有加入任何書」與書庫連結（`/books`）。 |
 | LIB-02／已有測試 | status 缺少／未知／三個有效大寫代碼 | 缺少與未知看全部；有效代碼只顯示相應狀態，tab active 正確；edit login URL 保留 filter query。 |
 | LIB-03／已有測試 | A 對存在 B1 PUT，無 body | 200 Entry shape：bookId、readingStatus、rating、addedAt、updatedAt；預設 WANT_TO_READ／null；時間 +08:00；DB 一筆。 |
 | LIB-04／已有測試 | A 的 B1 已 READING／rating 4；重複 PUT | 200 同一 Entry；不改狀態、評分、addedAt／updatedAt，不新增 duplicate。 |

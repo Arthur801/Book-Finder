@@ -1,0 +1,23 @@
+@model Book_Finder.Models.BookBrowseViewModel
+@{
+    ViewData["Title"] = "書庫";
+}
+
+<h1 class="h3 mb-3">書庫</h1>
+
+@if (Model.SummaryText is { } summary)
+{
+    <p class="text-muted small mb-2">@summary</p>
+}
+
+@if (Model.HasItems)
+{
+    <partial name="_BookList" model="Model.Items" />
+
+    ViewData["PagerLabel"] = "書庫分頁";
+    <partial name="_Pager" model="Model.Pager" />
+}
+else
+{
+    <p class="text-muted">書庫還沒有書</p>
+}

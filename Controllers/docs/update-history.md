@@ -58,3 +58,13 @@ git show <commit> -- Controllers
 - **歷史範圍限制**：`Program.cs`、Identity filters、Application services、Models 或 Views 的單獨變更，可能影響 Controller 行為但不會出現在上表。調查特定回歸時須擴大到實際依賴路徑，不能只查 Controllers。
 
 現況與待辦請見 [architecture.md](architecture.md)、[backlog.md](backlog.md)。
+
+## #109 M2 書庫 Web 呈現（新增紀錄）
+
+本段是 #109 實作的紀錄，不改寫上方查核表。
+
+| 分支／提交 | Subject | 影響 |
+|---|---|---|
+| `a8a5077` | feat(web): show 書庫 on home and /books in place of the bestseller ranking | 新增 BooksController.Index（GET `/books`）；HomeController 改注入 BookBrowseService；BestsellersController 改為 301 至 `/books`，不再注入 BestsellerService |
+| `2642182` | test(web): cover 書庫 paging, home sample and the /bestsellers redirect | 無產品行為變更；Web 測試改驗書庫與首頁，刪除 BestsellerPageTests |
+| 本 M2 docs commit | docs(web): record 書庫 Web presentation in folder docs | 更新 Controllers、Models、Views、tests、wwwroot 文件；歷史列只追加 |

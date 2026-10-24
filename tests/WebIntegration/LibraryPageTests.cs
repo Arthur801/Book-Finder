@@ -35,7 +35,7 @@ public sealed partial class LibraryPageTests(WebFixture fixture)
     }
 
     [Fact]
-    public async Task Empty_library_shows_the_empty_state_with_a_link_to_the_bestsellers()
+    public async Task Empty_library_shows_the_empty_state_with_a_link_to_the_catalog()
     {
         await fixture.ResetDatabaseAsync();
         await using var app = fixture.CreateFactory();
@@ -47,7 +47,7 @@ public sealed partial class LibraryPageTests(WebFixture fixture)
         Assert.False(EmptyStateHidden(html));
         var emptyState = EmptyState(html);
         Assert.Contains("還沒有加入任何書", emptyState);
-        Assert.Contains("href=\"/bestsellers\"", emptyState);
+        Assert.Contains("href=\"/books\"", emptyState);
     }
 
     [Fact]

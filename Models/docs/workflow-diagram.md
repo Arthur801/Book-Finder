@@ -11,11 +11,11 @@
 | [AccountController](../../Controllers/AccountController.cs) | [LoginForm](../LoginForm.cs)、[RegisterForm](../RegisterForm.cs)：binding、錯誤後重顯 | [identity-auth](../../Docs/modules/identity-auth.md) §3–6 |
 | [RecommendationsController](../../Controllers/RecommendationsController.cs) | [RecommendationRequest](../RecommendationRequest.cs)、[RecommendationResponse](../RecommendationResponse.cs)：JSON 邊界 | [API](../../Docs/api/api-spec.md) §3 |
 | [LibraryApiController](../../Controllers/LibraryApiController.cs) | [LibraryPatchParser](../LibraryPatchParser.cs)、[LibraryEntryResponse](../LibraryEntryResponse.cs) | API §4 |
-| [BooksController](../../Controllers/BooksController.cs) | [BookDetailViewModel](../BookDetailViewModel.cs)、[ContributorDisplay](../ContributorDisplay.cs)、[LibrarySectionViewModel](../LibrarySectionViewModel.cs) | [Catalog](../../Docs/modules/book-catalog.md) §4、[Library](../../Docs/modules/user-library.md) §5 |
+| [BooksController](../../Controllers/BooksController.cs) | [BookDetailViewModel](../BookDetailViewModel.cs)、[BookBrowseViewModel](../BookBrowseViewModel.cs)、[BookListItemViewModel](../BookListItemViewModel.cs)、[ContributorDisplay](../ContributorDisplay.cs)、[LibrarySectionViewModel](../LibrarySectionViewModel.cs) | [Catalog](../../Docs/modules/book-catalog.md) §4、[Library](../../Docs/modules/user-library.md) §5 |
 | [SearchController](../../Controllers/SearchController.cs) | [SearchResultsViewModel](../SearchResultsViewModel.cs)、[PageNumber](../PageNumber.cs) | Catalog §3 |
 | [AiController](../../Controllers/AiController.cs) | [AiHistoryListViewModel](../AiHistoryListViewModel.cs)、[AiHistoryDetailViewModel](../AiHistoryDetailViewModel.cs) | [Recommendation](../../Docs/modules/recommendation.md) §12、[UI](../../Docs/ui/ui-flow.md) §3.4 |
 | [LibraryController](../../Controllers/LibraryController.cs) | [LibraryPageViewModel](../LibraryPageViewModel.cs)、[LibraryControlsViewModel](../LibraryControlsViewModel.cs) | Library §4 |
-| [HomeController](../../Controllers/HomeController.cs)、[BestsellersController](../../Controllers/BestsellersController.cs) | [BestsellerListViewModel](../BestsellerListViewModel.cs)、[ErrorViewModel](../ErrorViewModel.cs) | [Bestseller](../../Docs/modules/bestseller.md)、UI §3.5 |
+| [HomeController](../../Controllers/HomeController.cs)、[BestsellersController](../../Controllers/BestsellersController.cs) | [HomeViewModel](../HomeViewModel.cs)、[ErrorViewModel](../ErrorViewModel.cs)；BestsellersController 只做 301，不建 ViewModel | [Catalog](../../Docs/modules/book-catalog.md) §3、UI §3.5、[Bestseller](../../Docs/modules/bestseller.md)（榜單 Web 已不顯示） |
 | 搜尋／歷史列表與 Library 返回登入 | [PageWindow](../PageWindow.cs)、[PagerViewModel](../PagerViewModel.cs)、[LoginLink](../LoginLink.cs) | Catalog §3.3、identity-auth §6 |
 
 ## 共用生命週期
@@ -112,11 +112,11 @@ flowchart TD
     WIN --> OUT
 ```
 
-Search 的 Query trim 後放入 `Uri.EscapeDataString`；空作者／出版社／封面轉 null，日期依精度。AI 列表每頁 20，時間由 Application/Common/TaipeiTimeZone 格式化；總頁數以 long 中間計算避免加法溢位。Pager 本身不重導，From 要求 caller 先處理超頁。
+Search 的 Query trim 後放入 `Uri.EscapeDataString`；搜尋結果與書庫的列項都經 BookListItemViewModel.From 映射，空作者／出版社／封面轉 null，日期依精度。書庫 `BookBrowseViewModel.UrlFor(page)` 產生 `/books?page=N`。AI 列表每頁 20，時間由 Application/Common/TaipeiTimeZone 格式化；總頁數以 long 中間計算避免加法溢位。Pager 本身不重導，From 要求 caller 先處理超頁。
 
 AI 詳情保留快照 rank／reason／relevance，書名／作者／封面為目前 Book。`relevance=null` 不顯示相關度；否則乘100並 AwayFromZero 四捨五入。難度從此次讀取的字典取得，缺少顯示「—」。封面 helper 只檢查小寫 `http://`／`https://` 前綴，與 Book detail 的 Uri 驗證不同，見待辦 M-B02。
 
-Bestseller 逐筆保留原 rank，不重新編號；作者用「、」串接；CapturedAt 缺少時 UpdatedAtText=null，否則台北時間加「更新」。空 Entries 的 IsEmpty=true。ErrorViewModel 僅以 RequestId 非 null／empty 決定是否顯示追蹤編號，不提供 stack trace。
+首頁樣本 HomeViewModel 只承接 10 本隨機書，IsEmpty 由 Items 計算、不另存。書庫 SummaryText 在 TotalCount 為 0 時為 null，避免顯示「第 1／0 頁」。作者用「、」串接。Bestseller 的 rank、Taipei 更新時間與榜單 ViewModel 已移除，後端 BestsellerSnapshot 不再經 Models。ErrorViewModel 僅以 RequestId 非 null／empty 決定是否顯示追蹤編號，不提供 stack trace。
 
 ## 表單及 JSON 回應
 
