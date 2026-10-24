@@ -38,25 +38,13 @@ public sealed record BookDetailViewModel(
         return rows;
     }
 
-    // OTHER identifiers never reach the page. A value that appears under several ISBN types is shown once, under the
-    // highest-priority type (ISBN > ISBN-13 > ISBN-10); different values are all kept (book-catalog 4.1). The reader already
-    // returns this order (EfBookDetailReader owns it); the OrderBy below only keeps the view model correct for other callers.
+    // OTHER identifiers never reach the page. Every ISBN value is kept, ordered by value (book-catalog 4.1). The reader
+    // already returns this order; the OrderBy keeps the view model correct for other callers.
     private static IEnumerable<BookInfoRow> IdentifierRows(IReadOnlyList<BookDetailIdentifier> identifiers) =>
         identifiers
-            .Where(identifier => IsbnIdentifierTypes.All.Contains(identifier.Type))
-            .GroupBy(identifier => identifier.Value, StringComparer.Ordinal)
-            .Select(group => group.OrderBy(identifier => IsbnIdentifierTypes.DisplayPriority(identifier.Type)).First())
-            .OrderBy(identifier => IsbnIdentifierTypes.DisplayPriority(identifier.Type))
-            .ThenBy(identifier => identifier.Value, StringComparer.Ordinal)
-            .Select(identifier => new BookInfoRow(IdentifierLabel(identifier.Type), identifier.Value));
-
-    private static string IdentifierLabel(IdentifierType type) => type switch
-    {
-        IdentifierType.Isbn => "ISBN",
-        IdentifierType.Isbn13 => "ISBN-13",
-        IdentifierType.Isbn10 => "ISBN-10",
-        _ => throw new InvalidOperationException($"Identifier type {type} must not reach the Book detail page."),
-    };
+            .Where(identifier => identifier.Type == IdentifierType.Isbn)
+            .OrderBy(identifier => identifier.Value, StringComparer.Ordinal)
+            .Select(identifier => new BookInfoRow("ISBN", identifier.Value));
 
     private static void AddRow(List<BookInfoRow> rows, string label, string? value)
     {

@@ -24,20 +24,20 @@ public sealed class SearchPageTests(WebFixture fixture)
         Assert.Equal([books[expectedIndex].BookId], SearchResultBookIds(html));
     }
 
-    // Legacy ISBN_10 / ISBN_13 and the new ISBN type are all matched in ISBN mode (book-catalog 3.2).
+    // ISBN mode matches ISBN identifiers only (book-catalog 3.2); an OTHER identifier with the same value never matches.
     [Fact]
-    public async Task Isbn_mode_matches_the_new_isbn_type_as_well_as_legacy_types()
+    public async Task Isbn_mode_matches_isbn_identifiers_and_never_other_identifiers()
     {
         await fixture.ResetDatabaseAsync();
         var books = await CatalogSeed.AddBooksAsync(fixture,
         [
             new BookSeed("新型") { Identifiers = [new IdentifierSeed(IdentifierType.Isbn, "9789861234570")] },
-            new BookSeed("舊型") { Identifiers = [new IdentifierSeed(IdentifierType.Isbn13, "9789861234571")] },
+            new BookSeed("其他") { Identifiers = [new IdentifierSeed(IdentifierType.Other, "9789861234571")] },
         ]);
         await using var app = fixture.CreateFactory();
 
         Assert.Equal([books[0].BookId], SearchResultBookIds(await SearchPageAsync(app.CreateClient(), "978-986-1234-57-0")));
-        Assert.Equal([books[1].BookId], SearchResultBookIds(await SearchPageAsync(app.CreateClient(), "9789861234571")));
+        Assert.Empty(SearchResultBookIds(await SearchPageAsync(app.CreateClient(), "9789861234571")));
     }
 
     // ABC123 is 6 characters, so it is never ISBN mode; an ISBN-typed identifier with that value is not returned.
@@ -467,8 +467,8 @@ public sealed class SearchPageTests(WebFixture fixture)
     private async Task<IReadOnlyList<SeededBook>> SeedIsbnBooksAsync() =>
         await CatalogSeed.AddBooksAsync(fixture,
         [
-            new BookSeed("甲書") { Identifiers = [new IdentifierSeed(IdentifierType.Isbn13, "9789861234567")] },
-            new BookSeed("乙書") { Identifiers = [new IdentifierSeed(IdentifierType.Isbn10, "155860832X")] }
+            new BookSeed("甲書") { Identifiers = [new IdentifierSeed(IdentifierType.Isbn, "9789861234567")] },
+            new BookSeed("乙書") { Identifiers = [new IdentifierSeed(IdentifierType.Isbn, "155860832X")] }
         ]);
 
     // 21 matches, newest first on the page: the 2001 book is the 21st and lands on page 2.

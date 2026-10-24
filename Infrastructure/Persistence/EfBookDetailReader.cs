@@ -6,7 +6,7 @@ namespace Book_Finder.Infrastructure.Persistence;
 
 // Projects only the columns the detail page may show: description and table of contents are never selected (BOOK-05).
 // One small query per child table, each filtered by book id. Contributors and sources are ordered in SQL; identifiers
-// and subjects are ordered in memory (ISBN_13 first, and subjects in ordinal order independent of DB collation).
+// and subjects are ordered in memory (identifier values and subjects in ordinal order independent of DB collation).
 internal sealed class EfBookDetailReader(AppDbContext db) : IBookDetailReader
 {
     public async Task<BookDetail?> ReadAsync(Guid bookId, CancellationToken cancellationToken)
@@ -35,16 +35,13 @@ internal sealed class EfBookDetailReader(AppDbContext db) : IBookDetailReader
             .Select(contributor => new BookDetailContributor(contributor.ContributorOrder, contributor.Name, contributor.Role))
             .ToListAsync(cancellationToken);
 
-        // Only the ISBN-family types are read; OTHER identifiers never reach the page. The reader owns the order the
-        // Application contract promises (ISBN, ISBN-13, ISBN-10, then value); the view model only removes same-value duplicates.
+        // Only ISBN identifiers are read; OTHER identifiers never reach the page. Values are ordered by value.
         var identifiers = (await db.BookIdentifiers.AsNoTracking()
-                .Where(identifier => identifier.BookId == bookId
-                    && IsbnIdentifierTypes.All.Contains(identifier.IdentifierType))
-                .Select(identifier => new { identifier.IdentifierType, identifier.IdentifierValue })
+                .Where(identifier => identifier.BookId == bookId && identifier.IdentifierType == IdentifierType.Isbn)
+                .Select(identifier => identifier.IdentifierValue)
                 .ToListAsync(cancellationToken))
-            .OrderBy(identifier => IsbnIdentifierTypes.DisplayPriority(identifier.IdentifierType))
-            .ThenBy(identifier => identifier.IdentifierValue, StringComparer.Ordinal)
-            .Select(identifier => new BookDetailIdentifier(identifier.IdentifierType, identifier.IdentifierValue))
+            .Order(StringComparer.Ordinal)
+            .Select(value => new BookDetailIdentifier(IdentifierType.Isbn, value))
             .ToList();
 
         // Distinct across every source type; the ordinal sort is done in memory so it does not depend on DB collation.

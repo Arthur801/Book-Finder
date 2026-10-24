@@ -253,13 +253,9 @@ namespace Book_Finder.Infrastructure.Persistence.Migrations
 
                     b.HasKey("BookId", "IdentifierType", "IdentifierValue");
 
-                    b.HasIndex("IdentifierType", "IdentifierValue")
-                        .IsUnique()
-                        .HasFilter("identifier_type IN ('ISBN_10', 'ISBN_13')");
-
                     b.ToTable("book_identifiers", null, t =>
                         {
-                            t.HasCheckConstraint("ck_book_identifiers_identifier_type", "identifier_type IN ('ISBN', 'ISBN_10', 'ISBN_13', 'OTHER')");
+                            t.HasCheckConstraint("ck_book_identifiers_identifier_type", "identifier_type IN ('ISBN', 'OTHER')");
                         });
                 });
 

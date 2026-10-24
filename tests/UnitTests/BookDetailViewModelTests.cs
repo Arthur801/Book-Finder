@@ -4,56 +4,23 @@ using Book_Finder.Models;
 
 namespace UnitTests;
 
-// book-catalog.md 4.1: identifier labels, same-value de-duplication by type priority, and the primary-button rule.
+// book-catalog.md 4.1: identifier labels and order, and the primary-button rule.
 public sealed class BookDetailViewModelTests
 {
     [Fact]
-    public void Isbn_and_isbn13_with_the_same_value_are_shown_once_as_isbn()
-    {
-        var model = BookDetailViewModel.From(Detail(
-            identifiers: [new(IdentifierType.Isbn13, "9789862620998"), new(IdentifierType.Isbn, "9789862620998")]));
-
-        Assert.Equal([("ISBN", "9789862620998")], IsbnRows(model));
-    }
-
-    [Fact]
-    public void Isbn13_and_isbn10_with_the_same_value_are_shown_once_as_isbn13()
-    {
-        var model = BookDetailViewModel.From(Detail(
-            identifiers: [new(IdentifierType.Isbn10, "9862620998"), new(IdentifierType.Isbn13, "9862620998")]));
-
-        Assert.Equal([("ISBN-13", "9862620998")], IsbnRows(model));
-    }
-
-    [Fact]
-    public void Different_values_are_all_kept_with_isbn_first_then_isbn13_then_isbn10()
+    public void Isbn_values_are_all_shown_as_isbn_ordered_by_value()
     {
         var model = BookDetailViewModel.From(Detail(
             identifiers:
             [
-                new(IdentifierType.Isbn10, "9862620998"),
-                new(IdentifierType.Isbn13, "9789862620998"),
+                new(IdentifierType.Isbn, "9789862620998"),
                 new(IdentifierType.Isbn, "155860832X"),
                 new(IdentifierType.Isbn, "9789861234567"),
             ]));
 
         Assert.Equal(
-            [("ISBN", "155860832X"), ("ISBN", "9789861234567"), ("ISBN-13", "9789862620998"), ("ISBN-10", "9862620998")],
+            [("ISBN", "155860832X"), ("ISBN", "9789861234567"), ("ISBN", "9789862620998")],
             IsbnRows(model));
-    }
-
-    [Fact]
-    public void Shared_value_across_isbn_and_isbn10_keeps_only_the_isbn_label_and_the_other_value_is_kept()
-    {
-        var model = BookDetailViewModel.From(Detail(
-            identifiers:
-            [
-                new(IdentifierType.Isbn10, "155860832X"),
-                new(IdentifierType.Isbn, "155860832X"),
-                new(IdentifierType.Isbn10, "9862620998"),
-            ]));
-
-        Assert.Equal([("ISBN", "155860832X"), ("ISBN-10", "9862620998")], IsbnRows(model));
     }
 
     [Fact]
