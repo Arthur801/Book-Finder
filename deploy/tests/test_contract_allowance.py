@@ -150,6 +150,9 @@ def test_compat_before_is_dropped_before_the_schema_comparison_even_when_the_dat
     assert positions == sorted(positions)
     assert forward.index("drop_contract_scratch || true") < forward.index("check_schema_matches_fresh || true")
     assert "DROP SCHEMA IF EXISTS compat_before CASCADE" in text
+    # schema-ahead never upgrades, so it has its own drop before its schema comparison.
+    schema_ahead = text[text.index("  if [[ $classification == schema-ahead ]]; then") : text.index("  else\n    upgrade_to_target")]
+    assert schema_ahead.index("drop_contract_scratch || true") < schema_ahead.index("check_schema_unchanged || true")
 
 
 def test_the_allowance_is_only_loaded_after_the_pending_set_is_known():

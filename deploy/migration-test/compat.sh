@@ -780,6 +780,7 @@ main() {
     check_forward_smoke
     check_history_unchanged
     check_data_preserved || true
+    drop_contract_scratch || true
     check_schema_unchanged || true
   else
     upgrade_to_target
