@@ -35,13 +35,21 @@ internal sealed class EfBookDetailReader(AppDbContext db) : IBookDetailReader
             .Select(contributor => new BookDetailContributor(contributor.ContributorOrder, contributor.Name, contributor.Role))
             .ToListAsync(cancellationToken);
 
-        // Only ISBN_13 and ISBN_10 are shown; OTHER identifiers never reach the page.
+        // Only the three ISBN types are read; OTHER identifiers never reach the page. Same-value duplicates across
+        // types are removed by the view model (book-catalog 4.1), so this reader returns every row.
         var identifiers = (await db.BookIdentifiers.AsNoTracking()
                 .Where(identifier => identifier.BookId == bookId
-                    && (identifier.IdentifierType == IdentifierType.Isbn13 || identifier.IdentifierType == IdentifierType.Isbn10))
+                    && (identifier.IdentifierType == IdentifierType.Isbn
+                        || identifier.IdentifierType == IdentifierType.Isbn13
+                        || identifier.IdentifierType == IdentifierType.Isbn10))
                 .Select(identifier => new { identifier.IdentifierType, identifier.IdentifierValue })
                 .ToListAsync(cancellationToken))
-            .OrderBy(identifier => identifier.IdentifierType == IdentifierType.Isbn13 ? 0 : 1)
+            .OrderBy(identifier => identifier.IdentifierType switch
+            {
+                IdentifierType.Isbn => 0,
+                IdentifierType.Isbn13 => 1,
+                _ => 2
+            })
             .ThenBy(identifier => identifier.IdentifierValue, StringComparer.Ordinal)
             .Select(identifier => new BookDetailIdentifier(identifier.IdentifierType, identifier.IdentifierValue))
             .ToList();
@@ -55,11 +63,12 @@ internal sealed class EfBookDetailReader(AppDbContext db) : IBookDetailReader
             .Order(StringComparer.Ordinal)
             .ToList();
 
-        var sources = await db.BookSources.AsNoTracking()
-            .Where(source => source.BookId == bookId)
-            .OrderBy(source => source.FirstSeenAt)
-            .ThenBy(source => source.Id)
-            .Select(source => new BookDetailSource(source.Id, source.SourceCode, source.SourceUrl, source.FirstSeenAt))
+        // The provider join never filters on enabled: a disabled provider keeps showing the sources it already has.
+        var sources = await (from source in db.BookSources.AsNoTracking()
+                             join provider in db.SourceProviders.AsNoTracking() on source.SourceCode equals provider.Code
+                             where source.BookId == bookId
+                             orderby source.FirstSeenAt, source.Id
+                             select new BookDetailSource(source.Id, source.SourceCode, provider.DisplayName, source.SourceUrl, source.FirstSeenAt))
             .ToListAsync(cancellationToken);
 
         return new BookDetail(

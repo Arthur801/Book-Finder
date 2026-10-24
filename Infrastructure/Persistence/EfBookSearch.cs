@@ -56,11 +56,14 @@ internal sealed class EfBookSearch(AppDbContext db) : IBookSearch
         _ => throw new ArgumentException("Blank input is answered by BookSearchService and never reaches the data port.", nameof(query))
     };
 
-    // ISBN mode: only ISBN-10 and ISBN-13 identifiers equal to the normalized value. No 10 <-> 13 conversion; Other never matches.
+    // ISBN mode: ISBN, ISBN-13 and ISBN-10 identifiers equal to the normalized value (until 011, data-model 11.3). No 10 <-> 13
+    // conversion; Other never matches.
     private IQueryable<Book> IsbnMatches(string value) =>
         db.Books.AsNoTracking().Where(book => db.BookIdentifiers.Any(identifier =>
             identifier.BookId == book.Id
-            && (identifier.IdentifierType == IdentifierType.Isbn13 || identifier.IdentifierType == IdentifierType.Isbn10)
+            && (identifier.IdentifierType == IdentifierType.Isbn
+                || identifier.IdentifierType == IdentifierType.Isbn13
+                || identifier.IdentifierType == IdentifierType.Isbn10)
             && identifier.IdentifierValue == value));
 
     // Keyword mode: the whole text as one literal substring of the title or of any contributor name (any role).
