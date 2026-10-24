@@ -24,6 +24,13 @@
 - 驗收：交界案例穩定、無search/results半成品；保存後取消有獨立斷言；文件/contract與實際保證一致。
 - 入口：[EfRecommendationStoreTests](../../tests/DatabaseIntegration/EfRecommendationStoreTests.cs)、RecommendationServiceTests。案例 **APP-T17**。
 
+## APP-B03 — Bestseller 後端待 Web 呼叫者移除決策
+
+- **P2 / L1 / 待決策，未實作**。
+- 證據：#109 M2 後 Web 無 Bestseller 呼叫者（M1 只新增後端，Home／Bestsellers 仍呼叫）；[BestsellerService](../Bestsellers/BestsellerService.cs) 的 `HomeTopCount`、`GetTopAsync` 與 [EfBestsellerReader](../../Infrastructure/Persistence/EfBestsellerReader.cs) 仍保留，由 [BestsellerReaderIntegrationTests](../../tests/WebIntegration/BestsellerReaderIntegrationTests.cs) 守住 DI 鏈。
+- 方向：Bestseller 是否長期保留、移除或改由其他功能使用，需另案決定；未決前不得刪除，也不得讓 Bestseller rank 進入推薦排序（AGENTS.md §1.3）。
+- 驗收：決定後同步更新 [bestseller](../../Docs/modules/bestseller.md) 與本文件。
+
 ## 已修與明確暫緩
 
 `13abf86`已共享dummy hash、`cd17224`已修difficulty讀失敗降級、`0fb9274`已修disabled仍排profile。它們是APP-T03/T12回歸項目，不列未完成。Auth MVP延後與browser E2E依架構文件的authority維持暫緩。效能未量測，不捏造向量/快取瓶頸或平行化收益。

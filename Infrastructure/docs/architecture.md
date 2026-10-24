@@ -14,7 +14,8 @@
 | AccountController／User | [AuthTokenIssuer](../Identity/AuthTokenIssuer.cs)、[AuthCookie](../Identity/AuthCookie.cs) → token/cookie | signing key 注入、禁止 secret log |
 | Web request pipeline | [auth registration](../Identity/AuthServiceCollectionExtensions.cs)、[API exception filter](../Identity/ApiExceptionProblemDetailsFilter.cs)、[CSRF filter](../Identity/AntiforgeryProblemDetailsFilter.cs) | cookie-only JWT、401/400/500 ProblemDetails；local returnUrl |
 | Catalog services／SearchQuery、bookId | [EfBookSearch](../Persistence/EfBookSearch.cs)、[EfBookDetailReader](../Persistence/EfBookDetailReader.cs) → read models | Local DB only，公開內容排除來源簡介目錄 |
-| BestsellerService | [EfBestsellerReader](../Persistence/EfBestsellerReader.cs) → 最新 snapshot | 保留 rank 缺號、共用 captured_at |
+| BestsellerService | [EfBestsellerReader](../Persistence/EfBestsellerReader.cs) → 最新 snapshot | 保留 rank 缺號、共用 captured_at；#109 後 Web 無呼叫者，後端保留並由 DI 守衛測試 |
+| BookBrowseService／page、pageSize、隨機樣本數 | [EfBookBrowse](../Persistence/EfBookBrowse.cs) → BookBrowsePage／items | 書庫列表依出版日排序後分頁（COUNT → 分頁 → 作者）；超出頁數不查列表；隨機樣本整表隨機排序 |
 | LibraryService／userId、bookId、change | [EfLibraryStore](../Persistence/EfLibraryStore.cs) → Entry／null／List | 本人 filter、composite key、冪等新增、Book FK 特定轉譯 |
 | RecommendationService／filters、vector | [EfCandidateSearch](../Persistence/EfCandidateSearch.cs) → CandidateBook | exact cosine、硬條件、description 只供 AI |
 | RecommendationService／userId、成功 ranked items | [store](../Persistence/EfRecommendationStore.cs)、[usage](../Persistence/EfRecommendationUsage.cs) | 一次 SaveChanges；只計數已保存 search |
@@ -47,7 +48,7 @@
 
 `TimeProvider` 供 UTC 寫入與 JWT expiry 測試；每日 gate 在 Application 將 Taipei 日界轉 UTC，usage 只查 `created_at >= sinceUtc`。Usage count 與保存不是同一個原子預約操作；是否需要更嚴格併發 gate 必須回到產品規格，不能自行更改。
 
-公開 detail／Library／History projections 不含 description／table_of_contents；Candidate、embedding、profile 內部才可讀。Cache 不包含 Library state、不 cache missing detail，也不保證 single-flight。來源網址 UI 防護另由下游負責。
+公開 detail／Library／History projections 不含 description／table_of_contents；Candidate、embedding、profile 內部才可讀。Cache 不包含 Library state、不 cache missing detail，也不保證 single-flight。書庫列表與隨機樣本不 cache（書庫頁無 cache，樣本每次重新抽取）。來源網址 UI 防護另由下游負責。
 
 OpenAiCall 保留 caller cancellation，其餘轉 AiUnavailableException；SDK 有內建 retry。固定 60 秒 timeout 由 RecommendationService 控制。Search 已成功保存後，difficulty reader／scheduler 的一般例外會記 Warning 並降級，不回滾 search；兩者均保留已取消 caller token 的 OperationCanceledException，此時請求可取消但已保存資料仍存在。此階段使用 caller token，不使用 60 秒 timeout token。Profile worker 失敗與推薦保存失敗是不同邊界。
 

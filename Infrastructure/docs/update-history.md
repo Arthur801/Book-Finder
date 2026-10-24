@@ -98,6 +98,15 @@ git show <SHA> -- Infrastructure
 
 `Program.cs` 是 adapter 註冊與呼叫端，Application/Recommendation 控制每日 gate、timeout、成功後 enrichment；Domain entities 決定 EF mapping 輸入。這些外部依賴不併入上表的直接修改史。ADR-002 定 EF schema ownership，crawler 不執行 DDL。未根據 commit message 推定雲端部署或執行成功。
 
+## #109 M1 書庫後端（新增紀錄）
+
+本段是 #109 實作的紀錄，不改寫上方查核表。
+
+| 提交 | Subject | 影響 |
+|---|---|---|
+| `7c369fd` | feat(catalog): implement EF book browse list and random sample | 新增 EfBookBrowse（COUNT → 分頁 → BookAuthors；隨機樣本）；Program 註冊 IBookBrowse 與 BookBrowseService（scoped），Bestseller 註冊不變；BookSeed 新增可選 Id（測試支援） |
+| `b2c04ce` | test(bestseller): guard retained Bestseller backend through DI | 新增 Bestseller 後端 DI 守衛測試，無產品行為變更 |
+
 ## 文件導航
 
 [流程](workflow-diagram.md) · [架構](architecture.md) · [待辦](backlog.md) · [歷史](update-history.md) · [案例](test-suite.md)
