@@ -59,7 +59,7 @@ Docs/
 | 新增 / 修改 Entity、欄位、constraint、index、pgvector | `Docs/data/data-model.md`                     | 對應 module、API、migration / test                        |
 | 新增 / 修改 JSON endpoint、錯誤格式、request 驗證     | `Docs/api/api-spec.md`                        | 對應 module、UI、data model                               |
 | Auth / JWT / current user                             | `Docs/modules/identity-auth.md`               | API、UI、data model、test plan                            |
-| 一般搜尋 / Book detail                                | `Docs/modules/book-catalog.md`                | data model、API、recommendation                           |
+| 一般搜尋 / 書庫 / Book detail                         | `Docs/modules/book-catalog.md`                | data model、API、recommendation                           |
 | Bestseller                                            | `Docs/modules/bestseller.md`                  | crawler、data model、cache rules                          |
 | AI 推薦 / pgvector / Google Books / OpenAI            | `Docs/modules/recommendation.md`              | data model、API、book catalog、test plan                  |
 | 個人書單 / reading status / rating                    | `Docs/modules/user-library.md`                | auth、data model、API、UI                                 |

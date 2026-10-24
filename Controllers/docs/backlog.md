@@ -86,7 +86,7 @@
 
 ### CTL-11 — 書庫與首頁隨機樣本的讀取成本
 
-- [ ] **P2／待驗證／L2**。`/books` 分頁為 COUNT 加 OFFSET；首頁樣本以 `ORDER BY random()` 排序整個 Catalog 後取 10 本（INF-B06）。Catalog 增長後的耗時尚無證據。
+- [ ] **P2／待驗證／L2**。`/books` 分頁為 COUNT 加 OFFSET；首頁樣本以 `ORDER BY random()` 排序整個 Catalog 後取 10 本（INF-B06）。開發庫 2884 筆時的基準（#109 M3，見 `Docs/Implementation-Report/issue-109-book-browse.md`）：page 1 約 1.7 ms、最後一頁約 3.5 ms、樣本約 1.7 ms，多欄位排序不使用 `published_date` 單欄索引；Catalog 增長後的耗時仍待觀察。
 - 操作：以 Catalog 規模的測資量測 `ListAsync` 與 `SampleHomeAsync` 的耗時與計畫；不先改實作。
 - 完成條件：有量測結果後才決定是否改用其他抽樣方式；不改變首頁 10 本、不重複與不依 rank 的既有 contract。
 - 案例：`HOME-02`（首頁 10 本、不重複）；效能量測本身不在目前測試範圍。

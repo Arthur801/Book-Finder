@@ -112,7 +112,7 @@ Crawler 非機密環境變數（`crawler/README.md`）：
 3. plan（host 唯讀）與 compat（runner 上）→ 人工檢查 CD summary
 4. 在 production 環境核准
 5. CD 以 `deploy --detach` 啟動 host 的 deploy，確認接手後由 `deploy-follow` 每 30 秒輪詢 status；host 執行：forward 時 pause crawler、snapshot、migration；切換 web；健康檢查；更新 crawler
-6. 驗證：首頁 200、登入、暢銷榜、log 無錯誤
+6. 驗證：首頁 200、登入、書庫、log 無錯誤
 ```
 
 完整流程、退出碼與人工程序見 `deploy/README.md`。
