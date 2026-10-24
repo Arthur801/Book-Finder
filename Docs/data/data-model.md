@@ -549,10 +549,12 @@ UNIQUE(search_id, book_id)
 C# 與 Python 必須對同一輸入得到**逐 byte 相同**的結果（之後 advisory lock 的 key 也會用到它，§7.5）：
 
 ```text
-1. Unicode NFKC
-2. 刪除 U+002D HYPHEN-MINUS，以及所有具有 Unicode White_Space 屬性的字元
+1. Unicode 15.1 NFKC
+2. 刪除 U+002D HYPHEN-MINUS，以及所有具有 Unicode 15.1 White_Space 屬性的字元
 3. 只把 ASCII a–z 轉成大寫（與 locale 無關）
 ```
+
+NFKC 與 White_Space 都固定在 **Unicode 15.1**。runtime 內建的 Unicode database 版本不同時（例如 .NET 或 Python 升級），以 fixture 為準，實作要自行補足差異。要升級 Unicode 版本，必須先改本節與 fixture，並且同時更新 C# 與 Python 兩邊的實作。
 
 - 不驗證長度、不驗證 checksum；正規化結果為空字串時不寫入 identifier。
 - 儲存的類型為 `ISBN`（§6.5）；不做 ISBN-10 ↔ 13 互轉。
@@ -593,14 +595,20 @@ C# 與 Python 必須對同一輸入得到**逐 byte 相同**的結果（之後 a
 
 ### 7.3 Source identity 衝突與 URL 漂移
 
-discovery item 同時帶了 `external_id` 與 `source_url` 時，兩個都要查：
+discovery item 同時帶了 `external_id`（E）和 `source_url`（U）時，兩個都要查（同一個 `source_code` 內）。完整矩陣如下：
 
-| 情況 | 處理 |
-|---|---|
-| 兩者分別對到不同的 Source | `source_identity_conflict`：直接報錯，不 touch、不補 NULL、不修改任何 Source；Catalog 端記為 FAILED，不重試 |
-| `external_id` 對到 Source A，但這次看到的 URL 與 A 的 `source_url` 不同（URL 漂移） | 本 release **保留既有 URL**，只記 WARNING log，照常 touch A |
+| E 的查詢結果 | U 的查詢結果 | 處理 |
+|---|---|---|
+| Source A | Source A | Existing Source A |
+| Source A | Source B（≠ A） | `source_identity_conflict` |
+| Source A | 沒有命中 | URL 漂移：本 release **保留 A 的既有 URL**，記 WARNING，照常 touch A |
+| 沒有命中 | Source A，且 `A.external_id` 是 NULL | 視為 Existing Source A，照常 touch。本 release **不 backfill** `A.external_id`，只記 INFO |
+| 沒有命中 | Source A，且 `A.external_id` 是不同的非 NULL 值 | `source_identity_conflict`。URL 相同但 provider record 不同，不可以靜默合併 |
+| 沒有命中 | 沒有命中 | New Source |
 
-是否支援自動更新 URL，留到之後書商 adapter 真的提供 `external_id` 時再決定。目前博客來 adapter 不提供 `external_id`；Google Books 有 Volume ID。
+- `source_identity_conflict` 的處理：直接報錯，不 touch、不補 NULL、不修改任何 Source；Catalog 端記為 FAILED，不重試。
+- discovery item 沒有帶 E 時，只查 U：命中就是 Existing Source，不論 `A.external_id` 是不是 NULL；沒有命中就是 New Source。
+- 是否支援自動更新 URL、要不要 backfill `external_id`，留到之後書商 adapter 或 Google Books writer 真的提供 `external_id` 時再決定，並且要先修改本節。目前博客來 adapter 不提供 `external_id`；Google Books 有 Volume ID。
 
 ### 7.4 補 NULL（只在 distinct Book 恰好 1 本時）
 
@@ -616,7 +624,8 @@ ambiguous（≥ 2）或新建 Book 時不補任何既有 Book。
 
 ### 7.5 並行：single writer
 
-- 在 PR4 完成之前，Catalog identity resolution 只允許**一個 writer**，也就是 crawler（host `flock` 已保證 crawler 不並行，`Docs/deployment/deployment.md` §8）。
+- **在跨 process 的序列化完成之前**，Catalog identity resolution 只允許**一個 writer**。這條限制和 migration 的進度無關，PR4 和 011 都不會解除它。
+- 目前唯一的 writer 是 crawler（host 的 `flock` 已經保證 crawler 不會並行執行，見 `Docs/deployment/deployment.md` §8）。
 - Google Books（#14）或其他 writer 要開始使用本節規則之前，必須先加入跨 process 的序列化：依 §7.1 正規化後的 ISBN 取得 transaction 範圍的 PostgreSQL advisory lock，然後在 lock 內重新查詢 distinct Book 數量（§7.2）。
 - 因為 `ISBN` 不是 unique（§6.5），沒有序列化時兩個 writer 可能各自建立同一本書。
 

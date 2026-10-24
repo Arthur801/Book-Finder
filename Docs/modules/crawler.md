@@ -239,12 +239,15 @@ optionally refresh offer
 
 ### 6.2 Source identity 衝突與 URL 漂移
 
-依 data-model §7.3：
+依 data-model §7.3 的完整矩陣：
 
-- `external_id` 與 `source_url` 分別對到不同的 Source → `CatalogResolution = FAILED`，`error_type = source_identity_conflict`，不重試、不 touch、不補 NULL、不修改任何 Source。
-- `external_id` 對到 Source A，但 URL 不同 → 保留 A 的既有 URL，記 WARNING，照常 touch A（`EXISTING`）。
+- 下列兩種情況都視為 `source_identity_conflict`，結果是 `CatalogResolution = FAILED`、`error_type = source_identity_conflict`，不重試、不 touch、不補 NULL、不修改任何 Source：
+  - `external_id` 和 `source_url` 分別對到不同的 Source。
+  - `external_id` 沒有命中，但 URL 命中的 Source A 有另一個不是 NULL 的 `external_id`。
+- `external_id` 對到 Source A，但 URL 沒有命中（URL 漂移）：保留 A 原本的 URL，記 WARNING，照常 touch A，結果是 `EXISTING`。
+- `external_id` 沒有命中，URL 命中 Source A，而且 `A.external_id` 是 NULL：當成 Existing Source A，照常 touch。這個 release **不 backfill** `external_id`，只記 INFO。
 
-博客來 adapter 不提供 `external_id`，因此目前不會發生這兩種情況；規則供未來 adapter 使用。
+博客來 adapter 不提供 `external_id`，只用 URL 查詢，所以目前不會遇到上面這些情況。這些規則是給之後的 adapter 和 Google Books writer 使用的。
 
 ### 6.3 New Source：ISBN 比對
 
@@ -320,7 +323,7 @@ OTHER
 
 ### 7.2 ISBN
 
-依 data-model §7.1 的正規化 protocol（NFKC → 刪除 U+002D 與 Unicode White_Space → ASCII-only 大寫），儲存為 `ISBN` 類型；不驗證長度與 checksum，正規化後為空字串時不寫入。Python 實作必須通過共用 fixture `tests/Fixtures/isbn-normalization.json`。
+依 data-model §7.1 的正規化 protocol（Unicode 15.1 NFKC → 刪除 U+002D 與 Unicode 15.1 White_Space → ASCII-only 大寫），儲存為 `ISBN` 類型；不驗證長度與 checksum，正規化後為空字串時不寫入。Python 實作必須通過共用 fixture `tests/Fixtures/isbn-normalization.json`。
 
 ### 7.3 Publication date
 
@@ -396,7 +399,7 @@ bestsellers
 
 失敗則 rollback 該 item，依 §13 重試 / 跳過；不得留下半套 Book / Source / Offer。
 
-**Single writer**：在 PR4 完成之前，crawler 是 Catalog identity resolution 唯一的 writer（data-model §7.5）。host `flock` 保證每日與分類榜不並行；crawler 目前不取 advisory lock。
+**Single writer**：在跨 process 的序列化完成以前，Catalog identity resolution 只允許一個 writer。PR4 不會解除這個限制。目前唯一的 writer 是 crawler（data-model §7.5）。host `flock` 保證每日與分類榜不並行；crawler 目前不取 advisory lock。
 
 ---
 

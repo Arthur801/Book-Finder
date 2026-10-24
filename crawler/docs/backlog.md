@@ -35,7 +35,7 @@
 ## CB-04 — Multi-source Catalog：provider code 與 ISBN 比對（#113 PR3）
 
 - P1；L3；狀態：確認缺口（目標規格已定，未實作）。
-- 目標：[crawler §6.3、§7.2](../../Docs/modules/crawler.md) 與 [data-model §7.1～§7.4](../../Docs/data/data-model.md)：只用 `source_code`（不讀寫 010 的 `source_type`）；ISBN 依 NFKC → 刪 U+002D 與 White_Space → ASCII 大寫正規化，存成 `ISBN`，不驗證 checksum；以 draft 所有 ISBN 查 distinct Book（三種類型），0 建立、1 附加並補 NULL、≥ 2 ambiguous 建立；source identity 衝突與 URL 漂移；disabled provider exit 2。
+- 目標：[crawler §6.3、§7.2](../../Docs/modules/crawler.md) 與 [data-model §7.1～§7.4](../../Docs/data/data-model.md)：只用 `source_code`（不讀寫 010 的 `source_type`）；ISBN 依 Unicode 15.1 NFKC → 刪 U+002D 與 Unicode 15.1 White_Space → ASCII 大寫正規化，存成 `ISBN`，不驗證 checksum；以 draft 所有 ISBN 查 distinct Book（三種類型），0 建立、1 附加並補 NULL、≥ 2 ambiguous 建立；source identity 衝突與 URL 漂移；disabled provider exit 2。
 - 目前差距：[models](../books_crawler/models.py) 有 `SourceType`；[normalize](../books_crawler/normalize.py) 驗證格式與 checksum 並分成 ISBN_10／13；[db.find_book_by_isbn](../books_crawler/db.py) 以 `fetchone()` 依 ISBN_13 → ISBN_10 取第一筆；附加時不補 NULL。
 - 前置：PR2 的 migration 010 已部署（同一 release tag）；共用 fixture `tests/Fixtures/isbn-normalization.json` 由 PR2 建立。
 - 驗收：[test-plan §7](../../Docs/testing/test-plan.md) #1～#4、#15、#18、#19 通過；pytest 讀共用 fixture 與 C# 逐 byte 一致。

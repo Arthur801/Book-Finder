@@ -189,7 +189,7 @@ Report：`compat-report.json`（`schema_version: 1`）包含 `classification`、
 | 16 | Detail 去重：同一本 Book 有 `ISBN_13 X` 與 `ISBN X` 只顯示一次 `ISBN X`；值不同的 ISBN 全部顯示 | Unit + Web | PR2 |
 | 17 | touch 失敗：暫時性錯誤重試後成功；最後仍失敗時每日榜單為 `ERROR_SKIP` + `database_error` 且 run 繼續、分類榜只有該筆失敗、first_book FAILED exit 1；三種模式 `existing_source_count` 不加 1、`last_seen_at` 維持原值 | Crawler（DB） | PR3 |
 | 18 | C# 與 Python 讀同一份 `tests/Fixtures/isbn-normalization.json`（完整 `White_Space` 與反例），結果逐 byte 一致 | Unit + Crawler | PR2（C# 與 fixture）／PR3（Python） |
-| 19 | Source identity 衝突：`external_id` 與 `source_url` 對到不同 Source 時回報 `source_identity_conflict` 且沒有寫入；URL 漂移時保留既有 URL、記 WARNING、照常 touch | Crawler（DB） | PR3 |
+| 19 | Source identity 矩陣（`data-model.md` §7.3）：以下兩種情況都回報 `source_identity_conflict`，而且不寫入任何資料：E 和 U 對到不同的 Source；E 沒有命中，但 U 命中的 Source 有不同的非 NULL `external_id`。E 沒有命中、U 命中的 Source 的 `external_id` 是 NULL 時，視為 Existing 並 touch，不 backfill。URL 漂移時保留既有 URL、記 WARNING，照常 touch | Crawler（DB） | PR3 |
 | 20 | 011 ISBN conversion preflight：不同 Book 有相同 ISBN 時仍通過、只回報統計；同一本 Book 的重複值正確去重，預估 row 數與實際一致 | Integration（DB） | PR4 |
 | 21 | 每個 PR：`dotnet build`、`dotnet test`、crawler pytest（含 DB integration）、`deploy/tests`、CI compat | 全部 | PR2／PR3／PR4 |
 
