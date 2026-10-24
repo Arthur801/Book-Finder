@@ -30,7 +30,7 @@ class Recorder:
 
 def test_efbundle_runs_the_pinned_image_with_the_env_file_and_no_pull():
     runner = Recorder()
-    code = adapters.RealDocker(runner).run_efbundle("ghcr.io/x/web@sha256:" + "1" * 64, "/run/book-finder/web-1.env")
+    code, _output = adapters.RealDocker(runner).run_efbundle("ghcr.io/x/web@sha256:" + "1" * 64, "/run/book-finder/web-1.env")
     assert code == 0
     argv, env = runner.calls[0]
     assert argv == [
@@ -350,3 +350,10 @@ def test_compose_config_probe_renders_only_the_file_it_is_given():
     runner = Recorder(stdout="{}")
     adapters.RealCompose(runner, ca_bundle=CA).config_json("/run/book-finder/.probe-x/compose.yaml")
     assert runner.calls[0][0] == ["docker", "compose", "-f", "/run/book-finder/.probe-x/compose.yaml", "config", "--format", "json"]
+
+
+def test_efbundle_returns_the_exit_code_and_its_output_for_the_journal():
+    runner = Recorder(returncode=3, stdout="applying 1\n", stderr="permission denied for schema public\n")
+    code, output = adapters.RealDocker(runner).run_efbundle("ghcr.io/x/web@sha256:" + "1" * 64, "/run/book-finder/web-1.env")
+    assert code == 3
+    assert output == "applying 1\npermission denied for schema public\n"

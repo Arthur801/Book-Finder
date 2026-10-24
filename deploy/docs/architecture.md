@@ -1,7 +1,7 @@
 # deploy/ 架構：責任、選型與已知差距
 
 > 目標：`deploy/`（EC2 host 程式、release 內容、CI/CD 來源、compat 與整合測試），外加分散的 CD 來源（見 §2）。
-> 查核基準：2026-10-24，HEAD `01db2d7`（tag `v0.0.4`）。工作樹 clean（僅既存未追蹤 `.venv`）。
+> 查核基準：2026-10-25，HEAD `5563d80`（#121 的程式 commit；前一基準 `01db2d7`，tag `v0.0.4`）。工作樹 clean（僅既存未追蹤 `.venv`）。
 > 文件修正：PR #107 依程式對照修正 C1 至 C7（見 §8）；程式未改動。
 > 營運觀察（2026-10-24 operator 工作階段）以「營運觀察，非本次驗證」標示；本文件未在 EC2、AWS、GHCR 或 Cloudflare 上執行任何指令。
 
@@ -75,7 +75,7 @@
 | 來源證明 | `actions/attest-build-provenance` 加 `verify-attestation` 在 CD 端；host 不驗證 | I7、runbook §5.2、§7.1 | host 以 `gh` 驗證 | host 無 `gh` 與 sigstore；人工 `--rebuild-web-digest` 與 `--adopt-*` 的 provenance 由操作者負責 |
 | 反向代理與 TLS | host nginx（不在 repository），web 綁 `127.0.0.1:5000`；TLS 由 `acme.sh` | ADR-006 Alternatives（保留 host nginx） | nginx 放進 container | nginx 規則不在本 repository（runbook §7.2 #7 待確認）；Cloudflare 位於前方（營運觀察） |
 | compose 設定注入 | `env_file` `format: raw`，啟動前以 probe 確認 Compose 支援（不使用版本下限） | `machine.compose_raw_env_check`、commit `3b21c71`（以能力探測取代版本下限） | 版本下限；Compose 插值 | 每次 plan 與 deploy 都會呼叫 `docker compose config`；probe 失敗即拒絕 |
-| secret 來源 | host 以 EC2 IAM role 讀 SSM；寫 `web-RUN.env`（600），用後刪除；crawler 另有自己的 DB URL 參數 | deployment.md §5、runbook §2.3 | 把 secret 放進 host.conf 或 compose | 值不寫入 history 與 journal；遮蔽只做字面替換（見 DEP-B12） |
+| secret 來源 | host 以 EC2 IAM role 讀 SSM；寫 `web-RUN.env`（600），用後刪除；設定 `SSM_MIGRATION_CONNECTION` 時另寫 `migrate-RUN.env`（600，只供 efbundle）；crawler 另有自己的 DB URL 參數 | deployment.md §5、runbook §2.3 | 把 secret 放進 host.conf 或 compose | 值不寫入 history 與 journal；遮蔽只做字面替換（見 DEP-B12） |
 | migration 時機 | 只在 forward 時由 host 執行 image 內 `efbundle`；web 啟動不跑 migration | deployment.md §6 | web 啟動時自動 migrate | 失敗後 dirty，只能人工解除（N2、I3）；不自動回滾（I5） |
 | 人工指令的並行 | `operator-started` 寫入後才變更；未完成的 operation 讓後續指令拒絕（exit 8） | S8、S10 | 不記錄 started | 人工中斷會造成 operator operation 保持 open，必須 `resolve-run` |
 | 爬蟲與 migration 的互斥 | `db-maintenance.lock`：deploy 取 exclusive，crawler 取 shared，且先取鎖再讀 state | N3 | 只靠 paused 旗標 | 爬蟲等待上限 7200 秒；兩端預設值需一致（runbook §7.2 #16） |
@@ -128,7 +128,7 @@
 ### 5.4 host.conf 鍵（只列名稱）
 
 必填：`STATE_FILE`、`HISTORY_FILE`、`DEPLOY_LOCK_FILE`、`WEB_IMAGE_REPOSITORY`、`PSQL_IMAGE`、`DATABASE_URL_PARAMETER`、`AWS_REGION`、`SYSTEMD_UNIT`、`PUBLIC_URL`、`RDS_INSTANCE_ID`、`SSM_DB_CONNECTION`、`SSM_OPENAI_KEY`、`SSM_JWT_KEY`、`CRAWLER_IMAGE_REPOSITORY`。
-選填：`DB_CA_BUNDLE`、`COMPOSE_PROJECT`、`LOCK_TIMEOUT_S`、`FOLLOW_TIMEOUT_S`、`CRAWLER_CONF`、`DB_MAINTENANCE_LOCK`、`RELEASES_DIR`、`RUN_DIR`、`CRAWLER_RUNNER`、`CRON_FILE`、`AWS_CLI`。
+選填：`DB_CA_BUNDLE`、`SSM_MIGRATION_CONNECTION`（只供 efbundle；未設定時沿用 `SSM_DB_CONNECTION`）、`COMPOSE_PROJECT`、`LOCK_TIMEOUT_S`、`FOLLOW_TIMEOUT_S`、`CRAWLER_CONF`、`DB_MAINTENANCE_LOCK`、`RELEASES_DIR`、`RUN_DIR`、`CRAWLER_RUNNER`、`CRON_FILE`、`AWS_CLI`。
 字元與大小限制見 [runbook §2.4](../README.md)；重複或未知鍵拒絕，檔案上限 64 KiB。
 
 ### 5.5 release 與 CD 記錄

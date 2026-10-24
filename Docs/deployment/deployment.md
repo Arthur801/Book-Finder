@@ -69,8 +69,8 @@ CD 部署後的配置（`deploy/README.md` §1）：
 | `/book-finder/prod/google-books-api-key` | Google Books（#14 Google Books fallback 實作時才使用；目前程式未讀取，host 也不注入） |
 | `/book-finder/prod/jwt-signing-key` | JWT HS256 key（至少 32 bytes 隨機值） |
 
-- CD 的 deploy 由 host 程式以 EC2 IAM role 讀取 SSM，寫入 `/run/book-finder/web-<run_id>.env`（`chmod 600`），compose 以 `env_file`（`format: raw`）注入；每次部署結束（成功或失敗）都會刪除此檔（`machine.py` 的 `_discard_env`）。secret 值不寫入 history、journal 或 log。
-- host.conf 以鍵名指定 SSM 參數：`SSM_DB_CONNECTION`、`SSM_OPENAI_KEY`、`SSM_JWT_KEY`，以及 host 的 psql 用參數 `DATABASE_URL_PARAMETER`（唯讀查詢 migration 歷史）。格式與權限見 `deploy/README.md` §2.3。
+- CD 的 deploy 由 host 程式以 EC2 IAM role 讀取 SSM，寫入 `/run/book-finder/web-<run_id>.env`（`chmod 600`），compose 以 `env_file`（`format: raw`）注入；設定 `SSM_MIGRATION_CONNECTION` 時另寫入 `migrate-<run_id>.env`（`chmod 600`），只供 efbundle 使用，web 的 env file 不含 migration 連線。每次部署結束（成功或失敗）都會刪除這些檔案（`machine.py` 的 `_discard_env`）。secret 值不寫入 history、journal 或 log；失敗的 migration 只把 efbundle 輸出的遮蔽後尾端寫入 journal。
+- host.conf 以鍵名指定 SSM 參數：`SSM_DB_CONNECTION`、`SSM_OPENAI_KEY`、`SSM_JWT_KEY`，以及 host 的 psql 用參數 `DATABASE_URL_PARAMETER`（唯讀查詢 migration 歷史）。選填的 `SSM_MIGRATION_CONNECTION` 指向擁有 schema 物件的 migration 角色，只供 efbundle 使用（未設定時 efbundle 使用 `SSM_DB_CONNECTION`）；加入 host.conf 前須先安裝支援此鍵的 host（`deploy/README.md` §2.4 的警告）。格式與權限見 `deploy/README.md` §2.3。
 - 獨立 crawler 的 `run-crawler.sh` 每次執行讀取專用 PostgreSQL URL 參數（例如 `/book-finder/prod/crawler-database-url`），寫入 `/run/book-finder/crawler-env.*`（600），透過 Docker `--env-file` 注入，結束後刪除；不共用包含 Web secrets 的 env file。
 - Crawler 只拿 DB 連線字串（secret，經 SSM 注入）與下列非機密的 crawler 設定，不拿 OpenAI / Google Books / JWT key。
 - Web 以設定鍵 `Jwt:SigningKey` 讀取 JWT key（環境變數 `Jwt__SigningKey`）；缺少或短於 32 bytes 時啟動失敗。本機放在 `.env`，啟動前以 `set -a; . ./.env; set +a` 載入 shell（程式本身不讀 `.env`）。
