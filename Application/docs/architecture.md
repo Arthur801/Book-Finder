@@ -1,5 +1,7 @@
 # Application 架構選型
 
+> PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
 > 查核日期：2026-10-24；Git 基準 `91333c3`。目標 `Application/`；本次僅靜態查核，未執行 build、測試、資料庫或外部服務。規格、實作與測試證據分開記錄。
 
 ## Authority 與責任
@@ -14,6 +16,7 @@ Application-level policy 包含 [LibraryService.AddPendingAsync](../Library/Libr
 
 | 責任 | 主要介面/輸出 | Caller與callee |
 |---|---|---|
+| Catalog 寫入端 ISBN | [IsbnNormalizer](../Catalog/IsbnNormalizer.cs)、[Unicode151Assigned](../Catalog/Unicode151Assigned.cs) | 純函式；NFKC 只套用在 Unicode 15.1 已指派的連續區段（與 runtime 的 Unicode 版本無關，data-model 7.1），＋明確 White_Space＋ASCII 大寫，與 crawler 共用 fixture；`EnsureRuntimeUnicodeSupported` 於 Web 啟動時拒絕 15.0 以前的 runtime；尚未接上 crawler（PR3） |
 | Bestseller | [BestsellerService](../Bestsellers/BestsellerService.cs)、IBestsellerReader → snapshot | 後端保留；#109 後 Web 無呼叫者（`HomeTopCount`/`GetTopAsync` 刻意保留）→ cached EF reader |
 | Catalog | [BookSearchService](../Catalog/BookSearchService.cs)、IBookSearch、IBookDetailReader → page/detail | Search/Books controllers → EF/cache |
 | 書庫（Catalog browse） | [BookBrowseService](../Catalog/BookBrowseService.cs)、IBookBrowse → BookBrowsePage / 隨機樣本 | HomeController、BooksController（#109 M2）→ EF |

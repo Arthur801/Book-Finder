@@ -1,5 +1,7 @@
 # Infrastructure AI 文字測試案例庫
 
+> PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
 > 查核日期：2026-10-24；基準 `91333c3`。本次只做文件靜態檢查，未執行 build、測試、migration、部署或外部服務。
 
 ## 共用 fixture 與隔離
@@ -142,6 +144,14 @@ Authority：[test plan](../../Docs/testing/test-plan.md)、[data model](../../Do
 - Then：同日依 Id 升冪；有日期者新到舊且在無日期者前；25 本分 20 與 5 且無重複、TotalPages 2；超出頁數回空 items 且 TotalCount 保留（不溢位）；空庫 TotalPages 0；樣本 15 本回 10 個不重複既有書、3 本回 3 本；作者只含 AUTHOR 並依 contributor_order。
 - 入口：[BookBrowseIntegrationTests](../../tests/WebIntegration/BookBrowseIntegrationTests.cs)；seed 的 `BookSeed.Id` 見 [CatalogSeed](../../tests/WebIntegration/CatalogSeed.cs)。
 
+## INF-T17 — Migration 010 的實體 schema、trigger 與回填
+
+- Given：已 migrate 到 head 的 pgvector container；另一個 container 先停在 `20261010204858_Embedding` 並寫入 v0.0.4 形式的 rows。
+- When：查 `information_schema`、`pg_constraint`、`pg_indexes`、`pg_trigger`，並以 `source_type`-only、`source_code`-only、不一致值、KINGSTONE 寫入；再 migrate 到 010。
+- Then：兩欄都存在；`source_type` 與 `source_code` 皆 NOT NULL，舊 check 仍在；兩個 `source_code` FK 指向 source_providers 且 RESTRICT；`book_subjects` 實體 PK 仍為 `(book_id, subject, source_type)` 且 UNIQUE `(book_id, subject, source_code)` 存在；`book_identifiers` check 接受 `ISBN`；`book_offers` FK 指向 book_sources 且 CASCADE，price、list_price、availability check 存在；雙向 trigger 生效，不一致回 23514，KINGSTONE 未到 011 前回 23502；回填後 `source_code = source_type`。
+- 來源與執行狀態：[MultiSourceCatalogSchemaTests](../../tests/DatabaseIntegration/MultiSourceCatalogSchemaTests.cs)、[MultiSourceBackfillTests](../../tests/DatabaseIntegration/MultiSourceBackfillTests.cs)；本次 `dotnet test` DatabaseIntegration 通過（120 項）。
+
+
 ## 可執行入口（僅記錄，本次未執行）
 
 在 repository root，具對應 .NET SDK；DB/Web projects 另需 Docker、可取得測試 image。所有資料庫只能用 fixture disposable container，AI transport／ports 必須 fake。
@@ -157,3 +167,10 @@ dotnet test tests/WebIntegration/WebIntegration.csproj
 ## 文件導航
 
 [流程](workflow-diagram.md) · [架構](architecture.md) · [待辦](backlog.md) · [歷史](update-history.md) · [案例](test-suite.md)
+
+## INF-T18 — Detail reader 的 ISBN 順序
+
+- Given：同一本書含 ISBN_10、ISBN_13、兩個 ISBN（值亂序）與 OTHER。
+- When：`EfBookDetailReader.ReadAsync`。
+- Then：順序為 ISBN（依值）、ISBN_13、ISBN_10；OTHER 不出現。這是 Application `BookDetail` contract 的順序，由 reader 負責。
+- 來源：[EfBookDetailReaderTests](../../tests/DatabaseIntegration/EfBookDetailReaderTests.cs)（DatabaseIntegration）。本次通過（DatabaseIntegration 123 項）。

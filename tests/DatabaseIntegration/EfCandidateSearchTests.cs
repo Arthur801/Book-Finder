@@ -517,7 +517,7 @@ public class EfCandidateSearchTests(PostgresFixture fixture)
         {
             BookId = bookId,
             Subject = subject,
-            SourceType = SourceType.GoogleBooks,
+            SourceCode = SourceCodes.GoogleBooks,
         });
     }
 

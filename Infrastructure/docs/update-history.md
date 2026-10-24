@@ -1,5 +1,7 @@
 # Infrastructure 修改歷史
 
+> PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
 查核基準 `91333c3` 的 source history 如下；`Infrastructure/docs` 明確排除，不將 PR #100 新增或後續修正的文件 commits 計入 source history。
 
 > 查核日期：2026-10-24；基準 `91333c3`。本次只做文件靜態檢查，未執行 build、測試、migration、部署或外部服務。
@@ -119,3 +121,9 @@ git show <SHA> -- Infrastructure
 |---|---|---|
 | `7c14b09` | docs(browse): sync specs to 書庫 and suspended Bestseller Web | 規格同步；Infrastructure 程式無變更 |
 | 本 M3 baseline commit | docs(browse): record 書庫 query plan baseline and implementation report | INF-B06 由「未量測」改為已量測（開發庫 2884 筆，EF 實際 SQL 的 EXPLAIN ANALYZE）；程式與 schema 無變更 |
+| 2026-10-25 | `2c662f5` | feat(db): add expand migration 010 for multi-source catalog | `Persistence/Migrations/20261024160045_MultiSourceCatalog.cs`（手寫 operations 與雙向 trigger）、`Persistence/Migrations/20261024160045_MultiSourceCatalog.Designer.cs`、`Persistence/Migrations/AppDbContextModelSnapshot.cs`、`Persistence/Configurations/BookSourceConfiguration.cs`／`BookSubjectConfiguration.cs`（改用 SourceCode）、`Persistence/Configurations/SourceProviderConfiguration.cs`／`BookOfferConfiguration.cs`（新增）、`Persistence/AppDbContext.cs`、`Persistence/EfBookDetailReader.cs` |
+| 2026-10-25 | `905c6fc` | test(db): cover migration 010 triggers, physical schema and backfill | `Infrastructure` 無變更（測試位於 `tests/DatabaseIntegration`，見 tests/docs） |
+| 2026-10-25 | `d9d8948` | feat(catalog): read ISBN, ISBN-13 and ISBN-10 and provider names on detail | `Persistence/EfBookSearch.cs`（ISBN 模式三種類型）、`Persistence/EfBookDetailReader.cs`（三種 ISBN、來源 JOIN `source_providers`，不過濾 enabled） |
+| 2026-10-25 | `df57cbf` | test(db): assert last_seen_at-only UPDATE passes the 010 trigger | `Persistence/Migrations/20261024160045_MultiSourceCatalog.cs`：僅新增註解，operations 未變 |
+| 2026-10-25 | `bbe0a0a` | refactor(catalog): share ISBN-family types and display priority | `Persistence/EfBookSearch.cs`、`Persistence/EfBookDetailReader.cs` 改用 IsbnIdentifierTypes；reader 不再依優先序排序（改由 view model 負責）；`Persistence/Migrations/20261024160045_MultiSourceCatalog.cs` 僅註解補充 IX_book_subjects_source_code 為 EF FK 索引 |
+| 2026-10-25 | `c3021e3` | fix(catalog): make the detail reader own ISBN identifier order | `Persistence/EfBookDetailReader.cs`：identifiers 依 DisplayPriority 再依值排序 |

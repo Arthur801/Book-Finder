@@ -6,7 +6,9 @@ namespace Book_Finder.Infrastructure.Persistence;
 public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options)
 {
     public DbSet<Book> Books => Set<Book>();
+    public DbSet<SourceProvider> SourceProviders => Set<SourceProvider>();
     public DbSet<BookSource> BookSources => Set<BookSource>();
+    public DbSet<BookOffer> BookOffers => Set<BookOffer>();
     public DbSet<BookIdentifier> BookIdentifiers => Set<BookIdentifier>();
     public DbSet<BookContributor> BookContributors => Set<BookContributor>();
     public DbSet<BookSubject> BookSubjects => Set<BookSubject>();

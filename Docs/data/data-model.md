@@ -25,7 +25,7 @@
 
 目前 MVP 已實作的主要來源為博客來；Google Books 由 Recommendation fallback 使用。此 schema 不得假設來源永遠只有這兩個：新增書商不應再需要修改資料庫的來源 enum / check constraint。
 
-> **實作狀態**：本文件描述 multi-source 的目標 contract（#113）。現行程式仍使用 closed `SourceType` enum 與 `ISBN_10`／`ISBN_13` identifier，要經過 PR2（migration 010、Web）、PR3（crawler）、PR4（migration 011、cutover）才會一致，見 §14。
+> **實作狀態**：本文件描述 multi-source 的目標 contract（#113）。現行程式：PR2（migration 010、Web 讀寫 `source_code`、三種 ISBN 類型）已於 #115 完成；crawler 仍寫 `source_type`，要經過 PR3（crawler）、PR4（migration 011、cutover）才會一致，見 §14。
 
 ---
 
@@ -554,7 +554,13 @@ C# 與 Python 必須對同一輸入得到**逐 byte 相同**的結果（之後 a
 3. 只把 ASCII a–z 轉成大寫（與 locale 無關）
 ```
 
-NFKC 與 White_Space 都固定在 **Unicode 15.1**。runtime 內建的 Unicode database 版本不同時（例如 .NET 或 Python 升級），以 fixture 為準，實作要自行補足差異。要升級 Unicode 版本，必須先改本節與 fixture，並且同時更新 C# 與 Python 兩邊的實作。
+NFKC 與 White_Space 都固定在 **Unicode 15.1**，與 runtime 內建的 Unicode database 版本無關：
+
+- **分段**：Unicode 15.1 中未指派（`DerivedAge-15.1.0.txt` 沒有列出）的 code point 原樣保留，並作為分段邊界；NFKC 只分別套用在每一段由 15.1 已指派 code point 組成的最大連續區段。這樣做是精確的：在 15.1 中，未指派 code point 都是 combining class 0 的 starter、沒有 decomposition，也不會與任何字元 compose，因此 NFKC 不會跨越它們。
+- **較新的 runtime 也產生 15.1 結果**：依 Unicode Normalization Stability Policy，任何已指派 code point 的 NFKC 在 15.1 以後的版本都不變；因此 Unicode ≥ 16.0 的 runtime 對 15.1 已指派區段會得到相同結果（例如 16.0 新增的 U+1CCF0 OUTLINED DIGIT ZERO 在 15.1 未指派，原樣保留）。
+- **較舊 runtime 的防護**：Unicode 15.0 新增了 U+1E030 MODIFIER LETTER CYRILLIC SMALL A（`<super>` 分解為 U+0430）。低於 15.0 的 runtime 會對已指派區段做不足的正規化，因此服務啟動時以 `IsbnNormalizer.EnsureRuntimeUnicodeSupported()` 檢查 `NFKC(U+1E030) == U+0430`，不符即拒絕啟動。15.1 沒有新增任何分解，因此 ≥ 15.0 即足夠。
+- **資料來源**：vendored 於 `tests/Fixtures/unicode-15.1/`（`DerivedAge.txt`、`NormalizationTest.txt` 原檔；`NormalizationTest-NFKC.txt` 由 `.github/scripts/unicode_tables.py` 只保留 c1 與 c4 兩欄）。已指派表由同一腳本產生為 `Application/Catalog/Unicode151Assigned.cs` 與 `crawler/books_crawler/unicode_15_1.py`；CI 以 `--check` 重新產生並比對，任何漂移即失敗。C# 以 NormalizationTest 的全部 c1→c4 對做 NFKC 一致性測試。
+- 要升級 Unicode 版本，必須先改本節、fixture 與 vendored 資料，並重新產生表格，同時更新 C# 與 Python 兩邊的實作。
 
 - 不驗證長度、不驗證 checksum；正規化結果為空字串時不寫入 identifier。
 - 儲存的類型為 `ISBN`（§6.5）；不做 ISBN-10 ↔ 13 互轉。

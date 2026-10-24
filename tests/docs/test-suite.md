@@ -1,5 +1,7 @@
 # tests 面向 AI 的文字案例庫
 
+> PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
 > 2026-10-24；HEAD `91333c3`。已有測試均為「已有測試但本次未執行」。本次只查核來源，沒有通過結果；文字案例不授權執行外部連線、部署或 migration 至正式資料庫。
 
 ## 共同準備與隔離
@@ -168,3 +170,24 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter FullyQualifiedNa
 - 位置：[BookBrowsePageTests](../WebIntegration/BookBrowsePageTests.cs)、[LayoutAndHomeTests](../WebIntegration/LayoutAndHomeTests.cs)、[HtmlPage](../WebIntegration/HtmlPage.cs)；單元層 [BookBrowseViewModelTests](../UnitTests/BookBrowseViewModelTests.cs)。
 
 [流程](workflow-diagram.md) · [架構](architecture.md) · [待辦](backlog.md) · [歷史](update-history.md)
+
+### TEST-17：Migration 010 的實體 schema、trigger 與 ISBN 正規化 fixture
+
+- **Given**：拋棄式 pgvector container，已 migrate 到 head；ISBN 正規化使用 [tests/Fixtures/isbn-normalization.json](../Fixtures/isbn-normalization.json)。
+- **When**：查 catalog；以 v0.0.4 形式與 `source_code`-only 形式寫入；寫入不一致值或 KINGSTONE；用 legacy ISBN_13 與 `ISBN` 寫入同值；回填測試從 `20261010204858_Embedding` 遷移。
+- **Then**：TEST-02 的 constraint 不回歸；§7 #9、#10 通過；實體 PK 與 UNIQUE 符合 data-model §11.4；NOT NULL、legacy check、RESTRICT／CASCADE FK 與 identifier check 值符合 010；`IsbnNormalizerTests` 的 73 個 vector 全部相符。
+- **來源與狀態**：[MultiSourceCatalogSchemaTests](../DatabaseIntegration/MultiSourceCatalogSchemaTests.cs)、[MultiSourceBackfillTests](../DatabaseIntegration/MultiSourceBackfillTests.cs)、[constraints.sql](../DatabaseIntegration/constraints.sql)、[IsbnNormalizerTests](../UnitTests/IsbnNormalizerTests.cs)。本次 `dotnet test` DatabaseIntegration 120 項、UnitTests 806 項通過。
+
+### TEST-18：Detail 的 ISBN 三種類型、同值去重與 disabled provider
+
+- **Given**：一本書的 `ISBN`、`ISBN_13`、`ISBN_10` identifier（含同值），以及 Google Books 來源；測試結束時 `source_providers` 的 `enabled` 還原。
+- **When**：Detail 頁與 ISBN、關鍵字搜尋；把 GOOGLE_BOOKS 設為 `enabled=false` 後再開 Detail。
+- **Then**：同值只顯示 `ISBN`；不同值全部顯示；`ABC123` 走關鍵字而不命中 ISBN 類型；disabled provider 既有的來源仍顯示，連結文字為 provider 顯示名稱。
+- **來源與狀態**：[BookDetailViewModelTests](../UnitTests/BookDetailViewModelTests.cs)（單元）、[BookDetailPageTests](../WebIntegration/BookDetailPageTests.cs)、[SearchPageTests](../WebIntegration/SearchPageTests.cs)（WebIntegration）。本次 `dotnet test` 通過。
+
+### TEST-19：NFKC 與 Unicode 15.1 一致性、detail 的 ISBN 順序
+
+- **Given**：vendored NormalizationTest 15.1 的 c1→c4 對；fixture 的未指派 OUTLINED DIGIT 與分段 vector；一本含三種 ISBN 類型與 OTHER 的書。
+- **When**：`NormalizationConformanceTests` 與 `IsbnNormalizerTests`；`EfBookDetailReaderTests` 讀 Detail。
+- **Then**：NFKC 與 15.1 一致；未指派 code point 不被正規化；reader 依 ISBN、ISBN_13、ISBN_10 排序，OTHER 不出現。
+- **來源與狀態**：[NormalizationConformanceTests](../UnitTests/NormalizationConformanceTests.cs)、[Unicode151AssignedTests](../UnitTests/Unicode151AssignedTests.cs)、[EfBookDetailReaderTests](../DatabaseIntegration/EfBookDetailReaderTests.cs)。本次 `dotnet test` UnitTests 826、DatabaseIntegration 123 通過。

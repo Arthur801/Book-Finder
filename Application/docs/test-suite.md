@@ -1,5 +1,7 @@
 # Application 文字測試案例庫
 
+> PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
 > 查核日期：2026-10-24；Git 基準 `91333c3`。目標 `Application/`；本次僅靜態查核，未執行 build、測試、資料庫或外部服務。規格、實作與測試證據分開記錄。
 
 ## 執行策略與共同fixture
@@ -187,6 +189,15 @@ dotnet test tests/WebIntegration/WebIntegration.csproj
 - **Then**：page小於1時port收到1，正數原值傳入；pageSize固定20；首頁樣本請求10筆；port結果原樣回傳；TotalPages為總數除以20的上取整；TotalCount為int.MaxValue時TotalPages為107374183（不溢位）。
 - 測試來源／擴充入口：[BookBrowseServiceTests.cs](../../tests/UnitTests/BookBrowseServiceTests.cs)。
 
+### APP-T21 — 寫入端 ISBN 正規化與共用 fixture
+
+風險 L2；`2a6966b` 已實作。來源：[IsbnNormalizer](../Catalog/IsbnNormalizer.cs)、[IsbnNormalizerTests](../../tests/UnitTests/IsbnNormalizerTests.cs)、[fixture](../../tests/Fixtures/isbn-normalization.json)。
+
+- **Given**：fixture 中每個 vector 的 input 與 expected（逐 byte）；Unicode 15.1 的每個 White_Space code point。
+- **When**：`IsbnNormalizer.Normalize`。
+- **Then**：73 個 vector 全部相符；U+001C～U+001F、U+180E、U+200B、U+2010、U+2013 保留；全形數字、全形 X、全形連字號與小寫 x 正確；覆蓋測試確認每個 White_Space code point 都有 vector。本次 `dotnet test` UnitTests 通過（806 項）。
+
+
 ## 明確暫緩與證據限制
 
 Auth的Google登入/email驗證/忘記密碼/個資修改/refresh token依identity-auth §1明確暫緩；browser E2E依test-plan §2 MVP不做，沒有冒充可執行案例。APP-T15/T16對應APP-B01，APP-T17對應APP-B02；既有quota並行小幅超額是規格接受行為，不暗加嚴格reservation驗收。
@@ -196,3 +207,19 @@ Auth的Google登入/email驗證/忘記密碼/個資修改/refresh token依identi
 ## 導覽
 
 [流程](workflow-diagram.md)・[架構](architecture.md)・[待辦](backlog.md)・[歷史](update-history.md)・[案例](test-suite.md)
+
+### APP-T22 — Detail 的 ISBN 去重與主要按鈕規則
+
+風險 L2；`d9d8948` 已實作。來源：[BookDetailViewModelTests](../../tests/UnitTests/BookDetailViewModelTests.cs)。
+
+- **Given**：同值的 `ISBN` 與 `ISBN_13`、同值的 `ISBN_13` 與 `ISBN_10`，不同值的三種類型，`javascript:` 與 `https` 的 KINGSTONE 來源，Google Books 與博客來來源。
+- **When**：`BookDetailViewModel.From`。
+- **Then**：同值只顯示優先度最高的標籤（ISBN > ISBN-13 > ISBN-10）；不同值全部顯示；OTHER 不出現；有博客來時第一筆為主要按鈕，其餘博客來為次要，其他 provider 依來源順序並以 `ProviderDisplayName` 命名；沒有博客來時第一個合格來源（任一 provider）為主要按鈕。本次 `dotnet test` UnitTests 通過。
+
+### APP-T23 — 寫入端 NFKC 與 Unicode 15.1 一致性
+
+風險 L2；`aa792bf` 已實作。來源：[NormalizationConformanceTests](../../tests/UnitTests/NormalizationConformanceTests.cs)、[Unicode151AssignedTests](../../tests/UnitTests/Unicode151AssignedTests.cs)、[IsbnNormalizerTests](../../tests/UnitTests/IsbnNormalizerTests.cs)。
+
+- **Given**：vendored NormalizationTest 15.1 的全部 c1→c4 對（trimmed 檔）；15.1 已指派與未指派的 code point（如 U+1CCF0 OUTLINED DIGIT ZERO 未指派）。
+- **When**：`IsbnNormalizer.ComposeCompatibility`；`EnsureRuntimeUnicodeSupported`。
+- **Then**：所有 c1 的 NFKC 等於 c4；未指派 code point 原樣保留並分段；runtime 的 Unicode 資料至少 15.0。本次 UnitTests 826 項通過。

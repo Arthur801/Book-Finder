@@ -16,8 +16,9 @@ public class StoredEnumTests
     [Fact]
     public void Stored_values_match_the_data_model_vocabulary()
     {
-        Assert.Equal("source_type IN ('BOOKS_COM_TW', 'GOOGLE_BOOKS')", StoredEnum.InSql<SourceType>("source_type"));
-        Assert.Equal("identifier_type IN ('ISBN_10', 'ISBN_13', 'OTHER')", StoredEnum.InSql<IdentifierType>("identifier_type"));
+        Assert.Equal("identifier_type IN ('ISBN', 'ISBN_10', 'ISBN_13', 'OTHER')", StoredEnum.InSql<IdentifierType>("identifier_type"));
+        Assert.Equal("provider_kind IN ('RETAILER', 'BIBLIOGRAPHIC')", StoredEnum.InSql<ProviderKind>("provider_kind"));
+        Assert.Equal("availability IN ('IN_STOCK', 'OUT_OF_STOCK', 'PREORDER', 'UNKNOWN')", StoredEnum.InSql<OfferAvailability>("availability"));
         Assert.Equal("role IN ('AUTHOR', 'ORIGINAL_AUTHOR', 'TRANSLATOR', 'EDITOR', 'ILLUSTRATOR', 'OTHER')",
             StoredEnum.InSql<ContributorRole>("role"));
         Assert.Equal("published_date_precision IN ('YEAR', 'MONTH', 'DAY')",
@@ -30,7 +31,8 @@ public class StoredEnumTests
     [Fact]
     public void Every_value_roundtrips()
     {
-        AssertRoundtrips<SourceType>();
+        AssertRoundtrips<ProviderKind>();
+        AssertRoundtrips<OfferAvailability>();
         AssertRoundtrips<IdentifierType>();
         AssertRoundtrips<ContributorRole>();
         AssertRoundtrips<PublishedDatePrecision>();

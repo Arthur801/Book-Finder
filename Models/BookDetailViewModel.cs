@@ -14,7 +14,6 @@ public sealed record BookDetailViewModel(
 {
     private const string BooksComTwPrimaryText = "在博客來查看完整介紹";
     private const string BooksComTwSecondaryText = "在博客來查看";
-    private const string GoogleBooksText = "在 Google Books 查看";
 
     public static BookDetailViewModel From(BookDetail detail) =>
         new(
@@ -32,17 +31,28 @@ public sealed record BookDetailViewModel(
         var rows = new List<BookInfoRow>();
         AddRow(rows, "出版社", Optional(detail.Publisher));
         AddRow(rows, "出版日期", PublishedDateText.Format(detail.PublishedDate, detail.PublishedDatePrecision));
-        // The reader passes only ISBN-13 and ISBN-10, ISBN-13 first, so the page keeps that order.
-        rows.AddRange(detail.Identifiers.Select(identifier => new BookInfoRow(IdentifierLabel(identifier.Type), identifier.Value)));
+        rows.AddRange(IdentifierRows(detail.Identifiers));
         var subjects = detail.Subjects.Where(subject => !string.IsNullOrWhiteSpace(subject)).ToList();
         AddRow(rows, "分類", subjects.Count > 0 ? string.Join("、", subjects) : null);
         AddRow(rows, "頁數", detail.PageCount is { } pages ? $"{pages} 頁" : null);
         return rows;
     }
 
-    // Exhaustive on purpose: OTHER identifiers are filtered out by the reader and must never reach the page.
+    // OTHER identifiers never reach the page. A value that appears under several ISBN types is shown once, under the
+    // highest-priority type (ISBN > ISBN-13 > ISBN-10); different values are all kept (book-catalog 4.1). The reader already
+    // returns this order (EfBookDetailReader owns it); the OrderBy below only keeps the view model correct for other callers.
+    private static IEnumerable<BookInfoRow> IdentifierRows(IReadOnlyList<BookDetailIdentifier> identifiers) =>
+        identifiers
+            .Where(identifier => IsbnIdentifierTypes.All.Contains(identifier.Type))
+            .GroupBy(identifier => identifier.Value, StringComparer.Ordinal)
+            .Select(group => group.OrderBy(identifier => IsbnIdentifierTypes.DisplayPriority(identifier.Type)).First())
+            .OrderBy(identifier => IsbnIdentifierTypes.DisplayPriority(identifier.Type))
+            .ThenBy(identifier => identifier.Value, StringComparer.Ordinal)
+            .Select(identifier => new BookInfoRow(IdentifierLabel(identifier.Type), identifier.Value));
+
     private static string IdentifierLabel(IdentifierType type) => type switch
     {
+        IdentifierType.Isbn => "ISBN",
         IdentifierType.Isbn13 => "ISBN-13",
         IdentifierType.Isbn10 => "ISBN-10",
         _ => throw new InvalidOperationException($"Identifier type {type} must not reach the Book detail page."),
@@ -55,28 +65,31 @@ public sealed record BookDetailViewModel(
     }
 
     // One link per safe Book Source (an absolute http or https URL; any other source is skipped entirely).
-    // The first Books.com.tw source is the main button; without one, the first Google Books source is.
-    // Sources keep the reader's order (first seen, then id).
+    // Books.com.tw sources come first; the first of them is the main button, and the rest are secondary links. Other
+    // providers follow in reader order. Without a Books.com.tw source, the first safe source of any provider is the main
+    // button (book-catalog 4). Sources keep the reader's order (first seen, then id).
     private static IReadOnlyList<BookLink> LinksOf(IReadOnlyList<BookDetailSource> sources)
     {
         var safe = sources.Where(source => WebUrlOrNull(source.Url) is not null).ToList();
-        var booksComTw = safe.Where(source => source.Type == SourceType.BooksComTw).ToList();
-        var googleBooks = safe.Where(source => source.Type == SourceType.GoogleBooks).ToList();
+        var booksComTw = safe.Where(source => source.SourceCode == SourceCodes.BooksComTw).ToList();
+        var others = safe.Where(source => source.SourceCode != SourceCodes.BooksComTw).ToList();
         var links = new List<BookLink>();
 
         if (booksComTw.Count > 0)
         {
             links.Add(new BookLink(BooksComTwPrimaryText, booksComTw[0].Url, IsPrimary: true));
             links.AddRange(booksComTw.Skip(1).Select(source => new BookLink(BooksComTwSecondaryText, source.Url, IsPrimary: false)));
-            links.AddRange(googleBooks.Select(source => new BookLink(GoogleBooksText, source.Url, IsPrimary: false)));
+            links.AddRange(others.Select(source => new BookLink(ProviderText(source), source.Url, IsPrimary: false)));
         }
         else
         {
-            links.AddRange(googleBooks.Select((source, index) => new BookLink(GoogleBooksText, source.Url, IsPrimary: index == 0)));
+            links.AddRange(others.Select((source, index) => new BookLink(ProviderText(source), source.Url, IsPrimary: index == 0)));
         }
 
         return links;
     }
+
+    private static string ProviderText(BookDetailSource source) => $"在 {source.ProviderDisplayName} 查看";
 
     // Only absolute http or https URLs are kept; anything else (javascript:, relative, other schemes) becomes null.
     private static string? WebUrlOrNull(string? url) =>

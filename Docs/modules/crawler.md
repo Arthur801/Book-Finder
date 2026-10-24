@@ -928,7 +928,7 @@ Docs/data/data-model.md
 
 不得在 crawler 內自行建立或演化另一套 schema。Crawler 只能在 migration 010 部署之後才開始寫 `source_code`（data-model §14）；PR2 與 PR3 以同一個 release tag 部署。
 
-Book detail 目前以 `SourceType` 決定連結文字；PR2 起改由 `source_code` + `source_providers.display_name` 產生（`Docs/modules/book-catalog.md` §4）。未來 price comparison UI 再由 `book_offers` 產生價格列表。
+Book detail 已由 `source_code` + `source_providers.display_name` 產生連結文字（PR2，#115 完成；`Docs/modules/book-catalog.md` §4）。未來 price comparison UI 再由 `book_offers` 產生價格列表。
 
 ---
 

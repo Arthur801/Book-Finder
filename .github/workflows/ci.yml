@@ -103,6 +103,9 @@ jobs:
           pip install "$pytest_pin"
         working-directory: crawler
 
+      # The Unicode 15.1 tables behind the ISBN protocol must match the vendored DerivedAge data (data-model 7.1); regenerate with --write.
+      - run: python .github/scripts/unicode_tables.py --check
+
       - run: pytest .github/scripts/tests deploy/tests -q
 
       # The host program runs on Ubuntu 24.04's Python 3.12, so its tests also run there to catch newer syntax or stdlib use.

@@ -1,5 +1,7 @@
 # deploy/ 測試案例庫（AI 可操作的文字案例）
 
+> PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
 > 目標：`deploy/`（host 程式、CD 腳本、compat、整合測試）與分散的 CD 來源。
 > 查核基準：2026-10-24，HEAD `01db2d7`。本次文件任務**沒有執行任何測試命令**；狀態「已有測試」只表示測試存在，不表示本次通過。
 > 規格來源：[deploy/README.md](../README.md)（runbook）、[Docs/deployment/deployment.md](../../Docs/deployment/deployment.md)、[ADR-006](../../Docs/architecture/architecture-decisions.md)、[test-plan §6](../../Docs/testing/test-plan.md)。
@@ -9,7 +11,7 @@
 
 | 代號 | 類別 | 可以證明什麼 | 不能證明什麼 |
 |---|---|---|---|
-| S | 靜態檢查（lint、shellcheck、版本同步、migration 不可變檢查、Dockerfile 與 compose 內容） | 文字與格式符合規則 | 執行時行為 |
+| S | 靜態檢查（lint、shellcheck、版本同步、migration 不可變檢查、Dockerfile 與 compose 內容、Unicode 15.1 表格與 vendored 資料一致性 `unicode_tables.py --check`） | 文字與格式符合規則 | 執行時行為 |
 | M | 替身單元（fake world、fake clock、ScriptedRunner） | 狀態機分支與順序 | 真實 docker、systemd、AWS 的行為 |
 | I | 拋棄式整合（`BOOKFINDER_IT=1`，真實 docker 與 pgvector，AWS 與 nginx 為替身） | 真實 image、compose、unit body 與 history 的互動 | systemd system manager、真實 SSM、真實 RDS、真實 nginx |
 | O | 營運觀察（2026-10-24 operator 工作階段） | production 曾發生的事件 | 本次驗證；不可當作測試通過 |
@@ -57,6 +59,7 @@
 | `BOOKFINDER_IT=1 bash deploy/integration/run-local.sh` | test-plan §6.2 與 runbook | 需本機 Docker；建立 `bf-it-*` 容器；使用 port 5000；**不在 CI** | 已有測試但本次未執行（不列為 production 證據） |
 | `docker build --build-arg GIT_COMMIT=… -t book-finder-web:ci .` 與 `bash deploy/smoke/web-smoke.sh book-finder-web:ci`（含 `--control-no-keys`） | `ci.yml` `docker` job | 需 Docker；內部網路；placeholder secrets | 已有測試但本次未執行 |
 | `bash deploy/integration/imagetools-roundtrip.sh` | `ci.yml` `docker` job | 需 Docker 與本機 registry（`127.0.0.1`） | 已有測試但本次未執行 |
+| `deploy/migration-test/seeds/20261024160045_MultiSourceCatalog.sql`（010 head seed）| compat 在 applied 為 010 時必須有此 seed；本次只以 Testcontainers 驗證可載入並列數（`book_sources` 5 筆、`book_subjects` 3 筆、`book_offers` 2 筆） | 待 CI compat 證據 |
 | `bash deploy/migration-test/compat.sh --rebuild-image IMG --target-image IMG [--runtime-image IMG\|none] --applied FILE --seeds-dir DIR --report OUT.json` | CD `compat` job；`ci.yml` 在 PR 條件下執行 | 需 Docker 與 GHCR digest；拋棄式 DB | 已有測試但本次未執行 |
 | `ssh -i <plan key> -o IdentitiesOnly=yes deployer@<EC2_HOST> "status 1-1"`（預期 `not-started`，exit 0） | runbook §2.6（上線前驗證） | 只讀；不改變 state | 營運觀察（上線前驗證的結果未記錄） |
 

@@ -1,5 +1,7 @@
 # Domain 文字測試案例庫
 
+> PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
 查核：2026-10-24；HEAD `91333c3`。本次只做靜態查核，沒有執行下列測試。已有測試不表示本次已通過。Domain 無獨立測試專案，多數 invariant 在 DB integration 與 Application/contract tests 斷言。
 
 ## Fixture、隔離與操作邊界
@@ -24,7 +26,7 @@ dotnet test tests/UnitTests/UnitTests.csproj --filter 'FullyQualifiedName~BookDe
 
 ### DOM-T02 — enum 與 SQL vocabulary
 
-風險 L3；已有測試，本次未執行。來源：[StoredEnum](../../Infrastructure/Persistence/StoredEnum.cs)、[StoredEnumTests](../../tests/DatabaseIntegration/StoredEnumTests.cs)。Given 五組 enum 全值及無效 stored code；When ToStored/FromStored；Then WANT_TO_READ、ISBN_13 等符合詞彙、全值 roundtrip，未知值丟 InvalidOperationException。DB CHECK 另由 DOM-T03 保護，不把 C# enum 型別當自動驗證。
+風險 L3；已有測試，本次未執行。來源：[StoredEnum](../../Infrastructure/Persistence/StoredEnum.cs)、[StoredEnumTests](../../tests/DatabaseIntegration/StoredEnumTests.cs)。Given 六組 enum（含 IdentifierType.Isbn、ProviderKind、OfferAvailability）全值及無效 stored code；ISBN、provider_kind、availability 的 CHECK 詞彙需與 data-model 一致；When ToStored/FromStored；Then WANT_TO_READ、ISBN_13 等符合詞彙、全值 roundtrip，未知值丟 InvalidOperationException。DB CHECK 另由 DOM-T03 保護，不把 C# enum 型別當自動驗證。
 
 ### DOM-T03 — constraints、索引與刪除
 

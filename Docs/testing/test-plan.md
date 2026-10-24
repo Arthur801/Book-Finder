@@ -167,7 +167,7 @@ Report：`compat-report.json`（`schema_version: 1`）包含 `classification`、
 
 ## 7. Multi-source Catalog 規劃覆蓋（#113）
 
-以下是 #113 系列 PR 必須新增的測試；**目前尚未實作**。「PR」欄為負責實作的 PR（PR2：migration 010 與 Web；PR3：crawler；PR4：migration 011 與 cutover）。規則來源見 `Docs/data/data-model.md` §7、§11 與 `Docs/modules/crawler.md` §6、§10、§14。
+以下是 #113 系列 PR 必須新增的測試。狀態：標為「已實作」的 PR2 列已由下方列出的測試覆蓋（PR2 phase A 與 B，`2c662f5`、`d9d8948`、`df57cbf`）；其餘 PR3、PR4 列仍是規劃，尚未實作。「PR」欄為負責實作的 PR（PR2：migration 010 與 Web；PR3：crawler；PR4：migration 011 與 cutover）。規則來源見 `Docs/data/data-model.md` §7、§11 與 `Docs/modules/crawler.md` §6、§10、§14。
 
 | # | 案例 | 層 | PR |
 |---|---|---|---|
@@ -179,18 +179,18 @@ Report：`compat-report.json`（`schema_version: 1`）包含 `classification`、
 | 6 | Existing Source 同榜重複：`existing_source`、`skipped`、`error`、consecutive 各 +1，不 reset | Crawler（ledger） | PR3 |
 | 7 | 連續 10 個 `ERROR_SKIP`、1 個 `RESTRICTED_SKIP`、再 1 個 `ERROR_SKIP` → `consecutive_error_count = 1` | Crawler（ledger） | PR3 |
 | 8 | 011：同一本 Book 同時有 `ISBN_13 X` 與 `ISBN X`，跑完只剩一筆 `ISBN X`，migration 不失敗 | Integration（DB） | PR4 |
-| 9 | 010 trigger：只帶 `source_type` 的 INSERT 成功（v0.0.4 寫法）；只帶 `source_code` 的 INSERT 成功；兩值不一致被拒絕；原本的 ISBN_10／13 unique 仍有效 | Integration（DB） | PR2 |
-| 10 | 實體 schema（查 `pg_constraint`、`pg_indexes`、`information_schema`）：010 之後 `source_type` 與 `source_code` 並存、`book_subjects` PK 為 `(book_id, subject, source_type)`、UNIQUE `(book_id, subject, source_code)`；011 之後 `source_type` 不存在、PK 為 `(book_id, subject, source_code)` | Integration（DB） | PR2／PR4 |
+| 9 | 010 trigger：只帶 `source_type` 的 INSERT 成功（v0.0.4 寫法）；只帶 `source_code` 的 INSERT 成功；兩值不一致被拒絕；原本的 ISBN_10／13 unique 仍有效 | Integration（DB） | PR2 已實作：`MultiSourceCatalogSchemaTests`（`Source_type_only_insert_from_v004_writer_fills_source_code`、`Source_code_only_insert_fills_source_type`、`Mismatched_source_type_and_source_code_are_rejected`、`Legacy_isbn13_stays_unique_while_isbn_values_may_be_shared`） |
+| 10 | 實體 schema（查 `pg_constraint`、`pg_indexes`、`information_schema`）：010 之後 `source_type` 與 `source_code` 並存、`book_subjects` PK 為 `(book_id, subject, source_type)`、UNIQUE `(book_id, subject, source_code)`；011 之後 `source_type` 不存在、PK 為 `(book_id, subject, source_code)` | Integration（DB） | PR2／PR4 010 部分已實作：`Physical_schema_matches_expand_step`、`Physical_constraints_match_the_expand_contract`；011 部分仍為 PR4 |
 | 11 | `last_seen_at`：Existing Source 在 abort 或 snapshot 失敗後更新仍保留；New Source 失敗時不寫任何資料；分類榜與 first_book 也會更新 | Crawler（DB） | PR3 |
-| 12 | Search 與 Detail：三種 ISBN 類型都讀得到；輸入 `ABC123` 不走 ISBN 搜尋；使用共用 test vectors | Unit + Web | PR2 |
+| 12 | Search 與 Detail：三種 ISBN 類型都讀得到；輸入 `ABC123` 不走 ISBN 搜尋；使用共用 test vectors | Unit + Web | PR2 已實作：C# 側 `IsbnNormalizerTests`；Search `SearchPageTests.Isbn_mode_matches_the_new_isbn_type_as_well_as_legacy_types`、`Abc123_is_a_keyword_search_and_never_matches_an_identifier`；Detail `BookDetailViewModelTests`、`BookDetailPageTests`。Search 規則不依 fixture（§3.1 與寫入端正規化刻意分開） |
 | 13 | PR3 runtime 在 011 上相容：PR3 Web 的 Search、Detail（含去重）、health；PR3 crawler 的 Existing Source 查詢與 touch、ISBN 查詢、寫入新 Source、Bestseller 驗證與替換 | Integration / compat | PR4（gate） |
 | 14 | Manual recovery compatibility：011 的 DB 搭配上一個 release 的 Web 與 crawler，手動恢復所需的 smoke 全部通過（CD compat 的 runtime smoke 依 I5 仍只供參考） | Integration / compat | PR4（gate） |
 | 15 | Stale 偵測依欄位（`Infrastructure/Persistence/BookMetadata.cs` 的 hash 輸入）：補 AUTHOR、subject 或 description → embedding FindPending 與 profile FindStale 都 stale；補 publisher 或 table_of_contents → 只有 profile stale；只補 published_date、page_count、thumbnail 或 ISBN → 都不要求 stale | Integration（DB） | PR3 |
-| 16 | Detail 去重：同一本 Book 有 `ISBN_13 X` 與 `ISBN X` 只顯示一次 `ISBN X`；值不同的 ISBN 全部顯示 | Unit + Web | PR2 |
+| 16 | Detail 去重：同一本 Book 有 `ISBN_13 X` 與 `ISBN X` 只顯示一次 `ISBN X`；值不同的 ISBN 全部顯示 | Unit + Web | PR2 已實作：`BookDetailViewModelTests`（同值去重與標籤順序）、`BookDetailPageTests.Isbn_type_is_labelled_plain_isbn_and_legacy_isbn13_with_the_same_value_is_not_repeated` |
 | 17 | touch 失敗：暫時性錯誤重試後成功；最後仍失敗時每日榜單為 `ERROR_SKIP` + `database_error` 且 run 繼續、分類榜只有該筆失敗、first_book FAILED exit 1；三種模式 `existing_source_count` 不加 1、`last_seen_at` 維持原值 | Crawler（DB） | PR3 |
-| 18 | C# 與 Python 讀同一份 `tests/Fixtures/isbn-normalization.json`（完整 `White_Space` 與反例），結果逐 byte 一致 | Unit + Crawler | PR2（C# 與 fixture）／PR3（Python） |
+| 18 | C# 與 Python 讀同一份 `tests/Fixtures/isbn-normalization.json`（完整 `White_Space` 與反例），結果逐 byte 一致 | Unit + Crawler | PR2（C# 與 fixture）／PR3（Python） C# 部分已實作：`IsbnNormalizerTests`（fixture 全部 vector 與 White_Space 覆蓋）；Python 部分仍為 PR3 |
 | 19 | Source identity 矩陣（`data-model.md` §7.3）：以下兩種情況都回報 `source_identity_conflict`，而且不寫入任何資料：E 和 U 對到不同的 Source；E 沒有命中，但 U 命中的 Source 有不同的非 NULL `external_id`。E 沒有命中、U 命中的 Source 的 `external_id` 是 NULL 時，視為 Existing 並 touch，不 backfill。URL 漂移時保留既有 URL、記 WARNING，照常 touch | Crawler（DB） | PR3 |
 | 20 | 011 ISBN conversion preflight：不同 Book 有相同 ISBN 時仍通過、只回報統計；同一本 Book 的重複值正確去重，預估 row 數與實際一致 | Integration（DB） | PR4 |
 | 21 | 每個 PR：`dotnet build`、`dotnet test`、crawler pytest（含 DB integration）、`deploy/tests`、CI compat | 全部 | PR2／PR3／PR4 |
 
-另外：disabled provider 的既有 Book Source 仍出現在 Detail（PR2）；crawler 對 disabled provider 啟動 job 時 exit 2（PR3）。
+另外：disabled provider 的既有 Book Source 仍出現在 Detail（PR2，已實作：`BookDetailPageTests.Source_of_a_disabled_provider_is_still_shown_with_its_provider_display_name`）；crawler 對 disabled provider 啟動 job 時 exit 2（PR3）。

@@ -92,7 +92,7 @@ public sealed class BookDetailPageTests(WebFixture fixture)
         await fixture.ResetDatabaseAsync();
         var book = await AddBookAsync(new BookSeed("三體")
         {
-            Sources = [new SourceSeed(SourceType.BooksComTw, SourceUrl: "https://www.books.com.tw/products/0010000001")],
+            Sources = [new SourceSeed(SourceCodes.BooksComTw, SourceUrl: "https://www.books.com.tw/products/0010000001")],
         });
         await using var app = fixture.CreateFactory();
 
@@ -111,8 +111,8 @@ public sealed class BookDetailPageTests(WebFixture fixture)
         {
             Sources =
             [
-                new SourceSeed(SourceType.GoogleBooks, SourceUrl: "https://books.google.com/books?id=vol-both", ExternalId: "vol-both"),
-                new SourceSeed(SourceType.BooksComTw, SourceUrl: "https://www.books.com.tw/products/0010000002"),
+                new SourceSeed(SourceCodes.GoogleBooks, SourceUrl: "https://books.google.com/books?id=vol-both", ExternalId: "vol-both"),
+                new SourceSeed(SourceCodes.BooksComTw, SourceUrl: "https://www.books.com.tw/products/0010000002"),
             ],
         });
         await using var app = fixture.CreateFactory();
@@ -136,7 +136,7 @@ public sealed class BookDetailPageTests(WebFixture fixture)
         {
             Description = "簡介標記ZZ-GOOGLE-DESC",
             TableOfContents = "目錄標記ZZ-GOOGLE-TOC",
-            Sources = [new SourceSeed(SourceType.GoogleBooks, SourceUrl: "https://books.google.com/books?id=vol-only", ExternalId: "vol-only")],
+            Sources = [new SourceSeed(SourceCodes.GoogleBooks, SourceUrl: "https://books.google.com/books?id=vol-only", ExternalId: "vol-only")],
         });
         await using var app = fixture.CreateFactory();
 
@@ -159,8 +159,8 @@ public sealed class BookDetailPageTests(WebFixture fixture)
         {
             Sources =
             [
-                new SourceSeed(SourceType.BooksComTw, SourceUrl: "https://www.books.com.tw/products/late", FirstSeenAt: LaterSeen),
-                new SourceSeed(SourceType.BooksComTw, SourceUrl: "https://www.books.com.tw/products/early", FirstSeenAt: EarlierSeen),
+                new SourceSeed(SourceCodes.BooksComTw, SourceUrl: "https://www.books.com.tw/products/late", FirstSeenAt: LaterSeen),
+                new SourceSeed(SourceCodes.BooksComTw, SourceUrl: "https://www.books.com.tw/products/early", FirstSeenAt: EarlierSeen),
             ],
         });
         await using var app = fixture.CreateFactory();
@@ -183,9 +183,9 @@ public sealed class BookDetailPageTests(WebFixture fixture)
         {
             Sources =
             [
-                new SourceSeed(SourceType.BooksComTw, FirstSeenAt: EarlierSeen),
-                new SourceSeed(SourceType.BooksComTw, FirstSeenAt: LaterSeen),
-                new SourceSeed(SourceType.GoogleBooks, ExternalId: "vol-x"),
+                new SourceSeed(SourceCodes.BooksComTw, FirstSeenAt: EarlierSeen),
+                new SourceSeed(SourceCodes.BooksComTw, FirstSeenAt: LaterSeen),
+                new SourceSeed(SourceCodes.GoogleBooks, ExternalId: "vol-x"),
             ],
         });
         await using var app = fixture.CreateFactory();
@@ -222,7 +222,7 @@ public sealed class BookDetailPageTests(WebFixture fixture)
         await fixture.ResetDatabaseAsync();
         var book = await AddBookAsync(new BookSeed("三體")
         {
-            Sources = [new SourceSeed(SourceType.BooksComTw, SourceUrl: url)],
+            Sources = [new SourceSeed(SourceCodes.BooksComTw, SourceUrl: url)],
         });
         await using var app = fixture.CreateFactory();
 
@@ -241,8 +241,8 @@ public sealed class BookDetailPageTests(WebFixture fixture)
         {
             Sources =
             [
-                new SourceSeed(SourceType.BooksComTw, SourceUrl: "javascript:alert(1)", FirstSeenAt: EarlierSeen),
-                new SourceSeed(SourceType.BooksComTw, SourceUrl: "https://www.books.com.tw/products/safe", FirstSeenAt: LaterSeen),
+                new SourceSeed(SourceCodes.BooksComTw, SourceUrl: "javascript:alert(1)", FirstSeenAt: EarlierSeen),
+                new SourceSeed(SourceCodes.BooksComTw, SourceUrl: "https://www.books.com.tw/products/safe", FirstSeenAt: LaterSeen),
             ],
         });
         await using var app = fixture.CreateFactory();
@@ -263,8 +263,8 @@ public sealed class BookDetailPageTests(WebFixture fixture)
         {
             Sources =
             [
-                new SourceSeed(SourceType.BooksComTw, SourceUrl: "//evil.example.test/products/1", FirstSeenAt: EarlierSeen),
-                new SourceSeed(SourceType.GoogleBooks, SourceUrl: "https://books.google.com/books?id=ok", ExternalId: "ok"),
+                new SourceSeed(SourceCodes.BooksComTw, SourceUrl: "//evil.example.test/products/1", FirstSeenAt: EarlierSeen),
+                new SourceSeed(SourceCodes.GoogleBooks, SourceUrl: "https://books.google.com/books?id=ok", ExternalId: "ok"),
             ],
         });
         await using var app = fixture.CreateFactory();
@@ -326,6 +326,63 @@ public sealed class BookDetailPageTests(WebFixture fixture)
     }
 
     [Fact]
+    public async Task Isbn_type_is_labelled_plain_isbn_and_legacy_isbn13_with_the_same_value_is_not_repeated()
+    {
+        await fixture.ResetDatabaseAsync();
+        var book = await AddBookAsync(new BookSeed("三體")
+        {
+            Identifiers =
+            [
+                new IdentifierSeed(IdentifierType.Isbn13, "9789862620998"),
+                new IdentifierSeed(IdentifierType.Isbn, "9789862620998"),
+                new IdentifierSeed(IdentifierType.Isbn, "9789861234567"),
+            ],
+        });
+        await using var app = fixture.CreateFactory();
+
+        var html = await app.CreateClient().GetPageAsync(DetailPath(book));
+
+        Assert.Equal(
+            [("ISBN", "9789861234567"), ("ISBN", "9789862620998")],
+            HtmlPage.InfoRows(html).Where(row => row.Label.StartsWith("ISBN", StringComparison.Ordinal)));
+    }
+
+    // A provider's enabled flag only controls acquisition; its existing sources must still be shown (book-catalog 4, data-model 6.1).
+    [Fact]
+    public async Task Source_of_a_disabled_provider_is_still_shown_with_its_provider_display_name()
+    {
+        await fixture.ResetDatabaseAsync();
+        var book = await AddBookAsync(new BookSeed("三體")
+        {
+            Sources =
+            [
+                new SourceSeed(SourceCodes.GoogleBooks, SourceUrl: "https://books.google.com/books?id=disabled", ExternalId: "disabled"),
+            ],
+        });
+        await SetProviderEnabledAsync(SourceCodes.GoogleBooks, enabled: false);
+        try
+        {
+            await using var app = fixture.CreateFactory();
+
+            var html = await app.CreateClient().GetPageAsync(DetailPath(book));
+
+            Assert.Equal(
+                [Primary("https://books.google.com/books?id=disabled", "在 Google Books 查看")],
+                HtmlPage.ExternalLinks(html));
+        }
+        finally
+        {
+            await SetProviderEnabledAsync(SourceCodes.GoogleBooks, enabled: true);
+        }
+    }
+
+    private async Task SetProviderEnabledAsync(string code, bool enabled)
+    {
+        await using var db = fixture.CreateContext();
+        await db.Database.ExecuteSqlRawAsync("UPDATE source_providers SET enabled = {0} WHERE code = {1}", enabled, code);
+    }
+
+    [Fact]
     public async Task Subjects_are_distinct_in_ordinal_order_and_joined_with_a_dunhao()
     {
         await fixture.ResetDatabaseAsync();
@@ -336,7 +393,7 @@ public sealed class BookDetailPageTests(WebFixture fixture)
                 new SubjectSeed("科幻"),
                 new SubjectSeed("歷史"),
                 new SubjectSeed("Art"),
-                new SubjectSeed("科幻", SourceType.GoogleBooks),
+                new SubjectSeed("科幻", SourceCodes.GoogleBooks),
             ],
         });
         await using var app = fixture.CreateFactory();

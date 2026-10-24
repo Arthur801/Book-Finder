@@ -27,4 +27,8 @@
     <Compile Include="../Shared/FakeRecommendationRanker.cs" Link="Shared/FakeRecommendationRanker.cs" />
     <Compile Include="../Shared/FakeBookProfileGenerator.cs" Link="Shared/FakeBookProfileGenerator.cs" />
   </ItemGroup>
+  <ItemGroup>
+    <None Include="../Fixtures/isbn-normalization.json" Link="Fixtures/isbn-normalization.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../Fixtures/unicode-15.1/NormalizationTest-NFKC.txt" Link="Fixtures/unicode-15.1/NormalizationTest-NFKC.txt" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

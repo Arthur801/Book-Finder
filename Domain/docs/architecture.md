@@ -1,5 +1,7 @@
 # Domain 架構與映射
 
+> PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
 查核：2026-10-24；HEAD `91333c3`。Authority：[資料模型](../../Docs/data/data-model.md)、[CONTEXT](../../CONTEXT.md)、[產品 BOOK-05](../../Docs/requirements/product-requirements.md)。流程細節分別由 [書單](../../Docs/modules/user-library.md)、[推薦](../../Docs/modules/recommendation.md)、[crawler](../../Docs/modules/crawler.md) 管理。實作報告不是規格。
 
 ## 責任與 contract
@@ -9,10 +11,14 @@ Domain/Entities 有 12 個資料類別、5 個 enum，全部公開可變 setter�
 | 型別 | 輸入／表示 | 映射與 consumer |
 |---|---|---|
 | [Book](../Entities/Book.cs) | UUID identity；required Title；DateOnly?、precision?；nullable metadata、timestamps | books；catalog/crawler/recommendation |
-| [BookSource](../Entities/BookSource.cs) | BookId、SourceType、required URL、external ID?、first/last seen | book_sources；外部 identity 不是 Book PK |
+| [BookSource](../Entities/BookSource.cs) | BookId、SourceCode（必填，FK 至 source_providers）、required URL、external ID?、first/last seen | book_sources；外部 identity 不是 Book PK；010 後 database 另有 `source_type`，EF 不 mapping（data-model §11.4） |
 | [BookIdentifier](../Entities/BookIdentifier.cs) | BookId/type/value | 複合 PK；ISBN 跨 Book partial unique |
 | [BookContributor](../Entities/BookContributor.cs) | BookId/order/name/role | BookId/order PK；來源名稱，無全域 Person |
-| [BookSubject](../Entities/BookSubject.cs) | BookId/subject/source | 三欄 PK；來源 taxonomy 分開 |
+| [BookSubject](../Entities/BookSubject.cs) | BookId/subject/SourceCode | EF key 三欄；010 實體 PK 仍為 `source_type` 版本，UNIQUE 保證 SourceCode key |
+| [SourceProvider](../Entities/SourceProvider.cs) | Code、DisplayName、ProviderKind、BaseUrl?、Enabled、CreatedAt | source_providers registry；`enabled` 只控制主動 acquisition，不影響讀取 |
+| [BookOffer](../Entities/BookOffer.cs) | SourceId、Currency?、Price?、ListPrice?、Availability、CapturedAt | book_offers current snapshot；尚無 writer |
+| [IsbnIdentifierTypes](../Entities/IsbnIdentifierTypes.cs) | ISBN 家族 `All`（ISBN、ISBN-13、ISBN-10）與顯示優先序 ISBN > ISBN-13 > ISBN-10 | 搜尋、detail reader、view model 共用的唯一定義；`All` 以陣列 Contains 讓 EF 轉成 SQL IN |
+| [SourceCodes](../Entities/SourceCodes.cs) | BOOKS_COM_TW、GOOGLE_BOOKS、KINGSTONE、ESLITE 常數 | 與 registry seed 對應；不是 enum，新增 provider 不改 DB |
 | [User](../Entities/User.cs) | email/hash/display name/time | users；認證 store |
 | [LibraryEntry](../Entities/LibraryEntry.cs) | user/book/status/nullable short rating | user_books；user/book PK |
 | [Bestseller](../Entities/Bestseller.cs) | short rank/book/source/captured time | rank PK、book unique；crawler 寫、Web 讀 |
@@ -21,7 +27,7 @@ Domain/Entities 有 12 個資料類別、5 個 enum，全部公開可變 setter�
 | [BookAiProfile](../Entities/BookAiProfile.cs) | nullable JsonDocument/string[]/difficulty；hash/model/prompt/time | 每 Book 一列，jsonb/text[]，只供推薦內部 |
 | [BookEmbedding](../Entities/BookEmbedding.cs) | Pgvector.Vector、hash/model/time | 每 Book 一列 vector(1536) |
 
-五組 enum 為 SourceType、IdentifierType、ContributorRole、PublishedDatePrecision、ReadingStatus。[StoredEnum](../../Infrastructure/Persistence/StoredEnum.cs) 將 C# PascalCase 映射 UPPER_SNAKE，並產生相同詞彙 CHECK；未知 persisted value 讀取時丟 InvalidOperationException。欄名由 [AppDbContext](../../Infrastructure/Persistence/AppDbContext.cs) 統一 snake_case，型別、鍵、關聯在 [Configurations](../../Infrastructure/Persistence/Configurations/BookConfiguration.cs)。
+六組 enum 為 IdentifierType（ISBN、ISBN_10、ISBN_13、OTHER；`Isbn10`／`Isbn13` 為 011 前 legacy）、ContributorRole、PublishedDatePrecision、ReadingStatus、ProviderKind、OfferAvailability。[StoredEnum](../../Infrastructure/Persistence/StoredEnum.cs) 將 C# PascalCase 映射 UPPER_SNAKE，並產生相同詞彙 CHECK；未知 persisted value 讀取時丟 InvalidOperationException。欄名由 [AppDbContext](../../Infrastructure/Persistence/AppDbContext.cs) 統一 snake_case，型別、鍵、關聯在 [Configurations](../../Infrastructure/Persistence/Configurations/BookConfiguration.cs)。
 
 ## 選型、替代與代價
 
