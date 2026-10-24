@@ -386,7 +386,7 @@ sudo /opt/book-finder/host/book-finder-admin bootstrap-state \
 6. **cutover**：先 `systemctl stop <SYSTEMD_UNIT>`（它占用 5000 埠），再 `docker compose -p book-finder up -d --remove-orphans`。
 7. 健康檢查：本機 `127.0.0.1:5000` 與 `PUBLIC_URL`，每個 90 秒內都要回 200（不跟隨 redirect）。
 8. 成功：更新 crawler（pull、smoke、安裝 `run-crawler.sh`、`crawler.cron`、改寫 `crawler.conf`），然後 `runtime=docker`、`previous_runtime=systemd`，寫 completed。
-9. 失敗（web）：回滾。systemd 舊 runtime 的回滾是 `compose down`，再 `systemctl start <SYSTEMD_UNIT>`，並檢查健康。
+9. 失敗（web）：先把診斷寫入 deploy unit 的 journal（見 §3.6），再回滾。systemd 舊 runtime 的回滾是 `compose down`，再 `systemctl start <SYSTEMD_UNIT>`；docker 舊 release 的回滾是 `compose up` 舊的 compose 檔。回滾後的健康檢查與第 7 步使用同一個函式與同樣的預算（本機 90 秒，再 `PUBLIC_URL` 90 秒）。
 
 state.json 是 production state，只在影響復原語意的轉換（pause、dirty、migrated、promote、resume）時以 CAS 寫入；執行紀錄是 history.jsonl（started/completed）。
 
@@ -399,8 +399,14 @@ state.json 是 production state，只在影響復原語意的轉換（pause、di
 
 ### 3.6 切換失敗與回滾
 
-- **切換後健康檢查失敗、回滾成功**：結果 `rolled-back`（exit 1）。systemd 已恢復，state 沒有改變（仍是 systemd）。可以修正後重新 dispatch。
-- **回滾也失敗**：結果 `failed-down`（exit 5）。此時 web 可能沒有在運行，需要人工：
+- **切換後健康檢查失敗、回滾成功**：結果 `rolled-back`（exit 1）。回滾後的健康檢查與切換後相同，會等到預算內恢復（本機 90 秒，再 `PUBLIC_URL` 90 秒）才算成功。systemd 已恢復，state 沒有改變（仍是 systemd）。可以修正後重新 dispatch。
+- **切換失敗的診斷**：健康檢查失敗後，在 `compose down` 或回滾之前，deploy unit 的 journal 會寫入三件事：
+  - 失敗的階段：`health check failed at the local stage` 或 `… at the public stage`；
+  - 最後一次的狀態碼（`0 (no response)` 表示沒有收到回應）；
+  - web container log 的最後 80 行（`web container log, last N lines:` 之後）。
+  
+  回滾的健康檢查失敗時，journal 只寫階段與最後狀態碼（`rollback health check failed at the … stage`）。env 檔中三個 secret 的值，以及連線字串中 `Password=` 的值，都會先以 `***` 取代才寫入；env 檔內容從不寫入。`docker logs` 失敗時只寫一行 `container log unavailable: …`，不影響回滾。
+- **回滾也失敗**：結果 `failed-down`（exit 5）。只有在預算內 web 都沒有恢復時才會是這個結果。此時 web 可能沒有在運行，需要人工：
   - 檢查 `docker ps -a --filter label=com.docker.compose.project=book-finder`。
   - 嘗試 `systemctl start <SYSTEMD_UNIT>`（L4）。
   - 不要修改 state.json；把 history 中的 run id、journal 與狀態交給後續的人工判斷。
@@ -439,7 +445,7 @@ sudo systemctl disable <SYSTEMD_UNIT>
 |---|---|---|
 | `completed:success` | 成功 | 驗證 |
 | `completed:rejected` / `drift` | 未改動 | 依 §1.5 修正後重新 dispatch |
-| `completed:rolled-back` | web 已回滾 | 查 journal，修正後重新 dispatch |
+| `completed:rolled-back` | web 已回滾 | 查 journal 的失敗階段、狀態碼與 container log 尾端（§3.6），修正後重新 dispatch |
 | `completed:failed-migration` / `failed-down` / `partial-crawler` | 需人工 | §5 |
 | `indeterminate` | 結果無法證明 | **不要重新 dispatch**，走 §5.1 |
 | `not-started` | 未改動 | 可以重新 dispatch（會得到新的 run id） |
@@ -676,7 +682,7 @@ sudo /opt/book-finder/host/book-finder-admin resume-crawler --crawler-digest sha
 | web container | `docker ps --filter label=com.docker.compose.project=book-finder` |
 | 爬蟲 log | `/var/log/book-finder/crawler-*.log`（見 `crawler/deploy/README.md` §7） |
 
-Journal 是**輔助資訊**，不是結果的來源。結果以 history 為準（N7）。
+Journal 是**輔助資訊**，不是結果的來源。結果以 history 為準（N7）。切換失敗時，journal 另外含有失敗的健康檢查階段、最後狀態碼與 web container log 最後 80 行（secret 已遮蔽，見 §3.6），這些在 container 被回滾刪除之前寫入。
 
 ### 6.1 CI 與 compat 的 log
 
