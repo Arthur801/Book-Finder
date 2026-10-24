@@ -25,7 +25,7 @@
 
 目前 MVP 已實作的主要來源為博客來；Google Books 由 Recommendation fallback 使用。此 schema 不得假設來源永遠只有這兩個：新增書商不應再需要修改資料庫的來源 enum / check constraint。
 
-> **實作狀態**：本文件描述 multi-source 的目標 contract（#113）。現行程式仍使用 closed `SourceType` enum 與 `ISBN_10`／`ISBN_13` identifier，要經過 PR2（migration 010、Web）、PR3（crawler）、PR4（migration 011、cutover）才會一致，見 §14。
+> **實作狀態**：本文件描述 multi-source 的目標 contract（#113）。現行程式：PR2（migration 010、Web 讀寫 `source_code`、三種 ISBN 類型）已於 #115 完成；crawler 仍寫 `source_type`，要經過 PR3（crawler）、PR4（migration 011、cutover）才會一致，見 §14。
 
 ---
 

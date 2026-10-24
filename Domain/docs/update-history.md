@@ -32,6 +32,7 @@ git rev-parse --is-shallow-repository
 | 2026-10-22／`d5e1589aa4e38824e63317b5f5a33751dc77b87f` | Add book profile store (issue #18 M4)；讀 stat 與當前 EfBookProfileStore 全文。hash/staleness/framework/upsert 在外層，不覆寫 Book 內容。 |
 | 2026-10-22／`a4c1fdc17d1b26c6c77ff9b9109ded41fabd84f7` | Keep the profile-only columns out of the embedding scan (issue #18)；已讀 BookMetadata diff。includeProfileFields 兩條 projection 防止 embedding 讀 publisher/TOC，不是刪 Book 欄位。 |
 | 2026-10-25 | `2c662f5` | feat(db): add expand migration 010 for multi-source catalog | `Entities/SourceType.cs`（刪除）、`Entities/SourceCodes.cs`（新增）、`Entities/SourceProvider.cs`／`ProviderKind.cs`／`BookOffer.cs`／`OfferAvailability.cs`（新增）、`Entities/BookSource.cs`、`Entities/BookSubject.cs`（`SourceType` 改必填 `SourceCode` string）、`Entities/IdentifierType.cs`（新增 `Isbn`） |
+| 2026-10-25 | `bbe0a0a` | refactor(catalog): share ISBN-family types and display priority | `Entities/IsbnIdentifierTypes.cs`（新增）|
 
 Git 不能證明已部署、migration 已套用或測試通過。實體建立後，多數行為演進在外層，Domain log 不等於全系統進度。
 

@@ -14,7 +14,7 @@ Models 是 HTTP／Razor 的表示層，從 Application read model 或已完成 u
 
 | 群組 | 來源 → 主要公開資料 | 使用者與限制 |
 |---|---|---|
-| BookDetail／Contributor | Application BookDetail → 基本書目、角色分組、InfoRows、外連 | 不含簡介／目錄；ISBN reader 必須排除 OTHER |
+| BookDetail／Contributor | Application BookDetail → 基本書目、角色分組、InfoRows、外連 | 不含簡介／目錄；reader 只讀 ISBN 家族（IsbnIdentifierTypes），view model 負責同值去重、排序與排除 OTHER；外連文字用 ProviderDisplayName |
 | Search／Pager／PageNumber | BookSearchPage → Query、Items、TotalCount、Pager | 只做顯示映射；搜尋規則與 Local DB 存取屬 Application |
 | 書庫／首頁列表 | BookBrowsePage、BookBrowseItem、BookSearchHit → BookListItemViewModel、BookBrowseViewModel、HomeViewModel | 不依 Bestseller rank；列項不含簡介／目錄；空 Catalog 的 SummaryText 為 null |
 | AI history list／detail | RecommendationSearchPage／Detail + difficulty dictionary → 展示文字、頁碼、結果 | 本人隔離先由 history reader／Controller 保證；VM 不做授權 |

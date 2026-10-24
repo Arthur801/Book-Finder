@@ -17,6 +17,7 @@ Domain/Entities 有 12 個資料類別、5 個 enum，全部公開可變 setter�
 | [BookSubject](../Entities/BookSubject.cs) | BookId/subject/SourceCode | EF key 三欄；010 實體 PK 仍為 `source_type` 版本，UNIQUE 保證 SourceCode key |
 | [SourceProvider](../Entities/SourceProvider.cs) | Code、DisplayName、ProviderKind、BaseUrl?、Enabled、CreatedAt | source_providers registry；`enabled` 只控制主動 acquisition，不影響讀取 |
 | [BookOffer](../Entities/BookOffer.cs) | SourceId、Currency?、Price?、ListPrice?、Availability、CapturedAt | book_offers current snapshot；尚無 writer |
+| [IsbnIdentifierTypes](../Entities/IsbnIdentifierTypes.cs) | ISBN 家族 `All`（ISBN、ISBN-13、ISBN-10）與顯示優先序 ISBN > ISBN-13 > ISBN-10 | 搜尋、detail reader、view model 共用的唯一定義；`All` 以陣列 Contains 讓 EF 轉成 SQL IN |
 | [SourceCodes](../Entities/SourceCodes.cs) | BOOKS_COM_TW、GOOGLE_BOOKS、KINGSTONE、ESLITE 常數 | 與 registry seed 對應；不是 enum，新增 provider 不改 DB |
 | [User](../Entities/User.cs) | email/hash/display name/time | users；認證 store |
 | [LibraryEntry](../Entities/LibraryEntry.cs) | user/book/status/nullable short rating | user_books；user/book PK |

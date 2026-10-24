@@ -78,7 +78,7 @@ flowchart TD
     S --> Q{trim q 後空白？}
     Q -->|是| ZERO[空結果；不列出全部書]
     Q -->|否| ISBN{NFKC 等正規化後符合 ISBN 格式？}
-    ISBN -->|是| EXACT[ISBN_10 / ISBN_13 精確匹配]
+    ISBN -->|是| EXACT[ISBN / ISBN_10 / ISBN_13 精確匹配（IsbnIdentifierTypes）]
     ISBN -->|否| KEY[原 q 比對 title / contributor name；escape LIKE 字元]
     EXACT --> ORDER[精確書名優先；出版日期 DESC NULL 最後；id 穩定排序]
     KEY --> ORDER

@@ -326,6 +326,63 @@ public sealed class BookDetailPageTests(WebFixture fixture)
     }
 
     [Fact]
+    public async Task Isbn_type_is_labelled_plain_isbn_and_legacy_isbn13_with_the_same_value_is_not_repeated()
+    {
+        await fixture.ResetDatabaseAsync();
+        var book = await AddBookAsync(new BookSeed("三體")
+        {
+            Identifiers =
+            [
+                new IdentifierSeed(IdentifierType.Isbn13, "9789862620998"),
+                new IdentifierSeed(IdentifierType.Isbn, "9789862620998"),
+                new IdentifierSeed(IdentifierType.Isbn, "9789861234567"),
+            ],
+        });
+        await using var app = fixture.CreateFactory();
+
+        var html = await app.CreateClient().GetPageAsync(DetailPath(book));
+
+        Assert.Equal(
+            [("ISBN", "9789861234567"), ("ISBN", "9789862620998")],
+            HtmlPage.InfoRows(html).Where(row => row.Label.StartsWith("ISBN", StringComparison.Ordinal)));
+    }
+
+    // A provider's enabled flag only controls acquisition; its existing sources must still be shown (book-catalog 4, data-model 6.1).
+    [Fact]
+    public async Task Source_of_a_disabled_provider_is_still_shown_with_its_provider_display_name()
+    {
+        await fixture.ResetDatabaseAsync();
+        var book = await AddBookAsync(new BookSeed("三體")
+        {
+            Sources =
+            [
+                new SourceSeed(SourceCodes.GoogleBooks, SourceUrl: "https://books.google.com/books?id=disabled", ExternalId: "disabled"),
+            ],
+        });
+        await SetProviderEnabledAsync(SourceCodes.GoogleBooks, enabled: false);
+        try
+        {
+            await using var app = fixture.CreateFactory();
+
+            var html = await app.CreateClient().GetPageAsync(DetailPath(book));
+
+            Assert.Equal(
+                [Primary("https://books.google.com/books?id=disabled", "在 Google Books 查看")],
+                HtmlPage.ExternalLinks(html));
+        }
+        finally
+        {
+            await SetProviderEnabledAsync(SourceCodes.GoogleBooks, enabled: true);
+        }
+    }
+
+    private async Task SetProviderEnabledAsync(string code, bool enabled)
+    {
+        await using var db = fixture.CreateContext();
+        await db.Database.ExecuteSqlRawAsync("UPDATE source_providers SET enabled = {0} WHERE code = {1}", enabled, code);
+    }
+
+    [Fact]
     public async Task Subjects_are_distinct_in_ordinal_order_and_joined_with_a_dunhao()
     {
         await fixture.ResetDatabaseAsync();

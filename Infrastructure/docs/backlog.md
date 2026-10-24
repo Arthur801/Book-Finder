@@ -29,11 +29,11 @@ Debug 證據收集：INF-B04 須保存去識別的 request scheme、來源網段
 
 ## INF-B07 — Multi-source schema 與讀取端（#113 PR2／PR4）
 
-- **P1 / L3 / PR2 phase A 已處理（`2c662f5`）；phase B 與 PR4 未實作**。
+- **P1 / L3 / PR2 phase A（`2c662f5`）與 phase B（`d9d8948`）已處理；PR3、PR4 未實作**。
 - 目標：[data-model §6、§11.2～§11.4](../../Docs/data/data-model.md)；migration 010（expand：`source_providers` 四筆、`source_code` 回填與 FK、雙向 trigger、`ISBN` 類型、`book_offers`）手寫或手改，ModelSnapshot 只描述 runtime 目標 model，EF 不 mapping `source_type`；`book_subjects` 的 EF key `(BookId, Subject, SourceCode)` 由 UNIQUE 保證，實體 PK 仍含 `source_type`。
 - 已處理（phase A）：[BookSourceConfiguration](../Persistence/Configurations/BookSourceConfiguration.cs)、[BookSubjectConfiguration](../Persistence/Configurations/BookSubjectConfiguration.cs) 改用 `SourceCode`，不 mapping `source_type`；[SourceProviderConfiguration](../Persistence/Configurations/SourceProviderConfiguration.cs)、[BookOfferConfiguration](../Persistence/Configurations/BookOfferConfiguration.cs) 新增；migration 010 完成 expand、trigger、ISBN check、保留 legacy partial unique。
-- 目前差距（phase B）：[EfBookSearch](../Persistence/EfBookSearch.cs) 與 [EfBookDetailReader](../Persistence/EfBookDetailReader.cs) 仍只讀 `Isbn13`／`Isbn10`；Detail 來源未 JOIN `source_providers`。
-- 方向：phase B（PR2 剩餘）：Search／Detail 讀三種 ISBN 類型、Detail 去重（同值 `ISBN` > `ISBN_13` > `ISBN_10`）、`BookDetailSource` 帶 `ProviderDisplayName`（JOIN 不以 `enabled` 過濾）。PR3 crawler 寫入與 C# 正規化接線。PR4 寫 011（轉換、DROP trigger 與 `source_type`、換 PK），只讀 `ISBN`。
+- phase B 已處理：[EfBookSearch](../Persistence/EfBookSearch.cs) 的 ISBN 模式與 [EfBookDetailReader](../Persistence/EfBookDetailReader.cs) 讀 `ISBN`、`ISBN_13`、`ISBN_10`；Detail 來源 JOIN `source_providers` 取得 `ProviderDisplayName`，不以 `enabled` 過濾。
+- 方向（剩餘）：PR3 crawler 寫入與 C# 正規化接線。PR4 寫 011（轉換、DROP trigger 與 `source_type`、換 PK），只讀 `ISBN`。
 - 前置決策：`has-pending-model-changes` 不能證明實體 schema（data-model §11.4），每個 migration operation 需人工 review。
 - 驗收：[test-plan §7](../../Docs/testing/test-plan.md) #8～#10、#12、#16、#20 通過；`dotnet build`／`dotnet test` 與 CI compat 通過。
 - 入口：SchemaTests、StoredEnumTests、constraints.sql、BookDetailPageTests、SearchPageTests；新案例待建。

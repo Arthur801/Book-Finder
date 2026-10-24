@@ -24,6 +24,39 @@ public sealed class SearchPageTests(WebFixture fixture)
         Assert.Equal([books[expectedIndex].BookId], SearchResultBookIds(html));
     }
 
+    // Legacy ISBN_10 / ISBN_13 and the new ISBN type are all matched in ISBN mode (book-catalog 3.2).
+    [Fact]
+    public async Task Isbn_mode_matches_the_new_isbn_type_as_well_as_legacy_types()
+    {
+        await fixture.ResetDatabaseAsync();
+        var books = await CatalogSeed.AddBooksAsync(fixture,
+        [
+            new BookSeed("新型") { Identifiers = [new IdentifierSeed(IdentifierType.Isbn, "9789861234570")] },
+            new BookSeed("舊型") { Identifiers = [new IdentifierSeed(IdentifierType.Isbn13, "9789861234571")] },
+        ]);
+        await using var app = fixture.CreateFactory();
+
+        Assert.Equal([books[0].BookId], SearchResultBookIds(await SearchPageAsync(app.CreateClient(), "978-986-1234-57-0")));
+        Assert.Equal([books[1].BookId], SearchResultBookIds(await SearchPageAsync(app.CreateClient(), "9789861234571")));
+    }
+
+    // ABC123 is 6 characters, so it is never ISBN mode; an ISBN-typed identifier with that value is not returned.
+    [Fact]
+    public async Task Abc123_is_a_keyword_search_and_never_matches_an_identifier()
+    {
+        await fixture.ResetDatabaseAsync();
+        var books = await CatalogSeed.AddBooksAsync(fixture,
+        [
+            new BookSeed("ABC123 教材") { Identifiers = [new IdentifierSeed(IdentifierType.Other, "XYZ999")] },
+            new BookSeed("其他") { Identifiers = [new IdentifierSeed(IdentifierType.Isbn, "ABC123")] },
+        ]);
+        await using var app = fixture.CreateFactory();
+
+        var html = await SearchPageAsync(app.CreateClient(), "ABC123");
+
+        Assert.Equal([books[0].BookId], SearchResultBookIds(html));
+    }
+
     [Fact]
     public async Task Twelve_digits_are_not_an_isbn_so_a_thirteen_digit_isbn_with_that_prefix_is_not_returned()
     {
