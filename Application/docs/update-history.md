@@ -1,5 +1,7 @@
 # Application Git 修改歷史
 
+> PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
 查核基準 `91333c3` 的 source history 如下；`Application/docs` 明確排除，不將 PR #100 新增或後續修正的文件 commits 計入 source history。
 
 > 查核日期：2026-10-24；Git 基準 `91333c3`。目標 `Application/`；本次僅靜態查核，未執行 build、測試、資料庫或外部服務。規格、實作與測試證據分開記錄。
@@ -115,6 +117,8 @@ git show --format= --numstat <sha> -- Application ':(exclude)Application/docs'
 | `7c369fd` | feat(catalog): implement EF book browse list and random sample | Infrastructure 實作與 DI 註冊（Bestseller 註冊不變） |
 | `b2c04ce` | test(bestseller): guard retained Bestseller backend through DI | 新增 Bestseller 後端 DI 守衛測試，無產品行為變更 |
 | 本 commit | fix(catalog): compute 書庫 TotalPages in long so it cannot overflow | BookBrowsePage.TotalPages 改以 long 計算，避免 TotalCount 接近 int.MaxValue 時溢位；新增 BookBrowsePageTotalPagesTests |
+| 2026-10-25 | `2a6966b` | feat(catalog): add ISBN normalization protocol and shared fixture | `Catalog/IsbnNormalizer.cs`（新增，data-model 7.1 写入端正規化）；測試 `tests/UnitTests/IsbnNormalizerTests.cs` 讀 `tests/Fixtures/isbn-normalization.json` |
+| 2026-10-25 | `2c662f5` | feat(db): add expand migration 010 for multi-source catalog | `Catalog/BookDetail.cs`：`BookDetailSource` 的 `SourceType Type` 改為 `string SourceCode`（不再依賴 Domain enum） |
 
 ## 導覽
 

@@ -1,5 +1,7 @@
 # tests 修改歷史
 
+> PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
 查核基準 `91333c3` 的 source history 如下；`tests/docs` 明確排除，不將 PR #100 新增或後續修正的文件 commits 計入 source history。
 
 > 查核 2026-10-24；HEAD `91333c3`。日期採 author date，不代表部署日或本次測試結果。作者以 Git author 記錄；committer date 未用於排序。
@@ -172,3 +174,6 @@ Git 歷史不證明 runtime 或 CI 已通過。
 | `a8a5077` | feat(web): show 書庫 on home and /books in place of the bestseller ranking | 新增 tests/UnitTests/BookBrowseViewModelTests.cs；TaipeiTimeZoneTests 改驗 fallback zone 轉換 |
 | `2642182` | test(web): cover 書庫 paging, home sample and the /bestsellers redirect | 新增 tests/WebIntegration/BookBrowsePageTests.cs（HTTP 頁面）；刪除 BestsellerPageTests；HtmlPage 移除僅此檔使用的 RenderedRanks |
 | 本 M2 docs commit | docs(web): record 書庫 Web presentation in folder docs | 新增 TEST-16 書庫與首頁 HTTP 案例；TEST-15 維持後端守衛 |
+| 2026-10-25 | `2a6966b` | feat(catalog): add ISBN normalization protocol and shared fixture | `tests/Fixtures/isbn-normalization.json`（新增）、`tests/UnitTests/IsbnNormalizerTests.cs`（新增）、`tests/UnitTests/UnitTests.csproj`（複製 fixture） |
+| 2026-10-25 | `2c662f5` | feat(db): add expand migration 010 for multi-source catalog | `tests/WebIntegration/{CatalogSeed,CatalogSeedTests,BookDetailPageTests,WebFixture}.cs`（SourceCode；reset 保留 source_providers）、`tests/DatabaseIntegration/{EfBookProfileStoreTests,EfCandidateSearchTests,EfEmbeddingStoreTests,StoredEnumTests,PostgresFixture}.cs` |
+| 2026-10-25 | `905c6fc` | test(db): cover migration 010 triggers, physical schema and backfill | `tests/DatabaseIntegration/MultiSourceCatalogSchemaTests.cs`、`MultiSourceBackfillTests.cs`（新增）、`constraints.sql`（book_offers、provider 案例） |

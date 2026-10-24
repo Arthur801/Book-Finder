@@ -1,5 +1,7 @@
 # deploy/ 修改歷史（Git 證據）
 
+> PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
 > 查核日期：2026-10-24。查核基準 HEAD：`01db2d7`（merge PR #106；tag `v0.0.4`；`origin/main` 同一 commit）。
 > 工作樹：clean，僅有既存的未追蹤 `.venv`（不屬於本文件，也不屬於 `deploy/`）。本文件是新增的未追蹤檔案，尚未提交。
 > 本次未執行任何部署、migration、爬取或真實外部 API；摘要只來自 git 歷史與 diff 內容，不推定測試或部署結果。
@@ -233,6 +235,7 @@ git log --reverse --no-merges --format='@@%h' --numstat -- <同上路徑>
 | `Docs/testing/test-plan.md` | test-plan §6 | `485eaad`（CI 報告與 §6 更新）、`dccad53` 之後的測試條款（`git log -- <path>` 可重現） |
 | `global.json` | .NET SDK 固定（與 `check_version_sync.py` 的 Dockerfile 檢查相關） | `7f53884`、`404c284`（僅 `ci.yml` 在上列路徑內） |
 | 測試 fixture 的 pgvector image（與 `compose.yaml`） | 版本同步（`check_version_sync.py` 檢查） | `dccad53`（pgvector 固定為 0.8.7-pg17，7 個檔案，含 `tests/` 的 fixture） |
+| 2026-10-25 | `22bebf5` | test(deploy): add CD compat seed for migration 010 | `deploy/migration-test/seeds/20261024160045_MultiSourceCatalog.sql`（新增，覆蓋 010 head 的 source_type-only 與 source_code-only 寫法、ISBN、book_offers） |
 
 2026-10-11 至 2026-10-21 的 `Docs/` 規格歷史（crawler、embedding、auth）與 `deploy/` 的關係只有間接關聯（例如 `deployment.md` 的 crawler 章節），本文件未逐一列出。
 

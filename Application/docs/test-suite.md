@@ -1,5 +1,7 @@
 # Application 文字測試案例庫
 
+> PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
 > 查核日期：2026-10-24；Git 基準 `91333c3`。目標 `Application/`；本次僅靜態查核，未執行 build、測試、資料庫或外部服務。規格、實作與測試證據分開記錄。
 
 ## 執行策略與共同fixture
@@ -186,6 +188,15 @@ dotnet test tests/WebIntegration/WebIntegration.csproj
 - **When**：BookBrowseService.ListAsync(page,ct)、SampleHomeAsync(ct)。
 - **Then**：page小於1時port收到1，正數原值傳入；pageSize固定20；首頁樣本請求10筆；port結果原樣回傳；TotalPages為總數除以20的上取整；TotalCount為int.MaxValue時TotalPages為107374183（不溢位）。
 - 測試來源／擴充入口：[BookBrowseServiceTests.cs](../../tests/UnitTests/BookBrowseServiceTests.cs)。
+
+### APP-T21 — 寫入端 ISBN 正規化與共用 fixture
+
+風險 L2；`2a6966b` 已實作。來源：[IsbnNormalizer](../Catalog/IsbnNormalizer.cs)、[IsbnNormalizerTests](../../tests/UnitTests/IsbnNormalizerTests.cs)、[fixture](../../tests/Fixtures/isbn-normalization.json)。
+
+- **Given**：fixture 中每個 vector 的 input 與 expected（逐 byte）；Unicode 15.1 的每個 White_Space code point。
+- **When**：`IsbnNormalizer.Normalize`。
+- **Then**：73 個 vector 全部相符；U+001C～U+001F、U+180E、U+200B、U+2010、U+2013 保留；全形數字、全形 X、全形連字號與小寫 x 正確；覆蓋測試確認每個 White_Space code point 都有 vector。本次 `dotnet test` UnitTests 通過（806 項）。
+
 
 ## 明確暫緩與證據限制
 
