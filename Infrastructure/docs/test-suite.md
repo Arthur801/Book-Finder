@@ -148,7 +148,7 @@ Authority：[test plan](../../Docs/testing/test-plan.md)、[data model](../../Do
 
 - Given：已 migrate 到 head 的 pgvector container；另一個 container 先停在 `20261010204858_Embedding` 並寫入 v0.0.4 形式的 rows。
 - When：查 `information_schema`、`pg_constraint`、`pg_indexes`、`pg_trigger`，並以 `source_type`-only、`source_code`-only、不一致值、KINGSTONE 寫入；再 migrate 到 010。
-- Then：兩欄都存在；`book_subjects` 實體 PK 仍為 `(book_id, subject, source_type)` 且 UNIQUE `(book_id, subject, source_code)` 存在；雙向 trigger 生效，不一致回 23514，KINGSTONE 未到 011 前回 23502；回填後 `source_code = source_type`。
+- Then：兩欄都存在；`source_type` 與 `source_code` 皆 NOT NULL，舊 check 仍在；兩個 `source_code` FK 指向 source_providers 且 RESTRICT；`book_subjects` 實體 PK 仍為 `(book_id, subject, source_type)` 且 UNIQUE `(book_id, subject, source_code)` 存在；`book_identifiers` check 接受 `ISBN`；`book_offers` FK 指向 book_sources 且 CASCADE，price、list_price、availability check 存在；雙向 trigger 生效，不一致回 23514，KINGSTONE 未到 011 前回 23502；回填後 `source_code = source_type`。
 - 來源與執行狀態：[MultiSourceCatalogSchemaTests](../../tests/DatabaseIntegration/MultiSourceCatalogSchemaTests.cs)、[MultiSourceBackfillTests](../../tests/DatabaseIntegration/MultiSourceBackfillTests.cs)；本次 `dotnet test` DatabaseIntegration 通過（120 項）。
 
 

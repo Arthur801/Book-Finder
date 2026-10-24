@@ -125,3 +125,4 @@ git show <SHA> -- Infrastructure
 | 2026-10-25 | `905c6fc` | test(db): cover migration 010 triggers, physical schema and backfill | `Infrastructure` 無變更（測試位於 `tests/DatabaseIntegration`，見 tests/docs） |
 | 2026-10-25 | `d9d8948` | feat(catalog): read ISBN, ISBN-13 and ISBN-10 and provider names on detail | `Persistence/EfBookSearch.cs`（ISBN 模式三種類型）、`Persistence/EfBookDetailReader.cs`（三種 ISBN、來源 JOIN `source_providers`，不過濾 enabled） |
 | 2026-10-25 | `df57cbf` | test(db): assert last_seen_at-only UPDATE passes the 010 trigger | `Persistence/Migrations/20261024160045_MultiSourceCatalog.cs`：僅新增註解，operations 未變 |
+| 2026-10-25 | `bbe0a0a` | refactor(catalog): share ISBN-family types and display priority | `Persistence/EfBookSearch.cs`、`Persistence/EfBookDetailReader.cs` 改用 IsbnIdentifierTypes；reader 不再依優先序排序（改由 view model 負責）；`Persistence/Migrations/20261024160045_MultiSourceCatalog.cs` 僅註解補充 IX_book_subjects_source_code 為 EF FK 索引 |
