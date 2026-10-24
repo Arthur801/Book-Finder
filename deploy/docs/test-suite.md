@@ -3,7 +3,7 @@
 > PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 > 目標：`deploy/`（host 程式、CD 腳本、compat、整合測試）與分散的 CD 來源。
-> 查核基準：2026-10-24，HEAD `01db2d7`。本次文件任務**沒有執行任何測試命令**；狀態「已有測試」只表示測試存在，不表示本次通過。
+> 查核基準：2026-10-25，HEAD `5563d80`（#121 的程式 commit；前一基準 `01db2d7`）。§3.20 的 #121 測試於本次實際執行；其餘狀態「已有測試」只表示測試存在，不表示本次通過。
 > 規格來源：[deploy/README.md](../README.md)（runbook）、[Docs/deployment/deployment.md](../../Docs/deployment/deployment.md)、[ADR-006](../../Docs/architecture/architecture-decisions.md)、[test-plan §6](../../Docs/testing/test-plan.md)。
 > 待辦與案例 ID 的對應見 [backlog.md](backlog.md)；流程與退出碼見 [workflow-diagram.md](workflow-diagram.md)；責任與 contract 見 [architecture.md](architecture.md)。
 
@@ -345,6 +345,19 @@
 | DEP-PROD-06 | GitHub releases v0.0.1 至 v0.0.4 存在；本地 git tag 也存在 | 本次 `git tag` 查核（本地），GitHub 狀態未查 | 本地 git 證據；GitHub 端見 DEP-PROD-08（營運觀察） |
 | DEP-PROD-07 | cutover 的 run `40078171943` 以 transient unit `book-finder-deploy-40078171943-1` 完成（以 SSH `--detach` 啟動），寫入 `completed:success` | operator 工作階段（2026-10-24） | 營運觀察，非本次驗證（runbook §7.2 #2、#3） |
 | DEP-PROD-08 | Immutable Releases 已啟用（release 為 `immutable=true`）；`Confirm the web/crawler release tag` 對 v0.0.1 至 v0.0.4 通過 | 同上 | 營運觀察，非本次驗證（runbook §7.2 #11、#17） |
+
+### 3.20 #121：migration 連線與 efbundle 輸出（類別 M）
+
+| ID | Given | When | Then | 測試位置 | 狀態 |
+|---|---|---|---|---|---|
+| DEP-MIG-01 | `SSM_MIGRATION_CONNECTION` 未設定、有效值、空值、不合法字元、重複鍵 | 載入 host.conf | 未設定為 `None`；有效值保留；空值與不合法值拒絕；重複鍵拒絕；未知鍵（近似名稱）仍拒絕 | `test_config.py::test_ssm_migration_connection_*`、`…::test_unknown_key_is_still_refused_next_to_the_migration_key` | 本次執行通過（M） |
+| DEP-MIG-02 | 設定 migration 連線 | forward 部署 | efbundle 讀到只含 `ConnectionStrings__DefaultConnection` 的 `migrate-<run>.env`（600）；compose 讀到的 web env file 不含 migration 值；兩檔成功後刪除 | `test_machine.py::test_migration_connection_goes_to_efbundle_and_the_web_file_stays_on_the_web_connection` | 本次執行通過（M） |
+| DEP-MIG-03 | 設定 migration 連線，efbundle exit 1 | forward 部署 | 兩檔都刪除；exit 4；輸出不含 migration 密碼 | `test_machine.py::test_migration_connection_files_are_removed_when_the_migration_fails` | 本次執行通過（M） |
+| DEP-MIG-04 | 未設定 migration 連線 | forward 部署 | efbundle 使用 web env file，與之前相同；不產生 `migrate-*` | `test_machine.py::test_without_the_migration_key_efbundle_uses_the_web_file_as_before` | 本次執行通過（M） |
+| DEP-MIG-05 | migration 參數讀取失敗 | 步驟 3 | drift；沒有 aws、compose、efbundle、systemd、寫檔等變更；state 不變 | `test_machine.py::test_migration_connection_read_failure_is_drift_and_changes_nothing` | 本次執行通過（M） |
+| DEP-MIG-06 | efbundle 輸出 80 行以上，含 migration 與 DB 密碼 | exit 1 | journal 有 `efbundle output, last 80 lines:` 與遮蔽後的尾端；所有 secret 不出現在 stdout、stderr 或 history | `test_machine.py::test_failed_migration_journals_the_masked_efbundle_output_tail` | 本次執行通過（M） |
+| DEP-MIG-07 | exit 0 但 DB id 不符 | forward 部署 | 失敗的 migration 同樣寫入輸出尾端 | `test_machine.py::test_failed_migration_with_wrong_ids_also_journals_the_efbundle_output` | 本次執行通過（M） |
+| DEP-MIG-08 | 真實 efbundle 輸出 | `run_efbundle` | 回傳 exit code 與 stdout＋stderr；argv 不變（`--pull=never`、`--env-file`） | `test_adapters.py::test_efbundle_returns_the_exit_code_and_its_output_for_the_journal` | 本次執行通過（M） |
 
 ## 4. 覆蓋摘要與缺口
 

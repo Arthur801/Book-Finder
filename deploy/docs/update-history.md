@@ -2,7 +2,7 @@
 
 > PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
-> 查核日期：2026-10-24。查核基準 HEAD：`01db2d7`（merge PR #106；tag `v0.0.4`；`origin/main` 同一 commit）。
+> 查核日期：2026-10-25（#121 補記）。查核基準 HEAD：`5563d80`（#121 的程式 commit）；前一基準 `01db2d7`（merge PR #106；tag `v0.0.4`）。
 > 工作樹：clean，僅有既存的未追蹤 `.venv`（不屬於本文件，也不屬於 `deploy/`）。本文件是新增的未追蹤檔案，尚未提交。
 > 本次未執行任何部署、migration、爬取或真實外部 API；摘要只來自 git 歷史與 diff 內容，不推定測試或部署結果。
 
@@ -219,6 +219,16 @@ git log --reverse --no-merges --format='@@%h' --numstat -- <同上路徑>
 | 2026-10-24 | `5e68d6e` | docs(deploy): record the User-Agent incident and edge requirement (#105) | `deploy/README.md`（+6/-4） | 文件：記錄事件與 edge 需求 |
 
 **`01db2d7`**（HEAD）是 PR #106 的 merge commit，不是非 merge commit，因此不在 102 個列表中。它的第二個父 commit 是 `5e68d6e`。
+
+### 3.12 #121：migration 連線與 efbundle 輸出（2026-10-25）
+
+| 日期 | SHA | 主旨 | 影響檔案（+/-） | diff 摘要 |
+|---|---|---|---|---|
+| 2026-10-25 | `4a844f8` | feat(host): add optional SSM_MIGRATION_CONNECTION host.conf key | `config.py`（+5/-1）、測試（+24） | 新增選填鍵；未設定時為 `None`；空值與不合法值拒絕（與其他鍵相同的字元規則） |
+| 2026-10-25 | `5563d80` | feat(host): migration connection file for efbundle and journal failed efbundle output | `adapters.py`（+3/-2）、`machine.py`（+45/-20）、`ports.py`（+2/-2）、`testing.py`（+4/-2）、測試（+107、+8/-1） | 設定時在步驟 3 讀取並寫入獨立的 `migrate-<run_id>.env`（600）；web env file 不含它；兩個檔案在每條路徑上刪除；`run_efbundle` 回傳 `(exit code, 輸出)`；failed-migration 時把遮蔽後的最後 80 行寫入 journal；結果與 exit code 語意不變 |
+| 2026-10-25 | （本文件 commit） | docs(deploy): document SSM_MIGRATION_CONNECTION and the v0.0.6 incident (#121) | `deploy/README.md`、`deploy/docs/*`、`Docs/deployment/deployment.md`、`Docs/Implementation-Report/issue-121-migration-connection.md` | 文件；自我參照，不列入上表 |
+
+**`v0.0.6` 事件**：2026-10-24 的 forward migration 以 `failed-migration` 結束。原因是 efbundle 使用權限最小的 web 角色，`CreateIfNotExists()` 因 `42501` 失敗，且 efbundle 輸出沒有寫入 journal。見 `deploy/README.md` §7.2 第 22 項。
 
 ## 4. 目前工作樹與未提交差異
 
