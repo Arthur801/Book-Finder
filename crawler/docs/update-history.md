@@ -4,7 +4,7 @@
 
 > 查核 2026-10-24；HEAD `91333c334148fa5bfe07055d0e799dc13bb0bb4e`。依基準版本靜態閱讀；本次未執行 build、測試、部署、外部服務或真實抓取。
 
-> 2026-10-25（#116 phase A）：實作前 HEAD `ee29e02`；phase A 的 commits 列於文末「#116 phase A」。本次有執行 pytest（DB integration 含）與 ruff，未執行部署或真實抓取。
+> 2026-10-25（#116 phase A、phase B 與 review 修正）：實作前 HEAD `ee29e02`；各階段的 commits 列於文末「#116 phase A」「#116 phase B 與 review 修正」。本次有執行 pytest（DB integration 含）、C# DatabaseIntegration、ruff 與 deploy tests，未執行部署或真實抓取。
 
 ## 範圍與方法
 
@@ -101,11 +101,14 @@ Workflow／architecture／CR-T12 的 host 現況引用 [target wrapper](https://
 
 行為轉折：榜內重複不再於寫入前跳過，改由 `RunLedger` 決定；DB integration 中該 rank 的 Source 現在會存在（Catalog 側已 commit）。
 
-## #116 phase B（2026-10-25）
+## #116 phase B 與 review 修正（2026-10-25）
 
 | Author 日期 | SHA | Author | Subject | 目標內實際差異檔案 |
 |---|---|---|---|---|
 | 2026-10-25 | `861c334` | Arthur801 | feat(crawler): phase B identity, ISBN matching, touch and provider gate | M crawler/books_crawler/{cli,db,models,normalize,run}.py；A crawler/books_crawler/identity.py；M crawler/tests/{test_cli,test_db_integration,test_e2e_real_fixtures,test_first_book,test_first_book_integration,test_normalize,test_parsers_real_fixtures,test_run_pages,test_run_unit}.py；A crawler/tests/{test_identity,test_isbn_fixture}.py |
-| 2026-10-25 | 本 commit | Arthur801 | docs(crawler): sync phase B docs and spec status | M crawler/README.md；M crawler/docs/*；M Docs/data/data-model.md §14；M Docs/modules/crawler.md §2 |
+| 2026-10-25 | `75b8aab` | Arthur801 | docs(crawler): sync phase B docs and spec implementation status | M crawler/README.md；M crawler/docs/*；M Docs/data/data-model.md §14；M Docs/modules/crawler.md §2 |
+| 2026-10-25 | `1051d6e` | Arthur801 | fix(crawler): review fixes for identity logging, provider constant and docstrings | M crawler/books_crawler/{db,identity,ledger,models,cli,run}.py；M crawler/tests/{test_identity,test_run_pages,test_first_book}.py |
+| 2026-10-25 | `0fa845d` | Arthur801 | docs: remove stale pre-#116 statements and document provider read exits | M Docs/data/data-model.md；M Docs/modules/crawler.md；M crawler/README.md；M crawler/docs/{architecture,test-suite}.md |
+| 2026-10-25 | `0d3e28f` | Arthur801 | test(recommendation): field-sensitive stale detection after a NULL fill | A tests/DatabaseIntegration/EfStaleDetectionTests.cs；M crawler/docs/test-suite.md |
 
 行為轉折：ISBN 不再驗證 checksum，所有非空正規化值都以 `ISBN` 寫入；既有 Source 每次出現都更新 `last_seen_at`；`replace_bestsellers` 不再更新 `last_seen_at`；停用的 provider 以 exit 2 拒絕執行。新 DB 測試依 migration 010 的 trigger 驗證 `source_type = source_code`。
