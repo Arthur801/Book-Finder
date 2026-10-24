@@ -14,6 +14,7 @@ import urllib.request
 from collections.abc import Mapping
 
 from bookfinder_host import config as cfg
+from bookfinder_host import runtime as rt
 from bookfinder_host.manifest import CONTAINER_RELEASE_DIR
 from bookfinder_host.ports import EffectFailed, Effects, Runner
 from bookfinder_host.release_content import COMPOSE_CA_BUNDLE
@@ -87,6 +88,18 @@ class RealDocker:
             ]
         )
         return result.returncode
+
+    def web_containers(self, project: str) -> list[str]:
+        try:
+            return rt.web_container_ids(self._runner, project)
+        except rt.ObservationError as exc:
+            raise EffectFailed(str(exc)) from exc
+
+    def logs(self, container: str, tail: int) -> str:
+        # docker logs replays the container's stdout and stderr on separate streams; both are returned, and the caller keeps the last lines.
+        result = self._runner.run(["docker", "logs", "--tail", str(tail), container])
+        _checked(result, "docker logs")
+        return result.stdout + result.stderr
 
 
 class RealCompose:

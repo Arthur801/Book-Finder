@@ -56,6 +56,27 @@ def test_crawler_smoke_runs_without_network_and_imports_the_stack():
     assert "load_page_urls(DEFAULT_PAGES_FILE)" in argv[-1]
 
 
+def test_web_logs_are_read_by_container_id_with_a_tail_limit_and_both_streams_kept():
+    runner = Recorder(stdout="out line\n", stderr="err line\n")
+    text = adapters.RealDocker(runner).logs("0123456789ab", 80)
+    assert runner.calls[0][0] == ["docker", "logs", "--tail", "80", "0123456789ab"]
+    assert text == "out line\nerr line\n"
+
+
+def test_failed_web_logs_raise_effect_failed_with_a_short_message():
+    with pytest.raises(EffectFailed, match="docker logs failed"):
+        adapters.RealDocker(Recorder(returncode=1, stderr="no such container")).logs("0123456789ab", 80)
+
+
+def test_web_containers_are_found_by_compose_labels_and_a_bad_listing_is_an_effect_failure():
+    runner = Recorder(stdout="0123456789ab\n")
+    assert adapters.RealDocker(runner).web_containers("book-finder") == ["0123456789ab"]
+    argv = runner.calls[0][0]
+    assert "label=com.docker.compose.project=book-finder" in argv and "label=com.docker.compose.service=web" in argv
+    with pytest.raises(EffectFailed, match="unexpected container id"):
+        adapters.RealDocker(Recorder(stdout="not-an-id\n")).web_containers("book-finder")
+
+
 def test_extract_release_creates_without_starting_copies_without_follow_and_always_removes():
     runner = Recorder(stdout="0123456789ab\n")
     adapters.RealDocker(runner).extract_release("ghcr.io/x/web@sha256:" + "1" * 64, "/tmp/payload-not-used")

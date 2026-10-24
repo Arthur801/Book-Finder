@@ -40,6 +40,9 @@ PROBE_TIMEOUT_S = 5.0
 PROBE_INTERVAL_S = 1.0
 HEALTH_BUDGET_S = 90.0  # step 5: the new runtime gets 90 s to answer
 HEALTH_INTERVAL_S = 2.0
+LOG_TAIL_LINES = 80  # a failed switch journals the last lines of the web container log
+# A connection string's Password= part is masked on its own too, because the same password can appear outside the string.
+_PASSWORD_PART = re.compile(r"(?i)password\s*=\s*([^;]*)")
 CRAWLER_KEY = "CRAWLER_IMAGE="
 # Outcome per sub-step, recorded in the completed record so resume-crawler can tell what already took effect.
 CRAWLER_SUBSTEPS = ("image", "smoke", "run_crawler", "crawler_cron", "crawler_conf")
@@ -106,6 +109,8 @@ class _Run:
     env_path: str = ""
     snapshot_id: str | None = None
     crawler_substeps: dict[str, str] | str | None = None
+    # Every secret string rendered into this run's env file, longest first; diagnostics mask them before anything is written.
+    secrets: tuple[str, ...] = ()
 
     @property
     def effects(self) -> Effects:
@@ -252,13 +257,15 @@ def _probe_tries(r: _Run) -> bool:
     return False
 
 
-def _wait_for_200(r: _Run, url: str, headers: Mapping[str, str]) -> bool:
+def _wait_for_200(r: _Run, url: str, headers: Mapping[str, str]) -> int:
+    """Polls until the URL answers 200 or the budget runs out; returns the last status (0 when no response arrived)."""
     deadline = r.deps.clock.monotonic() + HEALTH_BUDGET_S
     while True:
-        if r.effects.http.status(url, headers, PROBE_TIMEOUT_S) == 200:
-            return True
+        status = r.effects.http.status(url, headers, PROBE_TIMEOUT_S)
+        if status == 200:
+            return status
         if r.deps.clock.monotonic() >= deadline:
-            return False
+            return status
         r.deps.clock.sleep(HEALTH_INTERVAL_S)
 
 
@@ -266,9 +273,59 @@ def _public_url(r: _Run) -> str:
     return r.settings.public_url.rstrip("/") + "/"
 
 
-def _health(r: _Run) -> bool:
-    """Local port first (the app itself), then the public URL through nginx and TLS."""
-    return _wait_for_200(r, LOCAL_URL, LOCAL_HEADERS) and _wait_for_200(r, _public_url(r), {})
+@dataclass(frozen=True)
+class _HealthFailure:
+    stage: str  # "local" or "public": the first check that never answered 200
+    status: int  # the last status seen; 0 when no response arrived
+
+
+def _health(r: _Run) -> _HealthFailure | None:
+    """Local port first (the app itself), then the public URL through nginx and TLS. The switch and the rollback both use this."""
+    local = _wait_for_200(r, LOCAL_URL, LOCAL_HEADERS)
+    if local != 200:
+        return _HealthFailure("local", local)
+    public = _wait_for_200(r, _public_url(r), {})
+    if public != 200:
+        return _HealthFailure("public", public)
+    return None
+
+
+def _journal_health_failure(r: _Run, failure: _HealthFailure, *, rollback: bool) -> None:
+    prefix = "rollback health check" if rollback else "health check"
+    status = "0 (no response)" if failure.status == 0 else str(failure.status)
+    r.err.write(f"{prefix} failed at the {failure.stage} stage; last status {status}\n")
+
+
+def _journal_container_log(r: _Run) -> None:
+    """The last lines of the web container log, with secrets masked. Failure here is a one-line note: diagnostics never block the rollback."""
+    try:
+        ids = r.effects.docker.web_containers(r.settings.compose_project)
+        if len(ids) != 1:
+            r.err.write(f"container log unavailable: found {len(ids)} web containers\n")
+            return
+        text = r.effects.docker.logs(ids[0], LOG_TAIL_LINES)
+    except EffectFailed as exc:
+        note = " ".join(_mask(str(exc), r.secrets).split())
+        r.err.write(f"container log unavailable: {note}\n")
+        return
+    lines = _mask(text, r.secrets).splitlines()[-LOG_TAIL_LINES:]
+    r.err.write(f"web container log, last {len(lines)} lines:\n")
+    for line in lines:
+        r.err.write(line + "\n")
+
+
+def _secret_strings(values: list[str]) -> tuple[str, ...]:
+    found = set()
+    for value in values:
+        found.add(value)
+        found.update(part for part in _PASSWORD_PART.findall(value) if part)
+    return tuple(sorted(found, key=len, reverse=True))
+
+
+def _mask(text: str, secrets: tuple[str, ...]) -> str:
+    for secret in secrets:
+        text = text.replace(secret, "***")
+    return text
 
 
 # Step 2
@@ -341,6 +398,7 @@ def _render_env(r: _Run) -> None:
         ("Jwt__SigningKey", r.settings.ssm_jwt_key),
     )
     lines = []
+    values = []
     for env_name, parameter in sources:
         try:
             value = r.effects.ssm.get_parameter(parameter)
@@ -350,6 +408,8 @@ def _render_env(r: _Run) -> None:
         if not value or any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in value):
             raise _Stop(BAD_INPUT, "rejected", f"{env_name} must be a non-empty single-line value")
         lines.append(f"{env_name}={value}\n")
+        values.append(value)
+    r.secrets = _secret_strings(values)
     r.env_path = os.path.join(r.settings.run_dir, f"web-{r.run_id}.env")
     try:
         r.effects.files.ensure_dir(r.settings.run_dir, 0o700)
@@ -443,7 +503,11 @@ def _switch(r: _Run) -> str | None:
         r.effects.compose.up(_compose_path(r), r.settings.compose_project, _compose_env(r.web_ref, r.env_path))
     except EffectFailed as exc:
         return f"switch failed: {exc}"
-    if not _health(r):
+    failure = _health(r)
+    if failure is not None:
+        # Before compose down or the rollback: the failed container, and its log, disappear once the rollback starts.
+        _journal_health_failure(r, failure, rollback=False)
+        _journal_container_log(r)
         return "health check failed after the switch"
     return None
 
@@ -495,8 +559,10 @@ def _rollback(r: _Run, reason: str) -> None:
             r.effects.compose.up(old_compose, project, _compose_env(old_ref, r.env_path))
     except EffectFailed as exc:
         raise _Stop(FAILED_DOWN, "failed-down", f"rollback could not start the previous runtime: {exc}") from exc
-    if _health(r):
+    failure = _health(r)
+    if failure is None:
         raise _Stop(ROLLED_BACK, "rolled-back", f"{reason}; restored the previous runtime")
+    _journal_health_failure(r, failure, rollback=True)
     raise _Stop(FAILED_DOWN, "failed-down", f"{reason}; the previous runtime failed its health check; manual recovery required")
 
 
