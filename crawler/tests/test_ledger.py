@@ -328,3 +328,13 @@ def test_skips_are_logged_and_the_abort_is_left_to_the_caller(caplog):
     assert by_message["rank 2 skipped after 3 attempt(s) (fetch_error): rank 2 failed"] == logging.WARNING
     # The run logs the single ERROR line for a failed run, abort included (crawler.md §19.1).
     assert not [record for record in caplog.records if record.levelno >= logging.ERROR]
+
+
+def test_ten_error_skips_then_a_restricted_skip_then_one_error_skip_leave_the_streak_at_one():
+    # Plan §4 #7 and crawler.md §14.3: RESTRICTED_SKIP resets the streak, so the last ERROR_SKIP starts it again.
+    outcomes = [failed(rank) for rank in range(1, 11)] + [restricted(11), failed(12)]
+    report = report_of(record_until_abort(RunLedger(), outcomes))
+
+    assert report.consecutive_error_count == 1
+    assert report.aborted_at_rank is None
+    assert (report.skipped_count, report.restricted_book_count, report.error_count) == (12, 1, 11)

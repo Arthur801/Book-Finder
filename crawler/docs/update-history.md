@@ -4,6 +4,8 @@
 
 > 查核 2026-10-24；HEAD `91333c334148fa5bfe07055d0e799dc13bb0bb4e`。依基準版本靜態閱讀；本次未執行 build、測試、部署、外部服務或真實抓取。
 
+> 2026-10-25（#116 phase A）：實作前 HEAD `ee29e02`；phase A 的 commits 列於文末「#116 phase A」。本次有執行 pytest（DB integration 含）與 ruff，未執行部署或真實抓取。
+
 ## 範圍與方法
 
 涵蓋基準 `91333c3` 可達的全量 crawler 非 merge commit，2026-10-11～2026-10-23；排除 crawler/docs。日期為 author date，作者為 author，非 committer 或部署日期。merge 省略避免重複，不宣稱檢視所有父線 merge diff。
@@ -88,3 +90,13 @@ Workflow／architecture／CR-T12 的 host 現況引用 [target wrapper](https://
 `dccad53`（2026-10-23，Arthur801）同時改 compose、EF integration 與 crawler conftest 的 pgvector image 字串為 0.8.7-pg17；crawler 自己不遷移 schema。資料契約／部署規格的外部歷史未做全量追蹤。完整 author／committer 時刻可由 git show --format=fuller SHA 查；沒有從日期推斷發布成功或測試通過。
 
 相關：[流程](workflow-diagram.md)／[架構](architecture.md)／[待辦](backlog.md)／[歷史](update-history.md)／[案例](test-suite.md)。
+
+## #116 phase A（2026-10-25）
+
+| Author 日期 | SHA | Author | Subject | 目標內實際差異檔案 |
+|---|---|---|---|---|
+| 2026-10-25 | `0149b69` | Arthur801 | feat(crawler): split outcomes into CatalogResolution and RankingDecision | M crawler/books_crawler/ledger.py；M crawler/books_crawler/models.py；M crawler/books_crawler/run.py；M crawler/tests/test_ledger.py；M crawler/tests/test_pages_ledger.py；M crawler/tests/test_run_pages.py；M crawler/tests/test_run_unit.py；M crawler/tests/test_db_integration.py；M crawler/tests/test_first_book.py |
+| 2026-10-25 | `448571e` | Arthur801 | feat(crawler): run first_book manually through run-crawler.sh | M crawler/deploy/run-crawler.sh；M crawler/tests/test_deploy.py |
+| 2026-10-25 | `ad82318` | Arthur801 | docs(crawler): renumber crawler.md citations to the current spec | M crawler/books_crawler/*（docstring 與 cli TODO）；M crawler/tests/*（docstring） |
+
+行為轉折：榜內重複不再於寫入前跳過，改由 `RunLedger` 決定；DB integration 中該 rank 的 Source 現在會存在（Catalog 側已 commit）。

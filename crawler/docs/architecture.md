@@ -12,7 +12,7 @@
 | [run](../books_crawler/run.py) | orchestration；注入 fetcher、parser、connect、clock、sleep；outcome 送 ledger |
 | [fetcher](../books_crawler/fetcher.py)、[browser](../books_crawler/browser.py) | get(url)→HTML、close；FetchError 與 BrowserUnavailableError 分類 |
 | [parsers](../books_crawler/parsers.py)、[normalize](../books_crawler/normalize.py)、[urls](../books_crawler/urls.py) | HTML→RankingRow／BookDraft；URL canonicalization、ISBN、語言、日期精度 |
-| [ledger](../books_crawler/ledger.py) | outcome→counts、status、snapshot；RunLedger 與 PagesLedger 分開政策，無 DB |
+| [ledger](../books_crawler/ledger.py) | CatalogResolution→Catalog counts；RunLedger 再決定 RankingDecision、streak、snapshot、status；PagesLedger 只用 CatalogResolution；無 DB |
 | [db](../books_crawler/db.py) | autocommit connection + 顯式交易；URL／ISBN 查詢、每書寫入、榜單替換 |
 | [page_list](../books_crawler/page_list.py) | UTF-8 BOM、註解、空行、首次順序去重；非法／空清單在請求前失敗 |
 | [Dockerfile](../Dockerfile) | Python 3.14、UID 10001、runtime 依賴與清單 |

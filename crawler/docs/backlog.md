@@ -43,11 +43,22 @@
 
 ## CB-05 — 兩層 outcome、計數與 last_seen_at touch（#113 PR3）
 
-- P1；L3；狀態：確認缺口（目標規格已定，未實作）。
-- 目標：[crawler §3.5、§6.1、§10.2、§14.2～§14.4、§19.2](../../Docs/modules/crawler.md)：`CatalogResolution` 與 `RankingDecision` 分層；連續錯誤只由 `RankingDecision` 決定；榜內重複時 Catalog 照常 commit；Existing Source 在 discovery 時以獨立 transaction touch，touch 失敗依各模式 policy；`replace_bestsellers` 不再更新 `last_seen_at`；log 新增 `provider_code`、`job_name`、`items_seen`、`existing_source_count`、`new_source_count`、`ambiguous_isbn_count`、`offer_updated_count`。
-- 目前差距：[run.py](../books_crawler/run.py) 的 `_DuplicateBook` 在寫入前就跳過重複；[ledger](../books_crawler/ledger.py) 只有單層 `Resolution`，`Existing` 一律重設計數；[db.replace_bestsellers](../books_crawler/db.py) 在 snapshot transaction 內更新 `last_seen_at`；pages 與 first_book 不更新既有來源；[run-crawler.sh](../deploy/run-crawler.sh) 只接受 `daily`／`pages`，first_book 不經過 `run.lock`（data-model §7.5 要求 PR3 讓 runner 支援 first_book，production 不得繞過 runner）；程式 docstring 的 `crawler.md §…` 仍是舊編號。
-- 驗收：[test-plan §7](../../Docs/testing/test-plan.md) #5～#7、#11、#17 通過；CRAWL-05 的 ledger 測試改依 RankingDecision；`crawler/docs/*` 與 `crawler/README.md` 同步（plan §2 docs-sync 規則）。
-- 測試入口：[test_ledger.py](../tests/test_ledger.py)、[test_pages_ledger.py](../tests/test_pages_ledger.py)、[test_run_unit.py](../tests/test_run_unit.py)、[test_run_pages.py](../tests/test_run_pages.py)、[test_first_book_integration.py](../tests/test_first_book_integration.py)。
+- P1；L3；狀態：phase A 已實作（`0149b69`、`448571e`、`ad82318`）；phase B 待辦（見下）。
+- 已完成（phase A，不需新 schema）：
+  - `CatalogResolution` 與 `RankingDecision` 分層；`RunLedger` 依 §14.2 決定 `DUPLICATE_BOOK`，連續錯誤只由 `RankingDecision` 決定；榜內重複時 Catalog 側照常寫入（原 `_DuplicateBook` 已移除）。
+  - Catalog 軸計數依 §10.2；pages、first_book 與每日榜單共用同一組計數。
+  - log 新增 `provider_code`、`job_name`、`items_seen`、`existing_source_count`、`new_source_count`、`ambiguous_isbn_count`、`offer_updated_count`（固定 0），欄位順序依 §19.2、§15.8。
+  - [run-crawler.sh](../deploy/run-crawler.sh) 支援手動 `first_book`，與 daily／pages 共用 `run.lock`、maintenance shared lock 與 state gate；排程旗標不變。
+  - 程式 docstring 的 `crawler.md §…` 改為現行編號。
+- 待 phase B（需要 migration 010、ISBN 規則或 touch 實作）：
+  - Existing Source 在 discovery 時以獨立 transaction touch `last_seen_at`（§6.1），以及 touch 失敗的重試與各模式 policy；目前 EXISTING 不 touch，`last_seen_at` 維持原值。
+  - [db.replace_bestsellers](../books_crawler/db.py) 仍在 snapshot transaction 內更新 `last_seen_at`，需移除（§14.4）。
+  - `AMBIGUOUS_CREATED` 尚未產生：`find_book_by_isbn` 仍只回第一筆；counters 與 enum 已就緒。
+  - 補 NULL（§6.4）、ISBN 正規化與 distinct 比對（R1）尚未實作；db.py 仍使用 `source_type`。
+  - 停用的 provider 以 exit 2 拒絕執行：檢查點已在 [cli.py](../books_crawler/cli.py) 標為 TODO，需讀 `source_providers.enabled`（migration 010 之後）。
+  - `offer_updated_count` 固定 0，等待 offer ingestion（§8）。
+- 驗收：[test-plan §7](../../Docs/testing/test-plan.md) #5～#7、#11、#17 中的 ledger 與 runner 部分已由 phase A 測試覆蓋；#11、#17 的 touch 部分待 phase B。`crawler/docs/*` 與 `crawler/README.md` 同步（plan §2 docs-sync 規則）。
+- 測試入口：[test_ledger.py](../tests/test_ledger.py)、[test_pages_ledger.py](../tests/test_pages_ledger.py)、[test_run_unit.py](../tests/test_run_unit.py)、[test_run_pages.py](../tests/test_run_pages.py)、[test_first_book.py](../tests/test_first_book.py)、[test_db_integration.py](../tests/test_db_integration.py)、[test_deploy.py](../tests/test_deploy.py)。
 
 ## CB-06 — 只查 `ISBN` 類型（#113 PR4）
 

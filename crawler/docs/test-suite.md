@@ -160,3 +160,16 @@ python -m pytest tests/test_fetcher.py tests/test_curl_fetcher.py tests/test_pla
 沒有明確暫緩的 crawler 核心功能；embedding 是明確不屬此模組，不建立待實作案例。artifact cleanup 是未實作改善提案；產品時間語意需決策。沒有程序取消狀態與取消測試，不推定 finally 可處理 SIGKILL。本次僅靜態文件檢查，所有命令均是日後測試入口。
 
 相關：[流程](workflow-diagram.md)／[架構](architecture.md)／[待辦](backlog.md)／[歷史](update-history.md)。
+
+## Phase A（#116）測試覆蓋
+
+| 測試 | 覆蓋 | 規格 |
+|---|---|---|
+| [test_ledger.py](../tests/test_ledger.py) | RankingDecision 完整表；Existing Source 的榜內重複不 reset streak；附加後才重複的 Catalog 與 ranking 計數；10 個 ERROR_SKIP → RESTRICTED_SKIP → ERROR_SKIP 後 streak 為 1；DUPLICATE_BOOK 記錄而非 raise | §3.5、§10.2、§14.2、§14.3（plan §4 #5–#7） |
+| [test_pages_ledger.py](../tests/test_pages_ledger.py) | pages 只用 CatalogResolution；Catalog 軸計數與 items_seen | §10.2、§15.5、§15.8 |
+| [test_first_book.py](../tests/test_first_book.py) | first_book 的 summary 欄位與 job_name；既有來源計為 existing | §16、§19.2 |
+| [test_run_unit.py](../tests/test_run_unit.py)、[test_run_pages.py](../tests/test_run_pages.py) | summary 欄位順序（daily 與 pages） | §15.8、§19.2 |
+| [test_db_integration.py](../tests/test_db_integration.py) | 榜內重複時 Catalog 側已 commit（新 Source 存在），只跳過 rank；需要真實 PostgreSQL（EF schema） | §14.2 |
+| [test_deploy.py](../tests/test_deploy.py) | `first_book` 模式的 module、pause／dirty gate、共用 run.lock 與 maintenance lock | deploy README §6 |
+
+尚未覆蓋（phase B）：touch 與 `last_seen_at`（plan §4 #11、#17）、AMBIGUOUS_CREATED、補 NULL、ISBN 正規化與 fixture（#18）、disabled provider exit 2。

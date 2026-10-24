@@ -136,7 +136,13 @@ sudo tail -n 50 /tmp/crawler-daily-check.log
 sudo /opt/book-finder/run-crawler.sh pages > /tmp/crawler-pages-check.log 2>&1
 echo $?
 sudo tail -n 50 /tmp/crawler-pages-check.log
+
+sudo /opt/book-finder/run-crawler.sh first_book > /tmp/crawler-first-book-check.log 2>&1
+echo $?
+sudo tail -n 50 /tmp/crawler-first-book-check.log
 ```
+
+`first_book` 是手動診斷入口：只匯入排行榜第一名，不替換榜單，不安裝到 cron。它與 daily、pages 共用同一把 `run.lock`、maintenance shared lock 與 state gate；paused 或 dirty 時同樣以 exit 6 跳過。summary 行以 `mode=first-book` 開頭，並帶 `job_name=first-book`。
 
 每日模式應有 `ranking_count=100` 與最終 report；pages 模式應有 `mode=pages`、頁數與書籍計數。需確認 EC2 能取得實際書籍頁面；如果是 Cloudflare challenge／網站連線異常，不要先啟用排程。`PARTIAL_SUCCESS` 的 exit code 也是 0，仍要看 skipped 與 error_count。不要只看 container 曾啟動或單一 `WARNING`。
 
