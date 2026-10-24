@@ -78,7 +78,7 @@ public class ContractMigration011PreflightTests(MigrationServer server) : IAsync
     // Runs the preflight file as the operator would and returns its rows keyed by the check text.
     private async Task<Dictionary<string, (long Value, bool Ok)>> RunPreflightAsync()
     {
-        var sql = await File.ReadAllTextAsync(PreflightPath());
+        var sql = await File.ReadAllTextAsync(RepositoryPath.Resolve("deploy", "migration-test", "preflight", "20261025120000_ContractMultiSourceCatalog.sql"));
         var rows = new Dictionary<string, (long Value, bool Ok)>();
         await using var connection = await OpenAsync(connectionString);
         await using var command = new NpgsqlCommand(sql, connection);
@@ -92,16 +92,5 @@ public class ContractMigration011PreflightTests(MigrationServer server) : IAsync
         }
         while (await reader.NextResultAsync());
         return rows;
-    }
-
-    // Walks up from the test binary to the repository root, which holds the solution file.
-    private static string PreflightPath()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Book-Finder.slnx")))
-            dir = dir.Parent;
-        if (dir is null)
-            throw new InvalidOperationException("Repository root (Book-Finder.slnx) not found above the test binary.");
-        return Path.Combine(dir.FullName, "deploy", "migration-test", "preflight", "20261025120000_ContractMultiSourceCatalog.sql");
     }
 }
