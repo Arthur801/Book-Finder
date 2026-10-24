@@ -106,6 +106,46 @@ public class MultiSourceCatalogSchemaTests(PostgresFixture fixture)
         Assert.Equal(2, await CountAsync(connection, tx, "SELECT count(*) FROM book_identifiers WHERE identifier_type = 'ISBN' AND identifier_value = '9780132350884'"));
     }
 
+    // The 010 contract in catalog form (data-model 11.2, 11.4): legacy constraints survive, the new columns and FKs are
+    // in place, and the offer table cascades from its Book Source.
+    [Fact]
+    public async Task Physical_constraints_match_the_expand_contract()
+    {
+        await using var connection = await OpenAsync();
+
+        Assert.Equal(2, await CountAsync(connection, null,
+            "SELECT count(*) FROM information_schema.columns WHERE table_schema = 'public' AND column_name = 'source_type' AND is_nullable = 'NO' AND table_name IN ('book_sources', 'book_subjects')"));
+        Assert.Equal(2, await CountAsync(connection, null,
+            "SELECT count(*) FROM information_schema.columns WHERE table_schema = 'public' AND column_name = 'source_code' AND is_nullable = 'NO' AND table_name IN ('book_sources', 'book_subjects')"));
+        Assert.Equal(2, await CountAsync(connection, null,
+            "SELECT count(*) FROM pg_constraint WHERE conname IN ('ck_book_sources_source_type', 'ck_book_subjects_source_type') AND contype = 'c'"));
+
+        Assert.Equal(2, await CountAsync(connection, null, """
+            SELECT count(*) FROM pg_constraint
+            WHERE conname IN ('FK_book_sources_source_providers_source_code', 'FK_book_subjects_source_providers_source_code')
+              AND contype = 'f' AND confdeltype = 'r' AND confrelid = 'source_providers'::regclass
+            """));
+
+        var identifierCheck = await ScalarStringAsync(connection,
+            "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = 'ck_book_identifiers_identifier_type'");
+        foreach (var value in new[] { "'ISBN'", "'ISBN_10'", "'ISBN_13'", "'OTHER'" })
+            Assert.Contains(value, identifierCheck);
+
+        Assert.Equal(1, await CountAsync(connection, null, """
+            SELECT count(*) FROM pg_constraint
+            WHERE conname = 'FK_book_offers_book_sources_source_id' AND contype = 'f'
+              AND confdeltype = 'c' AND confrelid = 'book_sources'::regclass AND conrelid = 'book_offers'::regclass
+            """));
+        Assert.Equal(3, await CountAsync(connection, null,
+            "SELECT count(*) FROM pg_constraint WHERE conname IN ('ck_book_offers_price', 'ck_book_offers_list_price', 'ck_book_offers_availability') AND contype = 'c' AND conrelid = 'book_offers'::regclass"));
+    }
+
+    private static async Task<string?> ScalarStringAsync(NpgsqlConnection connection, string sql)
+    {
+        await using var command = new NpgsqlCommand(sql, connection);
+        return (string?)await command.ExecuteScalarAsync();
+    }
+
     // The PR3 touch updates last_seen_at only; the trigger must let that through unchanged.
     [Fact]
     public async Task Updating_last_seen_at_alone_passes_the_trigger_and_keeps_both_codes()

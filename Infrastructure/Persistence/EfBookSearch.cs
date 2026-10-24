@@ -61,9 +61,7 @@ internal sealed class EfBookSearch(AppDbContext db) : IBookSearch
     private IQueryable<Book> IsbnMatches(string value) =>
         db.Books.AsNoTracking().Where(book => db.BookIdentifiers.Any(identifier =>
             identifier.BookId == book.Id
-            && (identifier.IdentifierType == IdentifierType.Isbn
-                || identifier.IdentifierType == IdentifierType.Isbn13
-                || identifier.IdentifierType == IdentifierType.Isbn10)
+            && IsbnIdentifierTypes.All.Contains(identifier.IdentifierType)
             && identifier.IdentifierValue == value));
 
     // Keyword mode: the whole text as one literal substring of the title or of any contributor name (any role).

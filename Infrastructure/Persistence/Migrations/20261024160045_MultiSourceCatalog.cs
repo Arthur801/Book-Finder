@@ -1,6 +1,7 @@
 ﻿// Expand step of the multi-source catalog (Docs/data/data-model.md 11.2 and 11.4). The physical schema below is
 // written by hand and reviewed operation by operation: the EF snapshot describes the runtime target model, not this
 // database-only state. source_type stays in the database, and EF does not map it, until migration 011 removes it.
+// IX_book_subjects_source_code is the index EF requires for the source_code foreign key; it is kept on purpose.
 // Old writers (v0.0.4) insert only source_type and new writers only source_code; the triggers fill the other column.
 using System;
 using Microsoft.EntityFrameworkCore.Migrations;

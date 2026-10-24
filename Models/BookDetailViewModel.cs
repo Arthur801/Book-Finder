@@ -42,19 +42,12 @@ public sealed record BookDetailViewModel(
     // highest-priority type (ISBN > ISBN-13 > ISBN-10); different values are all kept (book-catalog 4.1).
     private static IEnumerable<BookInfoRow> IdentifierRows(IReadOnlyList<BookDetailIdentifier> identifiers) =>
         identifiers
-            .Where(identifier => identifier.Type is IdentifierType.Isbn or IdentifierType.Isbn13 or IdentifierType.Isbn10)
+            .Where(identifier => IsbnIdentifierTypes.All.Contains(identifier.Type))
             .GroupBy(identifier => identifier.Value, StringComparer.Ordinal)
-            .Select(group => group.OrderBy(identifier => IsbnPriority(identifier.Type)).First())
-            .OrderBy(identifier => IsbnPriority(identifier.Type))
+            .Select(group => group.OrderBy(identifier => IsbnIdentifierTypes.DisplayPriority(identifier.Type)).First())
+            .OrderBy(identifier => IsbnIdentifierTypes.DisplayPriority(identifier.Type))
             .ThenBy(identifier => identifier.Value, StringComparer.Ordinal)
             .Select(identifier => new BookInfoRow(IdentifierLabel(identifier.Type), identifier.Value));
-
-    private static int IsbnPriority(IdentifierType type) => type switch
-    {
-        IdentifierType.Isbn => 0,
-        IdentifierType.Isbn13 => 1,
-        _ => 2
-    };
 
     private static string IdentifierLabel(IdentifierType type) => type switch
     {
