@@ -31,7 +31,7 @@ comparison alone cannot validate expression indexes.
 
 Catalog child rows (`book_identifiers`, `book_contributors`, `book_subjects`) cascade
 on Book deletion. Bestseller references restrict deletion of Books and BookSources.
-These deletion rules are specified in `Docs/data/data-model.md` §9.
+These deletion rules are specified in `Docs/data/data-model.md` §11.1.
 
 This work establishes schema constraints, not application normalization or product
 flows. ISBN checksum/normalization, source merging, Candidate Set membership, and

@@ -22,7 +22,7 @@ python -m pytest tests/test_fetcher.py tests/test_curl_fetcher.py tests/test_pla
 
 ### CR-T01 — 總榜完整性
 
-- 責任／規格：§4；風險 L2；狀態：已有測試但本次未執行。
+- 責任／規格：§14.1；風險 L2；狀態：已有測試但本次未執行。
 - Given：100 列 fixture，另製 99 列、重複 URL、缺 rank 或非 7 日頁；DB 與 detail 呼叫可計數。
 - When：呼叫 run_once(deps)。
 - Then：合法輸入解析為 rank 1..100；無效輸入 FAILED，DB／detail 未呼叫，舊榜不變；parse／validation 不重試。
@@ -30,7 +30,7 @@ python -m pytest tests/test_fetcher.py tests/test_curl_fetcher.py tests/test_pla
 
 ### CR-T02 — 來源重用與 ISBN attach
 
-- 責任／規格：§5；data-model §6；風險 L3；狀態：已有測試但本次未執行。
+- 責任／規格：§6；data-model §7；風險 L3；狀態：已有測試但本次未執行。
 - Given：DB 既有 BOOKS_COM_TW URL、既有 ISBN13／10 Book，metadata 有可比對值。
 - When：run_once，分別給既有 URL／新 URL 同 ISBN／無 ISBN draft。
 - Then：既有 URL 無 detail／persist；ISBN13 優先，新 source attach 不改 Book／identifiers／contributors／subjects；未命中新增 Book。
@@ -38,7 +38,7 @@ python -m pytest tests/test_fetcher.py tests/test_curl_fetcher.py tests/test_pla
 
 ### CR-T03 — 共用三次與 DB retry
 
-- 責任／規格：§6；風險 L2；狀態：已有測試但本次未執行。
+- 責任／規格：§13.1；風險 L2；狀態：已有測試但本次未執行。
 - Given：fetch 或 parse 前兩次失敗；另一情境 draft 成功但 persist 三次 psycopg.Error。
 - When：run_once；注入 FakeSleep 記錄等待。
 - Then：fetch／parse 重抓；DB 失敗只抓一次 detail、沿用 draft；最多三次共用 attempt，backoff 1／2 秒；耗盡 skip、無半本資料，其他原 rank 保留。
@@ -46,7 +46,7 @@ python -m pytest tests/test_fetcher.py tests/test_curl_fetcher.py tests/test_pla
 
 ### CR-T04 — 限制級與嘗試次數
 
-- 責任／規格：§6；風險 L2；狀態：已有測試但本次未執行。
+- 責任／規格：§13.2／14.3；風險 L2；狀態：已有測試但本次未執行。
 - Given：會員限制 fixture；另一情境 fetch 先失敗再回會員頁；完整限制級內容頁作對照。
 - When：run_once 或 run_first_book。
 - Then：明確缺內容容器且含限制級與登入訊息才 skip；不重試、不寫資料、不算一般錯誤、streak 歸零；attempts 為 1 或 2；完整頁可正常解析。
@@ -54,7 +54,7 @@ python -m pytest tests/test_fetcher.py tests/test_curl_fetcher.py tests/test_pla
 
 ### CR-T05 — 連續錯誤中止與重複 Book
 
-- 責任／規格：§5／6／11；風險 L2；狀態：已有測試但本次未執行。
+- 責任／規格：§14.2／14.3／14.5；風險 L2；狀態：已有測試但本次未執行。
 - Given：20／21 終局一般錯誤、50 本交錯錯誤；成功／重用／限制級插入 streak；兩 source 同 Book。
 - When：RunLedger.record 依序或 run_once。
 - Then：20 繼續、21 FAILED 且停止後續、舊榜與既有時間保留；交錯錯誤無累計上限，PARTIAL_SUCCESS 可替換；較後重複 Book 無寫入且不 retry，attempts 0 或實際次數。
@@ -62,7 +62,7 @@ python -m pytest tests/test_fetcher.py tests/test_curl_fetcher.py tests/test_pla
 
 ### CR-T06 — 替換交易與空 snapshot
 
-- 責任／規格：§10；風險 L3；狀態：已有測試但本次未執行。
+- 責任／規格：§14.4；風險 L3；狀態：已有測試但本次未執行。
 - Given：舊榜與來源時間已存；給錯 ownership／非博客來 source，或 INSERT uniqueness 失敗；另測空 snapshot。
 - When：db.replace_bestsellers(conn, rows, captured_at)。
 - Then：錯 source 在 DELETE 前拒絕；交易中失敗 rollback 舊榜與 last_seen_at；空 snapshot 合法清空榜單；每書先前 commit 保留。
@@ -70,7 +70,7 @@ python -m pytest tests/test_fetcher.py tests/test_curl_fetcher.py tests/test_pla
 
 ### CR-T07 — pages 清單與 CLI 設定
 
-- 責任／規格：§15／16.3；風險 L2；狀態：已有測試但本次未執行。
+- 責任／規格：§12／15.3；風險 L2；狀態：已有測試但本次未執行。
 - Given：UTF-8 BOM、註解、空行、重複合法 URL；另製非法 URL／非 UTF8／空檔，DB URL 缺失、fetcher 或 timeout 非法。
 - When：cli.main(env, mode=CrawlerMode.PAGES)。
 - Then：合法清單按首次順序；無效設定 exit 2、fetcher／request 不建立；錯誤含路徑行號不回顯敏感行，secret 不進 log；timeout 範圍 1..300000。
@@ -78,7 +78,7 @@ python -m pytest tests/test_fetcher.py tests/test_curl_fetcher.py tests/test_pla
 
 ### CR-T08 — pages Catalog 與時間邊界
 
-- 責任／規格：§16.5／16.9，CB-01；風險 L3；狀態：待補強（已有隔離案例；規格語意待決策）。
+- 責任／規格：§15.5／15.9，CB-01；風險 L3；狀態：待補強（已有隔離案例；規格語意待決策）。
 - Given：多頁含相同商品、既有 URL、新 ISBN attach、新 Book；舊榜與既有 source 時間已存。
 - When：run_pages(deps, page_urls)。
 - Then：來源 URL 重用不再 detail；不限制跨頁 Book，無分類 rank 保存，舊榜與既有時間不變；目前新 source 初始化 first_seen_at=last_seen_at=now。補上新建／附加／重用分開斷言後，依 CB-01 決策確認 authority。
@@ -86,7 +86,7 @@ python -m pytest tests/test_fetcher.py tests/test_curl_fetcher.py tests/test_pla
 
 ### CR-T09 — pages skip 與 failure gate
 
-- 責任／規格：§16.4～16.7；風險 L2；狀態：已有測試但本次未執行。
+- 責任／規格：§15.4～15.7；風險 L2；狀態：已有測試但本次未執行。
 - Given：頁 fetch 三次失敗、頁 parse ValueError、正常頁任意筆數含零列、連續超過 20 列錯誤；另全頁失敗或 find_source DB 逸出。
 - When：run_pages(deps, page_urls)。
 - Then：單頁 fetch 三次／parse 一次後 skip 繼續；列失敗無上限；全部頁 skip 或逸出例外 FAILED；正常空頁可 SUCCESS；已 commit Catalog 保留，report 無 daily streak 欄位。
@@ -94,7 +94,7 @@ python -m pytest tests/test_fetcher.py tests/test_curl_fetcher.py tests/test_pla
 
 ### CR-T10 — fetch pacing 與分類／生命週期
 
-- 責任／規格：§15；風險 L2；狀態：已有測試但本次未執行。
+- 責任／規格：§12；風險 L2；狀態：已有測試但本次未執行。
 - Given：fake session／monotonic clock、可控 uniform 樣本；challenge header、HTTP200 異常頁、非200／redirect；browser 啟動失敗。
 - When：Fetcher.get，並經 cli.main 執行 runner。
 - Then：首次與重試均節流，處理與 backoff 抵扣，不跟 redirect／停用 TLS；FetchError 保持分類，沒有自動切換；BrowserUnavailableError 整次失敗不 retry；finally close。
@@ -102,7 +102,7 @@ python -m pytest tests/test_fetcher.py tests/test_curl_fetcher.py tests/test_pla
 
 ### CR-T11 — 診斷證據與保留
 
-- 責任／規格：§15、deployment §8，CB-02；風險 L2；狀態：待補強（現有診斷測試；cleanup 未實作）。
+- 責任／規格：§12、deployment §8，CB-02；風險 L2；狀態：待補強（現有診斷測試；cleanup 未實作）。
 - Given：tmp_path 可寫／不可寫，失敗頁 metadata header 有非允許項，兩次相同 URL 失敗。
 - When：save_failure_diagnostics 或 fake browser challenge；未來在隔離目錄執行待建 cleanup。
 - Then：現況每次不同檔名、HTML 原樣、JSON 僅選定 headers 不存 cookie，browser 可加 PNG；個別寫失敗不遮蓋 FetchError；cleanup 依先決保留政策測試新舊與例外，不能把原始 HTML 稱為全面去識別。
@@ -141,7 +141,7 @@ python -m pytest tests/test_fetcher.py tests/test_curl_fetcher.py tests/test_pla
 
 ### CR-T14 — normalization 與內容界線
 
-- 責任／規格：§7／8；data-model；風險 L3；狀態：已有測試但本次未執行。
+- 責任／規格：§7／11；data-model；風險 L3；狀態：已有測試但本次未執行。
 - Given：有效／錯誤 ISBN、完整／年月日期、未知語言、缺 optional、分類多層與多貢獻者 HTML。
 - When：parse_detail_html → BookDraft → persist_new_source。
 - Then：ISBN format／checksum 正確，日期保存實際精度、未知語言 NULL 並 log，subtitle NULL、optional 不推測，分類去重，角色正規化；不寫 embedding／AI tables。公開 API 排除簡介／目錄另由 Web 案例驗證。
@@ -149,7 +149,7 @@ python -m pytest tests/test_fetcher.py tests/test_curl_fetcher.py tests/test_pla
 
 ### CR-T15 — first-book 不改榜與冪等
 
-- 責任／規格：§13.1；風險 L2；狀態：已有測試但本次未執行。
+- 責任／規格：§16；風險 L2；狀態：已有測試但本次未執行。
 - Given：完整總榜與 rank1 詳細 fixture，既有榜與 Catalog。
 - When：run_first_book 兩次或 first-book CLI。
 - Then：僅第一次匯入 rank1，新來源再跑重用；榜與既有來源時間不變；rank1 一般失敗 exit1，限制級 exit0 partial，設定錯誤 exit2；fetcher 關閉。

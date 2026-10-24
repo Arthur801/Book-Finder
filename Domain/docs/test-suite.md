@@ -20,7 +20,7 @@ dotnet test tests/UnitTests/UnitTests.csproj --filter 'FullyQualifiedName~BookDe
 
 ### DOM-T01 — nullable metadata 與映射
 
-風險 L3；已有測試，本次未執行。來源：[data-model §5.1/5.6](../../Docs/data/data-model.md)、[SchemaTests](../../tests/DatabaseIntegration/SchemaTests.cs)。Given 新 Book 只給 Title、UTC timestamps，Profile 有 JSON framework、topics、difficulty 3；When Add/SaveChanges、Clear tracker、重讀；Then UUID 非空，DateOnly/UTC/jsonb/text[] roundtrip，缺 description 仍 null。擴充入口：`Ef_mapping_roundtrips_uuid_date_utc_jsonb_array_and_nullable`。不可聲稱 required 拒絕空白 Title；那不是現有斷言。
+風險 L3；已有測試，本次未執行。來源：[data-model §6.2/6.8](../../Docs/data/data-model.md)、[SchemaTests](../../tests/DatabaseIntegration/SchemaTests.cs)。Given 新 Book 只給 Title、UTC timestamps，Profile 有 JSON framework、topics、difficulty 3；When Add/SaveChanges、Clear tracker、重讀；Then UUID 非空，DateOnly/UTC/jsonb/text[] roundtrip，缺 description 仍 null。擴充入口：`Ef_mapping_roundtrips_uuid_date_utc_jsonb_array_and_nullable`。不可聲稱 required 拒絕空白 Title；那不是現有斷言。
 
 ### DOM-T02 — enum 與 SQL vocabulary
 
@@ -28,7 +28,7 @@ dotnet test tests/UnitTests/UnitTests.csproj --filter 'FullyQualifiedName~BookDe
 
 ### DOM-T03 — constraints、索引與刪除
 
-風險 L3；已有測試，本次未執行。來源：[data-model §5/8/10](../../Docs/data/data-model.md)、[SchemaTests](../../tests/DatabaseIntegration/SchemaTests.cs)、[constraints.sql](../../tests/DatabaseIntegration/constraints.sql)、[ModelSnapshotTests](../../tests/DatabaseIntegration/ModelSnapshotTests.cs)。Given fixture 已套全部 migration；When 執行 `Schema_constraints_hold`、`Model_matches_migration_snapshot`、`Bestseller_foreign_keys_restrict_deletion`；Then PK/unique/enum/range/FK、expression index 與刪除政策符合 SQL 斷言，測資 rollback。來源和 ISBN unique 要區分 nullable ExternalId partial index 與 OTHER identifier 可跨書重複；不推斷 source/book 複合一致性已由 FK 保證。
+風險 L3；已有測試，本次未執行。來源：[data-model §6/10/12](../../Docs/data/data-model.md)、[SchemaTests](../../tests/DatabaseIntegration/SchemaTests.cs)、[constraints.sql](../../tests/DatabaseIntegration/constraints.sql)、[ModelSnapshotTests](../../tests/DatabaseIntegration/ModelSnapshotTests.cs)。Given fixture 已套全部 migration；When 執行 `Schema_constraints_hold`、`Model_matches_migration_snapshot`、`Bestseller_foreign_keys_restrict_deletion`；Then PK/unique/enum/range/FK、expression index 與刪除政策符合 SQL 斷言，測資 rollback。來源和 ISBN unique 要區分 nullable ExternalId partial index 與 OTHER identifier 可跨書重複；不推斷 source/book 複合一致性已由 FK 保證。
 
 ### DOM-T04 — 書單冪等、隔離與時間
 
@@ -48,11 +48,11 @@ dotnet test tests/UnitTests/UnitTests.csproj --filter 'FullyQualifiedName~BookDe
 
 ### DOM-T08 — 非匿名搜尋
 
-風險 L3；既有 schema/型別證據，本次未執行；ERD 修正待辦 DOM-B01。來源：[RecommendationSearch](../Entities/RecommendationSearch.cs)、[data-model §5.11](../../Docs/data/data-model.md)、[constraints.sql](../../tests/DatabaseIntegration/constraints.sql)。Given disposable schema 與合法 user；When 試寫 user_id NULL 或不存在的 User；Then NOT NULL/FK 拒絕，合法 user 可保存；ERD 應標必有 User。確認 Guid.Empty 不是 NULL，仍須 FK 判定，不把非 nullable 等同使用者存在。
+風險 L3；既有 schema/型別證據，本次未執行；ERD 修正待辦 DOM-B01。來源：[RecommendationSearch](../Entities/RecommendationSearch.cs)、[data-model §6.13](../../Docs/data/data-model.md)、[constraints.sql](../../tests/DatabaseIntegration/constraints.sql)。Given disposable schema 與合法 user；When 試寫 user_id NULL 或不存在的 User；Then NOT NULL/FK 拒絕，合法 user 可保存；ERD 應標必有 User。確認 Guid.Empty 不是 NULL，仍須 FK 判定，不把非 nullable 等同使用者存在。
 
 ### DOM-T09 — 出版日期精度
 
-風險 L3；顯示已有測試，本次未執行；DB 成對 policy 待決策／補強，關聯 DOM-B03。來源：[data-model §5.1](../../Docs/data/data-model.md)、[PublishedDateTextTests](../../tests/UnitTests/PublishedDateTextTests.cs)。Given year/month/day 精度與 nullable date；When 既有 PublishedDateText 格式化測試；Then 輸出不把補值日冒充來源確定日期。後續決策需定義 date/precision 各種 null 組合允許矩陣，再補 DB/ingestion 案例；不得先預設所有不成對資料都是既定 bug。
+風險 L3；顯示已有測試，本次未執行；DB 成對 policy 待決策／補強，關聯 DOM-B03。來源：[data-model §6.2](../../Docs/data/data-model.md)、[PublishedDateTextTests](../../tests/UnitTests/PublishedDateTextTests.cs)。Given year/month/day 精度與 nullable date；When 既有 PublishedDateText 格式化測試；Then 輸出不把補值日冒充來源確定日期。後續決策需定義 date/precision 各種 null 組合允許矩陣，再補 DB/ingestion 案例；不得先預設所有不成對資料都是既定 bug。
 
 ### DOM-T10 — fallback 與 flag
 

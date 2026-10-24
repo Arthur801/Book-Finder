@@ -35,7 +35,7 @@
 | 模組邊界 | port adapters；ADR-001 monolith | 微服務可獨立擴縮，增加網路／交易複雜度 | Program 手動 DI；scoped DbContext 不可注入 singleton worker |
 | schema ownership | EF migrations；ADR-002 | crawler 自有 DDL 會分裂 schema | schema 變更同步 crawler；expression index 必須看 SQL，不只 snapshot |
 | AI ownership | C# Web；ADR-003 | crawler embedding 需跨語言共享 key/model contract | 新書等待 backfill 才可檢索 |
-| 資料庫／vector | PostgreSQL + pgvector exact cosine；data-model §5.7 | ANN 或外部 vector DB 加速但需額外設計（分析） | 全掃成本；1536 維與 model 變更需 migration 及重建 |
+| 資料庫／vector | PostgreSQL + pgvector exact cosine；data-model §6.9 | ANN 或外部 vector DB 加速但需額外設計（分析） | 全掃成本；1536 維與 model 變更需 migration 及重建 |
 | SQL | EF LINQ 與參數化 upsert | 字串拼接 SQL 缺輸入隔離（分析） | wildcard literal escape；保留 FK/unique 防競爭 |
 | auth transport | HS256 JWT HttpOnly cookie；ADR-004 | localStorage/header 有不同 client 與 XSS 風險 | 持續 CSRF 防護；一天有效無 refresh |
 | cache | process-local IMemoryCache；ADR-005 | Redis 跨 instance、增加服務成本 | detail 十分鐘、榜單一小時／空五分鐘；無 crawler invalidation |

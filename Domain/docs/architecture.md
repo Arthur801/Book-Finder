@@ -27,14 +27,14 @@ Domain/Entities 有 12 個資料類別、5 個 enum，全部公開可變 setter�
 
 | 面向 | 現況依據 | 替代差異與維護 |
 |---|---|---|
-| edition 模型 | data-model §3 明訂一層 Book | Work/Edition 雙層超出 MVP，須 schema/產品決策 |
+| edition 模型 | data-model §4 明訂一層 Book | Work/Edition 雙層超出 MVP，須 schema/產品決策 |
 | 可變資料類別 | source 可見；未找到 setter 設計的獨立 ADR | factory/value object 可提早驗證，但需兼顧 EF/callers；不能假設現況自證有效 |
 | nullable metadata | 規格允許來源缺資料 | 空字串／猜日期會失真；顯示須保留 year/month precision |
 | enum 字串 | StoredEnum 明示與 Python 共用詞彙 | numeric enum 省空間但破壞跨語言 contract；新增值需 CHECK migration 與 caller 同步 |
 | UUID FK、無 navigation | source 可見選擇，理由未記錄 | navigation 易用但可能意外載入；現況明確 join/projection |
-| Profile JSON/array | data-model §5.6 | 強型別可減無效 shape；現況 Application rules/store 保護，DB 只保證 jsonb 類型 |
+| Profile JSON/array | data-model §6.8 | 強型別可減無效 shape；現況 Application rules/store 保護，DB 只保證 jsonb 類型 |
 | Pgvector 在 Domain | BookEmbedding 直接依賴套件 | float[] 可減耦合但不自帶維度限制；更換 model 要 migration 與全量重建 |
-| exact vector search | data-model §5.7 核准 MVP | HNSW/IVFFlat 要先量測成本與品質，不預加基礎設施 |
+| exact vector search | data-model §6.9 核准 MVP | HNSW/IVFFlat 要先量測成本與品質，不預加基礎設施 |
 
 ## 一致性、安全與失敗
 
