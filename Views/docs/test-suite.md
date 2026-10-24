@@ -11,14 +11,14 @@
 後續命令入口（會建產物／需要 Docker，故本次不執行）：
 
 ```bash
-dotnet test tests/WebIntegration/WebIntegration.csproj --filter 'FullyQualifiedName~LayoutAndHomeTests|FullyQualifiedName~NavbarTests|FullyQualifiedName~BestsellerPageTests|FullyQualifiedName~SearchPageTests|FullyQualifiedName~BookDetailPageTests'
+dotnet test tests/WebIntegration/WebIntegration.csproj --filter 'FullyQualifiedName~LayoutAndHomeTests|FullyQualifiedName~NavbarTests|FullyQualifiedName~BookBrowsePageTests|FullyQualifiedName~SearchPageTests|FullyQualifiedName~BookDetailPageTests'
 dotnet test tests/WebIntegration/WebIntegration.csproj --filter 'FullyQualifiedName~AccountPagesTests|FullyQualifiedName~AuthPipelineTests|FullyQualifiedName~BookLibrarySectionTests|FullyQualifiedName~LibraryPageTests'
 dotnet test tests/WebIntegration/WebIntegration.csproj --filter 'FullyQualifiedName~AiPageTests|FullyQualifiedName~AiHistoryListTests|FullyQualifiedName~AiHistoryDetailTests'
 ```
 
-### VIEW-T01 — Layout、導覽與榜單
+### VIEW-T01 — Layout、導覽與書庫
 
-風險 L1；已有測試，本次未執行。規格：[UI §3.1–3.2](../../Docs/ui/ui-flow.md)、[Bestseller](../../Docs/modules/bestseller.md)。Given 空榜、100 筆榜與缺號榜，各以匿名／已登入 user；When GET `/`、`/bestsellers`；Then title/zh-Hant/layout/nav 正確，首頁前十筆可包括 rank 11，完整頁不分頁，不重編 rank，顯示 Taipei 更新時間、作者與占位封面；空榜 200「榜單尚未建立」。匿名有 login/register，已登入有編碼 display name、POST logout token。來源：[LayoutAndHomeTests](../../tests/WebIntegration/LayoutAndHomeTests.cs)、[NavbarTests](../../tests/WebIntegration/NavbarTests.cs)、[BestsellerPageTests](../../tests/WebIntegration/BestsellerPageTests.cs)。
+風險 L1；已有測試，本次未執行。規格：[UI §3.1–3.2](../../Docs/ui/ui-flow.md)、[Catalog §3](../../Docs/modules/book-catalog.md)。Given 空 Catalog、15 本 Catalog 與 25 本 Catalog，各以匿名／已登入 user；When GET `/`、`/books`、`/bestsellers`（不跟隨重導）；Then title/zh-Hant/layout/nav 正確，導覽有「書庫」指向 `/books` 且無 `/bestsellers` 連結；首頁最多 10 本、不重複、不顯示 rank；空庫顯示「書庫還沒有書」；書庫每頁 20 本並有摘要；`/bestsellers` 301 至 `/books`。匿名有 login/register，已登入有編碼 display name、POST logout token。來源：[LayoutAndHomeTests](../../tests/WebIntegration/LayoutAndHomeTests.cs)、[NavbarTests](../../tests/WebIntegration/NavbarTests.cs)、[BookBrowsePageTests](../../tests/WebIntegration/BookBrowsePageTests.cs)。
 
 ### VIEW-T02 — 搜尋、空值與共用 pager
 
@@ -38,7 +38,7 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter 'FullyQualifiedN
 
 ### VIEW-T06 — Library 頁篩選與空狀態
 
-風險 L2；已有測試，本次未執行。規格：[Library §4](../../Docs/modules/user-library.md)。Given A/B users、多狀態／ratings／UpdatedAt entries；When GET `/library`、`?status=READING`、unknown filter、empty filter；Then 匿名 redirect，僅本人且最新先，active tab 正確、未知視全部，逐列控制項資料不串，空態含榜單連結；有列時空態 hidden；controls edit-login-url 保留 query；Library 區域 token 共用而非每列一份。來源：[LibraryPageTests](../../tests/WebIntegration/LibraryPageTests.cs)。改狀態後即時 filter 語意另見 VIEW-T12。
+風險 L2；已有測試，本次未執行。規格：[Library §4](../../Docs/modules/user-library.md)。Given A/B users、多狀態／ratings／UpdatedAt entries；When GET `/library`、`?status=READING`、unknown filter、empty filter；Then 匿名 redirect，僅本人且最新先，active tab 正確、未知視全部，逐列控制項資料不串，空態含書庫連結（`/books`）；有列時空態 hidden；controls edit-login-url 保留 query；Library 區域 token 共用而非每列一份。來源：[LibraryPageTests](../../tests/WebIntegration/LibraryPageTests.cs)。改狀態後即時 filter 語意另見 VIEW-T12。
 
 ### VIEW-T07 — AI SSR 與歷史分頁
 

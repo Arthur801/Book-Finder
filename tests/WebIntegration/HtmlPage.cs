@@ -6,10 +6,6 @@ namespace WebIntegration;
 // Helpers for pages rendered over HTTP: fetching them and reading values back out of the HTML.
 internal static partial class HtmlPage
 {
-    // Ranks in the order the page rendered them (one data-rank attribute per bestseller entry).
-    public static IReadOnlyList<int> RenderedRanks(string html) =>
-        DataRank().Matches(html).Select(match => int.Parse(match.Groups[1].Value)).ToList();
-
     // Asserts 200 and returns the decoded HTML: Razor escapes CJK text as numeric entities (&#x4E09;), which browsers display as-is.
     public static async Task<string> GetPageAsync(this HttpClient client, string url)
     {
@@ -177,9 +173,6 @@ internal static partial class HtmlPage
 
     private static string? FieldText(Regex field, string body) =>
         field.Match(body) is { Success: true } match ? match.Groups[1].Value : null;
-
-    [GeneratedRegex("data-rank=\"(\\d+)\"")]
-    private static partial Regex DataRank();
 
     [GeneratedRegex("<title>(.*?)</title>", RegexOptions.Singleline)]
     private static partial Regex PageTitleTag();

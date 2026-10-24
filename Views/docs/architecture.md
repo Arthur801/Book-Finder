@@ -8,8 +8,8 @@
 
 | 呈現責任 | 模型／caller | partial 與輸出契約 |
 |---|---|---|
-| 首頁／榜單 | HomeController、BestsellersController、BestsellerListViewModel | _SearchForm 共用 GET 搜尋；_BestsellerEntries 保留 rank、Taipei 時間、封面占位及空榜 |
-| 搜尋 | SearchController、SearchResultsViewModel、PagerViewModel | query 預填、總數／頁數、結果 metadata、_Pager；搜尋完全是 local DB |
+| 首頁／書庫 | HomeController、BooksController、HomeViewModel、BookBrowseViewModel、BookListItemViewModel | _SearchForm 共用 GET 搜尋；首頁 10 本隨機樣本與書庫分頁共用 _BookList（封面占位、作者、出版社、出版日期）；空庫顯示「書庫還沒有書」；/bestsellers 只 301 至 /books，無榜單頁
+| 搜尋 | SearchController、SearchResultsViewModel、PagerViewModel | query 預填、總數／頁數、結果列由 _BookList 呈現、_Pager；搜尋完全是 local DB |
 | Book 詳情 | BooksController、BookDetailViewModel | 基本資料／safe 外連；LibrarySection 另外放 ViewData，避免將個人資料塞入 catalog cache |
 | 個人書單 | LibraryController、LibraryPageViewModel | tabs、每列 _LibraryControls、頁面 token、預先存在的空狀態 |
 | 帳號 | AccountController、LoginForm／RegisterForm | server field errors／summary、hidden ReturnUrl/PendingAction；post success redirect |
@@ -25,7 +25,7 @@
 |---|---|---|
 | SSR＋少量 fetch | UI Flow §1 明訂 Razor，普通表單 GET/POST，AI/Library JSON 就地更新 | SPA 會改 architecture boundary；SSR 易保留 server validation，但 JS 掛掉時 AI/Library 不可編輯 |
 | ViewModel 先整形 | BookDetailViewModel、AiHistoryDetailViewModel 將日期／安全連結／空值準備好 | View 內做資料查詢會耦合且易洩私有內容；現況 View 仍負責分支與 markup |
-| 共用 partial | _BestsellerEntries、_SearchForm、_Pager、_LibraryControls、_AiHistoryList | 複製可局部自由但易文案／ARIA／狀態漂移；partial 改動需雙 caller 驗證 |
+| 共用 partial | _BookList、_SearchForm、_Pager、_LibraryControls、_AiHistoryList | 複製可局部自由但易文案／ARIA／狀態漂移；partial 改動需雙 caller 驗證 |
 | server 渲染 controls | #12 diff 明示將 labels/stars 移回 server；JS 只更新 attributes/state | 完全 client renderer 易產兩套 labels；現況須保持 data-* selector 與 JS 同步 |
 | sessionStorage 交接 | UI Flow §3.2；ai.js try/catch 封鎖情境 | query string 易把需求放 URL/log；sessionStorage 只在同 tab，無法保證關閉儲存時交接 |
 | HTML fragment refresh | UI Flow §3.4；只一份 _AiHistoryList markup | JSON list renderer 需重複 pager/time/empty 邏輯；outerHTML 只接受同源成功片段，仍須維持 SSR encoding |

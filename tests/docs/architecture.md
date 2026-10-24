@@ -14,7 +14,8 @@
 | [DatabaseIntegration.csproj](../DatabaseIntegration/DatabaseIntegration.csproj) | disposable DB → migration、SQL、mapping、store；constraints.sql 複製到 output |
 | [WebIntegration.csproj](../WebIntegration/WebIntegration.csproj) | request／cookie／form → status、headers、Razor／JSON 與 DB 差異 |
 | [Shared](../Shared) | fake parser／embedding／ranker／profile、CallGate、1536 維 SimilarityVectors |
-| [CatalogSeed](../WebIntegration/CatalogSeed.cs)、[AccountFlow](../WebIntegration/AccountFlow.cs)、[HtmlPage](../WebIntegration/HtmlPage.cs) | 測資與表單／HTML helpers，不是 JavaScript engine |
+| [CatalogSeed](../WebIntegration/CatalogSeed.cs)、[AccountFlow](../WebIntegration/AccountFlow.cs)、[HtmlPage](../WebIntegration/HtmlPage.cs) | 測資與表單／HTML helpers，不是 JavaScript engine；`BookSeed.Id` 可選，缺省為新 Guid |
+| [BookBrowseIntegrationTests](../WebIntegration/BookBrowseIntegrationTests.cs)、[BestsellerReaderIntegrationTests](../WebIntegration/BestsellerReaderIntegrationTests.cs) | 組裝守衛：從 factory 的 DI scope 解析 service，直接驗證 EF 查詢與 DI 鏈，不經 HTTP、不解析 HTML |
 | [OpenAiTestTransport](../UnitTests/OpenAiTestTransport.cs) | SDK transport 替身，查核 payload／error mapping，不連 OpenAI |
 
 ## 選型與維護代價

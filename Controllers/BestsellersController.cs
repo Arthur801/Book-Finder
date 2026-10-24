@@ -1,14 +1,9 @@
-using Book_Finder.Application.Bestsellers;
-using Book_Finder.Models;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Book_Finder.Controllers;
 
-public class BestsellersController(BestsellerService bestsellers) : Controller
+public class BestsellersController : Controller
 {
-    public async Task<IActionResult> Index(CancellationToken cancellationToken)
-    {
-        var snapshot = await bestsellers.GetAllAsync(cancellationToken);
-        return View(BestsellerListViewModel.From(snapshot));
-    }
+    // The ranking is no longer shown on the Web. The old /bestsellers links are kept alive as a permanent redirect to 書庫.
+    public IActionResult Index() => RedirectPermanent("/books");
 }

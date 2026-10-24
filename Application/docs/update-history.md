@@ -105,6 +105,16 @@ git show --format= --numstat <sha> -- Application ':(exclude)Application/docs'
 
 截至查核基準 `91333c3`，`Application/docs/` 尚不存在；本 PR 中新增及後續修正這五份文件的 commits 不納入上述 Application source history。不能由來源建立時間推定部署時間。Git commit記錄不代表測試在本次通過、功能已上線或production已驗證。
 
+## #109 M1 書庫後端（新增紀錄）
+
+本段是 #109 實作的紀錄，不改寫上方查核表。
+
+| 分支／提交 | Subject | 影響 |
+|---|---|---|
+| `831fcee` | feat(catalog): add BookBrowse use case and port for 書庫 | 新增 BookBrowseService、IBookBrowse、BookBrowsePage／BookBrowseItem |
+| `7c369fd` | feat(catalog): implement EF book browse list and random sample | Infrastructure 實作與 DI 註冊（Bestseller 註冊不變） |
+| `b2c04ce` | test(bestseller): guard retained Bestseller backend through DI | 新增 Bestseller 後端 DI 守衛測試，無產品行為變更 |
+
 ## 導覽
 
 [流程](workflow-diagram.md)・[架構](architecture.md)・[待辦](backlog.md)・[歷史](update-history.md)・[案例](test-suite.md)

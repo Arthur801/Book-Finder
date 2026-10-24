@@ -84,6 +84,13 @@
 - 完成條件：確認 ViewModel 不產生非法 pager 或重導迴圈；先以現有規則重現，再決定是否需要第二次計算，不任意改變穩定路徑。
 - 案例：`DBG-06`。
 
+### CTL-11 — 書庫與首頁隨機樣本的讀取成本
+
+- [ ] **P2／待驗證／L2**。`/books` 分頁為 COUNT 加 OFFSET；首頁樣本以 `ORDER BY random()` 排序整個 Catalog 後取 10 本（INF-B06）。Catalog 增長後的耗時尚無證據。
+- 操作：以 Catalog 規模的測資量測 `ListAsync` 與 `SampleHomeAsync` 的耗時與計畫；不先改實作。
+- 完成條件：有量測結果後才決定是否改用其他抽樣方式；不改變首頁 10 本、不重複與不依 rank 的既有 contract。
+- 案例：`HOME-02`（首頁 10 本、不重複）；效能量測本身不在目前測試範圍。
+
 ## 3. Debug 執行與結案證據
 
 1. 先對照 [architecture.md](architecture.md) 找責任層；HTML 404、API 404、authorization challenge、antiforgery 400 要分開記錄。

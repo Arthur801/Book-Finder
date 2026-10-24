@@ -73,6 +73,8 @@ sequenceDiagram
 
 [WebFixture](../WebIntegration/WebFixture.cs) 的 `web` collection 序列執行；reset 必須由案例主動呼叫。逐案新 host 避免 IMemoryCache 污染。config reload 關閉、WebRootFileProvider 為 NullFileProvider，避免 inotify 耗盡；因此不驗證實體靜態資產或瀏覽器 JavaScript。
 
+組裝守衛（composition-root guards）：部分 WebIntegration 測試不經 HTTP，而是建立 factory 後從 `app.Services.CreateScope()` 解析 service（例如 BookBrowseService、BestsellerService），直接驗證 DI 鏈與 EF 查詢。Bestseller 守衛每案建立獨立 factory，因為 IMemoryCache 在 host 內，不能在同一 factory 內 reset DB 後期待空結果。
+
 ## DB、時間、失敗與取消
 
 ```mermaid

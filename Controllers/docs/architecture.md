@@ -12,7 +12,7 @@
 | JSON 欄位與錯誤 | [api-spec.md](../../Docs/api/api-spec.md) | API Controllers、`Models/*Response.cs`、`ApiProblemResults` |
 | 帳號、安全與待辦 | [identity-auth.md](../../Docs/modules/identity-auth.md) | `AccountController`、`Infrastructure/Identity/` |
 | 搜尋與書籍公開內容 | [book-catalog.md](../../Docs/modules/book-catalog.md) | `SearchController`、`BooksController` |
-| 榜單 | [bestseller.md](../../Docs/modules/bestseller.md) | `HomeController`、`BestsellersController` |
+| 書庫與首頁樣本 | [book-catalog.md](../../Docs/modules/book-catalog.md) §3；榜單 Web 已不顯示，見 [bestseller.md](../../Docs/modules/bestseller.md) | `BooksController.Index`、`HomeController`、`BestsellersController`（301 至 `/books`） |
 | 書單隔離與更新語意 | [user-library.md](../../Docs/modules/user-library.md) | `LibraryController`、`LibraryApiController` |
 | 推薦、額度、歷史與 difficulty | [recommendation.md](../../Docs/modules/recommendation.md) | `RecommendationsController`、`AiController` |
 | 全域不可洩漏內容 | [product-requirements.md，BOOK-05](../../Docs/requirements/product-requirements.md) | ViewModel / response 欄位白名單 |
@@ -44,10 +44,11 @@ Controller 不寫 SQL、不直接呼叫 OpenAI／Google Books、不持有推薦�
 
 | Controller / Action | 路由與方法 | 登入 | 直接依賴與輸出 |
 |---|---|---|---|
-| Home.Index | conventional `/`、`/Home/Index` | 否 | `BestsellerService.GetTopAsync(10)` → `BestsellerListViewModel` / View |
+| Home.Index | conventional `/`、`/Home/Index` | 否 | `BookBrowseService.SampleHomeAsync`（隨機 10 本，不讀榜單）→ `HomeViewModel` / View |
 | Home.Error | conventional `/Home/Error` | 否 | RequestId → `ErrorViewModel` / View，NoStore |
-| Bestsellers.Index | conventional `/bestsellers`、`/Bestsellers/Index` | 否 | `BestsellerService.GetAllAsync` → 榜單 View |
+| Bestsellers.Index | conventional `/bestsellers`、`/Bestsellers/Index` | 否 | 不讀資料；`RedirectPermanent` 301 至 `/books` |
 | Search.Index | GET `/search` | 否 | `BookSearchService`、`PageNumber` → View 或最後頁 Redirect |
+| Books.Index | GET `/books` | 否 | `BookBrowseService.ListAsync`、`PageNumber` → 書庫 View 或最後頁 Redirect；空庫不重導 |
 | Books.Detail | GET `/books/{id}` | 否 | `IBookDetailReader`、`LibraryService` → Detail / 404 View |
 | Account.Login | GET、POST `/account/login` | 否 | `AccountService`；成功由共用 SignInAndRedirect 寫 cookie、執行待辦與 Redirect |
 | Account.Register | GET、POST `/account/register` | 否 | 同上；註冊成功直接登入 |
@@ -77,10 +78,10 @@ Controller 不寫 SQL、不直接呼叫 OpenAI／Google Books、不持有推薦�
 | 密碼 | AccountService + PasswordHasher，identity-auth §3 | 完整 ASP.NET Core Identity 提供更多帳號生命週期功能 | MVP 無 refresh token、email 驗證、忘記密碼；勿在 Controller 加入未定義流程 |
 | 錯誤 | API 共用 ProblemDetails helper / filters；頁面使用 View | 每個 action 自製 JSON 容易漂移 | API action 例外 filter 的涵蓋範圍不等於整個 HTTP pipeline |
 | PATCH input | JsonDocument + LibraryPatchParser | 直接綁 nullable DTO 無法單靠值區分省略與 null | 要保留 `{}`、null、數值 token 與 Content-Type 的精確 contract |
-| 讀取快取 | process-local IMemoryCache decorator，ADR-005 | Redis 可跨 instance 共用，但新增基礎服務 | 榜單 1 小時／空榜 5 分鐘；書目 10 分鐘；沒有 crawler invalidation 通道 |
+| 讀取快取 | process-local IMemoryCache decorator，ADR-005 | Redis 可跨 instance 共用，但新增基礎服務 | 書目 10 分鐘；榜單 1 小時／空榜 5 分鐘保留於後端，Web 已無呼叫端；沒有 crawler invalidation 通道 |
 | 個人化內容 | Library state 置於獨立 `ViewData[LibrarySectionKey]` | 與共用書目一起快取會混入跨使用者資料 | 共用書目可快取，Library 每次以 token 使用者重新讀取 |
 | 資料存取 | Application service / read port → EF Core adapter → PostgreSQL | Controller 直接查 DbContext 會混合 HTTP 與 use case | Schema 由 EF migration 管理；本文件不授權任何 migration |
-| 分頁 | 共用 PageNumber / PagerViewModel；每頁 20 筆 | 無限捲動或 cursor pagination 會改變 UI contract | 超大正整數視為超頁；完整頁重導、片段讀末頁，兩者不可混用 |
+| 分頁 | 共用 PageNumber / PagerViewModel；`/search`、`/books`、`/ai` 每頁 20 筆 | 無限捲動或 cursor pagination 會改變 UI contract | 超大正整數視為超頁；完整頁重導、片段讀末頁，兩者不可混用 |
 | 推薦 | Controller 驗證與映射；Application 控額度、計時、檢索、排序、保存 | Controller 內串 API 難以測試、易繞過 invariant | difficulty 快照與排隊在保存之後；一般失敗降級，caller 取消可傳遞且不回滾已存資料 |
 | 測試 | WebApplicationFactory + Testcontainers + fake 外部 adapter | 只 mock Controller 無法驗證 middleware / binding / HTML | 需 Docker；Web 測試不代表瀏覽器 JS 已被執行 |
 
@@ -92,6 +93,7 @@ Controller 不寫 SQL、不直接呼叫 OpenAI／Google Books、不持有推薦�
 - API action 例外映射：AI unavailable 502、timeout 504、其他 500；response 不含 stack trace。RequestAborted 時 filter 不把取消轉為 500。
 - Book detail 與 AI history 的非法 GUID／查無資料回 404；AI history 他人資料也回相同 404。Library DELETE 的非法 GUID 則為 204。
 - Book `description`、`table of contents` 不進任何公開 ViewModel / JSON。AI profile 其他文字欄位不展示；理由不能大段引用原文。
+- 普通搜尋與書庫（`/books`）只查 Local DB；書庫與首頁樣本不依 Bestseller rank 排序，也不讀 AI profile。
 - 普通搜尋只查 Local DB。AI 每日限制在任何外部呼叫前檢查；Candidate Set 必須同時通過硬條件與 similarity 門檻，結果最多 10 本，允許 0 本。
 - 核心推薦在保存前失敗不保存；成功保存包含 0 本結果。保存後 enrichment 的 caller cancellation 可以傳遞，但 Search／Results 已存在且不回滾；不能將所有失敗概括為「不保存」。歷史列表只查本人；difficulty 即時讀取而不寫入搜尋結果快照。
 

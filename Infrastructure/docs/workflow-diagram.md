@@ -10,7 +10,7 @@
 |---|---|---|
 | AuthServiceCollectionExtensions、AuthTokenIssuer、AuthCookie、CurrentUser、SafeReturnUrl | cookie-only JWT、CSRF、API 錯誤、local returnUrl | [Identity](../../Docs/modules/identity-auth.md) |
 | EfUserStore、AspNetPasswordHashing | account persistence／PasswordHasher adapter | Identity、[data model](../../Docs/data/data-model.md) |
-| EfBookSearch、EfBookDetailReader、EfBestsellerReader、cache decorators | Local DB 搜尋、detail、原排名 snapshot | [Catalog](../../Docs/modules/book-catalog.md)、[Bestseller](../../Docs/modules/bestseller.md) |
+| EfBookSearch、EfBookBrowse、EfBookDetailReader、EfBestsellerReader、cache decorators | Local DB 搜尋、書庫列表與隨機樣本、detail、原排名 snapshot（後端保留，#109 後無 Web 呼叫者） | [Catalog](../../Docs/modules/book-catalog.md)、[Bestseller](../../Docs/modules/bestseller.md) |
 | EfLibraryStore | 本人 Library Entry 的 add／find／update／remove／list | [Library](../../Docs/modules/user-library.md) |
 | EfCandidateSearch、EfRecommendationUsage／Store／History | 候選、用量、成功保存、本人歷史 | [Recommendation](../../Docs/modules/recommendation.md) |
 | OpenAI parser／embedding／ranker／profile generator | SDK、strict JSON、錯誤轉譯 | Recommendation |
@@ -72,6 +72,8 @@ flowchart TD
   Load -->|存在| Cache[cache 十分鐘]
   Cache --> Return
   Load -->|不存在| Null[null 不 cache]
+  Type -->|書庫列表| Browse[Local DB COUNT；超出頁數不查列表；否則依出版日排序分頁；無 cache]
+  Type -->|首頁隨機樣本| Sample[Local DB 隨機排序後取 10 本；無 cache；整表隨機排序]
   Type -->|Bestseller| Snap{整榜 cache 命中?}
   Snap -->|否| Rank[依原 rank 讀最新 snapshot]
   Rank -->|空榜| Short[cache 五分鐘]
@@ -84,6 +86,8 @@ flowchart TD
   Insert -->|Book FK 違反| Missing[null]
   Insert -->|其他 FK 或 DB 失敗| Error[例外傳播]
 ```
+
+書庫 `EfBookBrowse` 的列表為 COUNT、分頁查詢、再以 `BookAuthors` 一次讀作者；offset 以 `long` 計算，超出總數時直接回空頁且保留 TotalCount。排序為出版日有值者在前、新到舊，無日期者在後，再以 Id 決定順序。隨機樣本為 `OrderBy(EF.Functions.Random())` 後取前 N 筆，再一次讀作者；兩者都只投影列表需要的欄位，不讀 description／table_of_contents。DI 註冊於 [Program](../../Program.cs)：`IBookBrowse` → `EfBookBrowse`、`BookBrowseService` 皆 scoped，與搜尋註冊相鄰；Bestseller 註冊不變。
 
 Library Update 先以本人 composite key 載入 tracked row；不存在回 null；存在則變更 status／rating keep-clear-set，保留 AddedAt、更新 UpdatedAt，一次 SaveChanges 後讀回。Remove 為本人條件單句 DELETE、可重複。List 本人過濾、UpdatedAt 新到舊、BookId tie-break，再批次讀作者。公開 projections 排除 description／table_of_contents。
 

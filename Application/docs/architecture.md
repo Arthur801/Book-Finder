@@ -14,8 +14,9 @@ Application-level policy 包含 [LibraryService.AddPendingAsync](../Library/Libr
 
 | 責任 | 主要介面/輸出 | Caller與callee |
 |---|---|---|
-| Bestseller | [BestsellerService](../Bestsellers/BestsellerService.cs)、IBestsellerReader → snapshot | Home/Bestsellers controllers → cached EF reader |
+| Bestseller | [BestsellerService](../Bestsellers/BestsellerService.cs)、IBestsellerReader → snapshot | 後端保留；#109 後 Web 無呼叫者（`HomeTopCount`/`GetTopAsync` 刻意保留）→ cached EF reader |
 | Catalog | [BookSearchService](../Catalog/BookSearchService.cs)、IBookSearch、IBookDetailReader → page/detail | Search/Books controllers → EF/cache |
+| 書庫（Catalog browse） | [BookBrowseService](../Catalog/BookBrowseService.cs)、IBookBrowse → BookBrowsePage / 隨機樣本 | 首頁與書庫頁（#109 後續模組接入）→ EF |
 | Identity | [AccountService](../Identity/AccountService.cs)、IUserStore、IPasswordHashing → typed result | Account controller → EF/hashing |
 | Library | [LibraryService](../Library/LibraryService.cs)、ILibraryStore、LibraryChange → Entry/null | Library/Books/Account controllers → EF |
 | 推薦 | [RecommendationService](../Recommendation/RecommendationService.cs) → RecommendationAttempt | Recommendation controller → parser/embedding/candidate/ranker/store/usage ports |
@@ -45,11 +46,15 @@ Application-level policy 包含 [LibraryService.AddPendingAsync](../Library/Libr
 | Stale | deterministic metadata text與SHA256 | 每次重新生成浪費成本 | profile model/prompt改變不觸發stale，依§9.2 |
 | 密碼 | hashing port與process共用dummy hash | 完整Identity擴大責任 | dummy hash縮小時間差，不宣稱已實測constant-time |
 
+### 書庫（BookBrowse）用例
+
+[BookBrowseService](../Catalog/BookBrowseService.cs) 只做頁碼下限（`page < 1` 視為第 1 頁）與固定參數（每頁 20 筆、首頁樣本 10 筆），其餘交 [IBookBrowse](../Catalog/IBookBrowse.cs)。`ListAsync` 回傳全部書籍（依出版日新到舊、無日期居後、Id 決定順序）；`SampleAsync` 回傳隨機書籍，供首頁使用。兩者只查 Local Database，不使用 embedding、LLM 或 Google Books，也不讀 Bestseller rank。[BookBrowseItem](../Catalog/BookBrowsePage.cs) 與 BookSearchHit 刻意分開定義，書庫的 contract 不與搜尋共用。
+
 ## 安全、公開內容與一致性
 
 身份與CSRF由Web驗證；Library/history每次帶userId，但service不驗JWT，不能獨立視為authorization boundary。AccountService回User entity，caller不可直接序列化，以免PasswordHash外洩。
 
-BookDetail/BookSearchHit沒有description/table_of_contents。CandidateBook、RankingCandidate、embedding/profile source是內部AI資料，不可直接當public response。理由不得大段引用原始簡介或目錄，仍需prompt與response contract檢查。
+BookDetail、BookSearchHit與BookBrowseItem都沒有description/table_of_contents。CandidateBook、RankingCandidate、embedding/profile source是內部AI資料，不可直接當public response。理由不得大段引用原始簡介或目錄，仍需prompt與response contract檢查。
 
 成功log不含完整requirementText，包含filters、候選與時間等metrics；exception log的實際去識別需另查adapter，不能從service無key欄位就宣稱所有provider例外安全。
 

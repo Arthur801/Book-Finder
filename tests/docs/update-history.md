@@ -147,8 +147,28 @@ Git 歷史不證明 runtime 或 CI 已通過。
 | 2026-10-23 | `dccad53` | Arthur801 | chore(deps): pgvector image 固定為 0.8.7-pg17 | `tests/DatabaseIntegration/PostgresFixture.cs`, `tests/WebIntegration/WebFixture.cs` |
 | 2026-10-23 | `2a74705` | Arthur801 | feat(hosting): configurable forwarded-header networks and data protection key path (#92) | `tests/UnitTests/HostingSetupTests.cs` |
 
+## #109 M1 書庫後端（新增紀錄）
+
+本段是 #109 實作的紀錄，不改寫上方查核表。
+
+| 提交 | Subject | 影響 |
+|---|---|---|
+| `831fcee` | feat(catalog): add BookBrowse use case and port for 書庫 | 新增 tests/UnitTests/BookBrowseServiceTests.cs（手寫 fake port） |
+| `7c369fd` | feat(catalog): implement EF book browse list and random sample | 新增 tests/WebIntegration/BookBrowseIntegrationTests.cs（組裝守衛）；CatalogSeed 的 BookSeed 新增可選 Id |
+| `b2c04ce` | test(bestseller): guard retained Bestseller backend through DI | 新增 tests/WebIntegration/BestsellerReaderIntegrationTests.cs（每案獨立 factory）；BestsellerPageTests 保留 |
+
 ## 相關依賴歷史與限制
 
 [ci.yml](../../.github/workflows/ci.yml) 在 tests 外；`e3fa9cd` 的 checker-only compat 觸發條件與 `aef8cb0` 的 Python 3.12 host tests 會改變整體 CI 驗證，並未直接改 tests 原始碼。`f233b9d` 為本目錄 fixture 修正，與部署無關。根 solution、主專案、CI 與 deploy 的完整歷史不在上述直接歷史範圍。
 
 [流程](workflow-diagram.md) · [架構](architecture.md) · [待辦](backlog.md) · [案例](test-suite.md)
+
+## #109 M2 書庫 Web 呈現（新增紀錄）
+
+本段是 #109 實作的紀錄，不改寫上方查核表。
+
+| 分支／提交 | Subject | 影響 |
+|---|---|---|
+| `a8a5077` | feat(web): show 書庫 on home and /books in place of the bestseller ranking | 新增 tests/UnitTests/BookBrowseViewModelTests.cs；TaipeiTimeZoneTests 改驗 fallback zone 轉換 |
+| `2642182` | test(web): cover 書庫 paging, home sample and the /bestsellers redirect | 新增 tests/WebIntegration/BookBrowsePageTests.cs（HTTP 頁面）；刪除 BestsellerPageTests；HtmlPage 移除僅此檔使用的 RenderedRanks |
+| 本 M2 docs commit | docs(web): record 書庫 Web presentation in folder docs | 新增 TEST-16 書庫與首頁 HTTP 案例；TEST-15 維持後端守衛 |

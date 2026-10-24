@@ -121,6 +121,6 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter 'FullyQualifiedN
 - When：PagerViewModel.For。
 - Then：0頁無鏈結；1頁current項無URL且previous／next=null；2/3有previous1／next3；99/3 previous最多3、無next，CurrentPage仍99且無current頁標記，記錄caller前置條件而不擅自改factory。callback不接受null省略號。
 
-另有 Bestseller 原rank／空狀態／台北更新時間由 [BestsellerPageTests](../../tests/WebIntegration/BestsellerPageTests.cs)、[LayoutAndHomeTests](../../tests/WebIntegration/LayoutAndHomeTests.cs)、[TaipeiTimeZoneTests](../../tests/UnitTests/TaipeiTimeZoneTests.cs) 覆蓋相關斷言，本次未執行；模型無持久化，DB constraints 案例應歸 Entity／Infrastructure 文件，不在此重複。
+書庫與首頁列表由 [BookBrowseViewModelTests](../../tests/UnitTests/BookBrowseViewModelTests.cs)（摘要 null、UrlFor、列項映射、HomeViewModel.IsEmpty）、[BookBrowsePageTests](../../tests/WebIntegration/BookBrowsePageTests.cs) 與 [LayoutAndHomeTests](../../tests/WebIntegration/LayoutAndHomeTests.cs) 覆蓋；Taipei 時間的 fallback 轉換由 [TaipeiTimeZoneTests](../../tests/UnitTests/TaipeiTimeZoneTests.cs) 覆蓋（BestsellerListViewModel 已刪除）。本次未執行；模型無持久化，DB constraints 案例應歸 Entity／Infrastructure 文件，不在此重複。
 
 相關文件：[流程](workflow-diagram.md) · [架構](architecture.md) · [待辦](backlog.md) · [歷史](update-history.md) · [測試案例](test-suite.md)。

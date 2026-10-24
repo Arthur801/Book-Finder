@@ -16,7 +16,7 @@ Models 是 HTTP／Razor 的表示層，從 Application read model 或已完成 u
 |---|---|---|
 | BookDetail／Contributor | Application BookDetail → 基本書目、角色分組、InfoRows、外連 | 不含簡介／目錄；ISBN reader 必須排除 OTHER |
 | Search／Pager／PageNumber | BookSearchPage → Query、Items、TotalCount、Pager | 只做顯示映射；搜尋規則與 Local DB 存取屬 Application |
-| Bestseller | BestsellerSnapshot → Entries、UpdatedAtText | 不重排 rank；cache 是 reader 責任 |
+| 書庫／首頁列表 | BookBrowsePage、BookBrowseItem、BookSearchHit → BookListItemViewModel、BookBrowseViewModel、HomeViewModel | 不依 Bestseller rank；列項不含簡介／目錄；空 Catalog 的 SummaryText 為 null |
 | AI history list／detail | RecommendationSearchPage／Detail + difficulty dictionary → 展示文字、頁碼、結果 | 本人隔離先由 history reader／Controller 保證；VM 不做授權 |
 | Library page／section／controls | 本人 LibraryItem／LibraryEntry → tabs、rows、edit state | 使用者區塊不得加入共享 catalog cache |
 | Recommendation request／response | nullable requirementText → Application 驗證；Outcome → 明列 response 欄位 | 外部服務 gate、Candidate Set、20 次限制不在 DTO |

@@ -70,3 +70,13 @@ git show cda623f -- Models
 未逐檔執行 `git log --follow`，搬移透過上述commit diff交叉確認；本表是指定路徑歷史，不等於整個產品或舊路徑完整歷史。未讀CI artifact、未執行測試或部署，任何日期與subject均不構成runtime驗證。輸出文件未混入實作歷史。
 
 相關文件：[流程](workflow-diagram.md) · [架構](architecture.md) · [待辦](backlog.md) · [歷史](update-history.md) · [測試案例](test-suite.md)。
+
+## #109 M2 書庫 Web 呈現（新增紀錄）
+
+本段是 #109 實作的紀錄，不改寫上方查核表。
+
+| 分支／提交 | Subject | 影響 |
+|---|---|---|
+| `a8a5077` | feat(web): show 書庫 on home and /books in place of the bestseller ranking | 新增 BookListItemViewModel、BookBrowseViewModel、HomeViewModel；SearchResultsViewModel 改用共用列映射；刪除 BestsellerListViewModel；PageNumber 註解加入 /books |
+| `2642182` | test(web): cover 書庫 paging, home sample and the /bestsellers redirect | 無 Models 行為變更；TaipeiTimeZoneTests 改驗 fallback zone 轉換，新增 BookBrowseViewModelTests |
+| 本 M2 docs commit | docs(web): record 書庫 Web presentation in folder docs | 更新 Models 文件；Bestseller 只保留後端與 TaipeiTimeZone 歷史 |
