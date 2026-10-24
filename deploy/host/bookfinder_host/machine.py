@@ -294,6 +294,10 @@ def _journal_health_failure(r: _Run, failure: _HealthFailure, *, rollback: bool)
     prefix = "rollback health check" if rollback else "health check"
     status = "0 (no response)" if failure.status == 0 else str(failure.status)
     r.err.write(f"{prefix} failed at the {failure.stage} stage; last status {status}\n")
+    if failure.stage == "public" and 400 <= failure.status < 500:
+        # Why: a 4xx from the edge while the local port answers 200 means the request itself was refused (for example a
+        # User-Agent rule in nginx or a WAF), not that the app is down. Say so in the journal, where it can be found next time.
+        r.err.write(f"stage=public status={failure.status} \u2014 the edge refused the request; check nginx/WAF rules for the User-Agent\n")
 
 
 def _journal_container_log(r: _Run) -> None:

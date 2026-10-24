@@ -1058,6 +1058,36 @@ def test_failed_public_check_is_journaled_with_the_public_stage(tmp_path):
     assert "health check failed at the public stage; last status 503" in err.splitlines()
 
 
+def test_public_403_is_journaled_with_the_edge_hint(tmp_path):
+    world = in_sync_world(tmp_path)
+    with_old_release(world)
+    phased_health(world, switch=403, switch_url=PUBLIC)
+    code, _, err = world.run_unit(deploy_text(world))
+    assert code == ROLLED_BACK
+    lines = err.splitlines()
+    assert "health check failed at the public stage; last status 403" in lines
+    assert "stage=public status=403 \u2014 the edge refused the request; check nginx/WAF rules for the User-Agent" in lines
+
+
+def test_public_4xx_on_rollback_is_journaled_with_the_edge_hint(tmp_path):
+    world = in_sync_world(tmp_path)
+    with_old_release(world)
+    phased_health(world, switch=503, switch_url=PUBLIC, rollback={PUBLIC: [403]})
+    code, _, err = world.run_unit(deploy_text(world))
+    assert code == FAILED_DOWN
+    assert "rollback health check failed at the public stage; last status 403" in err.splitlines()
+    assert any(line.startswith("stage=public status=403 ") for line in err.splitlines())
+
+
+def test_local_or_5xx_failures_do_not_get_the_edge_hint(tmp_path):
+    world = in_sync_world(tmp_path)
+    with_old_release(world)
+    phased_health(world, switch=503, switch_url=PUBLIC)
+    code, _, err = world.run_unit(deploy_text(world))
+    assert code == ROLLED_BACK
+    assert "the edge refused" not in err
+
+
 def test_no_response_is_journaled_as_status_zero(tmp_path):
     world = in_sync_world(tmp_path)
     with_old_release(world)

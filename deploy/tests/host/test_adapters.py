@@ -9,9 +9,10 @@ import http.server
 import os
 import stat
 import threading
+from typing import ClassVar
 
 import pytest
-from bookfinder_host import adapters
+from bookfinder_host import adapters, config
 from bookfinder_host.ports import CommandResult, EffectFailed
 
 
@@ -182,6 +183,62 @@ def test_http_probe_reports_a_redirect_as_its_own_status_instead_of_following_it
 
 def test_http_probe_reports_a_redirect_path_as_301_without_following(local_server):
     assert adapters.RealHttp().status(local_server + "/redirect", {}, 5) == 301
+
+
+class _Recording(http.server.BaseHTTPRequestHandler):
+    seen: ClassVar[list[dict[str, str]]] = []
+
+    def do_GET(self):
+        _Recording.seen.append({name.lower(): value for name, value in self.headers.items()})
+        self.send_response(200)
+        self.end_headers()
+
+    def log_message(self, *args):
+        pass
+
+
+@pytest.fixture
+def recording_server():
+    _Recording.seen = []
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Recording)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_address[1]}", _Recording.seen
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_http_probe_sends_the_host_user_agent_not_the_urllib_default(recording_server):
+    url, seen = recording_server
+    assert adapters.RealHttp(user_agent="book-finder-deploy/7").status(url + "/", {}, 5) == 200
+    assert seen[0]["user-agent"] == "book-finder-deploy/7"
+
+
+def test_default_http_probe_user_agent_is_the_host_api_max(recording_server):
+    url, seen = recording_server
+    assert adapters.RealHttp().status(url + "/", {}, 5) == 200
+    _, high = config.read_host_api_range()
+    assert seen[0]["user-agent"] == f"book-finder-deploy/{high}"
+    assert "python-urllib" not in seen[0]["user-agent"].lower()
+
+
+def test_http_probe_keeps_a_caller_provided_user_agent_in_any_case(recording_server):
+    url, seen = recording_server
+    adapters.RealHttp(user_agent="book-finder-deploy/7").status(url + "/", {"user-agent": "custom/1"}, 5)
+    adapters.RealHttp(user_agent="book-finder-deploy/7").status(url + "/", {"User-Agent": "custom/2"}, 5)
+    assert [entry["user-agent"] for entry in seen] == ["custom/1", "custom/2"]
+
+
+def test_http_probe_keeps_the_no_redirect_rule_with_the_user_agent(local_server):
+    assert adapters.RealHttp(user_agent="book-finder-deploy/7").status(local_server + "/", {}, 5) == 307
+
+
+def test_host_user_agent_names_the_product_and_the_highest_supported_release_api(tmp_path):
+    range_file = tmp_path / "HOST_API_RANGE"
+    range_file.write_text("1 4\n")
+    assert config.host_user_agent(range_file) == "book-finder-deploy/4"
 
 
 def test_http_probe_returns_zero_when_nothing_listens():
