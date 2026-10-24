@@ -358,6 +358,8 @@
 | DEP-MIG-06 | efbundle 輸出 80 行以上，含 migration 與 DB 密碼 | exit 1 | journal 有 `efbundle output, last 80 lines:` 與遮蔽後的尾端；所有 secret 不出現在 stdout、stderr 或 history | `test_machine.py::test_failed_migration_journals_the_masked_efbundle_output_tail` | 本次執行通過（M） |
 | DEP-MIG-07 | exit 0 但 DB id 不符 | forward 部署 | 失敗的 migration 同樣寫入輸出尾端 | `test_machine.py::test_failed_migration_with_wrong_ids_also_journals_the_efbundle_output` | 本次執行通過（M） |
 | DEP-MIG-08 | 真實 efbundle 輸出 | `run_efbundle` | 回傳 exit code 與 stdout＋stderr；argv 不變（`--pull=never`、`--env-file`） | `test_adapters.py::test_efbundle_returns_the_exit_code_and_its_output_for_the_journal` | 本次執行通過（M） |
+| DEP-MIG-09 | 設定 migration 連線，in-sync 新 web 健康檢查失敗，migration 參數第二次讀取失敗 | 切換後回滾 | rolled-back（不是 failed-down）；migration 參數只讀一次；兩檔刪除 | `test_machine.py::test_rollback_succeeds_without_reading_the_migration_parameter_again` | 本次執行通過（M） |
+| DEP-MIG-10 | 同 DEP-MIG-09，容器 log 含 migration 連線 | 切換後回滾 | 遮蔽仍有效：`connecting with ***`；secret 不出現在 stdout、stderr 或 history | `test_machine.py::test_masking_still_covers_the_migration_secret_after_a_rollback` | 本次執行通過（M） |
 
 ## 4. 覆蓋摘要與缺口
 

@@ -226,6 +226,7 @@ git log --reverse --no-merges --format='@@%h' --numstat -- <同上路徑>
 |---|---|---|---|---|
 | 2026-10-25 | `4a844f8` | feat(host): add optional SSM_MIGRATION_CONNECTION host.conf key | `config.py`（+5/-1）、測試（+24） | 新增選填鍵；未設定時為 `None`；空值與不合法值拒絕（與其他鍵相同的字元規則） |
 | 2026-10-25 | `5563d80` | feat(host): migration connection file for efbundle and journal failed efbundle output | `adapters.py`（+3/-2）、`machine.py`（+45/-20）、`ports.py`（+2/-2）、`testing.py`（+4/-2）、測試（+107、+8/-1） | 設定時在步驟 3 讀取並寫入獨立的 `migrate-<run_id>.env`（600）；web env file 不含它；兩個檔案在每條路徑上刪除；`run_efbundle` 回傳 `(exit code, 輸出)`；failed-migration 時把遮蔽後的最後 80 行寫入 journal；結果與 exit code 語意不變 |
+| 2026-10-25 | `a3c4b11` | fix(host): rollback does not read SSM_MIGRATION_CONNECTION again | `machine.py`（+6/-4）、測試（+48/-0） | `_render_env(include_migration=False)` 供回滾使用，回滾不重讀 migration 參數（回滾只出現在非 forward chain，不執行 efbundle）；`r.secrets` 取聯集，先前的遮蔽不會失效 |
 | 2026-10-25 | （本文件 commit） | docs(deploy): document SSM_MIGRATION_CONNECTION and the v0.0.6 incident (#121) | `deploy/README.md`、`deploy/docs/*`、`Docs/deployment/deployment.md`、`Docs/Implementation-Report/issue-121-migration-connection.md` | 文件；自我參照，不列入上表 |
 
 **`v0.0.6` 事件**：2026-10-24 的 forward migration 以 `failed-migration` 結束。原因是 efbundle 使用權限最小的 web 角色，`CreateIfNotExists()` 因 `42501` 失敗，且 efbundle 輸出沒有寫入 journal。見 `deploy/README.md` §7.2 第 22 項。
