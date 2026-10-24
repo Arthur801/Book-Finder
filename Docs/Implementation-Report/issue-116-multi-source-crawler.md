@@ -99,8 +99,20 @@
 
 ## 未解決事項
 
-1. **Unicode 版本**：spec 固定 NFKC 與 White_Space 於 Unicode 15.1；venv 的 Python 3.14 使用 Unicode 16.0。共用 fixture 全部通過，但 15.1 至 16.0 之間新增、且有相容分解的字元仍可能有差異。需要固定的 Unicode 表格，或在執行期比對版本。
+1. **Unicode 版本（已解決，`118eb5b`）**：NFKC 改為只套用在 Unicode 15.1 已指派的分段，未指派 code point 原樣保留（data-model §7.1）。`unicode_15_1.py` 由 `.github/scripts/unicode_tables.py` 產生，CI `--check` 防止漂移；啟動時以 NFKC(U+1E030) 檢查 runtime 版本（低於 15.0 即 exit 2）。`NormalizationTest-NFKC.txt` 的 19074 組 c1→c4 全部通過。殘餘風險：Python 3.14 的 Unicode 16.0 與 15.1 之間的差異只可能落在分段保留的未指派字元，這些字元不影響已指派區段。
 2. **PR4（migration 011）**：移除 `ISBN_10`、`ISBN_13` 型別與其比對 SQL；需要 gate 全部通過並經使用者授權。CB-06 保留。
 3. **`book_offers`**：只建表，沒有 writer；`offer_updated_count` 固定 0。
 4. **發布順序**：與 #117（PR2）及 #115 同一個 release tag 發布。發布前 production 不得手動執行 `first_book`；它現在可經 `run-crawler.sh first_book` 取得 run.lock，但新 identity 規則尚未在 production 驗證。
 5. **已知限制**：Books.com.tw 的 adapter 不提供 external_id，因此身分衝突與 URL 漂移的路徑目前只由單元測試與 DB 測試覆蓋，不會由真實博客來資料觸發。
+
+### 第二輪：Unicode 15.1 分段與 PR #119（連線重連）
+
+| 軸 | 發現 | 處理 |
+|---|---|---|
+| Spec | 協調者提出 ISBN NFKC 協定更新（data-model §7.1）：未指派 code point 必須分段，runtime 版本不可影響結果 | 以 `unicode_15_1.py` 的分段表與 `compose_compatibility` 實作（`118eb5b`），與 `IsbnNormalizer.cs` 逐步對應；新增 19074 組 conformance 測試與啟動 guard |
+| Spec | PR #119（P1）：三個重試都沿用同一條連線，連線斷開後第 2、3 次嘗試仍失敗；既有「模擬斷線」測試只 monkeypatch 例外，沒有真的斷線 | 新增 `DatabaseSession`（`d8e5915`）：以 psycopg 的 `closed`／`broken` 判斷，斷線時以注入的 connect 重連，重試仍在 3 次預算內，沿用 draft，不重抓 detail |
+| Spec | 寫入可能已 commit、client 沒看到結果；重試會造成重複 Source | 寫入失敗（persist 之後）後，下一次嘗試先 `resolve_source_identity`；已存在則不插入，回報 `EXISTING`（原 resolution 未保存，無法還原；補 NULL 不重複，touch 冪等）（`d8e5915`） |
+| Spec | 讀取既有 Source 的 SELECT 斷線 | 維持 run FAILED（§6.1），不做重連；寫入在 spec 13.1 與 6.1 明確寫出（`a17da36`） |
+| Spec | 測試未真正斷線 | 新增整合測試：以 `pg_terminate_backend` 從 admin 連線終止 backend（touch、寫入、commit-then-drop、三次斷線、first_book 三次斷線、讀取斷線），以及 `DatabaseSession` 單元測試（`d8e5915`） |
+| Standards | first_book 單元測試的 lookup 期望：寫入重試前新增一次身分查詢 | 期望改為 `[first, first]`，並註明依 §13.1 |
+| Standards | lint：`PYI034`（`__enter__` 回傳型別）、`S110`（空 except）、`B018` | 改用 `Self`；錯誤改為 debug log；未使用的運算式改為賦值 |

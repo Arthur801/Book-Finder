@@ -4,7 +4,7 @@
 
 > 查核 2026-10-24；HEAD `91333c334148fa5bfe07055d0e799dc13bb0bb4e`。依基準版本靜態閱讀；本次未執行 build、測試、部署、外部服務或真實抓取。
 
-> 2026-10-25（#116 phase A、phase B 與 review 修正）：實作前 HEAD `ee29e02`；各階段的 commits 列於文末「#116 phase A」「#116 phase B 與 review 修正」。本次有執行 pytest（DB integration 含）、C# DatabaseIntegration、ruff 與 deploy tests，未執行部署或真實抓取。
+> 2026-10-25（#116 phase A、phase B、review 修正、Unicode 15.1 分段 NFKC 與 PR #119 連線重連）：實作前 HEAD `ee29e02`；各階段的 commits 列於文末「#116 phase A」「#116 phase B 與 review 修正」。本次有執行 pytest（DB integration 含）、C# DatabaseIntegration、ruff 與 deploy tests，未執行部署或真實抓取。
 
 ## 範圍與方法
 
@@ -112,5 +112,8 @@ Workflow／architecture／CR-T12 的 host 現況引用 [target wrapper](https://
 | 2026-10-25 | `0fa845d` | Arthur801 | docs: remove stale pre-#116 statements and document provider read exits | M Docs/data/data-model.md；M Docs/modules/crawler.md；M crawler/README.md；M crawler/docs/{architecture,test-suite}.md |
 | 2026-10-25 | `0d3e28f` | Arthur801 | test(recommendation): field-sensitive stale detection after a NULL fill | A tests/DatabaseIntegration/EfStaleDetectionTests.cs；M crawler/docs/test-suite.md |
 | 2026-10-25 | `118eb5b` | Arthur801 | feat(crawler): pin ISBN NFKC to Unicode 15.1 with segmented runs | M crawler/books_crawler/{normalize,cli}.py；A crawler/books_crawler/unicode_15_1.py（由 `.github/scripts/unicode_tables.py` 產生）；A crawler/tests/test_unicode_nfkc_conformance.py |
+| 2026-10-25 | `38c2bb9` | Arthur801 | docs(crawler): record Unicode 15.1 NFKC pinning in architecture, tests and history | M crawler/docs/{architecture,test-suite,update-history}.md |
+| 2026-10-25 | `d8e5915` | Arthur801 | fix(crawler): reconnect a broken database connection inside the retry budget | A crawler/books_crawler/session.py；M crawler/books_crawler/run.py；A crawler/tests/{test_session,test_reconnect_integration}.py；M crawler/tests/test_first_book.py |
+| 2026-10-25 | `a17da36` | Arthur801 | docs(crawler): specify the reconnect rule and document its tests | M Docs/modules/crawler.md；M crawler/docs/{architecture,workflow-diagram,test-suite}.md |
 
 行為轉折：ISBN 不再驗證 checksum，所有非空正規化值都以 `ISBN` 寫入；既有 Source 每次出現都更新 `last_seen_at`；`replace_bestsellers` 不再更新 `last_seen_at`；停用的 provider 以 exit 2 拒絕執行。新 DB 測試依 migration 010 的 trigger 驗證 `source_type = source_code`。
