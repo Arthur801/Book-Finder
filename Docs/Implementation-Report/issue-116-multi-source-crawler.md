@@ -95,7 +95,7 @@
 | Standards | `PROVIDER` 在 cli、db 各定義一次 | 只在 `models.py` 定義，其他模組匯入（`1051d6e`） |
 | Standards | ISBN 日誌字串重複三次 | 抽成單一變數 `isbn_text`（`1051d6e`） |
 | Standards | `_write_identifiers` 為何固定寫 `ISBN` 型別不明 | 加一行註解說明 §7.1 與 §7.2（`1051d6e`） |
-| 處理 | 更新歷史仍有「本 commit」placeholder、範圍標題只寫 phase B | 換成實際 SHA，標題改為涵蓋 phase B 與 review 修正（本報告 commit） |
+| 處理 | 更新歷史仍有「本 commit」placeholder、範圍標題只寫 phase B | 換成實際 SHA，標題改為涵蓋 phase B 與 review 修正（`c9fe04a`） |
 
 ## 未解決事項
 
