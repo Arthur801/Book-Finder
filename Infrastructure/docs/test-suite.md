@@ -134,6 +134,14 @@ Authority：[test plan](../../Docs/testing/test-plan.md)、[data model](../../Do
 - Then：只計 A 日界以後已保存 search；成功含零結果保存；relevance 五位小數；Result FK 失敗 Search/Results 一起 rollback；B 讀 A search 回 null；巨大 offset 不溢位且空頁；保存後 enrichment 一般失敗降級，caller 取消仍傳播取消但已保存 search 不回滾；保存前 AI failure／timeout 不保存。每日已達上限不呼叫任何外部 adapter（Application gate regression）。
 - 入口：[EfRecommendationStoreTests](../../tests/DatabaseIntegration/EfRecommendationStoreTests.cs)、[EfRecommendationUsageTests](../../tests/DatabaseIntegration/EfRecommendationUsageTests.cs)、[EfRecommendationHistoryTests](../../tests/DatabaseIntegration/EfRecommendationHistoryTests.cs)、[RecommendationServiceTests](../../tests/UnitTests/RecommendationServiceTests.cs)。
 
+## INF-T16 — 書庫列表、隨機樣本與組裝守衛
+
+- 責任／風險／狀態：Catalog browse 與 DI，L3，**測試實作：Implemented**；執行結果見 #109 實作報告；規格 Catalog §3–5（書庫規則待 #109 後續模組同步 Docs）。
+- Given：固定 Id 的三本同出版日書、無日期與新舊日期混合書、25 本書、空庫、15 本與 3 本書；作者含 AUTHOR 與 TRANSLATOR 且 contributor_order 打亂。
+- When：從 DI scope 解析 BookBrowseService，呼叫 ListAsync 與 SampleHomeAsync；頁碼為 int.MaxValue。
+- Then：同日依 Id 升冪；有日期者新到舊且在無日期者前；25 本分 20 與 5 且無重複、TotalPages 2；超出頁數回空 items 且 TotalCount 保留（不溢位）；空庫 TotalPages 0；樣本 15 本回 10 個不重複既有書、3 本回 3 本；作者只含 AUTHOR 並依 contributor_order。
+- 入口：[BookBrowseIntegrationTests](../../tests/WebIntegration/BookBrowseIntegrationTests.cs)；seed 的 `BookSeed.Id` 見 [CatalogSeed](../../tests/WebIntegration/CatalogSeed.cs)。
+
 ## 可執行入口（僅記錄，本次未執行）
 
 在 repository root，具對應 .NET SDK；DB/Web projects 另需 Docker、可取得測試 image。所有資料庫只能用 fixture disposable container，AI transport／ports 必須 fake。
