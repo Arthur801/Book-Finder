@@ -172,4 +172,15 @@ python -m pytest tests/test_fetcher.py tests/test_curl_fetcher.py tests/test_pla
 | [test_db_integration.py](../tests/test_db_integration.py) | 榜內重複時 Catalog 側已 commit（新 Source 存在），只跳過 rank；需要真實 PostgreSQL（EF schema） | §14.2 |
 | [test_deploy.py](../tests/test_deploy.py) | `first_book` 模式的 module、pause／dirty gate、共用 run.lock 與 maintenance lock | deploy README §6 |
 
-尚未覆蓋（phase B）：touch 與 `last_seen_at`（plan §4 #11、#17）、AMBIGUOUS_CREATED、補 NULL、ISBN 正規化與 fixture（#18）、disabled provider exit 2。
+Phase B（#116）覆蓋：
+
+| 測試 | 覆蓋 | 規格 |
+|---|---|---|
+| [test_isbn_fixture.py](../tests/test_isbn_fixture.py) | 共用 `tests/Fixtures/isbn-normalization.json` 逐 byte；每個 White_Space code point 都有 vector；反例保留 | data-model §7.1（plan §4 #18） |
+| [test_identity.py](../tests/test_identity.py) | §7.3 矩陣每一列（純函式） | §7.3（plan §4 #19） |
+| [test_db_integration.py](../tests/test_db_integration.py) | 0／1／≥2 本比對；legacy `ISBN_13` 與 draft ISBN 同一本；補 NULL（日期成對、AUTHOR 條件、updated_at 只在補值時更新）；ambiguous 不改既有 Book；touch 每次 run、重試不重抓、最後失敗的 daily policy；`replace_bestsellers` 不更新 `last_seen_at`；URL drift、衝突、NULL external_id；trigger 讓 `source_type = source_code`；`provider_enabled` | plan §4 #1–#4、#11、#15 概念、#17、#19 |
+| [test_first_book.py](../tests/test_first_book.py) | touch 最後仍失敗 → FAILED exit 1，不重抓 detail | plan §4 #17 |
+| [test_run_pages.py](../tests/test_run_pages.py) | touch 最後仍失敗 → 只跳過該列，其餘照常 | plan §4 #17 |
+| [test_cli.py](../tests/test_cli.py) | 停用 provider → exit 2 且不建立 fetcher；讀 registry 失敗 → exit 1 | crawler.md §3.1 |
+
+尚未覆蓋：migration 011（PR4）；C# 端 fixture（#115 的測試範圍）；stale 偵測屬 Web 端（#115）。

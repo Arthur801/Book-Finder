@@ -34,30 +34,19 @@
 
 ## CB-04 — Multi-source Catalog：provider code 與 ISBN 比對（#113 PR3）
 
-- P1；L3；狀態：確認缺口（目標規格已定，未實作）。
-- 目標：[crawler §6.3、§7.2](../../Docs/modules/crawler.md) 與 [data-model §7.1～§7.4](../../Docs/data/data-model.md)：只用 `source_code`（不讀寫 010 的 `source_type`）；ISBN 依 Unicode 15.1 NFKC → 刪 U+002D 與 Unicode 15.1 White_Space → ASCII 大寫正規化，存成 `ISBN`，不驗證 checksum；以 draft 所有 ISBN 查 distinct Book（三種類型），0 建立、1 附加並補 NULL、≥ 2 ambiguous 建立；source identity 衝突與 URL 漂移；disabled provider exit 2。
-- 目前差距：[models](../books_crawler/models.py) 有 `SourceType`；[normalize](../books_crawler/normalize.py) 驗證格式與 checksum 並分成 ISBN_10／13；[db.find_book_by_isbn](../books_crawler/db.py) 以 `fetchone()` 依 ISBN_13 → ISBN_10 取第一筆；附加時不補 NULL。
-- 前置：PR2 的 migration 010 已部署（同一 release tag）；共用 fixture `tests/Fixtures/isbn-normalization.json` 由 PR2 建立。
-- 驗收：[test-plan §7](../../Docs/testing/test-plan.md) #1～#4、#15、#18、#19 通過；pytest 讀共用 fixture 與 C# 逐 byte 一致。
-- 測試入口：[test_normalize.py](../tests/test_normalize.py)、[test_db_integration.py](../tests/test_db_integration.py)；新案例待建。
+- P1；L3；狀態：完成（#116 phase B，`861c334`）。PR4（migration 011）之後只查 `ISBN` 屬 CB-06。
+- 已實作：只用 `source_code`（trigger 補 `source_type`，#115 migration 010）；ISBN 依 data-model §7.1 正規化（共用 fixture 逐 byte 驗證）、寫入型別 `ISBN`、不驗 checksum；以 draft 所有 ISBN 查 distinct Book（三種類型），0 建立、1 附加並補 NULL、≥2 ambiguous 建立；Source identity 依 §7.3 矩陣（`identity.py`）；disabled provider 以 exit 2 拒絕。
+- 剩餘差距：無（`offer_updated_count` 固定 0 屬 §8，未排程）。
+- 驗收：[test-plan §7](../../Docs/testing/test-plan.md) #1～#4、#18、#19（crawler 端）由 [test_isbn_fixture.py](../tests/test_isbn_fixture.py)、[test_identity.py](../tests/test_identity.py)、[test_db_integration.py](../tests/test_db_integration.py)、[test_cli.py](../tests/test_cli.py) 覆蓋。
+- 注意：`tests/test_normalize.py` 與 `tests/test_parsers_real_fixtures.py` 的 ISBN 期望已改為 §7.1 規則。
 
 ## CB-05 — 兩層 outcome、計數與 last_seen_at touch（#113 PR3）
 
-- P1；L3；狀態：phase A 已實作（`0149b69`、`448571e`、`ad82318`）；phase B 待辦（見下）。
-- 已完成（phase A，不需新 schema）：
-  - `CatalogResolution` 與 `RankingDecision` 分層；`RunLedger` 依 §14.2 決定 `DUPLICATE_BOOK`，連續錯誤只由 `RankingDecision` 決定；榜內重複時 Catalog 側照常寫入（原 `_DuplicateBook` 已移除）。
-  - Catalog 軸計數依 §10.2；pages、first_book 與每日榜單共用同一組計數。
-  - log 新增 `provider_code`、`job_name`、`items_seen`、`existing_source_count`、`new_source_count`、`ambiguous_isbn_count`、`offer_updated_count`（固定 0），欄位順序依 §19.2、§15.8。
-  - [run-crawler.sh](../deploy/run-crawler.sh) 支援手動 `first_book`，與 daily／pages 共用 `run.lock`、maintenance shared lock 與 state gate；排程旗標不變。
-  - 程式 docstring 的 `crawler.md §…` 改為現行編號。
-- 待 phase B（需要 migration 010、ISBN 規則或 touch 實作）：
-  - Existing Source 在 discovery 時以獨立 transaction touch `last_seen_at`（§6.1），以及 touch 失敗的重試與各模式 policy；目前 EXISTING 不 touch，`last_seen_at` 維持原值。
-  - [db.replace_bestsellers](../books_crawler/db.py) 仍在 snapshot transaction 內更新 `last_seen_at`，需移除（§14.4）。
-  - `AMBIGUOUS_CREATED` 尚未產生：`find_book_by_isbn` 仍只回第一筆；counters 與 enum 已就緒。
-  - 補 NULL（§6.4）、ISBN 正規化與 distinct 比對（R1）尚未實作；db.py 仍使用 `source_type`。
-  - 停用的 provider 以 exit 2 拒絕執行：檢查點已在 [cli.py](../books_crawler/cli.py) 標為 TODO，需讀 `source_providers.enabled`（migration 010 之後）。
-  - `offer_updated_count` 固定 0，等待 offer ingestion（§8）。
-- 驗收：[test-plan §7](../../Docs/testing/test-plan.md) #5～#7、#11、#17 中的 ledger 與 runner 部分已由 phase A 測試覆蓋；#11、#17 的 touch 部分待 phase B。`crawler/docs/*` 與 `crawler/README.md` 同步（plan §2 docs-sync 規則）。
+- P1；L3；狀態：完成（phase A：`0149b69`、`448571e`、`ad82318`、`fb707de`；phase B：`861c334`）。
+- 已實作（phase A）：`CatalogResolution` 與 `RankingDecision` 分層；連續錯誤只由 `RankingDecision` 決定；榜內重複時 Catalog 側照常 commit；新 log 欄位；`run-crawler.sh first_book`。
+- 已實作（phase B）：既有 Source 在獨立 transaction touch `last_seen_at`，重試同 DB 寫入規則（最多 3 次，不重抓 detail），最後失敗依模式處理（daily ERROR_SKIP、pages 跳過該列、first_book FAILED exit 1）；`replace_bestsellers` 不再更新 `last_seen_at`；新來源的 `first_seen_at = last_seen_at = now` 只在成功寫入時發生。
+- 剩餘差距：無（`offer_updated_count` 固定 0，§8）。
+- 驗收：[test-plan §7](../../Docs/testing/test-plan.md) #5～#7、#11、#17 由 [test_ledger.py](../tests/test_ledger.py)、[test_db_integration.py](../tests/test_db_integration.py)、[test_first_book.py](../tests/test_first_book.py)、[test_run_pages.py](../tests/test_run_pages.py) 覆蓋。
 - 測試入口：[test_ledger.py](../tests/test_ledger.py)、[test_pages_ledger.py](../tests/test_pages_ledger.py)、[test_run_unit.py](../tests/test_run_unit.py)、[test_run_pages.py](../tests/test_run_pages.py)、[test_first_book.py](../tests/test_first_book.py)、[test_db_integration.py](../tests/test_db_integration.py)、[test_deploy.py](../tests/test_deploy.py)。
 
 ## CB-06 — 只查 `ISBN` 類型（#113 PR4）

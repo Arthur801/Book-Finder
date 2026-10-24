@@ -39,20 +39,20 @@ Crawler 必須能逐步擴充：
 
 ## 2. Current implementation vs target contract
 
-本文件描述 multi-source 的目標 contract（#113）。查核基準 `a448b82` 的實作只以 `BOOKS_COM_TW` 為中心，包含：每日總榜 TOP 100、分類榜 pages mode、first-book diagnostic mode，以及 curl_cffi / optional Playwright fetcher。下列規則**尚未實作**，由後續 PR 完成：
+本文件描述 multi-source 的目標 contract（#113）。以下表格標示 crawler 目前的實作狀態（#116 phase A 與 phase B，2026-10-25）。查核基準 `a448b82` 之後，crawler 已實作：每日總榜 TOP 100、分類榜 pages mode、first-book diagnostic mode、curl_cffi / optional Playwright fetcher，以及下表標為「已實作」的規則。尚未完成者只剩下表中標示的 migration 011 與 `book_offers`：
 
 | 規則 | 現行程式 | 由誰完成 |
 |---|---|---|
-| provider code（`source_code`）取代 `SourceType` enum | `models.SourceType`、`book_sources.source_type` | PR2（schema）+ PR3（crawler） |
-| ISBN 正規化（data-model §7.1）與 distinct Book 比對（§6.3） | ISBN-13 → ISBN-10 逐一比對，寫入前驗證 checksum | PR3；PR4 後只查 `ISBN` |
-| 附加 Source 時補 NULL（§6.4） | ISBN 命中只附加 Source，不改 Book | PR3 |
-| `last_seen_at` 看到就更新（§6.1） | 只在 Bestseller 替換 transaction 中更新；pages / first_book 不更新 | PR3 |
-| 榜內重複時 Catalog 照常 commit（§14.2） | 重複的新 Source 在寫入前就被跳過（`run.py` 的 `_DuplicateBook`） | PR3 |
-| 兩層 outcome 與計數（§10.2、§14.2） | 單層 `Resolution`；log 沒有 `existing_source_count` 等新欄位 | PR3 |
-| disabled provider 拒絕執行（§3.1） | 沒有 provider registry | PR3 |
+| provider code（`source_code`）取代 `SourceType` enum | 已實作：crawler 只讀寫 `source_code`，migration 010 的 trigger 補 `source_type`（#116 phase B） | 已實作 |
+| ISBN 正規化（data-model §7.1）與 distinct Book 比對（§6.3） | 已實作：§7.1 正規化（共用 fixture），寫入型別 `ISBN`，比對三種類型的 distinct Book。PR4（011）後只查 `ISBN` | 已實作；011 待完成 |
+| 附加 Source 時補 NULL（§6.4） | 已實作：與附加同一 transaction，只補 NULL 欄位，日期成對，AUTHOR 條件式 | 已實作 |
+| `last_seen_at` 看到就更新（§6.1） | 已實作：Existing Source 在獨立 transaction touch，三種模式共用重試與 policy；`replace_bestsellers` 不再更新 | 已實作 |
+| 榜內重複時 Catalog 照常 commit（§14.2） | 已實作（phase A）：`RunLedger` 決定 DUPLICATE_BOOK，Catalog 側先 commit | 已實作 |
+| 兩層 outcome 與計數（§10.2、§14.2） | 已實作（phase A）：`CatalogResolution`、`RankingDecision`，新 log 欄位 | 已實作 |
+| disabled provider 拒絕執行（§3.1） | 已實作：cli 讀 `source_providers.enabled`，停用或未登錄時 exit 2，且不建立 fetcher | 已實作 |
 | `book_offers` 寫入（§8） | 未實作；本系列也不實作，`offer_updated_count` 固定 0 | 未排程 |
 
-程式碼 docstring 內的 `crawler.md §…` 引用仍指舊版章節編號，隨 PR3 一併修正。
+程式碼 docstring 內的 `crawler.md §…` 引用已改為本文件的現行編號（phase A）。
 
 本文件把 crawler 分成 generic core 與 provider adapter：
 

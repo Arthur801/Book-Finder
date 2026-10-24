@@ -100,3 +100,12 @@ Workflow／architecture／CR-T12 的 host 現況引用 [target wrapper](https://
 | 2026-10-25 | `ad82318` | Arthur801 | docs(crawler): renumber crawler.md citations to the current spec | M crawler/books_crawler/*（docstring 與 cli TODO）；M crawler/tests/*（docstring） |
 
 行為轉折：榜內重複不再於寫入前跳過，改由 `RunLedger` 決定；DB integration 中該 rank 的 Source 現在會存在（Catalog 側已 commit）。
+
+## #116 phase B（2026-10-25）
+
+| Author 日期 | SHA | Author | Subject | 目標內實際差異檔案 |
+|---|---|---|---|---|
+| 2026-10-25 | `861c334` | Arthur801 | feat(crawler): phase B identity, ISBN matching, touch and provider gate | M crawler/books_crawler/{cli,db,models,normalize,run}.py；A crawler/books_crawler/identity.py；M crawler/tests/{test_cli,test_db_integration,test_e2e_real_fixtures,test_first_book,test_first_book_integration,test_normalize,test_parsers_real_fixtures,test_run_pages,test_run_unit}.py；A crawler/tests/{test_identity,test_isbn_fixture}.py |
+| 2026-10-25 | 本 commit | Arthur801 | docs(crawler): sync phase B docs and spec status | M crawler/README.md；M crawler/docs/*；M Docs/data/data-model.md §14；M Docs/modules/crawler.md §2 |
+
+行為轉折：ISBN 不再驗證 checksum，所有非空正規化值都以 `ISBN` 寫入；既有 Source 每次出現都更新 `last_seen_at`；`replace_bestsellers` 不再更新 `last_seen_at`；停用的 provider 以 exit 2 拒絕執行。新 DB 測試依 migration 010 的 trigger 驗證 `source_type = source_code`。

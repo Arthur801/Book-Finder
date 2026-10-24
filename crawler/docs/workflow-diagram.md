@@ -30,7 +30,7 @@ flowchart TD
  G -->|是| F
  G -->|否且還有列| E
  G -->|否且完成| H[交易內檢查 source ownership]
- H --> I[DELETE 舊榜 INSERT snapshot UPDATE last_seen_at]
+ H --> I[DELETE 舊榜 INSERT snapshot]
  I -->|rollback| F
  I -->|commit| J[SUCCESS 或 PARTIAL_SUCCESS exit 0]
  F --> K[CLI finally 關閉 fetcher]
@@ -51,7 +51,7 @@ flowchart TD
  F -->|是| G[等待 1 秒或 2 秒後重新 fetch]
  G --> D
  F -->|否| H[skip 計一次一般錯誤]
- D -->|draft| I[ISBN13 再 ISBN10 查詢]
+ D -->|draft| I[ISBN 正規化後 distinct Book 查詢]
  C --> J{daily 已使用此 Book}
  I --> J
  J -->|是| H

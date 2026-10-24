@@ -41,7 +41,7 @@ sudo python -m playwright install-deps chromium
 
 限制級會員登入頁直接跳過、不重試；log 另列 `restricted_book_count`，不計入 `error_count`，並重設 `consecutive_error_count`；累計錯誤沒有上限，連續 21 本一般錯誤才中止。排名不重新編號。其他 HTTP／解析／DB 錯誤仍遵守重試和榜單保護規則。
 
-計數分兩層（`crawler.md` §3.5）：Catalog 軸由 `CatalogResolution` 計 `existing_book_count`、`new_book_count`、`attached_source_count`、`existing_source_count`、`new_source_count`、`ambiguous_isbn_count`；排行榜軸由 `RankingDecision` 決定 skipped、error、restricted 與連續錯誤。同一本 Book 第二次出現在榜內時，Catalog 側照常寫入，該排名記為 `duplicate_book_in_ranking`（DUPLICATE_BOOK），不重試。既有 Source 的 `last_seen_at` touch 尚未實作（phase B）。`offer_updated_count` 目前固定為 0。解析、DB 工作與 retry backoff 計入隨機等待目標；工作超過目標時實際間隔可能超過 30 秒。
+計數分兩層（`crawler.md` §3.5）：Catalog 軸由 `CatalogResolution` 計 `existing_book_count`、`new_book_count`、`attached_source_count`、`existing_source_count`、`new_source_count`、`ambiguous_isbn_count`；排行榜軸由 `RankingDecision` 決定 skipped、error、restricted 與連續錯誤。同一本 Book 第二次出現在榜內時，Catalog 側照常寫入，該排名記為 `duplicate_book_in_ranking`（DUPLICATE_BOOK），不重試。既有 Source 的 `last_seen_at` 在逐項處理時獨立 transaction 更新（重試規則同 DB 寫入）。`source_providers.enabled` 為 false 或未登錄的 BOOKS_COM_TW 會在建立 fetcher 前以 exit 2 拒絕執行。`offer_updated_count` 目前固定為 0。解析、DB 工作與 retry backoff 計入隨機等待目標；工作超過目標時實際間隔可能超過 30 秒。
 
 ```bash
 cd crawler
@@ -58,13 +58,13 @@ Exit code：0 = SUCCESS 或 PARTIAL_SUCCESS（榜單已替換；PARTIAL_SUCCESS 
 ../.venv/bin/python -m books_crawler.first_book
 ```
 
-先抓取並驗證完整的中文書 7 日 TOP 100 排行榜，再只處理 rank 1；其他 99 本不查詢或抓取詳細頁。新書寫入 `books`、`book_sources`、ISBN、作者與分類等關聯資料；既有商品 URL 直接重用，ISBN 命中則只附加來源。此入口不替換 `bestsellers`，不更新既有來源的 `last_seen_at`，不影響每日完整榜單流程。
+先抓取並驗證完整的中文書 7 日 TOP 100 排行榜，再只處理 rank 1；其他 99 本不查詢或抓取詳細頁。新書寫入 `books`、`book_sources`、ISBN、作者與分類等關聯資料；既有商品 URL 直接重用，ISBN 命中則只附加來源。此入口不替換 `bestsellers`，既有來源的 `last_seen_at` 仍會更新，不影響每日完整榜單流程。
 
 Exit code：0 = 第一名成功匯入、已存在或為限制級而直接跳過；1 = 抓取／解析／寫入失敗；2 = 設定錯誤。失敗仍沿用最多 3 次嘗試，頁面被判定失敗（challenge、連線異常頁、非 200）時也會保存診斷檔案。log 顯示 `mode=first-book`（summary 的 `job_name=first-book`）、第一名 URL、成功的 `book_id` 與 `source_id`。手動執行可用 `run-crawler.sh first_book`（見 [deploy/README.md](deploy/README.md) §6），它與 daily／pages 共用同一把 `run.lock`。
 
 ## 分類榜補書（pages mode）
 
-從博客來各分類的 7 日暢銷榜頁面補充 Catalog 的新書。此模式不是 Bestseller：不寫入 `bestsellers`，目前不更新 `last_seen_at`（#113 的目標規格改為會更新，由 PR3 實作），不保存分類排名（`crawler.md` §15）。
+從博客來各分類的 7 日暢銷榜頁面補充 Catalog 的新書。此模式不是 Bestseller：不寫入 `bestsellers`，會更新既有來源的 `last_seen_at`，新來源寫入 `first_seen_at = last_seen_at`，不保存分類排名（`crawler.md` §15）。
 
 ```bash
 cd crawler
