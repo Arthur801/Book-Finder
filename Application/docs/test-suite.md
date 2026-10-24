@@ -179,6 +179,14 @@ dotnet test tests/WebIntegration/WebIntegration.csproj
 - **Then**：空值整行省略；contributors保序且保留重複、subjects去重；簡介/目錄各截2000 code points；相同輸入文字與SHA256相同；空目錄不宣稱official；key_topics去空白去重且保留首次順序；model/prompt變更本身不改metadata hash。
 - 來源：[BookProfileTextTests](../../tests/UnitTests/BookProfileTextTests.cs)、[BookProfileRulesTests](../../tests/UnitTests/BookProfileRulesTests.cs)、[CodePointsTests](../../tests/UnitTests/CodePointsTests.cs)。
 
+### APP-T20 — 書庫頁碼、固定參數與首頁樣本
+
+- 風險／狀態：L2；**測試實作：Implemented**；執行結果見 #109 實作報告。規格：[book-catalog](../../Docs/modules/book-catalog.md)（書庫規則待 #109 後續模組更新）。
+- **Given**：recording IBookBrowse；page為0/-1/int.MinValue、1/5/int.MaxValue。
+- **When**：BookBrowseService.ListAsync(page,ct)、SampleHomeAsync(ct)。
+- **Then**：page小於1時port收到1，正數原值傳入；pageSize固定20；首頁樣本請求10筆；port結果原樣回傳；TotalPages為總數除以20的上取整。
+- 測試來源／擴充入口：[BookBrowseServiceTests.cs](../../tests/UnitTests/BookBrowseServiceTests.cs)。
+
 ## 明確暫緩與證據限制
 
 Auth的Google登入/email驗證/忘記密碼/個資修改/refresh token依identity-auth §1明確暫緩；browser E2E依test-plan §2 MVP不做，沒有冒充可執行案例。APP-T15/T16對應APP-B01，APP-T17對應APP-B02；既有quota並行小幅超額是規格接受行為，不暗加嚴格reservation驗收。

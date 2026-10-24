@@ -6,7 +6,8 @@
 
 | 入口 | 原始碼與輸出 | Authority |
 |---|---|---|
-| 首頁/暢銷榜 | [BestsellerService](../Bestsellers/BestsellerService.cs) GetTopAsync/GetAllAsync → snapshot | [bestseller](../../Docs/modules/bestseller.md) §2～6 |
+| 書庫（#109） | [BookBrowseService](../Catalog/BookBrowseService.cs) ListAsync/SampleHomeAsync → BookBrowsePage / 隨機樣本 | [book-catalog](../../Docs/modules/book-catalog.md)（Docs 的書庫規則待 #109 後續模組同步） |
+| 暢銷榜（後端保留） | [BestsellerService](../Bestsellers/BestsellerService.cs) GetTopAsync/GetAllAsync → snapshot；#109 後 Web 無呼叫者 | [bestseller](../../Docs/modules/bestseller.md) §2～6 |
 | 搜尋/詳細資料 | [BookSearchService](../Catalog/BookSearchService.cs)、[IBookDetailReader](../Catalog/IBookDetailReader.cs) → page/nullable detail | [book-catalog](../../Docs/modules/book-catalog.md) §3～4 |
 | 註冊/登入 | [AccountService](../Identity/AccountService.cs) → typed outcome | [identity-auth](../../Docs/modules/identity-auth.md) §3～6 |
 | Library/登入後待辦 | [LibraryService](../Library/LibraryService.cs) CRUD、AddPendingAsync | [user-library](../../Docs/modules/user-library.md) §3～5 |
@@ -44,6 +45,10 @@ flowchart TD
   BR --> TOP{GetTop}
   TOP -->|是| TAKE[Take count；rank保留缺號]
   TOP -->|否| ALL[完整snapshot]
+  L[BookBrowseService ListAsync page] --> LP[page最小1；pageSize20]
+  LP --> BPORT[IBookBrowse.ListAsync 只查Local DB]
+  BPORT --> BPAGE[BookBrowsePage；超出頁數回空items與原TotalCount]
+  H[SampleHomeAsync] --> HS[IBookBrowse.SampleAsync count10；隨機，不讀Bestseller]
   D[IBookDetailReader.ReadAsync] --> EXISTS{找到Book}
   EXISTS -->|否| NULL[null；caller決定404]
   EXISTS -->|是| SAFE[BookDetail無簡介或目錄]

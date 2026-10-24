@@ -150,4 +150,13 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter FullyQualifiedNa
 - Then：只有可信來源可影響 Scheme／client IP；非可信來源不能偽造 HTTPS；key path 設定按既有斷言解析。這不是 public nginx／Cloudflare 或跨 container key persistence 的驗證；後者見 TEST-11。
 - 位置：[HostingSetupTests](../UnitTests/HostingSetupTests.cs)、[ForwardedHeadersTests](../WebIntegration/ForwardedHeadersTests.cs)。
 
+### TEST-15：書庫列表與 Bestseller 後端的組裝守衛
+
+- 責任／規格：Catalog browse 與 Bestseller backend 的 DI 鏈；L3；**已建立測試（#109 M1），執行結果見 #109 實作報告**。
+- Given：WebFixture 的 disposable DB 與 CatalogSeed；固定 Id 的書、無日期與新舊日期、25 本、空庫、15 本與 3 本、打亂 rank 的榜單、缺號榜單與空表。
+- When：每案建立獨立 factory，從 `app.Services.CreateScope()` 解析 BookBrowseService 或 BestsellerService 直接呼叫，不經 HTTP；Bestseller 每案另建 factory，避免 host cache 跨案。
+- Then：書庫同日依 Id、有日期新到舊且無日期在後、分頁無重複、超頁不溢位、空庫 0 頁、樣本數與作者規則正確；Bestseller 依 rank 排序、只取 AUTHOR 並依 contributor_order、CapturedAt 等於 seed、缺號不重編且 GetTopAsync(10) 可含 rank 11、空表 CapturedAt 為 null。
+- 位置：[BookBrowseIntegrationTests](../WebIntegration/BookBrowseIntegrationTests.cs)、[BestsellerReaderIntegrationTests](../WebIntegration/BestsellerReaderIntegrationTests.cs)、[CatalogSeed](../WebIntegration/CatalogSeed.cs)（`BookSeed.Id` 可選固定 Id）。
+- 單元層：[BookBrowseServiceTests](../UnitTests/BookBrowseServiceTests.cs) 以手寫 fake port 驗證頁碼下限、固定 pageSize 20 與首頁樣本 10 筆。
+
 [流程](workflow-diagram.md) · [架構](architecture.md) · [待辦](backlog.md) · [歷史](update-history.md)
