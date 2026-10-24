@@ -38,9 +38,13 @@ Debug 證據收集：INF-B04 須保存去識別的 request scheme、來源網段
 ## INF-B08 — Google Books writer 前的跨 process 序列化（#14 前置）
 
 - **P2 / L3 / 待實作前置**，與 INF-B01 相關。
-- 目標：[data-model §7.5](../../Docs/data/data-model.md)：在跨 process 的序列化完成以前，只允許 crawler 一個 writer，PR4 不會解除這個限制；Google Books ingestion 使用 §7.2 比對前，必須依正規化 ISBN 取 transaction 範圍的 advisory lock，再重新查 distinct Book 數量。
+- 目標：[data-model §7.5](../../Docs/data/data-model.md)：在跨 process 的序列化完成以前，只允許 crawler 一個 writer，PR4 不會解除這個限制；Google Books ingestion 使用 §7.2 比對前，必須依 §7.5 的 protocol：對 draft 每一個正規化 ISBN 算 lock key（SHA-256 前 8 bytes，signed int64），去重並依數值排序後，依序呼叫 `pg_advisory_xact_lock`，再重新查 distinct Book 數量。
 - 目前差距：沒有任何 advisory lock；crawler 也未取鎖（目前靠 host `flock`）。
-- 驗收：兩個並行 writer 對同一 ISBN 只建立一本 Book；lock key 與 crawler 的正規化結果逐 byte 一致。
+- 驗收：
+  - 兩個並行 writer 對同一個 ISBN 只會建立一本 Book。
+  - 兩個 writer 的 ISBN 集合只有部分重疊時（例如 [X, Y] 和 [Y, Z]），結果仍然符合 §7.2 的規則。
+  - 取 lock 的順序固定，依 key 的數值由小到大，交錯執行也不會 deadlock。
+  - lock key 和 crawler 的正規化結果逐 byte 一致。
 
 ## 文件導航
 

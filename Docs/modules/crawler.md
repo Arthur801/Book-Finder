@@ -199,14 +199,7 @@ Catalog ingestion 成功後即成立，不需要等待某個 Bestseller snapshot
 
 ### 6.1 Existing Source 與 `last_seen_at`
 
-查詢順序（data-model §7.2 步驟 1）：
-
-```text
-source_code + external_id (if available)
-source_code + source_url
-```
-
-成功命中：
+是否為 Existing Source **只能由 §6.2 判定**（data-model §7.3 是唯一的規則來源）。§6.2 會查完所有 identity key，回傳 Existing、Conflict 或 New Source 其中一種。本節只描述 §6.2 回傳 Existing Source **之後**要做的事：
 
 ```text
 reuse source_id / book_id

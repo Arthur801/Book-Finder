@@ -628,7 +628,17 @@ ambiguous（≥ 2）或新建 Book 時不補任何既有 Book。
 - **在跨 process 的序列化完成之前**，Catalog identity resolution 只允許**一個 writer**。這條限制和 migration 的進度無關，PR4 和 011 都不會解除它。
 - 目前唯一的 writer 是 crawler。但 crawler 有三個 entrypoint，**所有連到 production DB 執行 Catalog ingestion 的 crawler 呼叫，都必須經過同一把 host serialization lock**，也就是 `run-crawler.sh` 的 `run.lock`（`Docs/deployment/deployment.md` §8）。production 上不可以直接執行 container 或 module 來繞過 runner。
 - 現況的缺口：`run-crawler.sh` 目前只接受 `daily` 和 `pages`，`first_book` 沒有經過 `run.lock`。PR3 讓 first_book 套用新的 identity resolution 之前，必須先把 runner 擴充到支援 `first_book`（手動執行），讓 production 的 first_book 也受到同一把 lock 保護。在這之前，不可以在 production 執行 first_book。
-- Google Books（#14）或其他 writer 要開始使用本節規則之前，必須先加入跨 process 的序列化：依 §7.1 正規化後的 ISBN 取得 transaction 範圍的 PostgreSQL advisory lock，然後在 lock 內重新查詢 distinct Book 數量（§7.2）。
+- Google Books（#14）或其他 writer 要開始使用本節規則之前，必須先加入跨 process 的序列化。這個 protocol 已經定好，C# 和 Python 必須一致：
+
+```text
+1. 依 §7.1 正規化 draft 的所有 ISBN，去掉空字串
+2. 每個值的 lock key = SHA-256(值的 UTF-8 bytes) 的前 8 bytes，以 big-endian 讀成 signed int64
+3. lock key 去重之後依數值由小到大排序（固定順序，避免 deadlock；hash 碰撞只會讓兩個值共用一把鎖，不影響正確性）
+4. 在同一個 transaction 內，依序對「每一個」key 呼叫 pg_advisory_xact_lock(key)
+5. 全部拿到之後，才在 lock 內重新查詢 distinct Book 數量（§7.2），然後寫入；commit 或 rollback 時自動釋放
+```
+
+  只鎖其中一個 ISBN 是不夠的。例如 writer A 的 draft 有 [X, Y]、writer B 有 [Y, Z]，如果 A 只鎖 X、B 只鎖 Y，兩邊都可能查到 0 本，各自建立一本 Book。draft 沒有任何 ISBN 時不需要取 lock，因為不會進行 ISBN 合併。
 - 因為 `ISBN` 不是 unique（§6.5），沒有序列化時兩個 writer 可能各自建立同一本書。
 
 ---

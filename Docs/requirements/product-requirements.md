@@ -119,7 +119,7 @@
 ### CRAWL
 
 - **Given** 排行榜可解析 100 筆，其中 3 個 New Source 的詳細頁重試後仍失敗，**When** crawler 執行完成，**Then** Bestseller 被替換為 97 筆、保留原始排名，run 記錄為部分成功。
-- **Given** 連續 21 本新書最終失敗，**When** crawler 執行，**Then** run 失敗，上一份 Bestseller 不變。
+- **Given** 連續 21 個排名的 RankingDecision 都是 `ERROR_SKIP` 或 `DUPLICATE_BOOK`，**When** crawler 執行，**Then** run 失敗，上一份 Bestseller 不變。
 - **Given** 某商品網址已存在於資料庫，**When** crawler 執行，**Then** 不抓取該書詳細頁，Book metadata 不變。
 
 ### BEST

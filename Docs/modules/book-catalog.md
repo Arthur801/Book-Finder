@@ -160,7 +160,7 @@ Library 狀態（BOOK-04）：已登入且該書在 Library 中時，顯示並�
 - `language` 依 `data-model.md` §3.1 正規化大小寫；`zh` 不補地區。
 - `authors[]` 無角色資訊時一律為 `AUTHOR`。
 - 無 ISBN 時不得以書名 / 作者相似度合併。
-- **前置條件（#14 實作前）**：在跨 process 的序列化完成以前，Catalog identity resolution 只允許一個 writer。PR4 不會解除這個限制，目前唯一的 writer 是 crawler。Google Books 寫入要使用上述規則之前，必須先加入跨 process 的序列化：依正規化後的 ISBN 取得 transaction 範圍的 advisory lock，再重新查詢 distinct Book 數量（`data-model.md` §7.5）。
+- **前置條件（#14 實作前）**：在跨 process 的序列化完成以前，Catalog identity resolution 只允許一個 writer。PR4 不會解除這個限制，目前唯一的 writer 是 crawler。Google Books 寫入要使用上述規則之前，必須先加入跨 process 的序列化：依 `data-model.md` §7.5 的 lock protocol：對 draft 所有正規化 ISBN 的 lock key 去重、依數值排序，依序取得 transaction 範圍的 advisory lock，再重新查詢 distinct Book 數量（`data-model.md` §7.5）。
 
 ## 7. Validation
 
