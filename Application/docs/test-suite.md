@@ -184,7 +184,7 @@ dotnet test tests/WebIntegration/WebIntegration.csproj
 - 風險／狀態：L2；**測試實作：Implemented**；執行結果見 #109 實作報告。規格：[book-catalog](../../Docs/modules/book-catalog.md) §3.6 書庫瀏覽。
 - **Given**：recording IBookBrowse；page為0/-1/int.MinValue、1/5/int.MaxValue。
 - **When**：BookBrowseService.ListAsync(page,ct)、SampleHomeAsync(ct)。
-- **Then**：page小於1時port收到1，正數原值傳入；pageSize固定20；首頁樣本請求10筆；port結果原樣回傳；TotalPages為總數除以20的上取整。
+- **Then**：page小於1時port收到1，正數原值傳入；pageSize固定20；首頁樣本請求10筆；port結果原樣回傳；TotalPages為總數除以20的上取整；TotalCount為int.MaxValue時TotalPages為107374183（不溢位）。
 - 測試來源／擴充入口：[BookBrowseServiceTests.cs](../../tests/UnitTests/BookBrowseServiceTests.cs)。
 
 ## 明確暫緩與證據限制
