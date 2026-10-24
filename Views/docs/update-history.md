@@ -62,3 +62,13 @@ git show 894883b -- Views
 歷史來源排除產出 docs，避免把文件 commit 混成實作；Git source 不能證明 assets 已提供、瀏覽器互動通過、DB migration 已套用或 production 部署完成。
 
 互參：[流程](workflow-diagram.md)、[架構](architecture.md)、[待辦](backlog.md)、[案例](test-suite.md)。
+
+## #109 M2 書庫 Web 呈現（新增紀錄）
+
+本段是 #109 實作的紀錄，不改寫上方查核表。
+
+| 分支／提交 | Subject | 影響 |
+|---|---|---|
+| `a8a5077` | feat(web): show 書庫 on home and /books in place of the bestseller ranking | 新增 Books/Index 與 Shared/_BookList；Home、Search 改用 _BookList；導覽與 Library 空態連結改 `/books`；刪除 Bestsellers/Index 與 _BestsellerEntries |
+| `2642182` | test(web): cover 書庫 paging, home sample and the /bestsellers redirect | 無 View 行為變更；Web 測試改驗書庫與首頁 markup，刪除 BestsellerPageTests |
+| 本 M2 docs commit | docs(web): record 書庫 Web presentation in folder docs | 更新 Views 文件的路由表、流程與案例 |

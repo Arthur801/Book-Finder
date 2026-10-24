@@ -42,31 +42,29 @@ flowchart TD
 
 驗證順序不能混淆：未登入的受保護 API 先在 authorization 被擋下；已登入但沒有 CSRF token 才測 antiforgery 400。登入／註冊表單可用 hidden antiforgery 欄位；JSON 呼叫帶 `RequestVerificationToken` header。API exception filter 並不保證涵蓋 middleware、路由未命中或 View 渲染階段的所有錯誤。
 
-## 2. HomeController、BestsellersController
+## 2. HomeController、書庫與 BestsellersController
 
-來源：[HomeController.cs](../HomeController.cs)、[BestsellersController.cs](../BestsellersController.cs)；規格：[bestseller.md](../../Docs/modules/bestseller.md)。
+來源：[HomeController.cs](../HomeController.cs)、[BooksController.cs](../BooksController.cs)、[BestsellersController.cs](../BestsellersController.cs)；規格：[book-catalog.md §3](../../Docs/modules/book-catalog.md)、[ui-flow.md](../../Docs/ui/ui-flow.md)、[bestseller.md](../../Docs/modules/bestseller.md)（榜單 Web 已不顯示）。
 
 ```mermaid
 flowchart TD
-    HOME[首頁 Index] --> TOP[BestsellerService.GetTopAsync：rank 最小的 10 筆]
-    BEST[暢銷榜 Index] --> ALL[BestsellerService.GetAllAsync：全部]
-    TOP --> CACHE[IBestsellerReader：CachedBestsellerReader]
-    ALL --> CACHE
-    CACHE --> HIT{整份榜單快取命中？}
-    HIT -->|是| SNAP[Bestseller snapshot]
-    HIT -->|否| DB[EfBestsellerReader 讀 Local DB]
-    DB --> SAVE[非空快取 1 小時；空榜 5 分鐘]
-    SAVE --> SNAP
-    SNAP --> VM[BestsellerListViewModel.From]
-    VM --> EMPTY{榜單為空？}
-    EMPTY -->|是| EM[200 View：榜單尚未建立]
-    EMPTY -->|否| ROW[200 View：保留原 rank 與缺號]
+    HOME[首頁 Index] --> SAMPLE[BookBrowseService.SampleHomeAsync：隨機 10 本]
+    SAMPLE --> HVM[HomeViewModel.From]
+    HVM --> HEMPTY{Catalog 為空？}
+    HEMPTY -->|是| HEM[200 View：書庫還沒有書]
+    HEMPTY -->|否| HROW[200 View：_BookList，不顯示 rank]
+    BOOKS[GET /books：page] --> BP[PageNumber.Parse]
+    BP --> LIST[BookBrowseService.ListAsync：每頁 20 本，依有日期新到舊、無日期在後、Id]
+    LIST --> OVER{TotalCount 大於 0 且 Page 超過 TotalPages？}
+    OVER -->|是| BREDIR[302 /books?page=最後一頁]
+    OVER -->|否| BVM[BookBrowseViewModel.From → 200 View]
+    BEST[GET /bestsellers] --> R301[301 永久重導 /books]
     ERR[Home.Error] --> ID[Activity.Id 或 TraceIdentifier]
     ID --> EV[ErrorViewModel；禁止 response cache]
     EV --> ER[共用 Error View]
 ```
 
-兩個 Index 由 conventional route 提供；`/` 對應 Home.Index，`/bestsellers` 對應 Bestsellers.Index。Error action 本身回 View，非 Development exception handler 處理原始例外時通常保留 500；直接請求 `/Home/Error` 不應當作發生原始 500 的證據。
+`/` 對應 Home.Index，`/books` 對應 Books.Index（GET），`/bestsellers` 對應 Bestsellers.Index 並只回 301。Bestseller 後端（BestsellerService、快取與 reader）保留但沒有 Web 呼叫端。書庫與首頁樣本只查 Local DB，不依 rank 排序，也不讀 AI profile。Error action 本身回 View，非 Development exception handler 處理原始例外時通常保留 500；直接請求 `/Home/Error` 不應當作發生原始 500 的證據。
 
 ## 3. SearchController
 

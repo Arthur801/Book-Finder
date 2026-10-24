@@ -6,8 +6,9 @@
 
 | HTTP 入口 | View／主要 partial | 資料來源與邊界 |
 |---|---|---|
-| GET `/` | [Home/Index](../Home/Index.cshtml)、_SearchForm、_BestsellerEntries | HomeController；榜單前十筆，保留原 rank |
-| GET `/bestsellers` | [Bestsellers/Index](../Bestsellers/Index.cshtml)、_BestsellerEntries | BestsellerService 完整目前榜單，不分頁 |
+| GET `/` | [Home/Index](../Home/Index.cshtml)、_SearchForm、_BookList | HomeController；BookBrowseService.SampleHomeAsync 隨機 10 本，不依 rank；空庫顯示「書庫還沒有書」 |
+| GET `/books?page=` | [Books/Index](../Books/Index.cshtml)、_BookList、_Pager | BooksController；書庫分頁，超頁 302 至最後一頁；空庫無摘要、無分頁 |
+| GET `/bestsellers` | 無 View；301 至 `/books` | BestsellersController；舊連結保留 |
 | GET `/search?q=&page=` | [Search/Index](../Search/Index.cshtml)、_SearchForm、_Pager | SearchController／SearchResultsViewModel；只有 local DB |
 | GET `/books/{id}` | [Books/Detail](../Books/Detail.cshtml)、_LibrarySection、_LibraryControls | catalog read model + 每次獨立 user Library 查詢 |
 | GET/POST `/account/login`、`/account/register` | [Login](../Account/Login.cshtml)、[Register](../Account/Register.cshtml) | AccountController；POST token、成功 cookie/redirect、失敗表單 |
@@ -43,9 +44,9 @@ _ViewImports/_ViewStart 是完整 View 的框架組合，不是 HTTP endpoints�
 
 ```mermaid
 flowchart TD
-    A[首頁或完整榜單] --> B{榜單是否空}
-    B -->|是| C[榜單尚未建立；200]
-    B -->|否| D[更新時間 Taipei；rank 封面或占位 作者 書名]
+    A[首頁樣本或 /books] --> B{Catalog 是否空}
+    B -->|是| C[書庫還沒有書；200；無摘要、無分頁]
+    B -->|否| D[_BookList：封面或無封面占位、書名連 Book 詳細頁、作者、出版社、出版日期]
     E[Search GET] --> F{query 與 page 經 service/controller 處理}
     F -->|空 query 或零筆| G[找不到符合的書；無 pager；200]
     F -->|頁數超過末頁且有結果| H[302 最後一頁；保留 query]

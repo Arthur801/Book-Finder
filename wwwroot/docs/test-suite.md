@@ -77,7 +77,7 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter "FullyQualifiedN
 - 責任／規格：user-library §3／4；api-spec §4；風險 L2；狀態：待補強（JS 待建，初始 DOM 已測）。
 - Given：Library 有兩列各 controls、hidden library-empty；另 Book section 情境；DELETE stub204。
 - When：移除第一列再最後列；Book controls 移除。
-- Then：DELETE 無body且CSRF；不顯示確認對話；204只移除對應row，最後一列才顯示empty與前往榜單連結；Book情境隱藏controls、恢復add。錯誤保留row並走rollback。
+- Then：DELETE 無body且CSRF；不顯示確認對話；204只移除對應row，最後一列才顯示empty與前往書庫連結；Book情境隱藏controls、恢復add。錯誤保留row並走rollback。
 - 來源／擴充入口：[tests/WebIntegration/LibraryPageTests.cs](../../tests/WebIntegration/LibraryPageTests.cs)；browser案例未有可執行runner時維持待建，不宣稱通過。
 
 ## WT-09 — CSRF 與 DOM contract

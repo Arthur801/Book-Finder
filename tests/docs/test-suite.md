@@ -50,7 +50,7 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter FullyQualifiedNa
 - Given：第一個 host 已 seed 與讀取 cache；Dispose 後呼叫 ResetDatabaseAsync。
 - When：建立下一個 factory，seed 不同 Catalog，再請求首頁／Book detail。
 - Then：看到第二案資料與新 cache；migration history 保留；不依賴上一案 cookie 或 fake Calls。reset 只能操作 fixture container。
-- 位置：[WebFixture](../WebIntegration/WebFixture.cs)、[BestsellerPageTests](../WebIntegration/BestsellerPageTests.cs)、[BookDetailPageTests](../WebIntegration/BookDetailPageTests.cs)。
+- 位置：[WebFixture](../WebIntegration/WebFixture.cs)、[BookBrowsePageTests](../WebIntegration/BookBrowsePageTests.cs)、[BookDetailPageTests](../WebIntegration/BookDetailPageTests.cs)。
 
 ### TEST-04：Auth、CSRF 與不洩漏錯誤
 
@@ -158,5 +158,13 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter FullyQualifiedNa
 - Then：書庫同日依 Id、有日期新到舊且無日期在後、分頁無重複、超頁不溢位、空庫 0 頁、樣本數與作者規則正確；Bestseller 依 rank 排序、只取 AUTHOR 並依 contributor_order、CapturedAt 等於 seed、缺號不重編且 GetTopAsync(10) 可含 rank 11、空表 CapturedAt 為 null。
 - 位置：[BookBrowseIntegrationTests](../WebIntegration/BookBrowseIntegrationTests.cs)、[BestsellerReaderIntegrationTests](../WebIntegration/BestsellerReaderIntegrationTests.cs)、[CatalogSeed](../WebIntegration/CatalogSeed.cs)（`BookSeed.Id` 可選固定 Id）。
 - 單元層：[BookBrowseServiceTests](../UnitTests/BookBrowseServiceTests.cs) 以手寫 fake port 驗證頁碼下限、固定 pageSize 20 與首頁樣本 10 筆。
+
+### TEST-16：書庫與首頁的 HTTP 頁面
+
+- 責任／規格：book-catalog §3、ui-flow；L2；**已建立測試（#109 M2），執行結果見 #109 實作報告**。
+- Given：WebFixture 的 disposable DB 與 CatalogSeed；固定 Id 的書、有日期與無日期的書、25 本、空庫、15 本，以及帶 description／table of contents 哨兵文字的書。
+- When：以 HttpClient 請求 `/books`（含 page 參數）、`/`、`/bestsellers`；需檢查 302 與 301 時使用 `AllowAutoRedirect=false` 的 client。
+- Then：書庫同日依 Id、有日期新到舊、無日期在後；每頁 20 本、摘要與分頁正確、兩頁無重複；非正數頁為第 1 頁；超頁 302 至最後一頁；空庫顯示「書庫還沒有書」且無摘要、無分頁、page=5 為 200；列表 HTML 不含簡介與目錄；首頁最多 10 本、不重複、不顯示 rank；導覽有書庫、沒有 `/bestsellers` 連結；`/bestsellers` 301 至 `/books`。
+- 位置：[BookBrowsePageTests](../WebIntegration/BookBrowsePageTests.cs)、[LayoutAndHomeTests](../WebIntegration/LayoutAndHomeTests.cs)、[HtmlPage](../WebIntegration/HtmlPage.cs)；單元層 [BookBrowseViewModelTests](../UnitTests/BookBrowseViewModelTests.cs)。
 
 [流程](workflow-diagram.md) · [架構](architecture.md) · [待辦](backlog.md) · [歷史](update-history.md)
