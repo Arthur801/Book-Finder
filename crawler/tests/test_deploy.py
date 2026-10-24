@@ -24,6 +24,7 @@ aws() {
 }
 chown() { :; }
 docker() {
+    printf '%s\\n' "${@: -1}" >> "$MODULES"
     printf 'start\\n' >> "$CALLS"
     local previous='' item
     for item in "$@"; do
@@ -46,6 +47,7 @@ docker() {
         "CRAWLER_RUNTIME_DIR": str(tmp_path / "runtime"),
         "CALLS": str(tmp_path / "calls"),
         "AWS_CALLS": str(tmp_path / "aws-calls"),
+        "MODULES": str(tmp_path / "modules"),
         # N3: every test uses its own maintenance lock and state file; the wait is short so timeouts stay fast.
         "DB_MAINTENANCE_LOCK": str(tmp_path / "db-maintenance.lock"),
         "BOOKFINDER_STATE_FILE": str(tmp_path / "state.json"),
@@ -344,3 +346,67 @@ def test_ca_bundle_that_others_cannot_read_exits_2(tmp_path):
     assert result.returncode == 2
     assert "readable by others" in result.stderr
     assert not (tmp_path / "calls").exists()
+
+
+@pytest.mark.parametrize(
+    ("mode", "module"),
+    [("daily", "books_crawler"), ("pages", "books_crawler.pages"), ("first_book", "books_crawler.first_book")],
+)
+def test_each_mode_runs_its_own_module(host, mode, module):
+    root, env = host
+    assert execute(env, mode).returncode == 0
+    assert (root / "modules").read_text() == f"{module}\n"
+
+
+def test_first_book_is_a_manual_mode_with_the_usage_text_updated(host):
+    root, env = host
+    result = execute(env, "first-book")
+    assert result.returncode == 2
+    assert result.stderr == "usage: run-crawler.sh daily|pages|first_book [--scheduled]\n"
+    assert not (root / "calls").exists()
+
+
+def test_first_book_is_gated_by_the_pause_before_docker(host):
+    root, env = host
+    write_state(root, paused=PAUSE)
+    result = execute(env, "first_book")
+    assert result.returncode == 6
+    assert "mode=first_book skipped=paused" in result.stdout
+    assert not (root / "calls").exists()
+
+
+def test_first_book_is_gated_by_a_dirty_schema_before_docker(host):
+    root, env = host
+    write_state(root, dirty=True)
+    result = execute(env, "first_book")
+    assert result.returncode == 6
+    assert "skipped=dirty" in result.stdout
+    assert not (root / "calls").exists()
+
+
+def test_first_book_does_not_touch_the_pages_schedule(host):
+    root, env = host
+    assert execute(env, "first_book").returncode == 0
+    assert not (root / "state" / "pages-last-success").exists()
+
+
+def test_first_book_and_daily_share_the_run_lock(host):
+    root, env = host
+    env = {**env, "DOCKER_DELAY": "0.2"}
+    first = subprocess.Popen(["bash", str(SCRIPT), "first_book"], env=env, stdout=subprocess.PIPE)
+    second = subprocess.Popen(["bash", str(SCRIPT), "daily"], env=env, stdout=subprocess.PIPE)
+    first.communicate(timeout=10)
+    second.communicate(timeout=10)
+    assert first.returncode == second.returncode == 0
+    assert (root / "calls").read_text() == "start\nend\nstart\nend\n"
+
+
+def test_first_book_holds_the_maintenance_lock_while_the_container_runs(host):
+    root, env = host
+    env = {**env, "DOCKER_DELAY": "1.5"}
+    runner = subprocess.Popen(["bash", str(SCRIPT), "first_book"], env=env, stdout=subprocess.PIPE, text=True)
+    time.sleep(0.7)
+    probe = subprocess.run(["flock", "-n", "-x", str(root / "db-maintenance.lock"), "true"], check=False)
+    assert probe.returncode != 0, "a deploy could take the migration lock while a first-book container runs"
+    runner.communicate(timeout=20)
+    assert runner.returncode == 0

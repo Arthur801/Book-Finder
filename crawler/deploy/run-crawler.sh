@@ -8,10 +8,11 @@ mode=${1:-}
 case "$mode" in
     daily) module=books_crawler ;;
     pages) module=books_crawler.pages ;;
-    *) echo 'usage: run-crawler.sh daily|pages [--scheduled]' >&2; exit 2 ;;
+    first_book) module=books_crawler.first_book ;;
+    *) echo 'usage: run-crawler.sh daily|pages|first_book [--scheduled]' >&2; exit 2 ;;
 esac
 if [[ $# -gt 2 || (${2:-} != '' && ${2:-} != --scheduled) ]]; then
-    echo 'usage: run-crawler.sh daily|pages [--scheduled]' >&2
+    echo 'usage: run-crawler.sh daily|pages|first_book [--scheduled]' >&2
     exit 2
 fi
 
