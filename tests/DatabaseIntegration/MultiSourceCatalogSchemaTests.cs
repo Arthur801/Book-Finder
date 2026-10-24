@@ -106,6 +106,24 @@ public class MultiSourceCatalogSchemaTests(PostgresFixture fixture)
         Assert.Equal(2, await CountAsync(connection, tx, "SELECT count(*) FROM book_identifiers WHERE identifier_type = 'ISBN' AND identifier_value = '9780132350884'"));
     }
 
+    // The PR3 touch updates last_seen_at only; the trigger must let that through unchanged.
+    [Fact]
+    public async Task Updating_last_seen_at_alone_passes_the_trigger_and_keeps_both_codes()
+    {
+        await using var connection = await OpenAsync();
+        await using var tx = await connection.BeginTransactionAsync();
+        await InsertBookAsync(connection, tx, BookId);
+        await ExecuteAsync(connection, tx, $"""
+            INSERT INTO book_sources (id, book_id, source_type, external_id, source_url, first_seen_at, last_seen_at)
+            VALUES ('00000000-0000-0000-0000-00000000b004', '{BookId}', 'BOOKS_COM_TW', NULL, 'https://example.test/touch', now(), now());
+            """);
+
+        await ExecuteAsync(connection, tx, "UPDATE book_sources SET last_seen_at = now() + interval '1 day' WHERE id = '00000000-0000-0000-0000-00000000b004'");
+
+        Assert.Equal("BOOKS_COM_TW|BOOKS_COM_TW", await ScalarAsync(connection, tx,
+            "SELECT source_type || '|' || source_code FROM book_sources WHERE id = '00000000-0000-0000-0000-00000000b004'") as string);
+    }
+
     // The physical schema must match data-model 11.2: both source columns, the old key kept for old writers, the new
     // unique key, and the seeded provider registry. EF's snapshot cannot prove this, so the catalog is queried directly.
     [Fact]

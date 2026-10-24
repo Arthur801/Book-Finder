@@ -109,6 +109,8 @@ namespace Book_Finder.Infrastructure.Persistence.Migrations
                 table: "book_subjects",
                 column: "source_code");
 
+            // Source codes are immutable during the 010 phase: no writer updates source_code, so an UPDATE that changes it while
+            // source_type keeps its old value is rejected by the trigger. Updates to other columns (last_seen_at) pass.
             // 4. Two-way sync triggers (11.4). Both tables have source_type and source_code, so one function serves both.
             //    A missing value is filled from the other column; a source_type-only row is only mapped for the two
             //    legacy codes, so KINGSTONE and ESLITE rows stay NULL in source_type and NOT NULL rejects them until 011.
