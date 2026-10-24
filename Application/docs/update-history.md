@@ -114,6 +114,7 @@ git show --format= --numstat <sha> -- Application ':(exclude)Application/docs'
 | `831fcee` | feat(catalog): add BookBrowse use case and port for 書庫 | 新增 BookBrowseService、IBookBrowse、BookBrowsePage／BookBrowseItem |
 | `7c369fd` | feat(catalog): implement EF book browse list and random sample | Infrastructure 實作與 DI 註冊（Bestseller 註冊不變） |
 | `b2c04ce` | test(bestseller): guard retained Bestseller backend through DI | 新增 Bestseller 後端 DI 守衛測試，無產品行為變更 |
+| 本 commit | fix(catalog): compute 書庫 TotalPages in long so it cannot overflow | BookBrowsePage.TotalPages 改以 long 計算，避免 TotalCount 接近 int.MaxValue 時溢位；新增 BookBrowsePageTotalPagesTests |
 
 ## 導覽
 
