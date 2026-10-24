@@ -810,5 +810,7 @@ def test_pages_row_whose_touch_keeps_failing_is_skipped_and_the_run_goes_on(stor
     assert report.exit_code == 0
     assert [item.url for item in report.skipped] == [target]
     assert (report.skipped[0].failure.error_type, report.skipped[0].failure.attempts) == ("database_error", 3)
-    assert report.existing_book_count == 3  # two rows touched, the failed one is not counted
+    assert report.existing_book_count == 3  # three rows touched, the failed one is not counted
     assert report.existing_source_count == 3
+    assert store.sources[target].source_id not in store.touched  # no successful touch for the failed row
+    assert len(store.touched) == 3  # every other row of both pages was touched

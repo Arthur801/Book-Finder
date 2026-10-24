@@ -60,6 +60,17 @@ def test_url_hit_with_null_external_id_is_existing_without_backfill():
     assert result.warning is None  # INFO only, never a warning
 
 
+def test_null_external_id_on_the_url_hit_logs_no_backfill_at_info(caplog):
+    caplog.set_level(logging.INFO, logger="books_crawler")
+    found = record(external_id=None)
+
+    result = decide_source_identity(None, found, external_id="E")
+
+    assert result.kind is IdentityKind.EXISTING
+    assert [r.levelno for r in caplog.records if "no backfill" in r.getMessage()] == [logging.INFO]
+    assert result.warning is None
+
+
 def test_url_hit_with_a_different_non_null_external_id_is_a_conflict():
     result = decide_source_identity(None, record(external_id="OTHER"), external_id="E")
 

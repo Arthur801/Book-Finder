@@ -40,7 +40,7 @@ from books_crawler.fetcher import (
     FetcherKind,
     create_fetcher,
 )
-from books_crawler.models import ProviderCode
+from books_crawler.models import PROVIDER, ProviderCode
 from books_crawler.page_list import (
     PAGES_FILE_ENV,
     PageListError,
@@ -53,7 +53,6 @@ from books_crawler.run import RunDependencies, run_first_book, run_once, run_pag
 
 EXIT_FAILED = 1
 EXIT_CONFIG_ERROR = 2
-PROVIDER = ProviderCode.BOOKS_COM_TW
 FETCHER_ENV = "CRAWLER_FETCHER"
 NAVIGATION_TIMEOUT_ENV = "CRAWLER_NAV_TIMEOUT_MS"
 

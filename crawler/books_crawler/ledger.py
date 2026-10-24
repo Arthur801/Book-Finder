@@ -35,7 +35,7 @@ from types import MappingProxyType
 from uuid import UUID
 
 from books_crawler.models import (
-    PROVIDER_CODE,
+    PROVIDER,
     CatalogResolution,
     Failure,
     JobName,
@@ -101,7 +101,7 @@ class RunReport:
     started_at: datetime
     finished_at: datetime
     job_name: JobName
-    provider_code: str = PROVIDER_CODE
+    provider_code: str = PROVIDER
     ranking_count: int = 0
     # Items sent to resolution (crawler.md §19.2). Pages mode reports the same number as rows_seen.
     items_seen: int = 0

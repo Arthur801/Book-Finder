@@ -23,6 +23,7 @@ import psycopg
 
 from books_crawler.identity import SourceIdentity, decide_source_identity
 from books_crawler.models import (
+    PROVIDER,
     BookDraft,
     ContributorRole,
     IdentifierType,
@@ -32,7 +33,6 @@ from books_crawler.models import (
     SourceRef,
 )
 
-PROVIDER = ProviderCode.BOOKS_COM_TW
 # data-model §7.2: the ISBN types that count for matching (011 leaves only 'ISBN').
 MATCHING_IDENTIFIER_TYPES = (IdentifierType.ISBN, IdentifierType.ISBN_10, IdentifierType.ISBN_13)
 
@@ -127,6 +127,7 @@ def _insert_book(conn: psycopg.Connection, book_id: UUID, draft: BookDraft, now:
 
 
 def _write_identifiers(conn: psycopg.Connection, book_id: UUID, draft: BookDraft) -> None:
+    # Always stored as the ISBN type: the value is the §7.1 key, and the legacy types are read-only (§7.2).
     values = list(dict.fromkeys(item.identifier_value for item in draft.identifiers))
     with conn.cursor() as cursor:
         cursor.executemany(

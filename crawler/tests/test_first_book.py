@@ -202,8 +202,10 @@ def test_first_book_touch_failing_after_three_attempts_fails_the_run_with_exit_1
         lambda *args, **kwargs: SourceIdentity(IdentityKind.EXISTING, ref=SourceRef(uuid4(), uuid4())),
     )
 
+    touched: list = []
+
     def touch_down(conn, source_id, now):
-        raise psycopg.OperationalError("touch down")
+        raise psycopg.OperationalError("touch down")  # never reaches the store: no successful touch
 
     monkeypatch.setattr(db, "touch_source", touch_down)
 
@@ -214,5 +216,6 @@ def test_first_book_touch_failing_after_three_attempts_fails_the_run_with_exit_1
     failure = report.skipped[0].failure
     assert (failure.error_type, failure.attempts) == ("database_error", 3)
     assert report.existing_source_count == 0
+    assert touched == []  # the store saw no successful touch
     assert deps.sleep.calls == [1.0, 2.0]
     assert deps.fetcher.calls == [RANKING_PAGE_URL]  # the detail page is never refetched for a touch

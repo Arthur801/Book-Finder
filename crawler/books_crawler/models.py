@@ -65,7 +65,7 @@ class JobName(StrEnum):
     CATEGORY_PAGES = "category-pages"
 
 
-PROVIDER_CODE = ProviderCode.BOOKS_COM_TW  # the provider of every row this crawler writes (crawler.md §3.1); logged as provider_code
+PROVIDER = ProviderCode.BOOKS_COM_TW  # the single provider this crawler writes (crawler.md §3.1); logged as provider_code
 
 
 class CatalogResolution(StrEnum):

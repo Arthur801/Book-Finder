@@ -2,10 +2,15 @@
 
 Resolution of a discovery item gives a ``CatalogResolution`` (crawler.md §6):
 1. Known BOOKS_COM_TW Book Source URL → reuse its Book, no detail request (``EXISTING``).
-2. Unknown URL → fetch and parse the detail page, then:
-   a. an ISBN-13 (then ISBN-10) of the detail page matches an existing Book → attach a new
-      BOOKS_COM_TW Book Source to that Book; the Book's metadata is not changed (``ISBN_ATTACHED``);
-   b. otherwise → create a new Book (``IMPORTED``).
+2. Unknown URL → fetch and parse the detail page, then match its normalized ISBN values (data-model §7.1)
+   against the distinct Books that own any ``ISBN``, ``ISBN_10`` or ``ISBN_13`` identifier (§7.2):
+   a. no Book → create a new Book (``IMPORTED``);
+   b. exactly one Book → attach a new BOOKS_COM_TW Book Source to it, and in the same transaction fill
+      only its NULL columns, a missing AUTHOR, its identifiers and the source's subjects (§7.4)
+      (``ISBN_ATTACHED``);
+   c. two or more Books → create a new Book and log an INFO line; no existing Book changes
+      (``AMBIGUOUS_CREATED``).
+   A draft without any ISBN value is always a new Book (``IMPORTED``).
 
 Retry and skip (crawler.md §13.1). A new source gets at most ``MAX_ATTEMPTS`` attempts in total:
 
@@ -343,12 +348,13 @@ def _resolve_row(
             _log_attempt_failed(row, attempt, written)
             continue
 
+        isbn_text = ",".join(item.identifier_value for item in draft.identifiers)
         if written.resolution is CatalogResolution.ISBN_ATTACHED:
             log.info(
                 "attached BOOKS_COM_TW source to existing Book: rank=%d url=%s matched=ISBN:%s book_id=%s",
                 row.rank,
                 row.url,
-                ",".join(item.identifier_value for item in draft.identifiers),
+                isbn_text,
                 written.matched_book_ids[0],
             )
         elif written.resolution is CatalogResolution.AMBIGUOUS_CREATED:
@@ -356,7 +362,7 @@ def _resolve_row(
                 "ambiguous ISBN match, created a new Book: rank=%d url=%s isbn=%s matched_book_ids=%s",
                 row.rank,
                 row.url,
-                ",".join(item.identifier_value for item in draft.identifiers),
+                isbn_text,
                 ",".join(str(item) for item in written.matched_book_ids),
             )
         return ResolvedRow(
@@ -446,8 +452,8 @@ def run_once(deps: RunDependencies, run_id: str | None = None) -> RunReport:
 def run_pages(deps: RunDependencies, page_urls: Sequence[str], run_id: str | None = None) -> RunReport:
     """Supplement the Catalog from category 7-day ranking pages (crawler.md §15, pages mode).
 
-    The pages are not the bestseller ranking: nothing is written to ``bestsellers`` and no
-    ``last_seen_at`` is updated. Rows are resolved with the rules of the daily run (§6, §13), but a
+    The pages are not the bestseller ranking: nothing is written to ``bestsellers``. Existing Sources
+    are touched (``last_seen_at``) exactly as in the daily run (§15). Rows are resolved with the rules of the daily run (§6, §13), but a
     row failure never stops the run. A page that cannot be fetched (after ``MAX_ATTEMPTS``) or
     parsed is recorded as a skipped page and the run goes on. The run fails only when it cannot
     continue: an error escaping row resolution (for example the database), ``BrowserUnavailableError``,

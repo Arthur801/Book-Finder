@@ -49,7 +49,9 @@ def decide_source_identity(
         return SourceIdentity(IdentityKind.EXISTING, ref=_ref(by_external_id), warning=drift)
     if by_url is not None:
         if by_url.external_id is None:
-            return _existing(by_url)  # not backfilled in this release (§7.3)
+            # Not backfilled in this release (§7.3): the Source stays as it is, only the observation is logged.
+            log.info("no backfill: Book Source %s has no external_id; the item's external_id is not stored", by_url.source_id)
+            return _existing(by_url)
         return _conflict("source_url matches a Book Source with a different external_id")
     return SourceIdentity(IdentityKind.NEW)
 
