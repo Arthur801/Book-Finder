@@ -55,8 +55,36 @@
 
 - 遮蔽只是字串比對，無法處理 secret 以 URL 編碼或其他編碼出現在 log 中的情況（見「決策」）。
 - 本次沒有在 EC2 上實際重現 cutover 的失敗情境；systemd 路徑只有 unit 測試，整合測試不涵蓋（與既有限制相同）。
-- `Docs/Implementation-Report` 的事故紀錄沒有加入 `deploy/README.md` §7.2 的事故表（#103 有加）；若要補，需另外決定。
+- ~~`Docs/Implementation-Report` 的事故紀錄沒有加入 `deploy/README.md` §7.2 的事故表~~：已於下方「2026-10-24 User-Agent 事故與修正」補上（§7.2 第 21 項）。
 
-## Code Review 與修正
+## 2026-10-24 User-Agent 事故與修正
 
-（review 後補上）
+### 事故
+
+- 兩次 cutover（含 `failed-down`）都在切換後的公開階段失敗。根本原因不是應用程式：host 的健康檢查使用 `urllib`，未設定 User-Agent，送出 `Python-urllib/3.x`。production 站台（edge）對它回 403。
+- 驗證：EC2 上 `RealHttp.status(PUBLIC_URL)` 得 403；`curl -A 'Python-urllib/3.12'` 得 403；一般 curl 得 200。
+- 本機階段只檢查 `127.0.0.1:5000`，因此從未發現問題。公開階段在 production 從未通過，兩次都因此 `failed-down`。
+- 原本的 journal 只寫 `failed at the public stage; last status 403`，沒有說明 403 來自 edge 的 User-Agent 規則。
+
+### 修正（commit `2fb5e27`）
+
+- `config.host_user_agent()`：回傳 `book-finder-deploy/<HOST_API_RANGE 的 max>`，常數 `HOST_USER_AGENT_PRODUCT` 集中在一處。
+- `RealHttp`：每個請求預設帶此 UA；呼叫端自行設定的 User-Agent（任何大小寫）保留不覆寫。仍不跟隨 redirect。
+- `machine._journal_health_failure()`：公開階段為 4xx 時，額外寫一行 `stage=public status=403 — the edge refused the request; check nginx/WAF rules for the User-Agent`（切換與回滾兩處皆然）。本機階段或 5xx 不寫。
+- 測試：`test_adapters.py` 以記錄 header 的本機 `http.server` 驗證送出的 UA、預設值為 HOST_API max、呼叫端 UA 保留、no-redirect 不受影響；`test_machine.py` 驗證公開 403 的提示行（切換與回滾）以及本機失敗不含提示。
+- 文件：`deploy/README.md` §3.4（第 3、7 步的 UA 與 edge 放行要求）、§3.6（診斷的 4xx 提示行）、§7.2 第 7 項（nginx 不得依 UA 拒絕）與第 21 項（事故紀錄）。
+
+### 決策
+
+- UA 只在 `RealHttp` 設定一次，不改每個健康檢查呼叫端，因此 `machine.py` 的呼叫點不變。
+- 提示行針對所有 4xx，不只 403；文字中的狀態碼取實際值。
+
+### 驗證結果
+
+- `.venv/bin/python -m pytest .github/scripts/tests deploy/tests -q`：`701 passed, 7 skipped`
+- `uv run --no-project --python 3.12 --with pytest==9.1.1 python -m pytest deploy/tests -q`：`632 passed, 7 skipped`
+- `ruff check --config deploy/ruff.toml deploy`：`All checks passed!`；`ruff format --check`：`46 files already formatted`
+
+### 未驗證
+
+- 尚未在 EC2 上以修正後的 release 實際切換。需確認 host nginx/WAF 放行 `book-finder-deploy/*`（§7.2 第 7、21 項）後，再由人工授權下一次 cutover。
