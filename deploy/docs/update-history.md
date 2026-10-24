@@ -1,10 +1,10 @@
 # deploy/ 修改歷史（Git 證據）
 
 > PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
-> PR4 M3（#120）補記：2026-10-25 更新；程式變更以 `d249c07`、`6e70e93`、`b99b368` 記入本文件 §3.12。原查核基準保留，未重新審查其餘內容。
-> PR4 M4（#120）補記：2026-10-25 更新；gate 9 與 manual recovery smoke 記入本文件 §3.13。原查核基準保留，未重新審查其餘內容。
+> PR4 M3（#120）補記：2026-10-25 更新；程式變更以 `d249c07`、`6e70e93`、`b99b368` 記入本文件 §3.13。原查核基準保留，未重新審查其餘內容。
+> PR4 M4（#120）補記：2026-10-25 更新；gate 9 與 manual recovery smoke 記入本文件 §3.14。原查核基準保留，未重新審查其餘內容。
 
-> 查核日期：2026-10-24。查核基準 HEAD：`01db2d7`（merge PR #106；tag `v0.0.4`；`origin/main` 同一 commit）。
+> 查核日期：2026-10-25（#121 補記）。查核基準 HEAD：`5563d80`（#121 的程式 commit）；前一基準 `01db2d7`（merge PR #106；tag `v0.0.4`）。
 > 工作樹：clean，僅有既存的未追蹤 `.venv`（不屬於本文件，也不屬於 `deploy/`）。本文件是新增的未追蹤檔案，尚未提交。
 > 本次未執行任何部署、migration、爬取或真實外部 API；摘要只來自 git 歷史與 diff 內容，不推定測試或部署結果。
 
@@ -222,7 +222,18 @@ git log --reverse --no-merges --format='@@%h' --numstat -- <同上路徑>
 
 **`01db2d7`**（HEAD）是 PR #106 的 merge commit，不是非 merge commit，因此不在 102 個列表中。它的第二個父 commit 是 `5e68d6e`。
 
-### 3.12 #120 PR4 M3：contract allowance、011 seed 與 gate 7 preflight（2026-10-25）
+### 3.12 #121：migration 連線與 efbundle 輸出（2026-10-25）
+
+| 日期 | SHA | 主旨 | 影響檔案（+/-） | diff 摘要 |
+|---|---|---|---|---|
+| 2026-10-25 | `4a844f8` | feat(host): add optional SSM_MIGRATION_CONNECTION host.conf key | `config.py`（+5/-1）、測試（+24） | 新增選填鍵；未設定時為 `None`；空值與不合法值拒絕（與其他鍵相同的字元規則） |
+| 2026-10-25 | `5563d80` | feat(host): migration connection file for efbundle and journal failed efbundle output | `adapters.py`（+3/-2）、`machine.py`（+45/-20）、`ports.py`（+2/-2）、`testing.py`（+4/-2）、測試（+107、+8/-1） | 設定時在步驟 3 讀取並寫入獨立的 `migrate-<run_id>.env`（600）；web env file 不含它；兩個檔案在每條路徑上刪除；`run_efbundle` 回傳 `(exit code, 輸出)`；failed-migration 時把遮蔽後的最後 80 行寫入 journal；結果與 exit code 語意不變 |
+| 2026-10-25 | `a3c4b11` | fix(host): rollback does not read SSM_MIGRATION_CONNECTION again | `machine.py`（+6/-4）、測試（+48/-0） | `_render_env(include_migration=False)` 供回滾使用，回滾不重讀 migration 參數（回滾只出現在非 forward chain，不執行 efbundle）；`r.secrets` 取聯集，先前的遮蔽不會失效 |
+| 2026-10-25 | （本文件 commit） | docs(deploy): document SSM_MIGRATION_CONNECTION and the v0.0.6 incident (#121) | `deploy/README.md`、`deploy/docs/*`、`Docs/deployment/deployment.md`、`Docs/Implementation-Report/issue-121-migration-connection.md` | 文件；自我參照，不列入上表 |
+
+**`v0.0.6` 事件**：2026-10-24 的 forward migration 以 `failed-migration` 結束。原因是 efbundle 使用權限最小的 web 角色，`CreateIfNotExists()` 因 `42501` 失敗，且 efbundle 輸出沒有寫入 journal。見 `deploy/README.md` §7.2 第 22 項。
+
+### 3.13 #120 PR4 M3：contract allowance、011 seed 與 gate 7 preflight（2026-10-25）
 
 | 日期 | SHA | 主旨 | 影響檔案（+/-） | diff 摘要 |
 |---|---|---|---|---|
@@ -232,13 +243,13 @@ git log --reverse --no-merges --format='@@%h' --numstat -- <同上路徑>
 
 本地 compat（M3 驗證）：base 為 `347e5b0`（`git merge-base origin/main HEAD`），target 為本分支的 `book-finder-web:ci`，指令與 `ci.yml` 相同，結果 `compat checks passed (forward_ok=true)`。報告中的 allowance 為 `20261025120000_ContractMultiSourceCatalog`，dropped columns 為 `book_sources.source_type`、`book_subjects.source_type`，rewritten table 為 `book_identifiers`，verify 0 列。
 
-### 3.13 #120 PR4 M4：gate 9 與 manual recovery smoke（2026-10-25）
+### 3.14 #120 PR4 M4：gate 9 與 manual recovery smoke（2026-10-25）
 
 | 日期 | SHA | 主旨 | 影響檔案（+/-） | diff 摘要 |
 |---|---|---|---|---|
 | 2026-10-25 | `89d983e` | test(deploy): gate 9 check that the previous release runs on 011 | `deploy/tests/integration/test_prev_release_on_contract.py`（新增） | opt-in 整合測試（`BOOKFINDER_IT=1`）：建置或接受 `PREV_RELEASE_TARGET_IMAGE`，執行 script，要求 15 個指定名稱都出現在 PASS 行 |
 | 2026-10-25 | `7c8899d` | feat(deploy): gate 9 script for the previous release on the 011 schema | `deploy/migration-test/prev-release-on-contract.sh`（新增）、`deploy/migration-test/prev_crawler_driver.py`（新增） | 拋棄式 pgvector DB → 目標 efbundle 升到 011（不帶 migration 參數，與 production 相同）→ 011 seed → v0.0.6 Web（HTTP 與 log 檢查，環境與 web-smoke 相同）→ v0.0.6 crawler 內的離線 driver（`PYTHONPATH=/app/crawler`，只用 v0.0.6 的 `db`、`identity`、`models`、`ranking` API）；每項一行 PASS／FAIL；僅建立的容器、網路與 volume 會被移除 |
-| 2026-10-25 | 本 commit（文件） | docs(deploy): gate 9 in README, test suite, update history | `deploy/README.md`（§4.5）、`deploy/docs/test-suite.md`（§2 命令、§3.20）、`deploy/docs/architecture.md`、`deploy/docs/backlog.md`、`deploy/docs/update-history.md`、`Docs/testing/test-plan.md`（§7 #13、#14）、`Docs/data/data-model.md`（§11.3 gate 9）、`Docs/deployment/deployment.md`（§6.1） | 說明用途（gate 9 證據，同時是 manual recovery smoke）、執行方式、預期輸出與安全範圍（本機、離線、不在 CI） |
+| 2026-10-25 | `ba04c23` | docs(deploy): gate 9 in README, test suite, update history and specs | `deploy/README.md`（§4.5）、`deploy/docs/test-suite.md`（§2 命令、§3.21）、`deploy/docs/architecture.md`、`deploy/docs/backlog.md`、`deploy/docs/update-history.md`、`Docs/testing/test-plan.md`（§7 #13、#14）、`Docs/data/data-model.md`（§11.3 gate 9）、`Docs/deployment/deployment.md`（§6.1） | 說明用途（gate 9 證據，同時是 manual recovery smoke）、執行方式、預期輸出與安全範圍（本機、離線、不在 CI） |
 
 **驗證（本機，2026-10-25）**
 

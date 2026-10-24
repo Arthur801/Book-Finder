@@ -20,6 +20,7 @@ from bookfinder_host import machine
 from bookfinder_host import state as st
 from bookfinder_host.exit_codes import BAD_INPUT, DRIFT, FAILED_DOWN, FAILED_MIGRATION, OK, PARTIAL_CRAWLER, ROLLED_BACK
 from bookfinder_host.manifest import Migration
+from bookfinder_host.ports import EffectFailed
 from bookfinder_host.release_content import COMPOSE_FILE
 from bookfinder_host.testing import CONTAINER_ID, FAKE_COMPOSE, sample_state, write_release
 from worlds import (
@@ -1159,3 +1160,157 @@ def test_more_than_one_web_container_is_noted_instead_of_guessing_which_one_to_r
     assert code == ROLLED_BACK
     assert "container log unavailable: found 2 web containers" in err.splitlines()
     assert world.fx.docker.logs_calls == []
+
+
+# SSM_MIGRATION_CONNECTION: efbundle gets its own env file; the web env file never carries the migration value
+
+
+MIGRATION_PARAMETER = "/book-finder/prod/migration-connection"
+MIGRATION_VALUE = "Host=db.internal;Database=book_finder;Username=owner;Password=pw-MIG-1"
+MIGRATE_LINE = "ConnectionStrings__DefaultConnection=" + MIGRATION_VALUE + "\n"
+
+
+def migrate_env_path(world, run_id=RUN_ID) -> Path:
+    return Path(world.settings.run_dir) / f"migrate-{run_id}.env"
+
+
+def with_migration_connection(world) -> None:
+    set_setting(world, ssm_migration_connection=MIGRATION_PARAMETER)
+    world.fx.ssm.values[MIGRATION_PARAMETER] = MIGRATION_VALUE
+
+
+def test_migration_connection_goes_to_efbundle_and_the_web_file_stays_on_the_web_connection(tmp_path):
+    world = forward_world(tmp_path)
+    with_migration_connection(world)
+    web_value = "Host=db.internal;Username=app;Password=pw-WEB-3"
+    world.fx.ssm.values[world.settings.ssm_db_connection] = web_value
+    seen = {}
+
+    def at_efbundle(reference, env_file):
+        seen["efbundle_file"] = Path(env_file).read_text(encoding="utf-8")
+        seen["efbundle_mode"] = stat.S_IMODE(os.stat(env_file).st_mode)
+        seen["web_file_during_efbundle"] = env_path(world).read_text(encoding="utf-8")
+
+    world.fx.docker.efbundle_hook = at_efbundle
+    world.fx.compose.on_up = lambda: seen.setdefault("web_file_at_up", env_path(world).read_text(encoding="utf-8"))
+    code, _out, err = world.run_unit(deploy_text(world, chain="forward", tag=TAG2))
+    assert code == OK, err
+    assert world.fx.docker.env_files_seen == [str(migrate_env_path(world))]
+    assert seen["efbundle_file"] == MIGRATE_LINE
+    assert seen["efbundle_mode"] == 0o600
+    assert seen["web_file_during_efbundle"].startswith(f"ConnectionStrings__DefaultConnection={web_value}\n")
+    assert MIGRATION_VALUE not in seen["web_file_during_efbundle"] and "pw-MIG-1" not in seen["web_file_during_efbundle"]
+    assert seen["web_file_at_up"] == seen["web_file_during_efbundle"]
+    assert world.fx.compose.up_calls[0][1]["WEB_ENV_FILE"] == str(env_path(world))
+    assert not env_path(world).exists() and not migrate_env_path(world).exists()
+    assert "files.write " + str(migrate_env_path(world)) in world.fx.trace
+    assert_no_secret_leaks(world, world.out.getvalue(), err)
+
+
+def test_migration_connection_files_are_removed_when_the_migration_fails(tmp_path):
+    world = forward_world(tmp_path)
+    with_migration_connection(world)
+    world.fx.docker.efbundle_rc = 1
+    code, _out, err = world.run_unit(deploy_text(world, chain="forward", tag=TAG2))
+    assert code == FAILED_MIGRATION, err
+    assert not env_path(world).exists() and not migrate_env_path(world).exists()
+    assert "pw-MIG-1" not in err and MIGRATION_VALUE not in err
+
+
+def test_without_the_migration_key_efbundle_uses_the_web_file_as_before(tmp_path):
+    world = forward_world(tmp_path)
+    assert world.run_unit(deploy_text(world, chain="forward", tag=TAG2))[0] == OK
+    assert world.fx.docker.env_files_seen == [str(env_path(world))]
+    assert not any("migrate-" in t for t in world.fx.trace)
+    assert not migrate_env_path(world).exists()
+
+
+def test_migration_connection_read_failure_is_drift_and_changes_nothing(tmp_path):
+    world = forward_world(tmp_path)
+    with_migration_connection(world)
+    world.fx.ssm.missing.add(MIGRATION_PARAMETER)
+    code, _out, err = world.run_unit(deploy_text(world, chain="forward", tag=TAG2))
+    assert code == DRIFT and f"reading {MIGRATION_PARAMETER} failed" in err
+    # Step 2 only extracts the release into a staging directory; nothing that changes the host runs.
+    assert not any(t.startswith(("aws.", "compose.", "docker.efbundle", "docker.pull", "systemd.", "files.write")) for t in world.fx.trace)
+    assert not env_path(world).exists() and not migrate_env_path(world).exists()
+    assert world.load_state() == world.state
+    assert completed_records(world)[-1]["result"] == "drift"
+
+
+def test_failed_migration_journals_the_masked_efbundle_output_tail(tmp_path):
+    world = forward_world(tmp_path)
+    with_migration_connection(world)
+    world.fx.ssm.values[world.settings.ssm_db_connection] = "Host=db.internal;Username=app;Password=pw-DB-2"
+    world.fx.docker.efbundle_rc = 1
+    world.fx.docker.efbundle_output = (
+        "".join(f"applying step {number}\n" for number in range(1, 101)) + f"connecting with {MIGRATION_VALUE}\nfailed with pw-DB-2 and {MIGRATION_VALUE}\n"
+    )
+    code, out, err = world.run_unit(deploy_text(world, chain="forward", tag=TAG2))
+    assert code == FAILED_MIGRATION and "schema stays dirty" in err
+    lines = err.splitlines()
+    assert "efbundle output, last 80 lines:" in lines
+    assert "applying step 100" not in lines[: lines.index("efbundle output, last 80 lines:")]
+    assert "connecting with ***" in lines and "failed with *** and ***" in lines
+    assert "applying step 23" in lines and "applying step 22" not in lines
+    history = Path(world.settings.history_file).read_text()
+    for text in (out, err, history):
+        for secret in (MIGRATION_VALUE, "pw-MIG-1", "pw-DB-2"):
+            assert secret not in text
+
+
+def test_failed_migration_with_wrong_ids_also_journals_the_efbundle_output(tmp_path):
+    world = forward_world(tmp_path)
+    world.fx.docker.efbundle_db_ids = [ID1]
+    world.fx.docker.efbundle_output = "migration applied partially\n"
+    code, _out, err = world.run_unit(deploy_text(world, chain="forward", tag=TAG2))
+    assert code == FAILED_MIGRATION
+    assert "efbundle output, last 1 lines:" in err.splitlines()
+    assert "migration applied partially" in err.splitlines()
+
+
+# Rollback never reads SSM_MIGRATION_CONNECTION again: it is read once, in step 3 (rollback only follows non-forward chains)
+
+
+def only_the_first_migration_read_succeeds(world) -> list[str]:
+    reads: list[str] = []
+    real = world.fx.ssm.get_parameter
+
+    def get_parameter(name: str) -> str:
+        if name == MIGRATION_PARAMETER:
+            reads.append(name)
+            if len(reads) > 1:
+                raise EffectFailed(f"parameter {name} unavailable on the second read")
+        return real(name)
+
+    world.fx.ssm.get_parameter = get_parameter
+    return reads
+
+
+def test_rollback_succeeds_without_reading_the_migration_parameter_again(tmp_path):
+    world = in_sync_world(tmp_path)
+    with_old_release(world)
+    with_migration_connection(world)
+    reads = only_the_first_migration_read_succeeds(world)
+    phased_health(world, switch=503, switch_url=LOCAL)
+    code, _out, err = world.run_unit(deploy_text(world))
+    assert code == ROLLED_BACK, err
+    assert "restored the previous runtime" in err
+    assert reads == [MIGRATION_PARAMETER]
+    assert completed_records(world)[-1]["result"] == "rolled-back"
+    assert not env_path(world).exists() and not migrate_env_path(world).exists()
+
+
+def test_masking_still_covers_the_migration_secret_after_a_rollback(tmp_path):
+    world = in_sync_world(tmp_path)
+    with_old_release(world)
+    with_migration_connection(world)
+    only_the_first_migration_read_succeeds(world)
+    world.fx.docker.logs_text = f"connecting with {MIGRATION_VALUE}\nplain line\n"
+    phased_health(world, switch=503, switch_url=LOCAL)
+    code, out, err = world.run_unit(deploy_text(world))
+    assert code == ROLLED_BACK, err
+    assert "connecting with ***" in err.splitlines() and "plain line" in err.splitlines()
+    history = Path(world.settings.history_file).read_text()
+    for text in (out, err, history):
+        assert MIGRATION_VALUE not in text and "pw-MIG-1" not in text

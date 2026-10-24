@@ -168,7 +168,7 @@ CD 的 `build` job 對每個 image（web、crawler）依序執行。`<TAG>` 是 
 
 | AWS CLI 呼叫 | 所需權限 | 資源 |
 |---|---|---|
-| `ssm get-parameter --with-decryption`（host 讀取 SSM_DB_CONNECTION、SSM_OPENAI_KEY、SSM_JWT_KEY、DATABASE_URL_PARAMETER；crawler 讀取它自己的 DB URL 參數） | `ssm:GetParameter` | 上述五個參數的 ARN |
+| `ssm get-parameter --with-decryption`（host 讀取 SSM_DB_CONNECTION、SSM_OPENAI_KEY、SSM_JWT_KEY、DATABASE_URL_PARAMETER；設定 SSM_MIGRATION_CONNECTION 時另讀取它；crawler 讀取它自己的 DB URL 參數） | `ssm:GetParameter` | 上述參數的 ARN（`SSM_MIGRATION_CONNECTION` 的 ARN 只在設定它時需要，例如 `arn:aws:ssm:<AWS_REGION>:<account>:parameter/book-finder/prod/migration-connection`） |
 | 上一列的 SecureString 解密（若使用客戶管理 KMS key） | `kms:Decrypt` | 該 KMS key |
 | `rds create-db-snapshot` | `rds:CreateDBSnapshot` | `<RDS_INSTANCE_ID>` 與其 snapshot |
 | `rds wait db-snapshot-available`（內部呼叫 DescribeDBSnapshots） | `rds:DescribeDBSnapshots` | 同上 |
@@ -180,6 +180,7 @@ CD 的 `build` job 對每個 image（web、crawler）依序執行。`<TAG>` 是 
 | host.conf 鍵 | 用途 | 值的格式 | 限制（程式檢查） |
 |---|---|---|---|
 | `SSM_DB_CONNECTION` | web 與 efbundle 的 `ConnectionStrings__DefaultConnection` | .NET 連線字串：`Host=<host>;Port=5432;Database=<db>;Username=<user>;Password=<password>`。採用 `DB_CA_BUNDLE`（§2.4）時，必須與 systemd web 的 `/etc/book-finder/web.env` 使用同一個 verify-full 字串：`Host=<host>;Port=5432;Database=<db>;Username=<user>;Password=<password>;SSL Mode=VerifyFull;Root Certificate=<DB_CA_BUNDLE>` | 非空、單行、無控制字元。程式不記錄值。不得為了連線而改成 `Require`（不驗證憑證） |
+| `SSM_MIGRATION_CONNECTION`（選填，§2.4） | 只給 efbundle 的 `ConnectionStrings__DefaultConnection`（寫入獨立的 `migrate-<run_id>.env`，web 的 env file 不含它） | 與 `SSM_DB_CONNECTION` 相同格式的 .NET 連線字串，但使用**擁有 schema 物件的 migration 角色**（能在 schema public 建立物件、ALTER 既有 table）。採用 `DB_CA_BUNDLE` 時同樣使用 `SSL Mode=VerifyFull;Root Certificate=<DB_CA_BUNDLE>`。web 應保留權限最小的角色（`SSM_DB_CONNECTION`） | 非空、單行、無控制字元。程式不記錄值。未設定時 efbundle 使用 `SSM_DB_CONNECTION`（行為與之前相同） |
 | `SSM_OPENAI_KEY` | web 的 `OPENAIAPI_KEY` | OpenAI API key 原文 | 非空、單行 |
 | `SSM_JWT_KEY` | web 的 `Jwt__SigningKey` | 隨機字串，**至少 32 bytes**（web 啟動時驗證，`JwtOptions.MinimumSigningKeyBytes = 32`） | 非空、單行；長度由 web 檢查 |
 | `DATABASE_URL_PARAMETER` | host 的 psql 讀取 `__EFMigrationsHistory`（唯讀查詢） | `postgresql://<user>:<URL 編碼的密碼>@<RDS 端點>:5432/<db>?sslmode=require`；設定 `DB_CA_BUNDLE` 後為 `postgresql://<user>:<URL 編碼的密碼>@<RDS 端點>:5432/<db>?sslmode=verify-full&sslrootcert=<DB_CA_BUNDLE>` | 必須以 `postgres://` 或 `postgresql://` 開頭，且不含空白 |
@@ -189,6 +190,13 @@ CD 的 `build` job 對每個 image（web、crawler）依序執行。`<TAG>` 是 
 - 建議 host 與爬蟲使用各自的參數，讓爬蟲只拿到自己的 DB URL（程式不強制）。
 - 不要把這些值寫進 repository、compose 檔、image、log 或 shell history。
 - 參數名稱（路徑）是部署者自行選擇，文件中的 `/book-finder/prod/...` 只是範例（`Docs/deployment/deployment.md` §5）。
+- **預設權限（使用 `SSM_MIGRATION_CONNECTION` 時必讀）**：`ALTER DEFAULT PRIVILEGES` 只影響之後由**該角色**建立的物件。若 web 角色只有 DML 權限，migration 角色建立的新 table 不會自動授權給 web 角色，web 會在啟動後查詢時失敗。因此在第一次 forward migration 之前，由 RDS 的管理者為 migration 角色設定：
+
+  ```sql
+  ALTER DEFAULT PRIVILEGES FOR ROLE <migration role> IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO <web role>;
+  ```
+
+  若資料表使用 identity 或 serial 欄位，web 角色另需序列的權限（`GRANT USAGE, SELECT ON SEQUENCES …`）。既有的 table 不受 `ALTER DEFAULT PRIVILEGES` 影響，需以 `GRANT` 另行授權。
 
 ### 2.4 `/etc/book-finder/host.conf`
 
@@ -218,13 +226,14 @@ CD 的 `build` job 對每個 image（web、crawler）依序執行。`<TAG>` 是 
 | 鍵 | 預設 | 說明 |
 |---|---|---|
 | `DB_CA_BUNDLE` | 未設定（不掛載任何 CA 檔，行為與之前完全相同） | RDS 的 CA bundle 絕對路徑，例如 `/etc/book-finder/global-bundle.pem`。字元只允許 `A-Za-z0-9._/-`。設定後，程式（在任何變更之前，不合法即 exit 2）檢查：必須是一般檔案、不能是 symlink、others 可讀（0644）、不超過 1 MiB。通過後以唯讀方式掛到 efbundle、psql 查詢與 web 容器的**同一路徑**。web 容器需要 release 內附的 `compose.ca-bundle.yaml`，沒有它的 release 會在變更前被拒絕；回滾到沒有它的舊 release 會 failed-down 並說明原因，不自動回滾。 |
+| `SSM_MIGRATION_CONNECTION` | 未設定（efbundle 使用 `SSM_DB_CONNECTION`，行為與之前相同） | §2.3 的 SSM 參數名稱，指向 migration 角色的連線字串。在步驟 3 與 `SSM_DB_CONNECTION` 一起讀取並檢查（與 web 的值相同的規則），寫入獨立的 `migrate-<run_id>.env`（600，用後刪除），只供 efbundle 使用。讀取失敗為 drift，不做任何變更。所有部署（包括不含 migration 的 in-sync）都會讀取它，讓錯誤在變更前出現。**警告：只能在已安裝能辨識此鍵的 host 版本之後（`install-host`，§2.7、§5.5）才加入 host.conf。** 舊版 host 遇到未知鍵會拒絕整份 host.conf（exit 2），部署無法開始。 |
 | `COMPOSE_PROJECT` | `book-finder` | compose project 名稱；runtime 以此 label 找 web container |
 | `LOCK_TIMEOUT_S` | `10` | 取得 deploy lock 的最長等待（秒，必須為有限正數） |
 | `FOLLOW_TIMEOUT_S` | `6000` | 不帶 `--detach` 的 `deploy` 跟隨 status 的上限（秒）。超過後回傳 `running`（exit 3）。CD 使用 `--detach`，不受此值限制；CD 的跟隨上限是 `cd_release.py` 的 `FOLLOW_TIMEOUT_S`（160 分鐘） |
 | `CRAWLER_CONF` | `/etc/book-finder/crawler.conf` | 爬蟲的 shell 設定檔；CD 會改寫其中的 `CRAWLER_IMAGE=` 行 |
 | `DB_MAINTENANCE_LOCK` | `/var/lib/book-finder/db-maintenance.lock` | 與爬蟲的 lock 必須是同一個檔（爬蟲的預設值相同） |
 | `RELEASES_DIR` | `/opt/book-finder/releases` | 已 materialize 的 release 目錄，以 web digest 的 hex 命名 |
-| `RUN_DIR` | `/run/book-finder` | 暫存 env file（`web-<run_id>.env`，權限 600，用後刪除） |
+| `RUN_DIR` | `/run/book-finder` | 暫存 env file（`web-<run_id>.env`，以及設定 `SSM_MIGRATION_CONNECTION` 時的 `migrate-<run_id>.env`；權限 600，用後刪除） |
 | `CRAWLER_RUNNER` | `/opt/book-finder/run-crawler.sh` | 爬蟲執行腳本的安裝位置 |
 | `CRON_FILE` | `/etc/cron.d/book-finder-crawler` | 爬蟲排程的安裝位置 |
 | `AWS_CLI` | `/usr/local/bin/aws` | AWS CLI 絕對路徑 |
@@ -805,3 +814,4 @@ Journal 是**輔助資訊**，不是結果的來源。結果以 history 為準�
 | 19 | **EC2 被博客來擋下，crawler 停用**（2026-10-24 手動試跑失敗） | 已知限制。在修正之前，crawler 以 `CRAWLER_ENABLED=false` 停用（`crawler/deploy/README.md` §5.1）；需發布支援此開關的 release 後才會生效。恢復前須確認 EC2 可取得頁面，或採用替代資料管道（`Docs/deployment/deployment.md` §8） | 在 EC2 手動執行 `run-crawler.sh daily` 取得成功結果後，將 `CRAWLER_ENABLED` 改為 `true` 並觀察一次排程 |
 | 20 | **2026-10-24 production 500（`/etc/book-finder` 權限被改動）** | 已修正文件（§2.5 只建立不存在的目錄，並說明 0755 與 0644 的原因）；`DB_CA_BUNDLE`（§2.4）讓 web、efbundle、psql 與 crawler 容器以唯讀方式掛載同一個 CA 路徑，verify-full 不需放寬為 `Require`（#103）。尚未在 EC2 上啟用 `DB_CA_BUNDLE`，待上線時確認 | 設定 `DB_CA_BUNDLE` 後，`stat` 檢查 §2.5 的權限，並以 `docker compose … config` 確認 web 有唯讀掛載（見 `deploy/tests/test_release_files.py`） |
 | 21 | **2026-10-24 兩次 cutover 都 `failed-down`：公開健康檢查的 User-Agent 被 edge 擋下（403）** | 已修正（issue #105 的 User-Agent 修正）。健康檢查原本使用 urllib 的 `Python-urllib/3.x`，production 站台對它回 403（EC2 上 `RealHttp.status(PUBLIC_URL)` 得 403；`curl -A 'Python-urllib/3.12'` 也得 403；一般 curl 得 200）。本機階段（只檢查 port）一直通過，所以公開階段從未在 production 通過，兩次 cutover 都在切換後的健康檢查失敗、回滾後 `failed-down`。修正後 host 送出 `book-finder-deploy/<max>`；edge 必須放行此 UA | 在 EC2 執行 `curl -sI -A 'book-finder-deploy/1' <PUBLIC_URL>` 回 200，且 journal 不再出現 `stage=public status=403` 那一行 |
+| 22 | **2026-10-24 v0.0.6 `failed-migration`：efbundle 以 web 角色執行，權限不足** | 已修正（#121）。原因：host 把 `SSM_DB_CONNECTION`（權限最小的 web 角色）交給 efbundle；該角色不能在 schema public 建立物件，也不能 ALTER 由管理角色擁有的 table。EF 在 `NpgsqlHistoryRepository.CreateIfNotExists()` 以 `42501: permission denied for schema public` 失敗，早於任何 DDL。原先 efbundle 的輸出未寫入 journal，只能從 exit code 推測。修正：(a) 選填 `SSM_MIGRATION_CONNECTION`（§2.3、§2.4）；(b) 失敗時把 efbundle 輸出的最後 80 行（已遮蔽）寫入 journal。恢復步驟（每一步都是 L4，需要使用者授權）：(1) 依 §5.2 的 1～5 確認 `__EFMigrationsHistory` 與 schema；(2) `reconcile-schema --mark-clean`（§5.2）解除 dirty；(3) `resume-crawler`（§5.3）恢復爬蟲；(4) 若要使用 `SSM_MIGRATION_CONNECTION`，先確認 host 已支援此鍵（§2.4 警告），再設定 SSM 與 host.conf；(5) 重新 dispatch 該 forward 部署（§4.2）。 | 以 `deploy/tests/host/test_machine.py` 的 migration 測試（分開的 env file、失敗時清除、輸出遮蔽）與 `test_config.py` 驗證；EC2 上的實際權限行為待下一次 forward migration 驗證（營運觀察前不列為通過） |

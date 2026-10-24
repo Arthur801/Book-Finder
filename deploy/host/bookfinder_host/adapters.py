@@ -53,7 +53,7 @@ class RealDocker:
         finally:
             self._runner.run(["docker", "rm", container])
 
-    def run_efbundle(self, reference: str, env_file: str) -> int:
+    def run_efbundle(self, reference: str, env_file: str) -> tuple[int, str]:
         # The env file carries the secrets; docker copies it into the container config at create time.
         result = self._runner.run(
             [
@@ -69,7 +69,8 @@ class RealDocker:
                 reference,
             ]
         )
-        return result.returncode
+        # Why: a failed migration is diagnosed from this output, so the host journals it (machine.py _journal_efbundle_output).
+        return result.returncode, result.stdout + result.stderr
 
     def smoke_crawler(self, reference: str) -> int:
         result = self._runner.run(

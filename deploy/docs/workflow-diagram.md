@@ -1,7 +1,7 @@
 # deploy/ 流程圖：產物、部署狀態機與恢復路徑
 
 > 目標：`deploy/`（CD 與 EC2 host 程式），含分散在 repository 其他位置的 CD 來源。
-> 查核基準：2026-10-24，HEAD `01db2d7`（tag `v0.0.4`，main 已合併 PR #106）。工作樹 clean（僅有既存的未追蹤 `.venv`）。
+> 查核基準：2026-10-25，HEAD `5563d80`（#121 的程式 commit；前一基準 `01db2d7`，tag `v0.0.4`）。工作樹 clean（僅有既存的未追蹤 `.venv`）。
 > 規格 authority：[deploy/README.md](../README.md)（runbook）、[Docs/deployment/deployment.md](../../Docs/deployment/deployment.md)、[ADR-006](../../Docs/architecture/architecture-decisions.md)、[test-plan §6](../../Docs/testing/test-plan.md)。
 > 本文件是流程的可讀摘要；細節與退出碼以 runbook 與程式為準。遇到衝突時，見 [architecture.md](architecture.md) 的「文件與程式衝突」。
 
@@ -130,7 +130,7 @@ flowchart TD
   S2 -- "取出失敗 exit 3" --> X3E["結束：drift"]
   S2 -- "內容拒絕（symlink、超量、結構、缺少 CA override）exit 2" --> X2C["結束：rejected"]
   S2 -- "同 digest 目錄的 compose 不同 exit 3" --> X3F["結束：drift"]
-  S2 -- "成功" --> S3{"step 3：SSM 讀取三個 secret，寫 web-RUN.env（600）"}
+  S2 -- "成功" --> S3{"step 3：SSM 讀取三個 secret（設定 SSM_MIGRATION_CONNECTION 時另讀一個），寫 web-RUN.env（600）；設定時另寫 migrate-RUN.env（600，只供 efbundle）"}
   S3 -- "讀取失敗 exit 3" --> X3G["結束：drift"]
   S3 -- "值為空或含控制字元 exit 2" --> X2D["結束：rejected"]
   S3 -- "成功" --> CH{"step 4：chain"}
@@ -140,9 +140,9 @@ flowchart TD
   F1 --> F2{"step 4c：建立 RDS snapshot 並等待 available"}
   F2 -- "失敗：恢復 crawler，未 migrate，exit 3" --> X3H["結束：drift"]
   F2 -- "成功" --> F3["step 4d：設 dirty，寫 state"]
-  F3 --> F4["step 4e：efbundle（image 內）"]
+  F3 --> F4["step 4e：efbundle（image 內；讀 migrate-RUN.env，未設定時讀 web-RUN.env）"]
   F4 --> F5{"exit 0 且 DB migration id 與 manifest 完全相同？"}
-  F5 -- "否：dirty 與 paused 保留，exit 4" --> X4["結束：failed-migration（人工，§5.2、§5.3）"]
+  F5 -- "否：dirty 與 paused 保留，efbundle 輸出尾端寫入 journal，exit 4" --> X4["結束：failed-migration（人工，§5.2、§5.3）"]
   F5 -- "是：清除 dirty 寫 state" --> SW
   CH -- "in-sync 或 schema-ahead" --> SW
 

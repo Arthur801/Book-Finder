@@ -2,10 +2,10 @@
 
 > PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR4 M3（#120）補記：2026-10-25 更新；程式變更以 `d249c07`、`6e70e93`、`b99b368` 記入 update-history。原查核基準保留，未重新審查其餘內容。
-> PR4 M4（#120）補記：2026-10-25 更新；gate 9 與 manual recovery smoke 的程式變更以 `89d983e`、`7c8899d` 記入 update-history §3.13。原查核基準保留，未重新審查其餘內容。
+> PR4 M4（#120）補記：2026-10-25 更新；gate 9 與 manual recovery smoke 的程式變更以 `89d983e`、`7c8899d` 記入 update-history §3.14。原查核基準保留，未重新審查其餘內容。
 
 > 目標：`deploy/` 與分散的 CD 來源（見 [architecture.md §2](architecture.md)）。
-> 查核基準：2026-10-24，HEAD `01db2d7`（tag `v0.0.4`）。證據來自程式、測試、git 與 runbook；營運觀察以「營運觀察，非本次驗證」標示。
+> 查核基準：2026-10-25，HEAD `5563d80`（#121 的程式 commit；前一基準 `01db2d7`，tag `v0.0.4`）。證據來自程式、測試、git 與 runbook；營運觀察以「營運觀察，非本次驗證」標示。
 > 本文件只列有證據、可判定結案的項目。已完成的歷史修復（pg_dump 假陽性、`sudo` 的 `env_keep`、urllib 預設 User-Agent 的程式修正）不列為未完成；其中 User-Agent 在 production 的生效仍列為 DEP-B02。
 
 ## 0. 欄位與詞彙
