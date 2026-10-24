@@ -1,6 +1,7 @@
 # tests 面向 AI 的文字案例庫
 
 > PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+> PR4 M1（#120）補記：2026-10-25 更新；程式變更以 `5052361`、`d864acc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 > 2026-10-24；HEAD `91333c3`。已有測試均為「已有測試但本次未執行」。本次只查核來源，沒有通過結果；文字案例不授權執行外部連線、部署或 migration 至正式資料庫。
 
@@ -173,23 +174,23 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter FullyQualifiedNa
 
 ### TEST-17：Migration 010 的實體 schema、trigger 與 ISBN 正規化 fixture
 
-- **Given**：拋棄式 pgvector container，已 migrate 到 head；ISBN 正規化使用 [tests/Fixtures/isbn-normalization.json](../Fixtures/isbn-normalization.json)。
+- **Given**：拋棄式 pgvector container；010 的案例各自以 `MigrationServer` 建立空 database 並 migrate 到 `20261024160045_MultiSourceCatalog`（010）；ISBN 正規化的 fixture 與 unit 測試不變。ISBN 正規化使用 [tests/Fixtures/isbn-normalization.json](../Fixtures/isbn-normalization.json)。
 - **When**：查 catalog；以 v0.0.4 形式與 `source_code`-only 形式寫入；寫入不一致值或 KINGSTONE；用 legacy ISBN_13 與 `ISBN` 寫入同值；回填測試從 `20261010204858_Embedding` 遷移。
 - **Then**：TEST-02 的 constraint 不回歸；§7 #9、#10 通過；實體 PK 與 UNIQUE 符合 data-model §11.4；NOT NULL、legacy check、RESTRICT／CASCADE FK 與 identifier check 值符合 010；`IsbnNormalizerTests` 的 73 個 vector 全部相符。
-- **來源與狀態**：[MultiSourceCatalogSchemaTests](../DatabaseIntegration/MultiSourceCatalogSchemaTests.cs)、[MultiSourceBackfillTests](../DatabaseIntegration/MultiSourceBackfillTests.cs)、[constraints.sql](../DatabaseIntegration/constraints.sql)、[IsbnNormalizerTests](../UnitTests/IsbnNormalizerTests.cs)。本次 `dotnet test` DatabaseIntegration 120 項、UnitTests 806 項通過。
+- **來源與狀態**：[MultiSourceCatalog010SchemaTests](../DatabaseIntegration/MultiSourceCatalog010SchemaTests.cs)、[MultiSourceBackfillTests](../DatabaseIntegration/MultiSourceBackfillTests.cs)、[constraints.sql](../DatabaseIntegration/constraints.sql)、[IsbnNormalizerTests](../UnitTests/IsbnNormalizerTests.cs)。本次 `dotnet test` DatabaseIntegration 120 項、UnitTests 806 項通過。
 
-### TEST-18：Detail 的 ISBN 三種類型、同值去重與 disabled provider
+### TEST-18：Detail 的 ISBN 值、OTHER 排除與 disabled provider
 
-- **Given**：一本書的 `ISBN`、`ISBN_13`、`ISBN_10` identifier（含同值），以及 Google Books 來源；測試結束時 `source_providers` 的 `enabled` 還原。
+- **Given**：一本書的多個 `ISBN` identifier 與一個 `OTHER`，以及 Google Books 來源；測試結束時 `source_providers` 的 `enabled` 還原。
 - **When**：Detail 頁與 ISBN、關鍵字搜尋；把 GOOGLE_BOOKS 設為 `enabled=false` 後再開 Detail。
-- **Then**：同值只顯示 `ISBN`；不同值全部顯示；`ABC123` 走關鍵字而不命中 ISBN 類型；disabled provider 既有的來源仍顯示，連結文字為 provider 顯示名稱。
+- **Then**：ISBN 值依值排序全部顯示，沒有 ISBN-13／ISBN-10 標籤；OTHER 不顯示；`ABC123` 走關鍵字而不命中 ISBN 類型；disabled provider 既有的來源仍顯示，連結文字為 provider 顯示名稱。
 - **來源與狀態**：[BookDetailViewModelTests](../UnitTests/BookDetailViewModelTests.cs)（單元）、[BookDetailPageTests](../WebIntegration/BookDetailPageTests.cs)、[SearchPageTests](../WebIntegration/SearchPageTests.cs)（WebIntegration）。本次 `dotnet test` 通過。
 
 ### TEST-19：NFKC 與 Unicode 15.1 一致性、detail 的 ISBN 順序
 
-- **Given**：vendored NormalizationTest 15.1 的 c1→c4 對；fixture 的未指派 OUTLINED DIGIT 與分段 vector；一本含三種 ISBN 類型與 OTHER 的書。
+- **Given**：vendored NormalizationTest 15.1 的 c1→c4 對；fixture 的未指派 OUTLINED DIGIT 與分段 vector；一本含 ISBN 與 OTHER 的書。
 - **When**：`NormalizationConformanceTests` 與 `IsbnNormalizerTests`；`EfBookDetailReaderTests` 讀 Detail。
-- **Then**：NFKC 與 15.1 一致；未指派 code point 不被正規化；reader 依 ISBN、ISBN_13、ISBN_10 排序，OTHER 不出現。
+- **Then**：NFKC 與 15.1 一致；未指派 code point 不被正規化；reader 只回 ISBN 並依值排序，OTHER 不出現。
 - **來源與狀態**：[NormalizationConformanceTests](../UnitTests/NormalizationConformanceTests.cs)、[Unicode151AssignedTests](../UnitTests/Unicode151AssignedTests.cs)、[EfBookDetailReaderTests](../DatabaseIntegration/EfBookDetailReaderTests.cs)。本次 `dotnet test` UnitTests 826、DatabaseIntegration 123 通過。
 
 ### TEST-20：NULL fill 後的 stale 偵測依欄位而定
@@ -198,3 +199,10 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter FullyQualifiedNa
 - **When**：以 SQL 套用 crawler 會做的 §7.4 補值，逐一測試：AUTHOR、subject、description、publisher、table_of_contents、published_date（含精度）、page_count、thumbnail_url、ISBN identifier。
 - **Then**：AUTHOR、subject、description 讓 embedding FindPending 與 profile FindStale 都判定 stale；publisher、table_of_contents 只讓 profile stale；其餘三種 books 欄位與 ISBN identifier 兩者都不 stale。
 - **來源與狀態**：[EfStaleDetectionTests](../DatabaseIntegration/EfStaleDetectionTests.cs)（DatabaseIntegration，9 組 theory）；plan §4 #15。crawler 端的補值與附加由 [crawler/docs/test-suite.md](../../crawler/docs/test-suite.md) 的 Phase B 覆蓋表交叉參照。
+
+### TEST-21：Migration 011 的轉換、自我守衛與 Down（PR4 M1）
+
+- **Given**：每個案例有自己的空 database，migrate 到 010 後寫入 ISBN_13／ISBN_10／ISBN 列；守衛案例以 `DISABLE TRIGGER`、`DROP NOT NULL` 製造 010 無法產生的不一致。
+- **When**：migrate 到 011；Down 案例 011 → 010；含 KINGSTONE 的 Down。
+- **Then**：row 8（同 Book 的 `ISBN_13 X` + `ISBN X` 只剩一筆、ISBN_10 轉 ISBN、共用 Z 兩本都保留）；gate 4 與 gate 5 拋錯且資料庫仍在 010；Down 還原 010 物理 schema；含 KINGSTONE 時 Down 拒絕。
+- **來源與狀態**：[ContractMigration011Tests](../DatabaseIntegration/ContractMigration011Tests.cs)、[MultiSourceCatalogSchemaTests](../DatabaseIntegration/MultiSourceCatalogSchemaTests.cs)（011 physical schema 與寫入規則）。`d864acc`、`5052361` 後 DatabaseIntegration 通過。

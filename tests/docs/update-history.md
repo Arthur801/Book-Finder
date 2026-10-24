@@ -1,6 +1,7 @@
 # tests 修改歷史
 
 > PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+> PR4 M1（#120）補記：2026-10-25 更新；程式變更以 `5052361`、`d864acc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 查核基準 `91333c3` 的 source history 如下；`tests/docs` 明確排除，不將 PR #100 新增或後續修正的文件 commits 計入 source history。
 
@@ -183,3 +184,5 @@ Git 歷史不證明 runtime 或 CI 已通過。
 | 2026-10-25 | `aa792bf` | fix(catalog): pin ISBN NFKC to Unicode 15.1 independent of the runtime | `tests/Fixtures/unicode-15.1/`（DerivedAge.txt、NormalizationTest.txt、NormalizationTest-NFKC.txt、NOTICE.txt）、`tests/Fixtures/isbn-normalization.json`（+2 vector）、`tests/UnitTests/NormalizationConformanceTests.cs`、`Unicode151AssignedTests.cs`（新增）、`IsbnNormalizerTests.cs`（啟動防護）、`UnitTests.csproj` |
 | 2026-10-25 | `c3021e3` | fix(catalog): make the detail reader own ISBN identifier order | `tests/DatabaseIntegration/EfBookDetailReaderTests.cs`（新增） |
 | 2026-10-25 | `0d3e28f` | test(recommendation): field-sensitive stale detection after a NULL fill | 新增 tests/DatabaseIntegration/EfStaleDetectionTests.cs（TEST-20；plan §4 #15，9 組 §7.4 補值 theory） |
+| 2026-10-25 | `5052361` | feat(catalog): contract migration 011 and read only the ISBN type | `tests/UnitTests/BookDetailViewModelTests.cs`（只驗 ISBN 排序）、`tests/WebIntegration/BookDetailPageTests.cs`、`SearchPageTests.cs`、`CatalogSeedTests.cs`（只用 `IdentifierType.Isbn`）、`tests/DatabaseIntegration/EfBookDetailReaderTests.cs`、`StoredEnumTests.cs`（ISBN-only 詞彙） |
+| 2026-10-25 | `d864acc` | test(db): cover migration 010 and 011 on their own databases | `tests/DatabaseIntegration/MigrationServer.cs`、`SqlHelpers.cs`、`MultiSourceCatalog010SchemaTests.cs`、`ContractMigration011Tests.cs`（新增）；`MultiSourceCatalogSchemaTests.cs`（改為 011 physical schema）；`MultiSourceBackfillTests.cs`（停在 010）；`constraints.sql`（source_code 與 ISBN） |
