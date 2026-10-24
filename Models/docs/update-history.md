@@ -85,3 +85,4 @@ git show cda623f -- Models
 | 2026-10-25 | `2c662f5` | feat(db): add expand migration 010 for multi-source catalog | `BookDetailViewModel.cs`：`IdentifierLabel` 新增 `Isbn`；`SourceType` 比較改為 `SourceCodes` 字串常數 |
 | 2026-10-25 | `d9d8948` | feat(catalog): read ISBN, ISBN-13 and ISBN-10 and provider names on detail | `BookDetailViewModel.cs`：ISBN 值去重（優先度 ISBN > ISBN-13 > ISBN-10）、連結文字以 `ProviderDisplayName` 產生、主要按鈕改為博客來優先否則任一 provider 的第一個合格來源 |
 | 2026-10-25 | `bbe0a0a` | refactor(catalog): share ISBN-family types and display priority | `BookDetailViewModel.cs`：ISBN 去重與排序改用 IsbnIdentifierTypes，view model 為唯一的去重與排序層 |
+| 2026-10-25 | `c3021e3` | fix(catalog): make the detail reader own ISBN identifier order | `BookDetailViewModel.cs`：註解改為 reader 擁有排序，view model 只做同值去重（行為不變） |

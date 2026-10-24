@@ -1,5 +1,5 @@
 {
-  "description": "Cross-language ISBN normalization protocol fixture (Docs/data/data-model.md 7.1). Shared by the C# unit tests and the crawler pytest; every expected value must match byte-for-byte. Unicode 15.1 NFKC and White_Space. Strings use explicit \\uXXXX escapes.",
+  "description": "Cross-language ISBN normalization protocol fixture (Docs/data/data-model.md 7.1). Shared by the C# unit tests and the crawler pytest; every expected value must match byte-for-byte. Unicode 15.1 NFKC (applied per run of code points assigned in 15.1, see data-model 7.1) and White_Space. Strings use explicit \\uXXXX escapes.",
   "unicode_version": "15.1",
   "vectors": [
     {
@@ -366,6 +366,16 @@
       "name": "ascii isbn-10 unchanged",
       "input": "0132350882",
       "expected": "0132350882"
+    },
+    {
+      "name": "unassigned in 15.1 OUTLINED DIGIT ZERO (U+1CCF0, Unicode 16.0) passes through unchanged",
+      "input": "\ud833\udcf0",
+      "expected": "\ud833\udcf0"
+    },
+    {
+      "name": "unassigned in 15.1 code point in the middle is a segment boundary; hyphen removed around it",
+      "input": "9\ud833\udcf0-7",
+      "expected": "9\ud833\udcf07"
     }
   ]
 }

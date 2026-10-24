@@ -236,6 +236,7 @@ git log --reverse --no-merges --format='@@%h' --numstat -- <同上路徑>
 | `global.json` | .NET SDK 固定（與 `check_version_sync.py` 的 Dockerfile 檢查相關） | `7f53884`、`404c284`（僅 `ci.yml` 在上列路徑內） |
 | 測試 fixture 的 pgvector image（與 `compose.yaml`） | 版本同步（`check_version_sync.py` 檢查） | `dccad53`（pgvector 固定為 0.8.7-pg17，7 個檔案，含 `tests/` 的 fixture） |
 | 2026-10-25 | `22bebf5` | test(deploy): add CD compat seed for migration 010 | `deploy/migration-test/seeds/20261024160045_MultiSourceCatalog.sql`（新增，覆蓋 010 head 的 source_type-only 與 source_code-only 寫法、ISBN、book_offers） |
+| 2026-10-25 | `aa792bf` | fix(catalog): pin ISBN NFKC to Unicode 15.1 independent of the runtime | `.github/workflows/ci.yml`：新增 `unicode_tables.py --check` 步驟（與 scripts tests 同一 job） |
 
 2026-10-11 至 2026-10-21 的 `Docs/` 規格歷史（crawler、embedding、auth）與 `deploy/` 的關係只有間接關聯（例如 `deployment.md` 的 crawler 章節），本文件未逐一列出。
 

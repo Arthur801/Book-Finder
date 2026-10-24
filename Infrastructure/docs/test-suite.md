@@ -167,3 +167,10 @@ dotnet test tests/WebIntegration/WebIntegration.csproj
 ## 文件導航
 
 [流程](workflow-diagram.md) · [架構](architecture.md) · [待辦](backlog.md) · [歷史](update-history.md) · [案例](test-suite.md)
+
+## INF-T18 — Detail reader 的 ISBN 順序
+
+- Given：同一本書含 ISBN_10、ISBN_13、兩個 ISBN（值亂序）與 OTHER。
+- When：`EfBookDetailReader.ReadAsync`。
+- Then：順序為 ISBN（依值）、ISBN_13、ISBN_10；OTHER 不出現。這是 Application `BookDetail` contract 的順序，由 reader 負責。
+- 來源：[EfBookDetailReaderTests](../../tests/DatabaseIntegration/EfBookDetailReaderTests.cs)（DatabaseIntegration）。本次通過（DatabaseIntegration 123 項）。

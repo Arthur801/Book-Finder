@@ -12,6 +12,9 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Pgvector.EntityFrameworkCore;
 
+// ISBN normalization is pinned to Unicode 15.1 data; refuse to start on a runtime that cannot provide it (data-model 7.1).
+IsbnNormalizer.EnsureRuntimeUnicodeSupported();
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.

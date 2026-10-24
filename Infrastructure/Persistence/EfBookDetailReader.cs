@@ -35,14 +35,15 @@ internal sealed class EfBookDetailReader(AppDbContext db) : IBookDetailReader
             .Select(contributor => new BookDetailContributor(contributor.ContributorOrder, contributor.Name, contributor.Role))
             .ToListAsync(cancellationToken);
 
-        // Only the ISBN-family types are read; OTHER identifiers never reach the page. The view model owns the
-        // same-value de-duplication and the display order (book-catalog 4.1), so this reader returns every row.
+        // Only the ISBN-family types are read; OTHER identifiers never reach the page. The reader owns the order the
+        // Application contract promises (ISBN, ISBN-13, ISBN-10, then value); the view model only removes same-value duplicates.
         var identifiers = (await db.BookIdentifiers.AsNoTracking()
                 .Where(identifier => identifier.BookId == bookId
                     && IsbnIdentifierTypes.All.Contains(identifier.IdentifierType))
                 .Select(identifier => new { identifier.IdentifierType, identifier.IdentifierValue })
                 .ToListAsync(cancellationToken))
-            .OrderBy(identifier => identifier.IdentifierValue, StringComparer.Ordinal)
+            .OrderBy(identifier => IsbnIdentifierTypes.DisplayPriority(identifier.IdentifierType))
+            .ThenBy(identifier => identifier.IdentifierValue, StringComparer.Ordinal)
             .Select(identifier => new BookDetailIdentifier(identifier.IdentifierType, identifier.IdentifierValue))
             .ToList();
 

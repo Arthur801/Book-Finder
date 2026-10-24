@@ -82,6 +82,7 @@ git show ce7b4f46c0889db6b10216294cac658136796ad7:crawler/tests/test_deploy.py
 | 2026-10-24／`bda4ebdd053063445000c1d0a8b866dbedac149d` | crawler/deploy/README 釐清 staging tag → attestation → release tag commit point → digest confirmation 的發布順序。 |
 | 2026-10-24／`3dd0c137d9a9b51318776a3347278409f5a064a3` | crawler.conf.example 改用 `ghcr.io/...@sha256:<digest>`，明示 image 由 CD 改寫；不是部署完成證據。 |
 | 2026-10-24／`4a7c06024c9e78356be886395a7461b7e8ce651b` | crawler/deploy/README 說明 `<digest>` 是待替換的 placeholder；該 commit subject 的 status exit0 是目標外 host 語意，不誤歸 crawler wrapper。 |
+| 2026-10-25 | `aa792bf` | fix(catalog): pin ISBN NFKC to Unicode 15.1 independent of the runtime | `books_crawler/unicode_15_1.py`（新增，由 `.github/scripts/unicode_tables.py` 產生；`ASSIGNED_RANGES` 與 `is_assigned`；PR3 才會使用） |
 
 Workflow／architecture／CR-T12 的 host 現況引用 [target wrapper](https://github.com/Arthur801/Book-Finder/blob/ce7b4f46c0889db6b10216294cac658136796ad7/crawler/deploy/run-crawler.sh) 與 [target tests](https://github.com/Arthur801/Book-Finder/blob/ce7b4f46c0889db6b10216294cac658136796ad7/crawler/tests/test_deploy.py)；PR 分支未合併 target 程式，不以舊 wrapper 的相對連結冒稱 N3 已在該分支實作。合併後若 target 再演進，需重查這個固定 snapshot；以上兩段歷史都排除 PR #100 的文件 commits。
 

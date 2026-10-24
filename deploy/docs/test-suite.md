@@ -11,7 +11,7 @@
 
 | 代號 | 類別 | 可以證明什麼 | 不能證明什麼 |
 |---|---|---|---|
-| S | 靜態檢查（lint、shellcheck、版本同步、migration 不可變檢查、Dockerfile 與 compose 內容） | 文字與格式符合規則 | 執行時行為 |
+| S | 靜態檢查（lint、shellcheck、版本同步、migration 不可變檢查、Dockerfile 與 compose 內容、Unicode 15.1 表格與 vendored 資料一致性 `unicode_tables.py --check`） | 文字與格式符合規則 | 執行時行為 |
 | M | 替身單元（fake world、fake clock、ScriptedRunner） | 狀態機分支與順序 | 真實 docker、systemd、AWS 的行為 |
 | I | 拋棄式整合（`BOOKFINDER_IT=1`，真實 docker 與 pgvector，AWS 與 nginx 為替身） | 真實 image、compose、unit body 與 history 的互動 | systemd system manager、真實 SSM、真實 RDS、真實 nginx |
 | O | 營運觀察（2026-10-24 operator 工作階段） | production 曾發生的事件 | 本次驗證；不可當作測試通過 |

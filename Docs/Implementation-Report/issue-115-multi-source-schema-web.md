@@ -127,3 +127,9 @@ crawler 的 DB 測試以 `dotnet ef migrations script --idempotent` 產生 schem
 - **test-plan §7 狀態不正確**：原文寫「目前尚未實作」。已改為逐列標示：PR2 的 #9、#10（010 部分）、#12、#16、#18（C# 部分）與 disabled provider 案例已實作並列出測試位置；PR3、PR4 列仍為規劃。
 - **ADR 與 deployment R7／R8**：已於 PR1（#114）完成，本次不需修改。
 - **`IX_book_subjects_source_code`**：保留為 EF 要求的 FK 索引，並在 migration 標頭註解說明。
+
+### PR #117 審查修正（2026-10-25）
+
+- **P1：NFKC 未固定在 Unicode 15.1**：`string.Normalize` 依 runtime 的 Unicode 資料而定；Unicode 16.0 新增的相容分解（例如 U+1CCF0 OUTLINED DIGIT ZERO）會使 C# 與 PR3 的 Python 3.14 結果不同。修正：NFKC 只套用在 `DerivedAge-15.1.0` 已指派的連續區段，未指派 code point 原樣保留並作為邊界（`aa792bf`）。已指派表由 `.github/scripts/unicode_tables.py` 從 vendored 資料產生為 C# 與 Python 兩份，CI 以 `--check` 比對；NormalizationTest 15.1 的全部 c1→c4 對以 `NormalizationConformanceTests` 驗證；`EnsureRuntimeUnicodeSupported` 於啟動時拒絕 15.0 以前的 runtime。fixture 增加未指派 OUTLINED DIGIT 與分段 vector。data-model 7.1 已同步。
+- **P2：BookDetail 契約與 reader 順序不一致**：contract 承諾 ISBN、ISBN-13、ISBN-10 順序，但 reader 只依值排序。修正：reader 依 `IsbnIdentifierTypes.DisplayPriority` 再依值排序（`c3021e3`），新增 `EfBookDetailReaderTests` 直接斷言順序；view model 只保留同值去重與防禦性排序，註解標明 reader 擁有順序。
+
