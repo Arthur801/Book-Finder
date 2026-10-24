@@ -134,4 +134,25 @@ Planning Time 各查詢約 0.3–0.9 ms。所有 buffer 皆為 shared hit（資�
 
 ## Code Review 與修正
 
-待兩軸 review 後補上。
+兩軸 review 的範圍是 `origin/main...HEAD`（`4ec8492` 之後的 11 個 commit），由 Standards 和 Spec 兩個 reviewer 並行審查。每項發現都由主 agent 對照檔案核實過。
+
+### Standards
+
+| # | 發現 | 核實 | 處理 |
+|---|---|---|---|
+| S1 | 四處 folder docs 仍寫「書庫規則待 #109 後續模組同步」，但 M3（`7c14b09`）已補上 `book-catalog.md` §3.6，兩邊說法不一致（AGENTS.md §3.3 第 5 步） | 屬實：`Application/docs/architecture.md:19`、`workflow-diagram.md:9`、`test-suite.md:184`、`Infrastructure/docs/test-suite.md:139` | 已修正，改成指向 §3.6 和實際的 caller |
+| S2 | `Views/docs/architecture.md:11` 的表格列缺少結尾的 `\|` | 屬實 | 已修正 |
+| S3 | `EfBookBrowse` 的 list 和 sample 重複寫了同一段 `BookRow` 投影（Duplicated Code，屬於判斷題） | 屬實，各 7 行 | 不修。M1 已經在 #110 上，重構收益小；兩個查詢的投影欄位相同，日後若要調整欄位，兩處需同時修改 |
+| S4 | `BookListItemViewModel.From` 的兩個 overload 內容相同（Duplicated Code / Data Clumps） | 屬實 | 不修。Browse 和 Search 的 Application contract 刻意分開（使用者決定），所以重複只出現在 Presentation 的這一層，屬於可以接受的代價 |
+| S5 | `_BookList` 的 `search-results` / `search-result` class 名稱只描述搜尋，但現在書庫和首頁也用這個 partial（Mysterious Name） | 屬實 | 不修。改名會連動 `SearchPageTests` 等的 selector 和 `HtmlPage` helper。這次刻意保持搜尋頁的 HTML 不變；改名可以另外開一張小 refactor |
+| S6 | `BestsellersController` 寫死 `"/books"`，沒有用 `BookBrowseViewModel.UrlFor` | 屬實，影響很小 | 不修。301 的目標是固定的書庫入口，不帶頁碼 |
+| S7 | `BestsellerService.HomeTopCount` / `GetTopAsync` 目前沒有 caller（Speculative Generality） | 屬實 | 刻意保留，依計畫「後端保留」；已記錄在 APP-B03 |
+
+### Spec
+
+| # | 發現 | 核實 | 處理 |
+|---|---|---|---|
+| P1 | `deploy/docs/workflow-diagram.md:56` 的上線人工驗證仍寫「暢銷榜」；runbook 本文已經改過了 | 屬實，這是部署後的驗證步驟，不是在描述 Bestseller 資料 | 已修正為「書庫」 |
+| P2 | `Controllers/docs/test-suite.md` 的測試案例編號用 BROWSE-01～07，和需求編號 BROWSE-01～04 撞號，而且同一個編號代表的意思不同 | 屬實（例：測試 BROWSE-04 是 redirect，需求 BROWSE-04 是空狀態） | 已修正，測試案例改成 `BOOKS-01～07`，和同一份文件的 `HOME-`、`PIPE-` 命名方式一致 |
+
+Spec 軸沒有發現 scope creep，也沒有發現實作錯誤。排序、long offset、空書庫時摘要為 null、302 / 301、description 和目錄都不輸出、固定 Id 的 tie-breaker 測試、每個情境各自建立 factory 的 Bestseller 守衛，以上都逐項核對過，符合規格。

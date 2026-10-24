@@ -8,7 +8,7 @@
 
 | 呈現責任 | 模型／caller | partial 與輸出契約 |
 |---|---|---|
-| 首頁／書庫 | HomeController、BooksController、HomeViewModel、BookBrowseViewModel、BookListItemViewModel | _SearchForm 共用 GET 搜尋；首頁 10 本隨機樣本與書庫分頁共用 _BookList（封面占位、作者、出版社、出版日期）；空庫顯示「書庫還沒有書」；/bestsellers 只 301 至 /books，無榜單頁
+| 首頁／書庫 | HomeController、BooksController、HomeViewModel、BookBrowseViewModel、BookListItemViewModel | _SearchForm 共用 GET 搜尋；首頁 10 本隨機樣本與書庫分頁共用 _BookList（封面占位、作者、出版社、出版日期）；空庫顯示「書庫還沒有書」；/bestsellers 只 301 至 /books，無榜單頁 |
 | 搜尋 | SearchController、SearchResultsViewModel、PagerViewModel | query 預填、總數／頁數、結果列由 _BookList 呈現、_Pager；搜尋完全是 local DB |
 | Book 詳情 | BooksController、BookDetailViewModel | 基本資料／safe 外連；LibrarySection 另外放 ViewData，避免將個人資料塞入 catalog cache |
 | 個人書單 | LibraryController、LibraryPageViewModel | tabs、每列 _LibraryControls、頁面 token、預先存在的空狀態 |
