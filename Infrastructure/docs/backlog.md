@@ -22,7 +22,8 @@ Debug 證據收集：INF-B04 須保存去識別的 request scheme、來源網段
 - 證據：[EfBookBrowse.cs](../Persistence/EfBookBrowse.cs)；基準見 [#109 實作報告 Query plan baseline](../../Docs/Implementation-Report/issue-109-book-browse.md)：開發庫 2884 筆時，樣本查詢 EXPLAIN ANALYZE 約 1.6–1.9 ms（Seq Scan + top-N heapsort），僅為單點觀察。[system architecture §168](../../Docs/architecture/system-architecture.md) 未定義 SLO，因此不設門檻。
 - 方向：若基準顯示成本不可接受，再評估以 TABLESAMPLE、主鍵隨機區段或預先快取的隨機種子取代；需先依 AGENTS.md §2.4／§2.5 判斷是否為架構或產品行為變更。
 - 驗收：有量測前後資料量與耗時；不改變「只從 Local DB 取樣、不讀 Bestseller rank」的規則。
-- 入口：[BookBrowseIntegrationTests](../../tests/WebIntegration/BookBrowseIntegrationTests.cs)（功能），效能量測待建。
+- 併發壓測（#109 上線關卡，本機 2884 本書）：首頁每個請求的 DB CPU 約 1.0–1.1 ms；`/books` 第 1 頁約 1.4–1.5 ms，最後一頁約 2.8–4.1 ms。併發從 1 到 16 時，每請求成本大致不變，總 CPU 隨流量線性增加；成本低於既有的一般搜尋（6.7–10 ms）。詳見實作報告〈上線關卡〉。未在 RDS 實測。
+- 入口：[BookBrowseIntegrationTests](../../tests/WebIntegration/BookBrowseIntegrationTests.cs)（功能）。效能量測方法見實作報告，沒有寫成自動化測試。
 
 ## 文件導航
 

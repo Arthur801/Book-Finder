@@ -123,14 +123,61 @@ Planning Time 各查詢約 0.3–0.9 ms。所有 buffer 皆為 shared hit（資�
 
 若資料量增長後整頁或樣本查詢成為瓶頸，另開效能最佳化 issue（例如為排序鍵建立表達式索引、或改寫隨機取樣）。本報告不預先決定方案。
 
+## 上線關卡：本機併發壓測（2026-10-24）
+
+使用者在 #111 review 指出：這組變更上線前的關卡是 DB 成本，合併時不檢查這一項。使用者選擇用本機併發壓測驗證，不對 production RDS 執行查詢。
+
+- **環境**：
+  - 程式：worktree `issue-109-m3-specs-report` 的 Release build（`bin/Release/net10.0/Book-Finder.dll`），在 `https://localhost:7183` 啟動。
+  - 資料庫：本機開發庫 `book-finder-db-1`，2884 本書。這份資料就是匯入 RDS 的書籍目錄，資料量和分布都相同；不同的是機型和記憶體。
+  - 關掉的背景工作：`Embedding__BackfillEnabled=false`、`AiProfile__Enabled=false`，不呼叫 OpenAI。
+  - 機器：24 個 logical CPU。
+  - TLS：以匯出的 dev 憑證公開部分驗證，沒有關閉驗證；用完後已刪除匯出檔。
+- **工具**：scratchpad 裡的 Python stdlib 腳本，每個 thread 用一條 keep-alive 的 HTTPS 連線打固定次數的 GET，統計 200 回應的延遲。每個 request 的 DB CPU，是讀 DB container cgroup 的 `cpu.stat` `usage_usec` 在壓測前後的差值，除以 request 數。
+- **事前檢查**：
+  - `/` 有 10 本書，重新整理後換了一組。這只是觀察，不算 pass/fail。
+  - `/books` 有 20 本，摘要是「共 2884 本，第 1／145 頁」。
+  - `/books?page=145` 有 4 本。
+  - `/books?page=999` 回 302，導向 `?page=145`。
+  - `/bestsellers` 回 301，導向 `/books`。
+  - app log 沒有 error 或 exception。
+
+| 路徑 | 併發 | 請求數 | 錯誤 | p50 / p95 / p99（ms） | 吞吐（req/s） | DB CPU／請求 |
+|---|---|---|---|---|---|---|
+| `/`（首頁隨機 10 本） | 1 | 500 | 0 | 2.9 / 3.4 / 4.1 | 343 | 1.08 ms |
+| `/` | 16 | 3000 | 0 | 7.4 / 12.0 / 14.7 | 2052 | 1.03 ms |
+| `/books`（第 1 頁） | 1 | 500 | 0 | 3.8 / 4.6 / 5.3 | 258 | 1.40 ms |
+| `/books` | 16 | 3000 | 0 | 10.0 / 15.0 / 18.1 | 1545 | 1.50 ms |
+| `/books?page=145`（最後一頁，整表 quicksort） | 1 | 500 | 0 | 5.2 / 6.4 / 6.9 | 190 | 2.78 ms |
+| `/books?page=145` | 16 | 3000 | 0 | 8.1 / 11.9 / 14.6 | 1864 | 4.10 ms |
+| 對照：`/search?q=小說`（既有功能） | 1 | 500 | 0 | 9.5 / 10.8 / 11.8 | 104 | 6.71 ms |
+| 對照：`/search?q=小說` | 16 | 3000 | 0 | 14.1 / 18.0 / 24.1 | 1099 | 9.99 ms |
+
+**結論**
+
+使用者提出四個要確認的問題，結論如下：
+1. **`ORDER BY random()`**：首頁每個請求約用 1 ms 的 DB CPU，併發從 1 升到 16 幾乎不變，也沒有 temp file（見 Query plan baseline）。
+2. **`/books` 的排序要不要加 index**：第 1 頁約 1.4–1.5 ms。最後一頁整表排序最貴，約 2.8–4.1 ms，但仍低於既有的一般搜尋（約 6.7–10 ms）。目前不加 index。
+3. **COUNT**：每次翻頁都會執行，約 0.4 ms（EXPLAIN），不是主要成本。
+4. **併發升高時 RDS CPU 是否線性增加**：每個請求的 DB CPU 和併發數無關，所以總 DB CPU 會隨請求量線性增加。這和既有頁面的特性相同，而新頁面每個請求的成本比一般搜尋低。
+
+以這份資料量來看，不需要改用其他 sampling strategy。
+
+**限制與觸發條件**
+
+- 這次是本機機型，沒有量 RDS 的實際時間，也沒有反映 burstable instance 的 CPU credit。
+- 上線後如果 RDS 的 CPU 或 credit 出現異常，或者 Catalog 大幅成長，就重跑這份壓測和 EXPLAIN，再另外開一張最佳化 issue。最佳化方向例如：首頁樣本改用 TABLESAMPLE 或隨機主鍵區段；書庫排序加複合 index。
+
 ## 未解決事項
 
 1. **Bestseller 後端保留但無 Web 呼叫者**：`BestsellerService.HomeTopCount`、`GetTopAsync` 目前沒有呼叫端，依規格保留（後端能力保留，Web 暫停），由 `BestsellerReaderIntegrationTests` 維持接線。若長期不再需要，應另開 issue 決定移除。
 2. **`ORDER BY random()` 成本**：首頁每次載入都做整表排序；目前無 SLO，見上方觸發條件。`INF-B06` 記錄此項。
 3. **offset 分頁的位移**：排序只在資料集不變時決定性；兩次請求之間若有書籍新增，後續頁可能出現重複或略過。是否改為 keyset 分頁，需要另行決策（會改變分頁的 UI 與 URL 契約）。
-4. **資料夾文件與 `/Docs` 並存**：各目錄的 `docs/` 與 `/Docs` 規格本次同步更新；兩者的權威順序仍依 `AGENTS.md` §3.2，但兩套文件的長期收斂方式尚未決定。
+4. **資料夾文件與 `/Docs` 並存**：本次兩邊同步更新。使用者 2026-10-24 決定，文件重心逐步移到各程式資料夾的 `docs/`，`/Docs` 改為參考文件，之後封存；`AGENTS.md` 的 authority 表尚未依此修改。
 5. **Crawler 停用**：production 的 Bestseller 不再更新，書庫的資料來源仍是既有 Book 資料；Crawler 恢復的條件不在本 issue 範圍。
 6. **作者為空的書**：開發資料中部分書沒有 `AUTHOR` 角色的貢獻者，書庫與首頁該欄位會是空白，與一般搜尋行為一致，本次未改。
+7. **`BookSearchPage.TotalPages` 的極值 overflow**：`BookBrowsePage` 已改用 long 計算（`2a646b7`），一般搜尋的 `BookSearchPage` 也是相同寫法，不在本票範圍內，沒有修改。
+8. **RDS 實測**：上線關卡用本機壓測驗證，見上方〈上線關卡〉的限制。
 
 ## Code Review 與修正
 
@@ -156,3 +203,10 @@ Planning Time 各查詢約 0.3–0.9 ms。所有 buffer 皆為 shared hit（資�
 | P2 | `Controllers/docs/test-suite.md` 的測試案例編號用 BROWSE-01～07，和需求編號 BROWSE-01～04 撞號，而且同一個編號代表的意思不同 | 屬實（例：測試 BROWSE-04 是 redirect，需求 BROWSE-04 是空狀態） | 已修正，測試案例改成 `BOOKS-01～07`，和同一份文件的 `HOME-`、`PIPE-` 命名方式一致 |
 
 Spec 軸沒有發現 scope creep，也沒有發現實作錯誤。排序、long offset、空書庫時摘要為 null、302 / 301、description 和目錄都不輸出、固定 Id 的 tie-breaker 測試、每個情境各自建立 factory 的 Bestseller 守衛，以上都逐項核對過，符合規格。
+
+### 使用者 review（#110 / #111）
+
+| # | 發現 | 核實 | 處理 |
+|---|---|---|---|
+| U1 | 首頁的 `ORDER BY random()` 和 `/books` 的 COUNT／排序在 production 上的 DB 成本，應該當作上線的關卡，合併時不用擋 | 屬實；baseline 只有單次查詢，沒有量併發 | 以本機併發壓測補上，見〈上線關卡：本機併發壓測〉 |
+| U2 | `BookBrowsePage.TotalPages` 的 `TotalCount + PageSize - 1` 在接近 `int.MaxValue` 時會 overflow | 屬實；修正前的紅燈值是 -107374181 | `2a646b7` 改用 long 計算，加上 `BookBrowsePageTotalPagesTests`，再 merge 到 M2、M3 |
