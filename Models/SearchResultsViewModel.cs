@@ -5,7 +5,7 @@ namespace Book_Finder.Models;
 // The General search results page (book-catalog.md §3.4–3.5, ui-flow.md §3.6). Holds no description or table of contents (AGENTS.md §1.3).
 public sealed record SearchResultsViewModel(
     string Query,
-    IReadOnlyList<SearchResultItemViewModel> Items,
+    IReadOnlyList<BookListItemViewModel> Items,
     int TotalCount,
     PagerViewModel Pager)
 {
@@ -19,13 +19,7 @@ public sealed record SearchResultsViewModel(
     {
         var queryText = NormalizeQuery(query);
 
-        var items = page.Hits.Select(hit => new SearchResultItemViewModel(
-            hit.BookId,
-            hit.Title,
-            NullIfBlank(string.Join("、", hit.Authors)),
-            NullIfBlank(hit.Publisher),
-            PublishedDateText.Format(hit.PublishedDate, hit.PublishedDatePrecision),
-            NullIfBlank(hit.ThumbnailUrl))).ToList();
+        var items = page.Hits.Select(BookListItemViewModel.From).ToList();
 
         var pager = PagerViewModel.For(page.Page, page.TotalPages, target => UrlFor(queryText, target));
 
@@ -36,16 +30,4 @@ public sealed record SearchResultsViewModel(
     public static string UrlFor(string? query, int page) => $"/search?q={Uri.EscapeDataString(NormalizeQuery(query))}&page={page}";
 
     private static string NormalizeQuery(string? query) => (query ?? string.Empty).Trim();
-
-    private static string? NullIfBlank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value;
 }
-
-// One search hit as shown in the list. Optional fields are null when there is no value (never blank).
-// Authors are AUTHOR names only, joined with 「、」.
-public sealed record SearchResultItemViewModel(
-    Guid BookId,
-    string Title,
-    string? Authors,
-    string? Publisher,
-    string? PublishedDate,
-    string? ThumbnailUrl);
