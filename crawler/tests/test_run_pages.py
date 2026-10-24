@@ -224,7 +224,7 @@ def test_existing_book_source_is_reused_without_detail_request_or_persist(store,
 def test_new_source_whose_isbn_is_already_catalogued_attaches_to_that_book(store, monkeypatch):
     owner = uuid4()
     store.isbn_owners["9789570000001"] = owner
-    isbn = (Identifier(IdentifierType.ISBN_13, "9789570000001"),)
+    isbn = (Identifier(IdentifierType.ISBN, "9789570000001"),)
     drafts = {product_url(1): make_draft(product_url(1), title="Reprint listing", identifiers=isbn)}
 
     report, _deps = crawl(
@@ -566,7 +566,7 @@ def test_category_import_adds_new_books_and_leaves_bestsellers_and_known_sources
 
 
 def test_isbn_match_attaches_a_second_source_to_the_existing_book_and_keeps_its_metadata(db_url, monkeypatch):
-    isbn = (Identifier(IdentifierType.ISBN_13, "9789570000001"),)
+    isbn = (Identifier(IdentifierType.ISBN, "9789570000001"),)
     first = {product_url(201): make_draft(product_url(201), title="Original title", identifiers=isbn)}
     crawl(monkeypatch, {CATEGORY_1: [RankingRow(rank=1, url=product_url(201))]}, parse_detail=fake_detail_parser(first), connect=lambda: db.connect(db_url))
     second = {product_url(202): make_draft(product_url(202), title="Reprint listing", identifiers=isbn)}

@@ -189,7 +189,7 @@ def test_real_books_are_written_with_the_expected_columns(successful_baseline):
     ) == [(1, "あおのなち", "AUTHOR"), (2, "蔡夢芳", "TRANSLATOR")]
     assert query(
         successful_baseline,
-        "SELECT subject, source_type FROM book_subjects WHERE book_id = %s ORDER BY subject",
+        "SELECT subject, source_code FROM book_subjects WHERE book_id = %s ORDER BY subject",
         (translated,),
     ) == [("GL", "BOOKS_COM_TW"), ("漫畫/圖文書", "BOOKS_COM_TW")]
 
@@ -202,7 +202,7 @@ def test_real_books_are_written_with_the_expected_columns(successful_baseline):
 
     source = query(
         successful_baseline,
-        "SELECT source_type, external_id, first_seen_at, last_seen_at FROM book_sources WHERE source_url = %s",
+        "SELECT source_code, external_id, first_seen_at, last_seen_at FROM book_sources WHERE source_url = %s",
         (product_url(11062550),),
     )
     assert source == [("BOOKS_COM_TW", None, NOW, NOW)]
