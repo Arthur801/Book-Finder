@@ -41,6 +41,7 @@ from books_crawler.fetcher import (
     create_fetcher,
 )
 from books_crawler.models import PROVIDER, ProviderCode
+from books_crawler.normalize import ensure_runtime_unicode_supported
 from books_crawler.page_list import (
     PAGES_FILE_ENV,
     PageListError,
@@ -97,6 +98,13 @@ def main(
     configure_logging()
     log = logging.getLogger("books_crawler.cli")
     env = os.environ if environ is None else environ
+
+    # Fail fast on a runtime whose Unicode data would give wrong ISBN keys (data-model 7.1): a configuration error.
+    try:
+        ensure_runtime_unicode_supported()
+    except RuntimeError as exc:
+        log.error("%s", exc)
+        return EXIT_CONFIG_ERROR
 
     database_url = env.get("DATABASE_URL", "").strip()
     if not database_url:

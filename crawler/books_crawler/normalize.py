@@ -17,8 +17,38 @@ from books_crawler.models import (
     IdentifierType,
     PublishedDatePrecision,
 )
+from books_crawler.unicode_15_1 import is_assigned
 
 log = logging.getLogger("books_crawler.normalize")
+
+# data-model 7.1: NFKC is pinned to Unicode 15.1. Code points not assigned in 15.1 pass through unchanged and split
+# the input; NFKC runs only on each maximal run of assigned code points. Mirrors Application/Catalog/IsbnNormalizer.cs.
+_NFKC_SAMPLE = "\U0001e030"  # MODIFIER LETTER CYRILLIC SMALL A, added in 15.0; <super> to U+0430
+_NFKC_SAMPLE_RESULT = "\u0430"
+
+
+def compose_compatibility(text: str) -> str:
+    """NFKC of ``text`` applied per maximal run of Unicode 15.1-assigned code points (data-model 7.1)."""
+    parts: list[str] = []
+    run: list[str] = []
+    for char in text:
+        if is_assigned(ord(char)):
+            run.append(char)
+            continue
+        if run:
+            parts.append(unicodedata.normalize("NFKC", "".join(run)))
+            run = []
+        parts.append(char)
+    if run:
+        parts.append(unicodedata.normalize("NFKC", "".join(run)))
+    return "".join(parts)
+
+
+def ensure_runtime_unicode_supported() -> None:
+    """Refuse to run on a runtime whose Unicode data is older than 15.0 (data-model 7.1). Called once at startup."""
+    if unicodedata.normalize("NFKC", _NFKC_SAMPLE) != _NFKC_SAMPLE_RESULT:
+        raise RuntimeError("The runtime's Unicode data is older than 15.0; ISBN normalization would be wrong.")
+
 
 # data-model §2.1: 博客來「語言」display text → BCP 47 code. Anything else becomes NULL.
 LANGUAGE_MAP: dict[str, str] = {
@@ -96,7 +126,7 @@ def normalize_isbn_value(raw: str) -> str:
     No length or checksum validation. The result is what ``book_identifiers`` stores and matches on.
     """
     kept: list[str] = []
-    for char in unicodedata.normalize("NFKC", raw):
+    for char in compose_compatibility(raw):
         if ord(char) in _REMOVED_CODE_POINTS:
             continue
         kept.append(char.upper() if "a" <= char <= "z" else char)
