@@ -119,6 +119,8 @@ git show --format= --numstat <sha> -- Application ':(exclude)Application/docs'
 | 本 commit | fix(catalog): compute 書庫 TotalPages in long so it cannot overflow | BookBrowsePage.TotalPages 改以 long 計算，避免 TotalCount 接近 int.MaxValue 時溢位；新增 BookBrowsePageTotalPagesTests |
 | 2026-10-25 | `2a6966b` | feat(catalog): add ISBN normalization protocol and shared fixture | `Catalog/IsbnNormalizer.cs`（新增，data-model 7.1 写入端正規化）；測試 `tests/UnitTests/IsbnNormalizerTests.cs` 讀 `tests/Fixtures/isbn-normalization.json` |
 | 2026-10-25 | `2c662f5` | feat(db): add expand migration 010 for multi-source catalog | `Catalog/BookDetail.cs`：`BookDetailSource` 的 `SourceType Type` 改為 `string SourceCode`（不再依賴 Domain enum） |
+| 2026-10-25 | `d9d8948` | feat(catalog): read ISBN, ISBN-13 and ISBN-10 and provider names on detail | `Catalog/BookDetail.cs`：`BookDetailSource` 加 `ProviderDisplayName`；Identifiers 註解改為三種 ISBN 類型 |
+| 2026-10-25 | `df57cbf` | test(db): assert last_seen_at-only UPDATE passes the 010 trigger | `Application` 無變更 |
 
 ## 導覽
 

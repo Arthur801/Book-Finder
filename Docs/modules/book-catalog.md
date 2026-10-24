@@ -128,7 +128,7 @@ normalized 符合 ISBN-13（13 位數字）或 ISBN-10（9 位數字 + 數字或
 2. 沒有博客來來源時，依同樣的 `first_seen_at`、`id` 順序取第一個合格來源為主要按鈕（例如只有 Google Books 來源的書，Google Books 連結即為主要按鈕「在 Google Books 查看」）。
 3. 不合格的網址不產生連結，主要按鈕改由下一個合格的來源擔任（§4.1）。
 
-> 實作狀態：查核基準 `a448b82` 的 `BookDetailSource` 以 `SourceType` 決定文字；PR2 改為 `{Id, SourceCode, ProviderDisplayName, Url, FirstSeenAt}` 並 JOIN `source_providers`。
+> 實作狀態：PR2（#115）已改為 `{Id, SourceCode, ProviderDisplayName, Url, FirstSeenAt}` 並 JOIN `source_providers`（不以 `enabled` 過濾）；Detail 與一般搜尋讀三種 ISBN 類型。011 之前仍為過渡期。
 
 Library 狀態（BOOK-04）：已登入且該書在 Library 中時，顯示並可修改 Reading Status 與評分（行為見 `user-library.md`）。Library 狀態不進入 cache。
 

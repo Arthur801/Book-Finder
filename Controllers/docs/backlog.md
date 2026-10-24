@@ -38,7 +38,7 @@
 
 ### CTL-12 — Book 詳細頁與搜尋在 multi-source 下的回歸（#113 PR2）
 
-- [ ] **P2／待驗證／L2**。Controller 本身預期不需改；資料來源與顯示規則的變更在 Application／Infrastructure／Models。
+- [x] **P2／已處理（#115 PR2，`d9d8948`）**。Controller 本身未改；行為由 WebIntegration 的 BookDetailPageTests、SearchPageTests 覆蓋（三種 ISBN、去重、ABC123 關鍵字、disabled provider）。資料來源與顯示規則的變更在 Application／Infrastructure／Models。
 - 規格：[book-catalog.md §3、§4](../../Docs/modules/book-catalog.md)。
 - 待辦：PR2 確認 `BooksController` 的 Detail 與 `SearchController` 在 provider registry 與三種 ISBN 類型下行為不變：404、cache（Library 狀態不進 cache）、ISBN 搜尋與分頁重導。
 - 驗收：disabled provider 的來源仍顯示；ISBN、ISBN_13、ISBN_10 皆可搜尋；`ABC123` 走關鍵字模式；既有 WebIntegration 測試通過。

@@ -207,3 +207,11 @@ Auth的Google登入/email驗證/忘記密碼/個資修改/refresh token依identi
 ## 導覽
 
 [流程](workflow-diagram.md)・[架構](architecture.md)・[待辦](backlog.md)・[歷史](update-history.md)・[案例](test-suite.md)
+
+### APP-T22 — Detail 的 ISBN 去重與主要按鈕規則
+
+風險 L2；`d9d8948` 已實作。來源：[BookDetailViewModelTests](../../tests/UnitTests/BookDetailViewModelTests.cs)。
+
+- **Given**：同值的 `ISBN` 與 `ISBN_13`、同值的 `ISBN_13` 與 `ISBN_10`，不同值的三種類型，`javascript:` 與 `https` 的 KINGSTONE 來源，Google Books 與博客來來源。
+- **When**：`BookDetailViewModel.From`。
+- **Then**：同值只顯示優先度最高的標籤（ISBN > ISBN-13 > ISBN-10）；不同值全部顯示；OTHER 不出現；有博客來時第一筆為主要按鈕，其餘博客來為次要，其他 provider 依來源順序並以 `ProviderDisplayName` 命名；沒有博客來時第一個合格來源（任一 provider）為主要按鈕。本次 `dotnet test` UnitTests 通過。

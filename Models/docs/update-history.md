@@ -83,3 +83,4 @@ git show cda623f -- Models
 | `2642182` | test(web): cover 書庫 paging, home sample and the /bestsellers redirect | 無 Models 行為變更；TaipeiTimeZoneTests 改驗 fallback zone 轉換，新增 BookBrowseViewModelTests |
 | 本 M2 docs commit | docs(web): record 書庫 Web presentation in folder docs | 更新 Models 文件；Bestseller 只保留後端與 TaipeiTimeZone 歷史 |
 | 2026-10-25 | `2c662f5` | feat(db): add expand migration 010 for multi-source catalog | `BookDetailViewModel.cs`：`IdentifierLabel` 新增 `Isbn`；`SourceType` 比較改為 `SourceCodes` 字串常數 |
+| 2026-10-25 | `d9d8948` | feat(catalog): read ISBN, ISBN-13 and ISBN-10 and provider names on detail | `BookDetailViewModel.cs`：ISBN 值去重（優先度 ISBN > ISBN-13 > ISBN-10）、連結文字以 `ProviderDisplayName` 產生、主要按鈕改為博客來優先否則任一 provider 的第一個合格來源 |

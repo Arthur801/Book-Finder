@@ -35,9 +35,9 @@
 
 ## APP-B04 — Catalog 讀取 contract 改用 provider code（#113 PR2）
 
-- **P1 / L3 / 確認缺口（目標規格已定，未實作）**。
+- **P1 / L3 / 已處理（#115 PR2 phase A `2c662f5` 與 phase B `d9d8948`）**。
 - 目標：[book-catalog §4](../../Docs/modules/book-catalog.md)：`BookDetailSource` 改為 `{Id, SourceCode, ProviderDisplayName, Url, FirstSeenAt}`；identifier 可為 `ISBN`、`ISBN_13`、`ISBN_10`（011 後只有 `ISBN`）；ISBN 搜尋判定（長度 10／13）不變，與寫入端正規化分開。
-- 目前差距（PR2 phase A，#115 `2c662f5` 已處理）：[BookDetail](../Catalog/BookDetail.cs) 的 `BookDetailSource` 已改為 `(Guid Id, string SourceCode, …)`，不再依賴 `SourceType`。仍待 phase B：`ProviderDisplayName`（JOIN `source_providers`，不以 `enabled` 過濾）、ISBN 讀取三種類型、Detail 去重。
+- 目前差距（PR2 phase A，#115 `2c662f5` 已處理）：[BookDetail](../Catalog/BookDetail.cs) 的 `BookDetailSource` 已改為 `(Guid Id, string SourceCode, …)`，不再依賴 `SourceType`。phase B 已完成：`ProviderDisplayName`（JOIN `source_providers`，不以 `enabled` 過濾）、ISBN 讀取三種類型、Detail 去重（去重與標籤在 [BookDetailViewModel](../../Models/BookDetailViewModel.cs)）。
 - 驗收：Application 不再引用 `SourceType`（已達成）；`BookDetailContractTests` 仍守住不含 description／TOC；BookSearchServiceTests 確認 `ABC123` 不走 ISBN 模式。
 - phase A 新增：[IsbnNormalizer](../Catalog/IsbnNormalizer.cs) 實作寫入端 NFKC＋明確 White_Space 正規化，與一般搜尋的 `SearchQuery` 判定刻意分開；C# 與 crawler 共用 `tests/Fixtures/isbn-normalization.json`。crawler 端尚未接上（PR3）。
 
