@@ -31,9 +31,9 @@ python -m pytest tests/test_fetcher.py tests/test_curl_fetcher.py tests/test_pla
 ### CR-T02 — 來源重用與 ISBN attach
 
 - 責任／規格：§6；data-model §7；風險 L3；狀態：已有測試但本次未執行。
-- Given：DB 既有 BOOKS_COM_TW URL、既有 ISBN13／10 Book，metadata 有可比對值。
+- Given：DB 既有 BOOKS_COM_TW URL、既有 `ISBN` Book（011 後 identifier 只有 `ISBN`），metadata 有可比對值。
 - When：run_once，分別給既有 URL／新 URL 同 ISBN／無 ISBN draft。
-- Then：既有 URL 無 detail／persist；ISBN13 優先，新 source attach 不改 Book／identifiers／contributors／subjects；未命中新增 Book。
+- Then：既有 URL 無 detail／persist；只以 `ISBN` 類型做 distinct Book 比對，新 source attach 不改 Book／identifiers／contributors／subjects；未命中新增 Book。
 - 現有測試或擴充入口：[test_db_integration.py](../tests/test_db_integration.py)。
 
 ### CR-T03 — 共用三次與 DB retry
@@ -178,13 +178,13 @@ Phase B（#116）覆蓋：
 |---|---|---|
 | [test_isbn_fixture.py](../tests/test_isbn_fixture.py) | 共用 `tests/Fixtures/isbn-normalization.json` 逐 byte；每個 White_Space code point 都有 vector；反例保留 | data-model §7.1（plan §4 #18） |
 | [test_identity.py](../tests/test_identity.py) | §7.3 矩陣每一列（純函式） | §7.3（plan §4 #19） |
-| [test_db_integration.py](../tests/test_db_integration.py) | 0／1／≥2 本比對；legacy `ISBN_13` 與 draft ISBN 同一本；補 NULL（日期成對、AUTHOR 條件、updated_at 只在補值時更新）；ambiguous 不改既有 Book；touch 每次 run、重試不重抓、最後失敗的 daily policy；`replace_bestsellers` 不更新 `last_seen_at`；URL drift、衝突、NULL external_id；trigger 讓 `source_type = source_code`；`provider_enabled` | plan §4 #1–#4、#11、#15 概念、#17、#19 |
+| [test_db_integration.py](../tests/test_db_integration.py) | 0／1／≥2 本比對；既有 `ISBN` row 與 draft ISBN 同一本；只查 `ISBN`（`OTHER` 不比對）；011 schema 拒絕 `ISBN_10`／`ISBN_13`；補 NULL（日期成對、AUTHOR 條件、updated_at 只在補值時更新）；ambiguous 不改既有 Book；touch 每次 run、重試不重抓、最後失敗的 daily policy；`replace_bestsellers` 不更新 `last_seen_at`；URL drift、衝突、NULL external_id；011 後無 `source_type` 欄位；`provider_enabled` | plan §4 #1–#4、#11、#15 概念、#17、#19 |
 | [test_first_book.py](../tests/test_first_book.py) | touch 最後仍失敗 → FAILED exit 1，不重抓 detail | plan §4 #17 |
 | [test_run_pages.py](../tests/test_run_pages.py) | touch 最後仍失敗 → 只跳過該列，其餘照常 | plan §4 #17 |
 | [test_cli.py](../tests/test_cli.py) | 停用 provider → exit 2 且不建立 fetcher；讀 registry 失敗 → exit 1 | crawler.md §3.1 |
 | [EfStaleDetectionTests.cs](../../tests/DatabaseIntegration/EfStaleDetectionTests.cs)（C#，`dotnet test tests/DatabaseIntegration`） | 9 種 §7.4 補值：AUTHOR、subject、description 讓 embedding pending 且 profile stale；publisher、table_of_contents 只讓 profile stale；published_date、page_count、thumbnail_url、ISBN 兩者皆不變 | plan §4 #15 |
 
-尚未覆蓋：migration 011（PR4）；C# 端 fixture（#115 的測試範圍）；stale 偵測屬 Web 端（#115）。
+migration 011 的 schema 由 test_db_integration.py 在 011 上檢查（無 `source_type`、拒絕 legacy identifier 類型）；§11.3 gate 的實際執行證據不在此。尚未覆蓋：C# 端 fixture（#115 的測試範圍）；stale 偵測屬 Web 端（#115）。
 
 ### Unicode 15.1 NFKC 一致性（data-model §7.1）
 
