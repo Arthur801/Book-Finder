@@ -7,7 +7,7 @@ import pytest
 from books_crawler.cli import main
 from books_crawler.fetcher import BrowserUnavailableError, FetchError
 from books_crawler.ledger import RunReport
-from books_crawler.models import Failure, RankingRow, RunStatus, SkippedRow, SkipReason
+from books_crawler.models import Failure, JobName, RankingRow, RunStatus, SkippedRow, SkipReason
 from books_crawler.parsers import RANKING_PAGE_URL, parse_detail_html, parse_ranking_html
 from books_crawler.redact import redact
 from books_crawler.run import RunDependencies, backoff_seconds, format_report, run_once
@@ -147,13 +147,20 @@ def test_format_report_has_required_fields():
 
     for field in (
         "run_id=run-42",
+        "provider_code=BOOKS_COM_TW",
+        "job_name=daily-bestseller",
         "started_at=2026-10-11T04:00:00+00:00",
         "finished_at=",
         "status=FAILED",
         "ranking_count=0",
+        "items_seen=0",
         "existing_book_count=0",
         "new_book_count=0",
         "attached_source_count=0",
+        "existing_source_count=0",
+        "new_source_count=0",
+        "ambiguous_isbn_count=0",
+        "offer_updated_count=0",
         "skipped_count=0",
         "exit_code=1",
         "aborted_at_rank=none",
@@ -163,12 +170,44 @@ def test_format_report_has_required_fields():
         assert field in line
 
 
+def test_summary_line_keeps_the_spec_field_order():
+    fetcher = FakeFetcher(pages={RANKING_PAGE_URL: RANKING_HTML})
+    report = run_once(_deps(fetcher, ranking_rows(10), RecordingConnect()), run_id="run-42")
+
+    keys = [part.split("=", 1)[0] for part in format_report(report).split(" skipped=")[0].split(" ")]
+
+    assert keys == [
+        "run_id",
+        "provider_code",
+        "job_name",
+        "started_at",
+        "finished_at",
+        "status",
+        "ranking_count",
+        "items_seen",
+        "existing_book_count",
+        "new_book_count",
+        "attached_source_count",
+        "existing_source_count",
+        "new_source_count",
+        "ambiguous_isbn_count",
+        "offer_updated_count",
+        "skipped_count",
+        "restricted_book_count",
+        "error_count",
+        "consecutive_error_count",
+        "aborted_at_rank",
+        "exit_code",
+    ]
+
+
 def test_format_report_lists_skipped_rows_and_redacts_database_urls():
     report = RunReport(
         run_id="run-7",
         status=RunStatus.PARTIAL_SUCCESS,
         started_at=NOW,
         finished_at=NOW,
+        job_name=JobName.DAILY_BESTSELLER,
         ranking_count=100,
         skipped=[
             SkippedRow(

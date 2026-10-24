@@ -434,10 +434,12 @@ def test_run_logs_each_page_and_one_summary_line_with_the_run_id(store, monkeypa
     summary = [message for message in messages if message.startswith("mode=pages ")]
     assert summary == [
         (
-            "mode=pages run_id=run-log-1 started_at=2026-10-11T04:00:00+00:00 "
-            "finished_at=2026-10-11T04:00:00+00:00 status=SUCCESS pages_total=2 pages_skipped=0 rows_seen=2 "
-            "existing_book_count=0 new_book_count=2 attached_source_count=0 skipped_count=0 "
-            "restricted_book_count=0 error_count=0 exit_code=0 skipped=[] skipped_pages=[]"
+            "mode=pages run_id=run-log-1 provider_code=BOOKS_COM_TW job_name=category-pages "
+            "started_at=2026-10-11T04:00:00+00:00 finished_at=2026-10-11T04:00:00+00:00 status=SUCCESS "
+            "pages_total=2 pages_skipped=0 rows_seen=2 items_seen=2 existing_book_count=0 new_book_count=2 "
+            "attached_source_count=0 existing_source_count=0 new_source_count=2 ambiguous_isbn_count=0 "
+            "offer_updated_count=0 skipped_count=0 restricted_book_count=0 error_count=0 exit_code=0 "
+            "skipped=[] skipped_pages=[]"
         )
     ]
 

@@ -1,11 +1,11 @@
 """One crawler run: ranking → resolve sources to Books → replace bestsellers (crawler.md §3, §11).
 
-Resolution of a ranking row (crawler.md §5):
-1. Known BOOKS_COM_TW Book Source URL → reuse its Book, no detail request.
+Resolution of a discovery item gives a ``CatalogResolution`` (crawler.md §6):
+1. Known BOOKS_COM_TW Book Source URL → reuse its Book, no detail request (``EXISTING``).
 2. Unknown URL → fetch and parse the detail page, then:
    a. an ISBN-13 (then ISBN-10) of the detail page matches an existing Book → attach a new
-      BOOKS_COM_TW Book Source to that Book; the Book's metadata is not changed;
-   b. otherwise → create a new Book.
+      BOOKS_COM_TW Book Source to that Book; the Book's metadata is not changed (``ISBN_ATTACHED``);
+   b. otherwise → create a new Book (``IMPORTED``).
 
 Retry and skip (crawler.md §6). A new source gets at most ``MAX_ATTEMPTS`` attempts in total:
 
@@ -16,18 +16,19 @@ Retry and skip (crawler.md §6). A new source gets at most ``MAX_ATTEMPTS`` atte
 A row that still fails is skipped: no rows are written for it, and the snapshot keeps the other
 ranks' numbers. The ranking page is retried on fetch failure only and is never skipped (crawler.md §4).
 
-A Book may appear at most once in a ranking (``bestsellers.book_id`` is unique). When a later rank
-resolves to a Book already used by an earlier rank, the later rank is skipped (not retried, since
-the outcome is deterministic); the earlier rank keeps the Book (crawler.md §5).
+The resolver always commits the Catalog side of an item (its Source, its gap filling, its touch). It does
+not decide whether the item may be ranked: a Book may appear at most once in a ranking
+(``bestsellers.book_id`` is unique), so when a later rank resolves to a Book already used by an earlier
+rank, ``RunLedger`` decides ``DUPLICATE_BOOK`` and skips that rank without retrying (crawler.md §14.2).
 
 A browser that cannot be started raises ``BrowserUnavailableError``. That is not a ``FetchError``,
 so it is neither retried nor skipped per row: it fails the whole run.
 
-Every row outcome goes, in rank order, to a ``RunLedger`` (``ledger.py``), which owns the counters,
-the consecutive-error streak and abort, the snapshot rows and the final status. This module only
-does the I/O: fetching, parsing, writing and publishing.
+Every item outcome goes, in rank order, to a ``RunLedger`` (``ledger.py``), which owns the counters, the
+ranking decision, the consecutive-error streak and abort, the snapshot rows and the final status. This
+module only does the I/O: fetching, parsing, writing and publishing.
 
-Pages mode (``run_pages``, crawler.md §16) is the exception to the ranking rules: its rows go to a
+Pages mode (``run_pages``, crawler.md §15) is the exception to the ranking rules: its rows go to a
 ``PagesLedger`` instead, which keeps the counters and status but has no rank order, no snapshot, no
 duplicate-Book rule and no consecutive-error limit. A category page that cannot be fetched or parsed
 is skipped, not retried into a failed run.
@@ -39,11 +40,10 @@ import json
 import logging
 import time
 import uuid
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
-from uuid import UUID
 
 import psycopg
 
@@ -52,10 +52,11 @@ from books_crawler.fetcher import Fetcher, FetchError
 from books_crawler.ledger import PagesLedger, RunLedger, RunReport
 from books_crawler.models import (
     BookDraft,
+    CatalogResolution,
     Failure,
     IsbnMatch,
+    JobName,
     RankingRow,
-    Resolution,
     ResolvedRow,
     SkippedPage,
     SkippedRow,
@@ -92,13 +93,6 @@ class _WrittenSource:
     match: IsbnMatch | None
 
 
-@dataclass(frozen=True)
-class _DuplicateBook:
-    """Write step outcome: the Book is already used by an earlier rank. Skipped without retry (crawler.md §5)."""
-
-    message: str
-
-
 def utc_now() -> datetime:
     return datetime.now(UTC)
 
@@ -131,13 +125,15 @@ class RunDependencies:
 
 
 def format_report(report: RunReport) -> str:
-    """One line per run for stdout (crawler.md §12, §16). ``skipped`` is a JSON list of the skipped rows.
+    """One line per run for stdout (crawler.md §19.2, §15.8). ``skipped`` is a JSON list of the skipped rows.
 
     Pages mode (``pages_total`` is set) reports its page and row counters instead of the ranking
-    counters, and adds ``skipped_pages`` (crawler.md §16).
+    counters, and adds ``skipped_pages`` (crawler.md §15.8). The field order is the one of the spec.
     """
     fields: dict[str, Any] = {
         "run_id": report.run_id,
+        "provider_code": report.provider_code,
+        "job_name": report.job_name,
         "started_at": report.started_at.isoformat(),
         "finished_at": report.finished_at.isoformat(),
         "status": report.status,
@@ -150,9 +146,14 @@ def format_report(report: RunReport) -> str:
         fields["rows_seen"] = report.rows_seen
     fields.update(
         {
+            "items_seen": report.items_seen,
             "existing_book_count": report.existing_book_count,
             "new_book_count": report.new_book_count,
             "attached_source_count": report.attached_source_count,
+            "existing_source_count": report.existing_source_count,
+            "new_source_count": report.new_source_count,
+            "ambiguous_isbn_count": report.ambiguous_isbn_count,
+            "offer_updated_count": report.offer_updated_count,
             "skipped_count": report.skipped_count,
             "restricted_book_count": report.restricted_book_count,
             "error_count": report.error_count,
@@ -197,10 +198,6 @@ def _failure(reason: SkipReason, message: str, attempts: int) -> Failure:
 
 def _skipped(row: RankingRow, failure: Failure) -> SkippedRow:
     return SkippedRow(rank=row.rank, url=row.url, failure=failure)
-
-
-def _duplicate_message(book_id: UUID, ranked: Mapping[UUID, int]) -> str:
-    return f"resolves to Book {book_id}, which rank {ranked[book_id]} already uses; bestsellers.book_id must be unique"
 
 
 def _fetch_page_with_retries(deps: RunDependencies, url: str, label: str = "ranking page") -> str:
@@ -255,16 +252,17 @@ def _write_new_source(
     conn: psycopg.Connection,
     draft: BookDraft,
     deps: RunDependencies,
-    ranked: Mapping[UUID, int],
     attempt: int,
-) -> _WrittenSource | _DuplicateBook | Failure:
-    """ISBN lookup and the Book transaction for one parsed draft. Database errors are retryable."""
+) -> _WrittenSource | Failure:
+    """ISBN lookup and the Book transaction for one parsed draft. Database errors are retryable.
+
+    The Source is written even when its Book is already used by an earlier rank: that decision is
+    the ledger's (``DUPLICATE_BOOK``), made after the Catalog side has been committed (crawler.md §14.2).
+    """
     try:
         match = db.find_book_by_isbn(conn, draft.identifiers)
     except psycopg.Error as exc:
         return _failure(SkipReason.DATABASE_ERROR, str(exc), attempt)
-    if match is not None and match.book_id in ranked:
-        return _DuplicateBook(_duplicate_message(match.book_id, ranked))
 
     try:
         ref = db.persist_new_source(
@@ -282,20 +280,17 @@ def _resolve_row(
     conn: psycopg.Connection,
     row: RankingRow,
     deps: RunDependencies,
-    ranked: Mapping[UUID, int],
 ) -> ResolvedRow | SkippedRow:
-    """Resolve one ranking row to a Book, or skip it (crawler.md §5, §6).
+    """Resolve one ranking row to a Catalog outcome, or fail it (crawler.md §6, §13).
 
-    ``ranked`` maps each Book already used by an earlier rank to that rank (``RunLedger.ranked``).
-    A row that would reuse one of those Books is skipped here, before anything is written.
+    Returns a ``ResolvedRow`` with its ``CatalogResolution`` (the Catalog side is committed), or a
+    ``SkippedRow`` (``RESTRICTED`` or ``FAILED``). Whether a resolved Book may be ranked is decided by
+    ``RunLedger``, not here.
     """
     existing = db.find_source(conn, row.url)
     if existing is not None:
-        if existing.book_id in ranked:
-            # The detail page is never fetched for a known URL, so no attempt was made.
-            message = _duplicate_message(existing.book_id, ranked)
-            return _skipped(row, _failure(SkipReason.DUPLICATE_BOOK_IN_RANKING, message, attempts=0))
-        return ResolvedRow(rank=row.rank, source_ref=existing, resolution=Resolution.EXISTING_SOURCE)
+        # The detail page is never fetched for a known URL, so no attempt was made (attempts = 0).
+        return ResolvedRow(rank=row.rank, url=row.url, source_ref=existing, resolution=CatalogResolution.EXISTING)
 
     draft: BookDraft | None = None
     last_failure: Failure | None = None
@@ -311,17 +306,20 @@ def _resolve_row(
                 continue
             draft = fetched
 
-        written = _write_new_source(conn, draft, deps, ranked, attempt)
-        if isinstance(written, _DuplicateBook):
-            # Deterministic: skipped without retry.
-            return _skipped(row, _failure(SkipReason.DUPLICATE_BOOK_IN_RANKING, written.message, attempts=attempt))
+        written = _write_new_source(conn, draft, deps, attempt)
         if isinstance(written, Failure):
             last_failure = written
             _log_attempt_failed(row, attempt, written)
             continue
 
         if written.match is None:
-            return ResolvedRow(rank=row.rank, source_ref=written.ref, resolution=Resolution.NEW_BOOK)
+            return ResolvedRow(
+                rank=row.rank,
+                url=row.url,
+                source_ref=written.ref,
+                resolution=CatalogResolution.IMPORTED,
+                attempts=attempt,
+            )
         match = written.match
         log.info(
             "attached BOOKS_COM_TW source to existing Book: rank=%d url=%s matched=%s:%s book_id=%s",
@@ -331,7 +329,13 @@ def _resolve_row(
             match.identifier.identifier_value,
             match.book_id,
         )
-        return ResolvedRow(rank=row.rank, source_ref=written.ref, resolution=Resolution.ISBN_ATTACHED)
+        return ResolvedRow(
+            rank=row.rank,
+            url=row.url,
+            source_ref=written.ref,
+            resolution=CatalogResolution.ISBN_ATTACHED,
+            attempts=attempt,
+        )
 
     assert last_failure is not None  # the loop runs at least once and only continues on failure
     return _skipped(row, last_failure)
@@ -353,7 +357,7 @@ def run_first_book(deps: RunDependencies, run_id: str | None = None) -> RunRepor
         ranking_count = len(rows)
         row = rows[0]
         with deps.connect() as conn:
-            outcome = _resolve_row(conn, row, deps, ledger.ranked)
+            outcome = _resolve_row(conn, row, deps)
         ledger.record(outcome)
         if isinstance(outcome, ResolvedRow):
             ref = outcome.source_ref
@@ -362,6 +366,7 @@ def run_first_book(deps: RunDependencies, run_id: str | None = None) -> RunRepor
         error = redact(f"{type(exc).__name__}: {exc}")
     report = ledger.report(
         run_id=run_id or str(uuid.uuid4()),
+        job_name=JobName.FIRST_BOOK,
         started_at=started_at,
         finished_at=deps.clock(),
         ranking_count=ranking_count,
@@ -386,7 +391,7 @@ def run_once(deps: RunDependencies, run_id: str | None = None) -> RunReport:
 
         with deps.connect() as conn:
             for row in rows:
-                ledger.record(_resolve_row(conn, row, deps, ledger.ranked))
+                ledger.record(_resolve_row(conn, row, deps))
                 if ledger.aborted:
                     break
             if not ledger.aborted:
@@ -396,6 +401,7 @@ def run_once(deps: RunDependencies, run_id: str | None = None) -> RunReport:
 
     report = ledger.report(
         run_id=run_id or str(uuid.uuid4()),
+        job_name=JobName.DAILY_BESTSELLER,
         started_at=started_at,
         finished_at=deps.clock(),
         ranking_count=ranking_count,
@@ -437,13 +443,14 @@ def run_pages(deps: RunDependencies, page_urls: Sequence[str], run_id: str | Non
                     continue
                 ledger.record_page_ok()
                 for row in rows:
-                    # No ranked map: the same Book may appear on several pages (the database deduplicates by URL).
-                    ledger.record(_resolve_row(conn, row, deps, ranked={}))
+                    # No ranking decision on pages: the same Book may appear on several pages.
+                    ledger.record(_resolve_row(conn, row, deps))
     except Exception as exc:  # noqa: BLE001 - the run cannot continue; the Catalog keeps what was already committed
         error = redact(f"{type(exc).__name__}: {exc}")
 
     report = ledger.report(
         run_id=run_id or str(uuid.uuid4()),
+        job_name=JobName.CATEGORY_PAGES,
         started_at=started_at,
         finished_at=deps.clock(),
         error=error,

@@ -6,8 +6,9 @@ from uuid import uuid4
 
 from books_crawler.ledger import EXIT_FAILED, EXIT_SUCCESS, PagesLedger
 from books_crawler.models import (
+    CatalogResolution,
     Failure,
-    Resolution,
+    JobName,
     ResolvedRow,
     RunStatus,
     SkippedPage,
@@ -21,8 +22,10 @@ PAGE_1 = "https://www.books.com.tw/web/sys_saletopb/books/01/?attribute=7&loc=P_
 PAGE_2 = "https://www.books.com.tw/web/sys_saletopb/books/02/?attribute=7&loc=P_0002_003"
 
 
-def resolved(rank: int, resolution: Resolution = Resolution.NEW_BOOK) -> ResolvedRow:
-    return ResolvedRow(rank=rank, source_ref=SourceRef(source_id=uuid4(), book_id=uuid4()), resolution=resolution)
+def resolved(rank: int, resolution: CatalogResolution = CatalogResolution.IMPORTED) -> ResolvedRow:
+    return ResolvedRow(
+        rank=rank, url=f"https://www.books.com.tw/products/{rank:010d}", source_ref=SourceRef(source_id=uuid4(), book_id=uuid4()), resolution=resolution
+    )
 
 
 def skipped(rank: int, reason: SkipReason = SkipReason.FETCH_ERROR, attempts: int = 3) -> SkippedRow:
@@ -38,15 +41,15 @@ def skipped_page(url: str = PAGE_1) -> SkippedPage:
 
 
 def finish(ledger: PagesLedger, error: str | None = None):
-    return ledger.report(run_id="run-1", started_at=NOW, finished_at=NOW, error=error)
+    return ledger.report(run_id="run-1", job_name=JobName.CATEGORY_PAGES, started_at=NOW, finished_at=NOW, error=error)
 
 
 def test_every_page_and_row_done_is_success_with_counters_and_no_skips():
     ledger = PagesLedger()
     ledger.record_page_ok()
-    ledger.record(resolved(1, Resolution.NEW_BOOK))
-    ledger.record(resolved(2, Resolution.EXISTING_SOURCE))
-    ledger.record(resolved(3, Resolution.ISBN_ATTACHED))
+    ledger.record(resolved(1, CatalogResolution.IMPORTED))
+    ledger.record(resolved(2, CatalogResolution.EXISTING))
+    ledger.record(resolved(3, CatalogResolution.ISBN_ATTACHED))
     ledger.record_page_ok()
 
     report = finish(ledger)
@@ -158,9 +161,9 @@ def test_the_same_rank_on_two_pages_and_the_same_book_twice_are_not_errors():
     ledger = PagesLedger()
     book = SourceRef(source_id=uuid4(), book_id=uuid4())
     ledger.record_page_ok()
-    ledger.record(ResolvedRow(rank=1, source_ref=book, resolution=Resolution.EXISTING_SOURCE))
+    ledger.record(ResolvedRow(rank=1, url=PAGE_1, source_ref=book, resolution=CatalogResolution.EXISTING))
     ledger.record_page_ok()
-    ledger.record(ResolvedRow(rank=1, source_ref=book, resolution=Resolution.EXISTING_SOURCE))
+    ledger.record(ResolvedRow(rank=1, url=PAGE_1, source_ref=book, resolution=CatalogResolution.EXISTING))
 
     report = finish(ledger)
 
@@ -176,3 +179,24 @@ def test_a_skipped_row_is_logged_with_its_page_url_and_attempts(caplog):
     ledger.record(outcome)
 
     assert caplog.messages == [f"page rank 2 ({outcome.url}) skipped after 3 attempt(s) (fetch_error): simulated"]
+
+
+def test_catalog_counters_follow_the_catalog_axis_table_with_no_ranking_decision():
+    ledger = PagesLedger()
+    ledger.record_page_ok()
+    ledger.record(resolved(1, CatalogResolution.EXISTING))
+    ledger.record(resolved(2, CatalogResolution.IMPORTED))
+    ledger.record(resolved(3, CatalogResolution.ISBN_ATTACHED))
+    ledger.record(resolved(4, CatalogResolution.AMBIGUOUS_CREATED))
+    ledger.record(skipped(5, SkipReason.RESTRICTED_BOOK, attempts=1))
+    ledger.record(skipped(6))
+
+    report = finish(ledger)
+
+    assert report.items_seen == report.rows_seen == 6
+    assert (report.existing_book_count, report.new_book_count, report.attached_source_count) == (2, 2, 1)
+    assert (report.existing_source_count, report.new_source_count, report.ambiguous_isbn_count) == (1, 3, 1)
+    assert (report.skipped_count, report.restricted_book_count, report.error_count) == (2, 1, 1)
+    assert report.offer_updated_count == 0
+    assert report.job_name is JobName.CATEGORY_PAGES
+    assert report.provider_code == "BOOKS_COM_TW"

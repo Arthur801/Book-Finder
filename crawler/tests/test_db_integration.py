@@ -357,7 +357,8 @@ def test_write_retry_that_finds_an_isbn_used_by_an_earlier_rank_is_skipped_as_du
     assert (failure.error_type, failure.attempts) == ("duplicate_book_in_ranking", 2)
     assert fetcher.calls.count(product_url(201)) == 1  # the write is retried with the parsed draft, not refetched
     assert sleep.calls == [1.0]
-    assert query(db_url, "SELECT count(*) FROM book_sources WHERE source_url = %s", (product_url(201),)) == [(0,)]
+    # The Catalog side is committed before the ledger decides DUPLICATE_BOOK (crawler.md §14.2).
+    assert query(db_url, "SELECT count(*) FROM book_sources WHERE source_url = %s", (product_url(201),)) == [(1,)]
 
 
 # ---------------------------------------------------------------------------
@@ -453,7 +454,8 @@ def test_existing_url_then_new_source_with_same_isbn_skips_the_later_rank(db_url
     assert sleep.calls == []
     # Ranks 3..100 are new products (98 Books); the skipped rank 2 must not create or attach anything.
     assert count(db_url, "books") == books_before + 98
-    assert query(db_url, "SELECT count(*) FROM book_sources WHERE source_url = %s", (product_url(201),)) == [(0,)]
+    # The Catalog side of rank 2 is committed (attached to Book A); the ledger only skips the rank.
+    assert query(db_url, "SELECT count(*) FROM book_sources WHERE source_url = %s", (product_url(201),)) == [(1,)]
     snapshot = bestsellers(db_url)
     assert [row[0] for row in snapshot] == [rank for rank in range(1, 101) if rank != 2]
     assert snapshot[0][1] == book_a  # the earlier rank keeps the Book
@@ -503,7 +505,8 @@ def test_two_new_sources_sharing_an_isbn_skip_the_later_rank(db_url):
     # The duplicate is only detected after the detail page was read, so the one attempt is recorded.
     assert report.skipped[0].failure.attempts == 1
     assert fetcher.calls.count(product_url(102)) == 1
-    assert query(db_url, "SELECT count(*) FROM book_sources WHERE source_url = %s", (product_url(102),)) == [(0,)]
+    # The Catalog side is committed (the source is attached to the Book of rank 1); only the rank is skipped.
+    assert query(db_url, "SELECT count(*) FROM book_sources WHERE source_url = %s", (product_url(102),)) == [(1,)]
     snapshot = bestsellers(db_url)
     assert [row[0] for row in snapshot] == [rank for rank in range(1, 101) if rank != 2]
     assert snapshot[0][1] == query(db_url, "SELECT book_id FROM book_sources WHERE source_url = %s", (product_url(101),))[0][0]
@@ -861,10 +864,15 @@ def test_run_log_has_the_required_fields_and_no_database_url(db_url, caplog):
         "started_at=",
         "finished_at=",
         "status=PARTIAL_SUCCESS",
+        "provider_code=BOOKS_COM_TW",
+        "job_name=daily-bestseller",
         "ranking_count=100",
+        "items_seen=100",
         "existing_book_count=0",
         "new_book_count=99",
         "attached_source_count=0",
+        "existing_source_count=0",
+        "new_source_count=99",
         "skipped_count=1",
         "error_count=1",
         "consecutive_error_count=0",

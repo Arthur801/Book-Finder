@@ -152,3 +152,34 @@ def test_restricted_first_book_skips_once_without_error(monkeypatch, caplog):
     assert deps.fetcher.calls == [RANKING_PAGE_URL, first]
     assert deps.sleep.calls == []
     assert f"rank 1 restricted product skipped without retry: {first}" in [r.getMessage() for r in caplog.records]
+
+
+def test_first_book_summary_line_names_the_job_and_the_catalog_counters(monkeypatch, caplog):
+    caplog.set_level(logging.INFO, logger="books_crawler")
+    deps, _ = dependencies(lambda: nullcontext(object()))
+    monkeypatch.setattr(db, "find_source", lambda *args: None)
+    monkeypatch.setattr(db, "find_book_by_isbn", lambda *args: None)
+    monkeypatch.setattr(db, "persist_new_source", lambda *args, **kwargs: SourceRef(uuid4(), uuid4()))
+
+    report = run_first_book(deps, run_id="run-fb")
+
+    summary = [r.getMessage() for r in caplog.records if r.getMessage().startswith("mode=first-book ")]
+    assert len(summary) == 1
+    assert summary[0].startswith("mode=first-book run_id=run-fb provider_code=BOOKS_COM_TW job_name=first-book ")
+    assert " ranking_count=100 items_seen=1 existing_book_count=0 new_book_count=1 attached_source_count=0 " in summary[0]
+    assert " existing_source_count=0 new_source_count=1 ambiguous_isbn_count=0 offer_updated_count=0 " in summary[0]
+    assert " consecutive_error_count=0 aborted_at_rank=none exit_code=0 " in summary[0]
+    assert report.exit_code == 0
+
+
+def test_first_book_existing_source_is_counted_as_existing_not_as_new(monkeypatch):
+    deps, _ = dependencies(lambda: nullcontext(object()))
+    monkeypatch.setattr(db, "find_source", lambda conn, url: SourceRef(uuid4(), uuid4()))
+    monkeypatch.setattr(db, "persist_new_source", lambda *args, **kwargs: pytest.fail("a known source is not written"))
+    monkeypatch.setattr(db, "replace_bestsellers", lambda *args, **kwargs: pytest.fail("must preserve snapshot"))
+
+    report = run_first_book(deps)
+
+    assert report.status is RunStatus.SUCCESS
+    assert (report.existing_book_count, report.existing_source_count, report.new_source_count) == (1, 1, 0)
+    assert deps.fetcher.calls == [RANKING_PAGE_URL]
