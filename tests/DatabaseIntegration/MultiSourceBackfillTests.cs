@@ -36,8 +36,9 @@ public class MultiSourceBackfillTests : IAsyncLifetime
               ('00000000-0000-0000-0000-00000000c001', 'Legacy subject', 'GOOGLE_BOOKS');
             """);
 
+        // Stop at 010: this test checks the expand step's backfill, and the source_type columns it reads exist only until 011.
         await using (var db = CreateContext())
-            await db.Database.MigrateAsync();
+            await db.Database.GetService<IMigrator>().MigrateAsync(MigrationIds.Expand010);
 
         Assert.Equal(
             ["00000000-0000-0000-0000-00000000c101|BOOKS_COM_TW|BOOKS_COM_TW", "00000000-0000-0000-0000-00000000c102|GOOGLE_BOOKS|GOOGLE_BOOKS"],
