@@ -1,5 +1,7 @@
 # Models Git 修改歷史
 
+> PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
 查核基準 `91333c3` 的 source history 如下；`Models/docs` 明確排除，不將 PR #100 新增或後續修正的文件 commits 計入 source history。
 
 > 查核日期：2026-10-24；基準：`91333c3`；目標：`Models/`。本次只做靜態閱讀，未執行 build、測試、Mermaid renderer、資料庫或外部服務。
@@ -80,3 +82,4 @@ git show cda623f -- Models
 | `a8a5077` | feat(web): show 書庫 on home and /books in place of the bestseller ranking | 新增 BookListItemViewModel、BookBrowseViewModel、HomeViewModel；SearchResultsViewModel 改用共用列映射；刪除 BestsellerListViewModel；PageNumber 註解加入 /books |
 | `2642182` | test(web): cover 書庫 paging, home sample and the /bestsellers redirect | 無 Models 行為變更；TaipeiTimeZoneTests 改驗 fallback zone 轉換，新增 BookBrowseViewModelTests |
 | 本 M2 docs commit | docs(web): record 書庫 Web presentation in folder docs | 更新 Models 文件；Bestseller 只保留後端與 TaipeiTimeZone 歷史 |
+| 2026-10-25 | `2c662f5` | feat(db): add expand migration 010 for multi-source catalog | `BookDetailViewModel.cs`：`IdentifierLabel` 新增 `Isbn`；`SourceType` 比較改為 `SourceCodes` 字串常數 |

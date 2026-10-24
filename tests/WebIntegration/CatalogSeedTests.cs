@@ -30,8 +30,8 @@ public sealed class CatalogSeedTests(WebFixture fixture)
                 Subjects = [new SubjectSeed("科幻")],
                 Sources =
                 [
-                    new SourceSeed(SourceType.BooksComTw),
-                    new SourceSeed(SourceType.GoogleBooks, ExternalId: "vol-123")
+                    new SourceSeed(SourceCodes.BooksComTw),
+                    new SourceSeed(SourceCodes.GoogleBooks, ExternalId: "vol-123")
                 ]
             }
         ]);
@@ -50,14 +50,14 @@ public sealed class CatalogSeedTests(WebFixture fixture)
         var contributor = await db.BookContributors.SingleAsync(x => x.BookId == book.BookId);
         Assert.Equal(((short)1, "劉慈欣", ContributorRole.Author), (contributor.ContributorOrder, contributor.Name, contributor.Role));
         var subject = await db.BookSubjects.SingleAsync(x => x.BookId == book.BookId);
-        Assert.Equal(("科幻", SourceType.BooksComTw), (subject.Subject, subject.SourceType));
+        Assert.Equal(("科幻", SourceCodes.BooksComTw), (subject.Subject, subject.SourceCode));
 
-        var sources = await db.BookSources.Where(x => x.BookId == book.BookId).OrderBy(x => x.SourceType).ToListAsync();
-        Assert.Equal([SourceType.BooksComTw, SourceType.GoogleBooks], sources.Select(x => x.SourceType));
+        var sources = await db.BookSources.Where(x => x.BookId == book.BookId).OrderBy(x => x.SourceCode).ToListAsync();
+        Assert.Equal([SourceCodes.BooksComTw, SourceCodes.GoogleBooks], sources.Select(x => x.SourceCode));
         Assert.Equal("vol-123", sources[1].ExternalId);
         Assert.Equal(
-            sources.Select(x => (x.Id, x.SourceType, x.SourceUrl)).OrderBy(x => x.SourceType),
-            book.Sources.Select(x => (x.Id, x.SourceType, x.SourceUrl)).OrderBy(x => x.SourceType));
+            sources.Select(x => (x.Id, x.SourceCode, x.SourceUrl)).OrderBy(x => x.SourceCode),
+            book.Sources.Select(x => (x.Id, x.SourceCode, x.SourceUrl)).OrderBy(x => x.SourceCode));
     }
 
     [Fact]
@@ -68,7 +68,7 @@ public sealed class CatalogSeedTests(WebFixture fixture)
         var seeded = await CatalogSeed.AddBooksAsync(fixture, [new BookSeed("預設來源"), new BookSeed("沒有來源") { Sources = [] }]);
 
         var withDefault = Assert.Single(seeded[0].Sources);
-        Assert.Equal(SourceType.BooksComTw, withDefault.SourceType);
+        Assert.Equal(SourceCodes.BooksComTw, withDefault.SourceCode);
         Assert.StartsWith("https://www.books.com.tw/products/", withDefault.SourceUrl);
         Assert.Empty(seeded[1].Sources);
         await using var db = fixture.CreateContext();
@@ -80,7 +80,7 @@ public sealed class CatalogSeedTests(WebFixture fixture)
     {
         await fixture.ResetDatabaseAsync();
         var googleOnly = (await CatalogSeed.AddBooksAsync(fixture,
-            [new BookSeed("只有 Google Books") { Sources = [new SourceSeed(SourceType.GoogleBooks, ExternalId: "vol-1")] }]))[0];
+            [new BookSeed("只有 Google Books") { Sources = [new SourceSeed(SourceCodes.GoogleBooks, ExternalId: "vol-1")] }]))[0];
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             CatalogSeed.AddBestsellersAsync(fixture, new Dictionary<short, SeededBook> { [1] = googleOnly }));
@@ -113,10 +113,10 @@ public sealed class CatalogSeedTests(WebFixture fixture)
             {
                 Sources =
                 [
-                    new SourceSeed(SourceType.BooksComTw),
-                    new SourceSeed(SourceType.BooksComTw),
-                    new SourceSeed(SourceType.GoogleBooks),
-                    new SourceSeed(SourceType.GoogleBooks)
+                    new SourceSeed(SourceCodes.BooksComTw),
+                    new SourceSeed(SourceCodes.BooksComTw),
+                    new SourceSeed(SourceCodes.GoogleBooks),
+                    new SourceSeed(SourceCodes.GoogleBooks)
                 ]
             }
         ]);
@@ -159,6 +159,8 @@ public sealed class CatalogSeedTests(WebFixture fixture)
             var rows = await db.Database.SqlQueryRaw<int>(countRows).SingleAsync();
             if (table == "__EFMigrationsHistory")
                 Assert.NotEqual(0, rows);
+            else if (table == "source_providers")
+                Assert.Equal(4, rows); // reference data from migration 010 is kept by the reset
             else
                 Assert.True(rows == 0, $"{table} still has {rows} row(s)");
         }

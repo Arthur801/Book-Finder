@@ -147,6 +147,21 @@ SELECT pg_temp.expect_failure($stmt$UPDATE books SET published_date_precision='I
 SELECT pg_temp.expect_failure($stmt$UPDATE book_contributors SET role='INVALID'$stmt$, '23514');
 -- subject source enum
 SELECT pg_temp.expect_failure($stmt$UPDATE book_subjects SET source_type='INVALID'$stmt$, '23514');
+-- book offer: a current retailer snapshot is one row per Book Source (data-model 6.4)
+INSERT INTO book_offers(source_id, currency, price, list_price, availability, captured_at) VALUES
+ ('00000000-0000-0000-0000-000000000301', 'TWD', 320.00, NULL, 'IN_STOCK', now());
+-- offer price must be positive when present
+SELECT pg_temp.expect_failure($stmt$UPDATE book_offers SET price=0$stmt$, '23514');
+-- offer list price must be positive when present
+SELECT pg_temp.expect_failure($stmt$UPDATE book_offers SET list_price=-1$stmt$, '23514');
+-- offer availability enum
+SELECT pg_temp.expect_failure($stmt$UPDATE book_offers SET availability='SOLD'$stmt$, '23514');
+-- one offer per Book Source
+SELECT pg_temp.expect_failure($stmt$INSERT INTO book_offers(source_id, currency, price, list_price, availability, captured_at) VALUES('00000000-0000-0000-0000-000000000301', 'TWD', 1, NULL, 'UNKNOWN', now())$stmt$, '23505');
+-- provider registry: a provider in use cannot be deleted
+SELECT pg_temp.expect_failure($stmt$DELETE FROM source_providers WHERE code='BOOKS_COM_TW'$stmt$, '23503');
+-- provider kind enum
+SELECT pg_temp.expect_failure($stmt$UPDATE source_providers SET provider_kind='SHOP' WHERE code='ESLITE'$stmt$, '23514');
 -- difficulty zero
 SELECT pg_temp.expect_failure($stmt$UPDATE book_ai_profiles SET difficulty=0$stmt$, '23514');
 -- difficulty six

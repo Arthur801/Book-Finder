@@ -19,7 +19,7 @@ namespace Book_Finder.Infrastructure.Persistence.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.12")
+                .HasAnnotation("ProductVersion", "10.0.13")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "vector");
@@ -259,7 +259,46 @@ namespace Book_Finder.Infrastructure.Persistence.Migrations
 
                     b.ToTable("book_identifiers", null, t =>
                         {
-                            t.HasCheckConstraint("ck_book_identifiers_identifier_type", "identifier_type IN ('ISBN_10', 'ISBN_13', 'OTHER')");
+                            t.HasCheckConstraint("ck_book_identifiers_identifier_type", "identifier_type IN ('ISBN', 'ISBN_10', 'ISBN_13', 'OTHER')");
+                        });
+                });
+
+            modelBuilder.Entity("Book_Finder.Domain.Entities.BookOffer", b =>
+                {
+                    b.Property<Guid>("SourceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("source_id");
+
+                    b.Property<string>("Availability")
+                        .IsRequired()
+                        .HasColumnType("varchar(24)")
+                        .HasColumnName("availability");
+
+                    b.Property<DateTime>("CapturedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("captured_at");
+
+                    b.Property<string>("Currency")
+                        .HasColumnType("char(3)")
+                        .HasColumnName("currency");
+
+                    b.Property<decimal?>("ListPrice")
+                        .HasColumnType("numeric(12,2)")
+                        .HasColumnName("list_price");
+
+                    b.Property<decimal?>("Price")
+                        .HasColumnType("numeric(12,2)")
+                        .HasColumnName("price");
+
+                    b.HasKey("SourceId");
+
+                    b.ToTable("book_offers", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_book_offers_availability", "availability IN ('IN_STOCK', 'OUT_OF_STOCK', 'PREORDER', 'UNKNOWN')");
+
+                            t.HasCheckConstraint("ck_book_offers_list_price", "list_price > 0");
+
+                            t.HasCheckConstraint("ck_book_offers_price", "price > 0");
                         });
                 });
 
@@ -286,10 +325,10 @@ namespace Book_Finder.Infrastructure.Persistence.Migrations
                         .HasColumnType("timestamptz")
                         .HasColumnName("last_seen_at");
 
-                    b.Property<string>("SourceType")
+                    b.Property<string>("SourceCode")
                         .IsRequired()
-                        .HasColumnType("varchar(32)")
-                        .HasColumnName("source_type");
+                        .HasColumnType("varchar(64)")
+                        .HasColumnName("source_code");
 
                     b.Property<string>("SourceUrl")
                         .IsRequired()
@@ -298,19 +337,16 @@ namespace Book_Finder.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("BookId");
+                    b.HasIndex("BookId", "SourceCode");
 
-                    b.HasIndex("SourceType", "ExternalId")
+                    b.HasIndex("SourceCode", "ExternalId")
                         .IsUnique()
                         .HasFilter("external_id IS NOT NULL");
 
-                    b.HasIndex("SourceType", "SourceUrl")
+                    b.HasIndex("SourceCode", "SourceUrl")
                         .IsUnique();
 
-                    b.ToTable("book_sources", null, t =>
-                        {
-                            t.HasCheckConstraint("ck_book_sources_source_type", "source_type IN ('BOOKS_COM_TW', 'GOOGLE_BOOKS')");
-                        });
+                    b.ToTable("book_sources", (string)null);
                 });
 
             modelBuilder.Entity("Book_Finder.Domain.Entities.BookSubject", b =>
@@ -323,16 +359,15 @@ namespace Book_Finder.Infrastructure.Persistence.Migrations
                         .HasColumnType("varchar(255)")
                         .HasColumnName("subject");
 
-                    b.Property<string>("SourceType")
-                        .HasColumnType("varchar(32)")
-                        .HasColumnName("source_type");
+                    b.Property<string>("SourceCode")
+                        .HasColumnType("varchar(64)")
+                        .HasColumnName("source_code");
 
-                    b.HasKey("BookId", "Subject", "SourceType");
+                    b.HasKey("BookId", "Subject", "SourceCode");
 
-                    b.ToTable("book_subjects", null, t =>
-                        {
-                            t.HasCheckConstraint("ck_book_subjects_source_type", "source_type IN ('BOOKS_COM_TW', 'GOOGLE_BOOKS')");
-                        });
+                    b.HasIndex("SourceCode");
+
+                    b.ToTable("book_subjects", (string)null);
                 });
 
             modelBuilder.Entity("Book_Finder.Domain.Entities.LibraryEntry", b =>
@@ -442,6 +477,44 @@ namespace Book_Finder.Infrastructure.Persistence.Migrations
                     b.ToTable("recommendation_searches", (string)null);
                 });
 
+            modelBuilder.Entity("Book_Finder.Domain.Entities.SourceProvider", b =>
+                {
+                    b.Property<string>("Code")
+                        .HasColumnType("varchar(64)")
+                        .HasColumnName("code");
+
+                    b.Property<string>("BaseUrl")
+                        .HasColumnType("text")
+                        .HasColumnName("base_url");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasColumnType("varchar(100)")
+                        .HasColumnName("display_name");
+
+                    b.Property<bool>("Enabled")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("enabled");
+
+                    b.Property<string>("ProviderKind")
+                        .IsRequired()
+                        .HasColumnType("varchar(24)")
+                        .HasColumnName("provider_kind");
+
+                    b.HasKey("Code");
+
+                    b.ToTable("source_providers", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_source_providers_provider_kind", "provider_kind IN ('RETAILER', 'BIBLIOGRAPHIC')");
+                        });
+                });
+
             modelBuilder.Entity("Book_Finder.Domain.Entities.User", b =>
                 {
                     b.Property<Guid>("Id")
@@ -528,12 +601,27 @@ namespace Book_Finder.Infrastructure.Persistence.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("Book_Finder.Domain.Entities.BookOffer", b =>
+                {
+                    b.HasOne("Book_Finder.Domain.Entities.BookSource", null)
+                        .WithOne()
+                        .HasForeignKey("Book_Finder.Domain.Entities.BookOffer", "SourceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Book_Finder.Domain.Entities.BookSource", b =>
                 {
                     b.HasOne("Book_Finder.Domain.Entities.Book", null)
                         .WithMany()
                         .HasForeignKey("BookId")
                         .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Book_Finder.Domain.Entities.SourceProvider", null)
+                        .WithMany()
+                        .HasForeignKey("SourceCode")
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
 
@@ -543,6 +631,12 @@ namespace Book_Finder.Infrastructure.Persistence.Migrations
                         .WithMany()
                         .HasForeignKey("BookId")
                         .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Book_Finder.Domain.Entities.SourceProvider", null)
+                        .WithMany()
+                        .HasForeignKey("SourceCode")
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
 

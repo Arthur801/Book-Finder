@@ -1,5 +1,7 @@
 # deploy/ 待辦：優化與 debug
 
+> PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
 > 目標：`deploy/` 與分散的 CD 來源（見 [architecture.md §2](architecture.md)）。
 > 查核基準：2026-10-24，HEAD `01db2d7`（tag `v0.0.4`）。證據來自程式、測試、git 與 runbook；營運觀察以「營運觀察，非本次驗證」標示。
 > 本文件只列有證據、可判定結案的項目。已完成的歷史修復（pg_dump 假陽性、`sudo` 的 `env_keep`、urllib 預設 User-Agent 的程式修正）不列為未完成；其中 User-Agent 在 production 的生效仍列為 DEP-B02。
@@ -210,11 +212,11 @@
 - **優先序／風險**：P1／seed 與 compat 測試 L3，010 與 011 的 production 部署 L4。
 - **狀態**：已確認缺口（#113 目標規格已定，未實作）。
 - **目標**：[data-model §11](../../Docs/data/data-model.md) 與 [deployment §6.1](../../Docs/deployment/deployment.md)：010（expand，含雙向 trigger）與 011（contract）分屬不同 release；每個成為已發布 schema head 的 migration 都有 `deploy/migration-test/seeds/<id>.sql`；011 只在 gate 全部通過、使用者明確關閉 v0.0.4 rollback window 後部署；011 之後若新 runtime 失敗，不還原 snapshot，手動 dispatch PR3 release 並 `resume-crawler`。
-- **目前差距**：`deploy/migration-test/seeds/` 只有到 `Embedding` 的 seed；compat 的 runtime smoke 依 I5 只是 INFO，無法證明「PR3 runtime 在 011 上可運作」與 manual recovery compatibility；runbook 沒有 010／011 專屬的恢復步驟，也沒有「新版寫入 `ISBN` 後舊版 crawler 必須保持停用」的操作提示。
+- **目前差距**（010 seed 已於 `22bebf5` 補上）：`deploy/migration-test/seeds/` 已有 010 的 `20261024160045_MultiSourceCatalog.sql`；011 seed 尚未建立；compat 的 runtime smoke 依 I5 只是 INFO，無法證明「PR3 runtime 在 011 上可運作」與 manual recovery compatibility；runbook 沒有 010／011 專屬的恢復步驟，也沒有「新版寫入 `ISBN` 後舊版 crawler 必須保持停用」的操作提示。
 - **方向**：PR2 新增 010 的 seed（含 v0.0.4 形式的 `source_type`-only 資料，驗證 trigger 回填）；PR4 新增 011 的 seed、ISBN conversion preflight（dry-run SELECT）與 manual recovery compatibility 測試（[test-plan §7](../../Docs/testing/test-plan.md) #13、#14、#20），並在 runbook 補 011 gate checklist 與恢復程序。
 - **前置決策**：011 的部署時間與 rollback window 的關閉由使用者決定（L4）。
 - **驗收條件**：010 與 011 的 compat 在 CI 通過；gate checklist 每項有可檢查的證據；PR3 Web／crawler 在 011 的 smoke 通過且不需 snapshot restore。
-- **測試入口**：待建（PR2：010 seed；PR4：011 seed、preflight、recovery compat）。
+- **測試入口**：010 seed 已建（`deploy/migration-test/seeds/20261024160045_MultiSourceCatalog.sql`，待 CI compat 證據；本次 `deploy/tests` 632 通過）；PR4：011 seed、preflight、recovery compat 待建。
 
 ## 3. 已處理（PR #107）
 

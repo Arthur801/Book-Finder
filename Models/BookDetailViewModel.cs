@@ -43,6 +43,7 @@ public sealed record BookDetailViewModel(
     // Exhaustive on purpose: OTHER identifiers are filtered out by the reader and must never reach the page.
     private static string IdentifierLabel(IdentifierType type) => type switch
     {
+        IdentifierType.Isbn => "ISBN",
         IdentifierType.Isbn13 => "ISBN-13",
         IdentifierType.Isbn10 => "ISBN-10",
         _ => throw new InvalidOperationException($"Identifier type {type} must not reach the Book detail page."),
@@ -60,8 +61,8 @@ public sealed record BookDetailViewModel(
     private static IReadOnlyList<BookLink> LinksOf(IReadOnlyList<BookDetailSource> sources)
     {
         var safe = sources.Where(source => WebUrlOrNull(source.Url) is not null).ToList();
-        var booksComTw = safe.Where(source => source.Type == SourceType.BooksComTw).ToList();
-        var googleBooks = safe.Where(source => source.Type == SourceType.GoogleBooks).ToList();
+        var booksComTw = safe.Where(source => source.SourceCode == SourceCodes.BooksComTw).ToList();
+        var googleBooks = safe.Where(source => source.SourceCode == SourceCodes.GoogleBooks).ToList();
         var links = new List<BookLink>();
 
         if (booksComTw.Count > 0)
