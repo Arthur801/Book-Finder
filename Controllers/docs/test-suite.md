@@ -41,13 +41,13 @@ PIPE-03／PIPE-06 證據分層（均未在本次執行）：[AuthPipelineTests](
 
 | ID / 狀態 | Given / When | Then |
 |---|---|---|
-| BROWSE-01／已有測試 | 有日期（新、舊）、同日兩本與無日期書，以反向 Id 插入；GET `/books` | 有日期新到舊、無日期在後，同日依 Id；不依插入順序。 |
-| BROWSE-02／已有測試 | 25 本；讀 `page=1` 與 `page=2` | 第 1 頁 20 筆、第 2 頁 5 筆；摘要「共 25 本，第 1／2 頁」與「第 2／2 頁」；兩頁合計為全部 Id、無重複。 |
-| BROWSE-03／已有測試 | 25 本；`page=abc`、`0`、`-1` | 200，顯示第 1 頁。 |
-| BROWSE-04／已有測試 | 25 本；`page=3`、`2147483648`、`99999999999999999999`；不自動跟隨重導 | 302，Location `/books?page=2`；超大數字不溢位。 |
-| BROWSE-05／已有測試 | 空 Catalog；GET `/books?page=5` | 200，顯示「書庫還沒有書」；無摘要、無分頁，不重導。 |
-| BROWSE-06／已有測試 | 書有 description 與 table of contents 哨兵文字；GET `/books` | 列表 HTML 不含兩段文字（BOOK-05、AGENTS §1.3）。 |
-| BROWSE-07／已有測試 | 無自動跟隨；GET `/bestsellers` | 301，Location `/books`；不再顯示榜單。 |
+| BOOKS-01／已有測試 | 有日期（新、舊）、同日兩本與無日期書，以反向 Id 插入；GET `/books` | 有日期新到舊、無日期在後，同日依 Id；不依插入順序。 |
+| BOOKS-02／已有測試 | 25 本；讀 `page=1` 與 `page=2` | 第 1 頁 20 筆、第 2 頁 5 筆；摘要「共 25 本，第 1／2 頁」與「第 2／2 頁」；兩頁合計為全部 Id、無重複。 |
+| BOOKS-03／已有測試 | 25 本；`page=abc`、`0`、`-1` | 200，顯示第 1 頁。 |
+| BOOKS-04／已有測試 | 25 本；`page=3`、`2147483648`、`99999999999999999999`；不自動跟隨重導 | 302，Location `/books?page=2`；超大數字不溢位。 |
+| BOOKS-05／已有測試 | 空 Catalog；GET `/books?page=5` | 200，顯示「書庫還沒有書」；無摘要、無分頁，不重導。 |
+| BOOKS-06／已有測試 | 書有 description 與 table of contents 哨兵文字；GET `/books` | 列表 HTML 不含兩段文字（BOOK-05、AGENTS §1.3）。 |
+| BOOKS-07／已有測試 | 無自動跟隨；GET `/bestsellers` | 301，Location `/books`；不再顯示榜單。 |
 | HOME-02／已有測試 | 15 本；GET `/` | 最多 10 筆、不重複、皆來自 seed；不顯示 rank。 |
 | HOME-03／已有測試 | 空 Catalog；GET `/` | 200，顯示「書庫還沒有書」；連結 `/books`「查看完整書庫」。 |
 | BEST-05／已有測試（後端） | 在 reader unit test 用 fake clock 暖快取並改底層資料 | 非空 1 小時、空榜 5 分鐘；到期重新讀；後端保留，Web 無呼叫端。 |

@@ -110,3 +110,12 @@ git show <SHA> -- Infrastructure
 ## 文件導航
 
 [流程](workflow-diagram.md) · [架構](architecture.md) · [待辦](backlog.md) · [歷史](update-history.md) · [案例](test-suite.md)
+
+## #109 M3 書庫查詢計畫基準（新增紀錄）
+
+本段是 #109 實作的紀錄，不改寫上方查核表。
+
+| 分支／提交 | Subject | 影響 |
+|---|---|---|
+| `7c14b09` | docs(browse): sync specs to 書庫 and suspended Bestseller Web | 規格同步；Infrastructure 程式無變更 |
+| 本 M3 baseline commit | docs(browse): record 書庫 query plan baseline and implementation report | INF-B06 由「未量測」改為已量測（開發庫 2884 筆，EF 實際 SQL 的 EXPLAIN ANALYZE）；程式與 schema 無變更 |

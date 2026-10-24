@@ -23,8 +23,8 @@
 
 | MVP | 延後 | 本版不做 |
 |---|---|---|
-| 博客來中文書 7 日暢銷總榜 TOP 100 每日爬取 | 博客來各分類 TOP 100（分類 7 日榜僅用於補充 Catalog 的新書，不作為分類 Bestseller 榜單、不保存分類排名，見 `crawler.md` §15） | 歷史榜單、排名趨勢 |
-| 暢銷榜瀏覽 | AI 搜尋紀錄刪除 | 書籍評論 |
+| 博客來中文書 7 日暢銷總榜 TOP 100 每日爬取（Crawler implementation 保留；production execution 目前因來源阻擋而停用（2026-10-24））| 博客來各分類 TOP 100（分類 7 日榜僅用於補充 Catalog 的新書，不作為分類 Bestseller 榜單、不保存分類排名，見 `crawler.md` §15） | 歷史榜單、排名趨勢 |
+| 書庫瀏覽 | AI 搜尋紀錄刪除 | 書籍評論 |
 | 一般書籍搜尋 | Google 帳號註冊 / 登入 | 其他書商、圖書館爬蟲 |
 | Book 詳細頁與外部連結 | Email 驗證帳號 | 各書商比價 |
 | AI 書籍推薦與 AI 搜尋紀錄 | 書籍封面轉存（S3） | |
@@ -49,6 +49,8 @@
 - **CRAWL-06** 只保存最新一份 Bestseller。
 
 ### 3.2 暢銷榜瀏覽（BEST）
+
+> **Web Suspended（2026-10-24）**：目前不是 active acceptance criteria；`/bestsellers` 301 導向 `/books`；資料仍由 crawler 維護。
 
 - **BEST-01** 任何人皆可查看目前 Bestseller 的排名、封面、書名、作者，並進入 Book 詳細頁。
 - **BEST-02** 顯示榜單更新時間。
@@ -101,6 +103,15 @@
 - **REC-10** 使用者可查看自己的 AI 搜尋紀錄列表與每次的推薦結果；結果為當時的快照，不重新推薦。
 - **REC-11** 每位使用者每日（Asia/Taipei）最多 20 次 AI 推薦；超過時告知今日次數已用完。
 
+### 3.8 書庫瀏覽（BROWSE）
+
+書庫是 Catalog 的全量瀏覽列表（UI 用語見 `CONTEXT.md`），只查本地資料庫，不使用 embedding、LLM 或 Google Books。
+
+- **BROWSE-01** 任何人可瀏覽書庫，每筆顯示封面、書名、作者、出版社、出版日期，點擊進入 Book 詳細頁。
+- **BROWSE-02** 書庫以固定順序排列（有出版日期者在前、出版日期新到舊、無出版日期者排最後、出版日期相同者依 Book ID），每頁 20 筆，分頁規則同 SEARCH-04（`book-catalog.md` §3.6）。
+- **BROWSE-03** 首頁隨機顯示書庫中的 10 本書，每次載入重新抽取。
+- **BROWSE-04** 書庫為空時顯示「書庫還沒有書」，不顯示分頁與錯誤頁。
+
 ---
 
 ## 4. 驗收條件
@@ -113,8 +124,18 @@
 
 ### BEST
 
+> **Web Suspended（2026-10-24）**：以下兩條目前不是 active acceptance criteria；`/bestsellers` 301 導向 `/books`。
+
 - **Given** 資料庫中沒有任何 Bestseller，**When** 使用者開啟暢銷榜，**Then** 顯示「榜單尚未建立」，不顯示錯誤頁。
 - **Given** 第 37 名在本次爬取被跳過，**When** 使用者開啟暢銷榜，**Then** 顯示第 36 名後接第 38 名。
+
+### BROWSE
+
+- **Given** 書庫有 25 本書，**When** 使用者開啟 `/books`，**Then** 第 1 頁顯示 20 本，依出版日期新到舊排列，無出版日期的書排在最後。
+- **Given** 書庫有 25 本書，**When** 使用者開啟 `/books?page=2`，**Then** 顯示其餘 5 本，且與第 1 頁沒有重複的書。
+- **Given** 書庫有 25 本書，**When** 使用者開啟 `/books?page=99`，**Then** 重導到第 2 頁。
+- **Given** 書庫有 15 本以上的書，**When** 使用者開啟首頁，**Then** 顯示 10 本隨機書籍與「查看完整書庫」連結。
+- **Given** 書庫沒有任何書，**When** 使用者開啟 `/books` 或首頁，**Then** 顯示「書庫還沒有書」，不顯示分頁。
 
 ### SEARCH
 

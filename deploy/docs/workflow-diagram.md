@@ -53,7 +53,7 @@ flowchart LR
   DEP --> HOST["host 狀態機：見第 4 節"]
   HOST --> FOLLOW["deploy-follow：每 30 秒呼叫 status，最多 160 分鐘"]
   FOLLOW --> OUT["history 出現 completed，CD 判定結果"]
-  OUT --> VERIFY["人工驗證：首頁、登入、暢銷榜（runbook §3.5、§4.1）"]
+  OUT --> VERIFY["人工驗證：首頁、登入、書庫（runbook §3.5、§4.1）"]
   HOST -.-> SNAP["forward 路徑：snapshot、設 dirty、efbundle"]
   classDef notrun stroke-dasharray: 5 5,fill:#fff7e6
   class SNAP notrun

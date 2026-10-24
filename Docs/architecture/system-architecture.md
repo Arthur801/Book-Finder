@@ -109,7 +109,7 @@ flowchart LR
 | 模組 | 責任 | 規格 |
 |---|---|---|
 | Identity / Auth | 註冊、登入、登出、目前使用者、JWT cookie | `modules/identity-auth.md` |
-| Book Catalog | Book 讀取、一般搜尋、Book 詳細頁、Google Books 書目正規化寫入 | `modules/book-catalog.md` |
+| Book Catalog | Book 讀取、一般搜尋、書庫瀏覽、Book 詳細頁、Google Books 書目正規化寫入 | `modules/book-catalog.md` |
 | Bestseller | 讀取目前 Bestseller | `modules/bestseller.md` |
 | Recommendation | 需求解析、候選檢索、fallback、排序、Recommendation Search、embedding / AI Profile 補齊、每日上限 | `modules/recommendation.md` |
 | Library | Library Entry、Reading Status、評分 | `modules/user-library.md` |
@@ -155,7 +155,7 @@ cron → crawler → 排行榜 100 筆 → 新書抓詳細頁（重試，失敗�
 | 故障 | 行為 |
 |---|---|
 | PostgreSQL 不可用 | 所有功能失敗，回傳一致的 5xx；cache 不當作資料來源 |
-| OpenAI 不可用 | AI 推薦失敗並告知；暢銷榜、搜尋、Library 不受影響 |
+| OpenAI 不可用 | AI 推薦失敗並告知；書庫、搜尋、Library 不受影響 |
 | Google Books 不可用 | 以現有本地候選繼續推薦，記 log |
 | 博客來爬取失敗 | 保留上一份 Bestseller |
 | `web` 重啟 | cache 清空、AI Profile 佇列遺失（下次出現在推薦結果時重新排入），功能正確性不受影響 |

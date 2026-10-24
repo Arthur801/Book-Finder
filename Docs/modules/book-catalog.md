@@ -1,13 +1,14 @@
 # Book Catalog Module
 
 > Path: `Docs/modules/book-catalog.md`
-> Authority: 一般搜尋、Book 詳細頁、Google Books 書目寫入
-> Requirements: SEARCH-01～04、BOOK-01～04
+> Authority: 一般搜尋、書庫瀏覽、Book 詳細頁、Google Books 書目寫入
+> Requirements: SEARCH-01～04、BOOK-01～05、BROWSE-01～04
 > Data contract: `Docs/data/data-model.md`
 
 ## 1. Scope
 
 - 一般搜尋（只查 Local DB）。
+- 書庫瀏覽（`/books`，只查 Local DB；首頁隨機 10 本也由此模組提供）。
 - Book 詳細資料讀取。
 - 提供其他模組讀取 Book 的 Application 介面（Bestseller、Recommendation、Library 透過它讀 Book）。
 - Google Books 結果正規化與寫入（由 Recommendation 呼叫；Catalog 擁有 `books` 與相關資料表的寫入規則）。
@@ -66,12 +67,36 @@ normalized 符合 ISBN-13（13 位數字）或 ISBN-10（9 位數字 + 數字或
 
 ### 3.4 結果項目
 
-每筆：`book_id`、書名、作者（只列 `AUTHOR` 角色，依 `contributor_order`，以「、」連接；不含 `ORIGINAL_AUTHOR` 等其他角色，與暢銷榜一致，使用者 2026-10-11）、出版社、出版日期（依精度，格式見 §4.1）、封面（沒有封面時顯示「無封面」佔位）。連結到 `/books/{id}`。
+每筆：`book_id`、書名、作者（只列 `AUTHOR` 角色，依 `contributor_order`，以「、」連接；不含 `ORIGINAL_AUTHOR` 等其他角色，與書庫、首頁一致，使用者 2026-10-11）、出版社、出版日期（依精度，格式見 §4.1）、封面（沒有封面時顯示「無封面」佔位）。連結到 `/books/{id}`。
 
 ### 3.5 搜尋結果頁 `/search?q=&page=`
 
 - 頁面上方有搜尋框，預填目前的 `q`。
 - 空白輸入或查無結果：顯示「找不到符合的書」（`ui-flow.md` §3.5）。
+
+### 3.6 書庫瀏覽 `/books?page=`
+
+書庫是 Catalog 的全量瀏覽列表（UI 用語見 `CONTEXT.md`），與一般搜尋共用結果項目與分頁呈現，但沒有查詢條件。BROWSE-01～04。
+
+- 只查 Local DB；不使用 embedding 或 LLM，也不呼叫 Google Books。
+- 排序（固定）：
+
+```text
+1. published_date 有值者優先
+2. published_date DESC
+3. books.id（穩定排序）
+```
+
+- 排序只在資料集不變時是決定性的。offset 分頁在兩次請求之間有書籍新增或出版日期改變時，後續頁的內容可能位移（同一本書出現在相鄰兩頁，或某本書被略過）。本版不處理，見 `Docs/Implementation-Report/issue-109-book-browse.md` 未解決事項。
+- 分頁規則同 §3.3：每頁 20 筆、`page` 從 1 起、不合法或小於 1 視為第 1 頁、超過最後一頁（有書時）重導到最後一頁、極大整數同樣視為超過。
+- 書庫為空時沒有最後一頁可去：不重導，顯示「書庫還沒有書」，不顯示「共 N 本」與分頁列。
+- 結果項目與 §3.4 相同（`book_id`、書名、作者、出版社、出版日期、封面），連結到 `/books/{id}`。不含簡介與目錄（BOOK-05）。
+
+#### 首頁隨機樣本
+
+- 首頁顯示書庫中隨機 10 本（`BookBrowseService.SampleHomeAsync`）；書庫不足 10 本時全部顯示，空庫時顯示「書庫還沒有書」。
+- 不快取，每次載入重新抽樣。
+- 隨機排序（`ORDER BY random()`）需要對整張 Catalog 排序後取前 N 筆，成本隨資料量增加。目前未定義效能 SLO（`system-architecture.md` §168）；實際量測基準見 `Docs/Implementation-Report/issue-109-book-browse.md`。
 
 ## 4. Book 詳細頁
 
@@ -139,6 +164,9 @@ Library 狀態（BOOK-04）：已登入且該書在 Library 中時，顯示並�
 
 ## 7. Validation
 
+- 書庫排序：有出版日期者在前、日期新到舊、同日依 Id、無日期者最後。
+- 書庫分頁：每頁 20 筆、非法頁視為第 1 頁、超過最後一頁重導、`int.MaxValue` 與超過 64 位元的頁碼不溢位、空庫不重導。
+- 首頁樣本：書庫超過 10 本時回傳 10 本且不重複；不足 10 本時全部回傳。
 - ISBN 判定：含 `-`、空白、小寫 `x` 的輸入可正確判定；12 位數字不是 ISBN。
 - 關鍵字比對書名與作者；不比對簡介。
 - LIKE 特殊字元 escape。

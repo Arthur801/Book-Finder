@@ -34,7 +34,7 @@ sudo python -m playwright install-deps chromium
 | 指令（於 `crawler/` 執行） | 用途 | 規則 |
 |---|---|---|
 | `python -m books_crawler` | 每日完整榜單 | `crawler.md` §1～§14、§19 |
-| `../.venv/bin/python -m books_crawler.first_book` | 只匯入排行榜第一名 | `crawler.md` §15 |
+| `../.venv/bin/python -m books_crawler.first_book` | 只匯入排行榜第一名 | `crawler.md` §16 |
 | `python -m books_crawler.pages` | 分類榜補書 | `crawler.md` §15 |
 
 ## 執行

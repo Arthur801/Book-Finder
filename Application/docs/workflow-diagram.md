@@ -6,7 +6,7 @@
 
 | 入口 | 原始碼與輸出 | Authority |
 |---|---|---|
-| 書庫（#109） | [BookBrowseService](../Catalog/BookBrowseService.cs) ListAsync/SampleHomeAsync → BookBrowsePage / 隨機樣本 | [book-catalog](../../Docs/modules/book-catalog.md)（Docs 的書庫規則待 #109 後續模組同步） |
+| 書庫（#109） | [BookBrowseService](../Catalog/BookBrowseService.cs) ListAsync/SampleHomeAsync → BookBrowsePage / 隨機樣本 | [book-catalog](../../Docs/modules/book-catalog.md) §3.6 書庫瀏覽 |
 | 暢銷榜（後端保留） | [BestsellerService](../Bestsellers/BestsellerService.cs) GetTopAsync/GetAllAsync → snapshot；#109 後 Web 無呼叫者 | [bestseller](../../Docs/modules/bestseller.md) §2～6 |
 | 搜尋/詳細資料 | [BookSearchService](../Catalog/BookSearchService.cs)、[IBookDetailReader](../Catalog/IBookDetailReader.cs) → page/nullable detail | [book-catalog](../../Docs/modules/book-catalog.md) §3～4 |
 | 註冊/登入 | [AccountService](../Identity/AccountService.cs) → typed outcome | [identity-auth](../../Docs/modules/identity-auth.md) §3～6 |

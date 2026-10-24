@@ -16,7 +16,7 @@ Application-level policy 包含 [LibraryService.AddPendingAsync](../Library/Libr
 |---|---|---|
 | Bestseller | [BestsellerService](../Bestsellers/BestsellerService.cs)、IBestsellerReader → snapshot | 後端保留；#109 後 Web 無呼叫者（`HomeTopCount`/`GetTopAsync` 刻意保留）→ cached EF reader |
 | Catalog | [BookSearchService](../Catalog/BookSearchService.cs)、IBookSearch、IBookDetailReader → page/detail | Search/Books controllers → EF/cache |
-| 書庫（Catalog browse） | [BookBrowseService](../Catalog/BookBrowseService.cs)、IBookBrowse → BookBrowsePage / 隨機樣本 | 首頁與書庫頁（#109 後續模組接入）→ EF |
+| 書庫（Catalog browse） | [BookBrowseService](../Catalog/BookBrowseService.cs)、IBookBrowse → BookBrowsePage / 隨機樣本 | HomeController、BooksController（#109 M2）→ EF |
 | Identity | [AccountService](../Identity/AccountService.cs)、IUserStore、IPasswordHashing → typed result | Account controller → EF/hashing |
 | Library | [LibraryService](../Library/LibraryService.cs)、ILibraryStore、LibraryChange → Entry/null | Library/Books/Account controllers → EF |
 | 推薦 | [RecommendationService](../Recommendation/RecommendationService.cs) → RecommendationAttempt | Recommendation controller → parser/embedding/candidate/ranker/store/usage ports |

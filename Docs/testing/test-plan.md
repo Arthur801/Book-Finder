@@ -15,10 +15,25 @@
 | 層 | 工具 | 範圍 | 位置 |
 |---|---|---|---|
 | Unit | xUnit | 純規則：ISBN 判定與正規化、filter JSON → 查詢條件、排序結果驗證、評分 / 狀態驗證、returnUrl 檢查 | `tests/UnitTests` |
-| Integration | xUnit + Testcontainers（`pgvector/pgvector:0.8.7-pg17`） | Schema / constraint、Repository、一般搜尋 SQL、向量檢索與門檻、Bestseller 讀取、Library CRUD、Recommendation 全流程（搭配 fake adapter） | `tests/DatabaseIntegration`（已存在）及後續整合測試 project |
-| Web | xUnit + `WebApplicationFactory` + Testcontainers | 認證 cookie、antiforgery、401 / 404 / 429、ProblemDetails 格式、PRG 重導；目前已覆蓋首頁、暢銷榜頁與共用版面 | `tests/WebIntegration`（骨架已建立，其餘項目後續補上） |
+| Integration | xUnit + Testcontainers（`pgvector/pgvector:0.8.7-pg17`） | Schema / constraint、Repository、一般搜尋 SQL、向量檢索與門檻、Bestseller 讀取（backend 保留，DB 整合 guard）、Library CRUD、Recommendation 全流程（搭配 fake adapter） | `tests/DatabaseIntegration`（已存在）及後續整合測試 project |
+| Web | xUnit + `WebApplicationFactory` + Testcontainers | 認證 cookie、antiforgery、401 / 404 / 429、ProblemDetails 格式、PRG 重導；目前已覆蓋首頁、書庫頁、`/bestsellers` 301 與共用版面（見 §2.1） | `tests/WebIntegration`（骨架已建立，其餘項目後續補上） |
 | Crawler | pytest + 存下來的博客來 HTML fixtures + 拋棄式 PostgreSQL | 排行榜與詳細頁解析、重試 / 跳過 / 上限、Bestseller 替換 transaction | `crawler/tests/` |
 | E2E 瀏覽器 | — | MVP 不做 | |
+
+### 2.1 Web 測試項目（書庫）
+
+暢銷榜 Web 頁面已暫停（`bestseller.md`，2026-10-24），其測試項目改為下列書庫項目：
+
+| 項目 | 測試位置 |
+|---|---|
+| 書庫排序：有日期者在前、日期新到舊、無日期者最後、同日依 Id | `BookBrowsePageTests`、`BookBrowseIntegrationTests` |
+| 書庫分頁：每頁 20 筆、非法 page 視為第 1 頁、超過最後一頁 302、`int.MaxValue` 不溢位、空庫無分頁列且不重導 | `BookBrowsePageTests`、`BookBrowseIntegrationTests` |
+| 首頁隨機 10 本（不重複）、不足 10 本全部顯示、空庫顯示「書庫還沒有書」 | `LayoutAndHomeTests`、`BookBrowseIntegrationTests` |
+| `/bestsellers` 301 導向 `/books` | `BookBrowsePageTests` |
+| 導覽列與空書單連結指向 `/books` | `LayoutAndHomeTests`、`LibraryPageTests` |
+| 書庫 HTML 不含 description 與 table of contents（BOOK-05） | `BookBrowsePageTests` |
+
+Composition-root wiring guard：部分 WebIntegration 測試不經 HTTP，而是從 `fixture.CreateFactory()` 的 DI scope 解析服務，以真實 PostgreSQL 驗證接線與查詢，例如 `BestsellerReaderIntegrationTests`（保留中的 Bestseller backend）、`BookBrowseIntegrationTests`（書庫查詢）、`EmbeddingBackfillTests`。
 
 ## 3. 外部服務替身
 
