@@ -84,7 +84,7 @@ Crawler 非機密環境變數（`crawler/README.md`）：
 |---|---|---|
 | `CRAWLER_FETCHER` | `curl` | 頁面取得方式：`curl`（curl_cffi）或 `browser`（headless Chromium，僅供診斷）。其他值 → exit code 2。 |
 | `CRAWLER_NAV_TIMEOUT_MS` | `30000` | 瀏覽器導覽逾時（毫秒，1～300000；空值為預設）。不合法 → exit code 2。 |
-| `CRAWLER_PAGES_FILE` | `crawler/category-pages.txt` | 分類榜補書模式（`crawler.md` §16）的分類頁清單路徑；僅 `books_crawler.pages` 使用。清單不合法 → exit code 2。 |
+| `CRAWLER_PAGES_FILE` | `crawler/category-pages.txt` | 分類榜補書模式（`crawler.md` §15）的分類頁清單路徑；僅 `books_crawler.pages` 使用。清單不合法 → exit code 2。 |
 
 `DATABASE_URL` 仍是 secret，不在此表中。
 
@@ -103,6 +103,21 @@ Crawler 非機密環境變數（`crawler/README.md`）：
 - Migration 應向後相容（先擴充、後收縮）。這是規則，不是程式強制；它的理由是 schema-ahead 部署時舊版 web 會在較新的 schema 上運行（S6）。
 - 部署前的驗證由 **compat check** 負責（CI 的 `Docker image` job 與 CD 的 `compat` job），在拋棄式 DB 上執行：以 `schema.rebuild` 的 bundle 重建目前的 schema、載入 seed、用目標 bundle 升級、驗證資料與 schema，並跑 forward smoke。細節見 `Docs/testing/test-plan.md` §6。
 - 只有 DB 的 migration 歷史與 state 不一致（drift 或 divergent）時，CD 才會拒絕，不會自動修正。
+
+### 6.1 Multi-source migration 010／011 的相容性（#113）
+
+Schema 規則見 `Docs/data/data-model.md` §11；決策理由見 ADR-007。010 是 expand（保留 `source_type`，以 trigger 同步 `source_code`），011 是 contract（移除 `source_type` 與 `ISBN_10`／`ISBN_13`），兩者分屬不同 release。
+
+| 相容層級 | 何時結束 |
+|---|---|
+| v0.0.4 schema／binary 相容 | 011 |
+| v0.0.4 語意完全相容 | 新版第一次寫入 `ISBN` 類型的資料時 |
+| PR2/PR3 runtime（Web 與 crawler）在 010 與 011 上都能運作 | 一直成立 |
+
+- **schema 向後相容不等於 CD 會自動 rollback。** PR4（011）的 forward migration 成功之後，若新 runtime 失敗，依 I5 不會自動 rollback，crawler 維持 paused。這項相容性保證的是：操作者**不需要還原 DB snapshot**，就能手動 dispatch 上一個 release（PR3）把服務恢復，再以 `resume-crawler` 讓 crawler 繼續執行（`deploy/README.md` §5.3）。
+- 新版開始寫入 `ISBN` 類型之後，若 web 回退到 v0.0.4，ISBN 搜尋與顯示會降級。**舊版（v0.0.4）crawler 必須保持停用**：它只比對 `ISBN_10`／`ISBN_13`，對新寫入的 `ISBN` 資料比對不到，可能重複建立 Book。
+- 011 只能在 `data-model.md` §11.3 的 gate 全部通過後套用；部署屬 L4，需使用者明確授權並逐項確認 gate checklist。
+- PR2（010）與 PR3（crawler）以同一個 release tag 部署；010 之前 crawler 不得寫 `source_code`。
 
 ## 7. 部署步驟
 
@@ -134,7 +149,7 @@ Crawler 每日 **04:00 (GMT+8)** 執行完整榜單，分類補書每三天執�
 - 兩種模式共用 host `flock`，等待前一次完成才開始。若等待鎖或 EC2 停機，實際開始時間可延後。cron day-of-month `*/3` 不作為三天間隔。
 - **與 CD 的協調（N3）**：`run-crawler.sh` 先取得 `db-maintenance.lock`（shared，等待上限 `DB_MAINTENANCE_WAIT_S`，預設 7200 秒），才讀取 state。state 的 `crawler.paused` 或 `schema.dirty` 為真時，以 exit 6 跳過並記錄 `skipped=paused` 或 `skipped=dirty`。state 不存在（尚未 bootstrap）時照舊執行；state 無法讀取時 exit 2（fail closed）。forward migration 期間持有 exclusive lock 的 deploy 會讓爬蟲等待，不會與 migration 交錯。
 - **Image 與設定由 CD 管理**：CD 的部署會把 `crawler.conf` 的 `CRAWLER_IMAGE=` 改寫為 GHCR 的 digest，並安裝該 release 的 `run-crawler.sh` 與 `crawler.cron`（release 未附上時跳過）。不要手動改 image tag；手動修改後需以 `resume-crawler` 檢查（`deploy/README.md` §5.3）。
-- **啟用排程前須在 EC2 上實測**：手動執行一次 crawler，確認預設 curl fetcher 從 EC2 能取得排行榜頁與商品頁，沒有停在 Cloudflare challenge（`crawler.md` §15）。若被擋下，不啟用排程，評估授權資料管道等替代方案。停用排程時在 `crawler.conf` 設 `CRAWLER_ENABLED=false`，它不會阻擋部署（`crawler/deploy/README.md` §5.1）。
+- **啟用排程前須在 EC2 上實測**：手動執行一次 crawler，確認預設 curl fetcher 從 EC2 能取得排行榜頁與商品頁，沒有停在 Cloudflare challenge（`crawler.md` §12）。若被擋下，不啟用排程，評估授權資料管道等替代方案。停用排程時在 `crawler.conf` 設 `CRAWLER_ENABLED=false`，它不會阻擋部署（`crawler/deploy/README.md` §5.1）。
 - **分類頁清單需隨 crawler runtime 存在**：分類榜補書模式需要 `crawler/category-pages.txt`（預設路徑），或以 `CRAWLER_PAGES_FILE` 指向的檔案存在於執行環境中。
 - `crawler/Dockerfile` 打包清單到 `/app/crawler/category-pages.txt`；更新清單需重新發布 image。
 - 建置、GHCR 的 digest 管理、EC2 設定、手動驗證與啟用排程的指令見 [crawler 部署說明](../../crawler/deploy/README.md)。啟用前先確認 Docker、AWS CLI、cron service 與 logrotate 可用，且 RDS schema 已由 EF migration 建立。

@@ -52,8 +52,8 @@ WebIntegration 以 `Embedding:BackfillEnabled=false` 關閉背景補齊，以 `F
 | REC-03 | Candidate Set ≥ 5 時 Google Books fake 未被呼叫 |
 | REC-06 | 排序結果不含 Candidate Set 外的 Book，且 ≤ 10 |
 | REC-11 | 達上限時所有外部 fake 未被呼叫 |
-| CRAWL-05 | 計數規則以 `RunLedger` 單元測試涵蓋（`crawler/tests/test_ledger.py`，不需資料庫）：連續一般錯誤 20 本仍繼續、21 本立即中止（含第 21 本落在 rank 100）；成功、重用、ISBN 附加與限制級重設計數；累計錯誤無上限；上限 0（單書匯入）。資料保護以 DB 整合測試涵蓋：中止時 Bestseller／既有 last_seen_at 不變、之後的排名不再請求、中止前已 commit 的新書保留；交錯 50 本錯誤仍替換；重試後成功只計一次結果 |
-| data-model §10 | constraint 測試（`tests/DatabaseIntegration/constraints.sql`） |
+| CRAWL-05 | 計數規則以 `RunLedger` 單元測試涵蓋（`crawler/tests/test_ledger.py`，不需資料庫）：連續錯誤計數只由 `RankingDecision` 決定（`crawler.md` §14.2、§14.3）——`ERROR_SKIP` 與 `DUPLICATE_BOOK` +1，`ADMITTED` 與 `RESTRICTED_SKIP` 歸零；連續 20 本仍繼續、21 本立即中止（含第 21 本落在 rank 100）；累計錯誤無上限；上限 0（first_book）。資料保護以 DB 整合測試涵蓋：中止時 Bestseller 不變、之後的排名不再請求、中止前已 commit 的 Catalog 寫入保留（含既有 Source 的 `last_seen_at` touch，不回滾）；交錯 50 本錯誤仍替換；重試後成功只計一次結果。PR3 前的現行測試仍斷言舊規則（中止時既有 `last_seen_at` 不變），由 PR3 改寫 |
+| data-model §12 | constraint 測試（`tests/DatabaseIntegration/constraints.sql`） |
 
 ## 6. 執行
 
@@ -149,3 +149,33 @@ Report：`compat-report.json`（`schema_version: 1`）包含 `classification`、
 | d | migration 失敗：dirty 與 paused 保留，直到 reconcile 與 resume |
 | e | 中斷的 run：判定為 indeterminate（exit 8），直到 `resolve-run` |
 | probe | `docker compose config` 把 `format: raw` 的 env file 原樣輸出（含 `$`、引號、`#`），不啟動任何服務 |
+
+## 7. Multi-source Catalog 規劃覆蓋（#113）
+
+以下是 #113 系列 PR 必須新增的測試；**目前尚未實作**。「PR」欄為負責實作的 PR（PR2：migration 010 與 Web；PR3：crawler；PR4：migration 011 與 cutover）。規則來源見 `Docs/data/data-model.md` §7、§11 與 `Docs/modules/crawler.md` §6、§10、§14。
+
+| # | 案例 | 層 | PR |
+|---|---|---|---|
+| 1 | ISBN 對到 0 本 Book 時建立新 Book | Crawler（DB） | PR3 |
+| 2 | 對到 1 本時附加 Source 並補 NULL：日期與精度成對補；Book 沒有 AUTHOR 才補 AUTHOR；`updated_at` 只在 books 欄位真的補了值時更新 | Crawler（DB） | PR3 |
+| 3 | 對到 2 本以上，或 draft 的兩個 ISBN 各對到不同 Book：建立新 Book，`new_book`、`new_source`、`ambiguous_isbn` 各 +1 | Crawler（DB） | PR3 |
+| 4 | 既有 `ISBN_13` 資料與新 draft 的 `ISBN` 對到同一本 Book | Crawler（DB） | PR3 |
+| 5 | 附加之後才發現同榜重複：`existing_book`、`attached_source`、`new_source`、`skipped`、`error` 各 +1 | Crawler（ledger + DB） | PR3 |
+| 6 | Existing Source 同榜重複：`existing_source`、`skipped`、`error`、consecutive 各 +1，不 reset | Crawler（ledger） | PR3 |
+| 7 | 連續 10 個 `ERROR_SKIP`、1 個 `RESTRICTED_SKIP`、再 1 個 `ERROR_SKIP` → `consecutive_error_count = 1` | Crawler（ledger） | PR3 |
+| 8 | 011：同一本 Book 同時有 `ISBN_13 X` 與 `ISBN X`，跑完只剩一筆 `ISBN X`，migration 不失敗 | Integration（DB） | PR4 |
+| 9 | 010 trigger：只帶 `source_type` 的 INSERT 成功（v0.0.4 寫法）；只帶 `source_code` 的 INSERT 成功；兩值不一致被拒絕；原本的 ISBN_10／13 unique 仍有效 | Integration（DB） | PR2 |
+| 10 | 實體 schema（查 `pg_constraint`、`pg_indexes`、`information_schema`）：010 之後 `source_type` 與 `source_code` 並存、`book_subjects` PK 為 `(book_id, subject, source_type)`、UNIQUE `(book_id, subject, source_code)`；011 之後 `source_type` 不存在、PK 為 `(book_id, subject, source_code)` | Integration（DB） | PR2／PR4 |
+| 11 | `last_seen_at`：Existing Source 在 abort 或 snapshot 失敗後更新仍保留；New Source 失敗時不寫任何資料；分類榜與 first_book 也會更新 | Crawler（DB） | PR3 |
+| 12 | Search 與 Detail：三種 ISBN 類型都讀得到；輸入 `ABC123` 不走 ISBN 搜尋；使用共用 test vectors | Unit + Web | PR2 |
+| 13 | PR3 runtime 在 011 上相容：PR3 Web 的 Search、Detail（含去重）、health；PR3 crawler 的 Existing Source 查詢與 touch、ISBN 查詢、寫入新 Source、Bestseller 驗證與替換 | Integration / compat | PR4（gate） |
+| 14 | Manual recovery compatibility：011 的 DB 搭配上一個 release 的 Web 與 crawler，手動恢復所需的 smoke 全部通過（CD compat 的 runtime smoke 依 I5 仍只供參考） | Integration / compat | PR4（gate） |
+| 15 | Stale 偵測依欄位（`Infrastructure/Persistence/BookMetadata.cs` 的 hash 輸入）：補 AUTHOR、subject 或 description → embedding FindPending 與 profile FindStale 都 stale；補 publisher 或 table_of_contents → 只有 profile stale；只補 published_date、page_count、thumbnail 或 ISBN → 都不要求 stale | Integration（DB） | PR3 |
+| 16 | Detail 去重：同一本 Book 有 `ISBN_13 X` 與 `ISBN X` 只顯示一次 `ISBN X`；值不同的 ISBN 全部顯示 | Unit + Web | PR2 |
+| 17 | touch 失敗：暫時性錯誤重試後成功；最後仍失敗時每日榜單為 `ERROR_SKIP` + `database_error` 且 run 繼續、分類榜只有該筆失敗、first_book FAILED exit 1；三種模式 `existing_source_count` 不加 1、`last_seen_at` 維持原值 | Crawler（DB） | PR3 |
+| 18 | C# 與 Python 讀同一份 `tests/Fixtures/isbn-normalization.json`（完整 `White_Space` 與反例），結果逐 byte 一致 | Unit + Crawler | PR2（C# 與 fixture）／PR3（Python） |
+| 19 | Source identity 衝突：`external_id` 與 `source_url` 對到不同 Source 時回報 `source_identity_conflict` 且沒有寫入；URL 漂移時保留既有 URL、記 WARNING、照常 touch | Crawler（DB） | PR3 |
+| 20 | 011 ISBN conversion preflight：不同 Book 有相同 ISBN 時仍通過、只回報統計；同一本 Book 的重複值正確去重，預估 row 數與實際一致 | Integration（DB） | PR4 |
+| 21 | 每個 PR：`dotnet build`、`dotnet test`、crawler pytest（含 DB integration）、`deploy/tests`、CI compat | 全部 | PR2／PR3／PR4 |
+
+另外：disabled provider 的既有 Book Source 仍出現在 Detail（PR2）；crawler 對 disabled provider 啟動 job 時 exit 2（PR3）。

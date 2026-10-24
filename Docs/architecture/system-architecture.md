@@ -16,7 +16,7 @@
 | Web | C# / ASP.NET Core MVC，Razor View + 少量 JavaScript |
 | ORM | EF Core + Npgsql + Pgvector.EntityFrameworkCore |
 | Database | PostgreSQL + pgvector（唯一 source of truth） |
-| Crawler | Python，排程啟動的 one-shot container；以 curl_cffi Chrome fingerprint 取得頁面（`crawler.md` §15） |
+| Crawler | Python，排程啟動的 one-shot container；以 curl_cffi Chrome fingerprint 取得頁面（`crawler.md` §12） |
 | AI | OpenAI API，只由 C# 呼叫（ADR-003） |
 | 外部書目 | Google Books API，只用於 AI 推薦 fallback |
 | Cache | process-local `IMemoryCache`（ADR-005） |

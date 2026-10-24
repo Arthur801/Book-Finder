@@ -901,7 +901,7 @@ External verification references：
 | PR | 範圍 | 讓哪些規則成立 |
 |---|---|---|
 | PR2 | migration 010（§11.2、§11.4）、Domain／Infrastructure／Web 改用 `source_code`、`IdentifierType.Isbn`、Search／Detail 讀三種 ISBN 類型 | §6.1、§6.3、§6.4、§6.7、§10、Web 端 §7.1 fixture |
-| PR3 | crawler：R1 正規化與 distinct 比對、補 NULL、touch、兩層 outcome 與計數 | §6.3 `last_seen_at`、§7.2～§7.4、`Docs/modules/crawler.md` 全部新規則 |
+| PR3 | crawler：ISBN 正規化與 distinct 比對、補 NULL、touch、兩層 outcome 與計數 | §6.3 `last_seen_at`、§7.2～§7.4、`Docs/modules/crawler.md` 全部新規則 |
 | PR4 | migration 011（§11.3）、刪除 `Isbn10`／`Isbn13`、只查 `ISBN` | §6.5 目標狀態、§6.7 目標 PK |
 
 在 010 完成前，不得只修改 crawler 寫入新 `source_code`，以免與現有 schema 不相容。PR2 與 PR3 以同一個 release tag 部署；穩定且通過 §11.3 gate 後才做 PR4。
