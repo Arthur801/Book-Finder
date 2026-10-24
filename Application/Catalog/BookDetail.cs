@@ -13,7 +13,7 @@ public sealed record BookDetail(
     int? PageCount,
     string? ThumbnailUrl,
     IReadOnlyList<BookDetailContributor> Contributors,   // in the source's contributor order
-    IReadOnlyList<BookDetailIdentifier> Identifiers,     // only ISBN, ISBN-13 and ISBN-10; ISBN, then ISBN-13, then ISBN-10, each sorted by value
+    IReadOnlyList<BookDetailIdentifier> Identifiers,     // only ISBN, ISBN-13 and ISBN-10; ISBN, then ISBN-13, then ISBN-10, each sorted by value (the reader orders them)
     IReadOnlyList<string> Subjects,                      // distinct subject texts from all sources, sorted ordinally
     IReadOnlyList<BookDetailSource> Sources);            // the Book Source seen first comes first; ties broken by Id
 

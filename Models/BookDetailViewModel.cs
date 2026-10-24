@@ -39,7 +39,8 @@ public sealed record BookDetailViewModel(
     }
 
     // OTHER identifiers never reach the page. A value that appears under several ISBN types is shown once, under the
-    // highest-priority type (ISBN > ISBN-13 > ISBN-10); different values are all kept (book-catalog 4.1).
+    // highest-priority type (ISBN > ISBN-13 > ISBN-10); different values are all kept (book-catalog 4.1). The reader already
+    // returns this order (EfBookDetailReader owns it); the OrderBy below only keeps the view model correct for other callers.
     private static IEnumerable<BookInfoRow> IdentifierRows(IReadOnlyList<BookDetailIdentifier> identifiers) =>
         identifiers
             .Where(identifier => IsbnIdentifierTypes.All.Contains(identifier.Type))
