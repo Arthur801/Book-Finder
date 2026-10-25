@@ -56,7 +56,7 @@
 
 設定（`kingstone/config.py`）與 run 帳本（`kingstone/ledger.py`）為純函式；逐頁 run（`kingstone/run.py`）已把兩者與 acquisition、catalog_core 接起來，由入口呼叫（見下方「入口與組裝」與「Run（逐頁流程）」）。
 
-尚未實作：DB advisory lock（crawler 端與 deploy 端）、schema preflight、last-run JSON 與 alert、診斷檔（Phase 6 其餘）；CD 推送 `KINGSTONE_CRAWLER_IMAGE`；acceptance（Phase 7）。本地 runner 已實作（Phase 6 M4，見「Runtime ownership」），見 [backlog](backlog.md) CB-07。URL grammar 與錯誤分類仍以 backlog CB-07 為來源契約。
+尚未在本分支：DB advisory lock 與 schema preflight（PR #145 crawler 端、PR #146 deploy 端；lock 由 container 內的 crawler 程式取得，不在 runner）、last-run JSON 與 alert、診斷檔（PR #147）；CD 推送 `KINGSTONE_CRAWLER_IMAGE`；acceptance（Phase 7）。本地 runner 已實作（Phase 6 M4，見「Runtime ownership」），見 [backlog](backlog.md) CB-07。URL grammar 與錯誤分類仍以 backlog CB-07 為來源契約。
 
 **入口與組裝**（`kingstone/cli.py`、`kingstone/__main__.py`，Phase 5 M2）
 

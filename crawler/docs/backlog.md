@@ -34,7 +34,7 @@
 - Phase 6 M4 之後仍待辦：
   - **EC2 crawler cron 移除（另案）**：目前以 `CRAWLER_ENABLED=false` 停用，cron 仍安裝於 EC2；移除需另行決定與執行。
   - **P3 真實驗證（待使用者本機執行）**：真實 SSH 轉發與 `ExitOnForwardFailure`、SSM 權限、Docker 的 `--cidfile`、UID 10001 對 artifacts 與 CA mount 的讀寫、`docker stop`／`kill`／`ps` 語意、tunnel 斷線、以及 deploy migration 與 crawler 的互斥（見 v12 §10 P3）。本次只有假指令測試。
-  - **DB advisory lock 尚未接線**：本地 runner 目前沒有取得 DB advisory lock（crawler 端 shared lock 與 deploy 端 exclusive lock 皆未實作）；在實作前須自行避開 CD 部署窗口（[deploy README](../deploy/README.md) §9.5）。
+  - **與 migration 的互斥由 crawler 程式與 deploy 負責，不在 runner**：container 內的 crawler 在每次 DB 連線與重連時取 shared advisory lock（`catalog_core.session`，PR #145），deploy 在 migration 期間以存活的 lock session 持有 exclusive lock（PR #146）；runner 本身不取 lock。兩個 PR 合併且 deploy 端上線之前，本地執行須自行避開 CD 部署窗口（[deploy README](../deploy/README.md) §9.5）。
   - **`deploy/docs` 同步（不在本 PR 改 `deploy/`）**：`deploy/docs/architecture.md`、`workflow-diagram.md` 若仍描述 crawler 在 EC2 執行，需同步 runtime ownership；`deploy/` 的 migration 與 advisory lock 變更屬 deploy 的 M2／M3。
   - **博客來 hard limit 3600 秒未量測**：`BOOKS_RUN_HARD_LIMIT_SECONDS` 預設值取自計畫表的「原 3600」；博客來 daily 與 pages 的實際耗時未驗證，P3 時應確認不會被 watchdog 誤殺。
   - **container 輸出未持久化**：`docker run` 輸出只顯示在終端；`ALERT` 行未轉寫到 runner log（計畫 §8 為可選）。

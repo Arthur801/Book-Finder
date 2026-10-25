@@ -283,7 +283,7 @@ crawler/deploy/local/run-local-crawler.sh daily
 
 金石堂第一次真站驗證只在使用者本機執行，且不得與 CD 部署重疊：
 
-1. 確認 EC2 deploy state 沒有 paused 或 dirty（runner 會檢查，但部署進行中時請不要啟動）；Phase 6 的 DB advisory lock 尚未由本 runner 取得，因此請自行避開部署窗口。
+1. 確認 EC2 deploy state 沒有 paused 或 dirty（runner 會檢查，但部署進行中時請不要啟動）。與 migration 的互斥由 container 內 crawler 的 shared advisory lock（PR #145）與 deploy 的 exclusive lock（PR #146）負責，runner 不取 lock；兩者都合併且 deploy 端上線前，請自行避開部署窗口。
 2. 清單只放 1 頁：暫時把 `crawler/kingstone-pages.txt` 改為只有一行，`docker build --target kingstone -t kingstone:canary crawler`，設定 `KINGSTONE_CRAWLER_IMAGE=kingstone:canary`。測試完成後還原清單檔，並重建 image。
 3. 確認寫入策略為 `new-books-only`。這是程式的預設值（`KINGSTONE_WRITE_POLICY` 未設定即是），本 runner 不轉傳此變數；不要在 image 或環境中改為 `normal`。
 4. 執行 `run-local-crawler.sh kingstone`，確認 exit code、`artifacts/kingstone/last-run.json`（M5 之後）與 log 中的 `container=end exit_code=...`。
