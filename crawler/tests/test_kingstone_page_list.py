@@ -99,14 +99,13 @@ def test_max_plus_one_lines_that_are_only_max_distinct_urls_after_dedupe_are_acc
     assert len(load_page_urls(path)) == MAX_PAGES
 
 
-def test_the_shipped_default_file_is_the_user_supplied_328_page_list():
+def test_the_shipped_default_file_loads_within_the_cap_as_first_pages():
+    # The list is the user's and changes over time: pin the rules, not its length or content.
     urls = load_page_urls(page_list.DEFAULT_PAGES_FILE)
 
-    assert len(urls) == 328
-    assert len(set(urls)) == 328
+    assert 0 < len(urls) <= MAX_PAGES
+    assert len(set(urls)) == len(urls)
     assert all(url.startswith(BASE) and url.endswith("/?dis=list&page=1") for url in urls)
-    assert urls[0] == f"{BASE}jdd/?dis=list&page=1"
-    assert len(urls) <= MAX_PAGES
 
 
 def test_a_missing_file_is_an_error_naming_the_file(tmp_path):
