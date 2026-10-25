@@ -39,6 +39,17 @@ class ContributorRole(StrEnum):
     OTHER = "OTHER"
 
 
+class WritePolicy(StrEnum):
+    """How a new Book Source whose ISBN matches exactly one existing Book is written (spec §5, §7).
+
+    ``NORMAL`` attaches the Source to that Book. ``NEW_BOOKS_ONLY`` (canary only) writes nothing for it:
+    no Source, no enrichment. Zero writes under ``NEW_BOOKS_ONLY`` is not evidence for promotion to ``NORMAL``.
+    """
+
+    NORMAL = "normal"
+    NEW_BOOKS_ONLY = "new-books-only"
+
+
 class CatalogResolution(StrEnum):
     """Catalog-side outcome of one discovery item (crawler.md §3.5, §6.5). In-process only: never stored.
 
@@ -52,6 +63,9 @@ class CatalogResolution(StrEnum):
     AMBIGUOUS_CREATED = "AMBIGUOUS_CREATED"  # new Book and new Source, ISBN matched two or more Books
     RESTRICTED = "RESTRICTED"  # restricted member-only page (crawler.md §13.2)
     FAILED = "FAILED"  # retries exhausted, touch failed, or source identity conflict
+    # new-books-only only: ISBN matched exactly one existing Book; no Source, no enrichment. Not a
+    # resolved row and not a failure. The ledger counts it as handled (spec §7 useful progress).
+    POLICY_SKIPPED_EXISTING_BOOK = "POLICY_SKIPPED_EXISTING_BOOK"
 
 
 RESOLVED_CATALOG_RESOLUTIONS = frozenset(

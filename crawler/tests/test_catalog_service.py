@@ -11,18 +11,21 @@ import pytest
 
 from catalog_core.identity import IdentityKind, SourceIdentity
 from catalog_core.models import (
+    RESOLVED_CATALOG_RESOLUTIONS,
     BookDraft,
     CatalogResolution,
     Identifier,
     IdentifierType,
     ProviderCode,
     SourceRef,
+    WritePolicy,
 )
 from catalog_core.service import (
     CatalogItem,
     DraftFailure,
     FailureReason,
     ItemFailed,
+    ItemPolicySkipped,
     ItemResolved,
     resolve_item,
 )
@@ -134,7 +137,14 @@ def attempts() -> Iterable[int]:
     return iter(range(1, 4))
 
 
-def resolve(store: FakeStore, fetch: Callable, *, the_item: CatalogItem | None = None, failures: Failures | None = None):
+def resolve(
+    store: FakeStore,
+    fetch: Callable,
+    *,
+    the_item: CatalogItem | None = None,
+    failures: Failures | None = None,
+    write_policy: WritePolicy = WritePolicy.NORMAL,
+):
     return resolve_item(
         store,
         the_item or item(EXTERNAL_ID),
@@ -142,6 +152,7 @@ def resolve(store: FakeStore, fetch: Callable, *, the_item: CatalogItem | None =
         clock=lambda: NOW,
         attempts=attempts,
         on_attempt_failed=failures or Failures(),
+        write_policy=write_policy,
     )
 
 
@@ -541,3 +552,94 @@ def test_attempts_factory_is_consumed_lazily_and_bounded():
     )
 
     assert produced == [1]
+
+
+# --- 6. write policy (CB-07 Phase 5, spec §5) ------------------------------------------------
+
+
+def test_policy_skipped_is_not_a_resolved_outcome():
+    assert CatalogResolution.POLICY_SKIPPED_EXISTING_BOOK not in RESOLVED_CATALOG_RESOLUTIONS
+    assert ItemPolicySkipped(matched_book_id=uuid4(), attempts=1).resolution is CatalogResolution.POLICY_SKIPPED_EXISTING_BOOK
+
+
+def test_new_books_only_with_one_isbn_match_skips_without_persist_or_touch():
+    book = uuid4()
+    store = FakeStore(identities=[NEW], isbn_lookups=[[book]])
+    fetch = Fetch(draft(ISBN))
+
+    result = resolve(store, fetch, write_policy=WritePolicy.NEW_BOOKS_ONLY)
+
+    assert result == ItemPolicySkipped(matched_book_id=book, attempts=1)
+    assert fetch.attempts == [1]
+    assert store.names() == ["resolve_source_identity", "find_books_by_isbn"]
+
+
+def test_new_books_only_with_no_isbn_match_still_imports():
+    created = ref()
+    store = FakeStore(identities=[NEW], isbn_lookups=[[]], persists=[created])
+
+    result = resolve(store, Fetch(draft(ISBN)), write_policy=WritePolicy.NEW_BOOKS_ONLY)
+
+    assert result == ItemResolved(created, CatalogResolution.IMPORTED, attempts=1, matched_book_ids=())
+    assert store.args_of("persist_new_source")[0][3] is None
+
+
+def test_new_books_only_without_isbn_still_imports():
+    created = ref()
+    store = FakeStore(identities=[NEW], isbn_lookups=[[]], persists=[created])
+
+    result = resolve(store, Fetch(draft()), write_policy=WritePolicy.NEW_BOOKS_ONLY)
+
+    assert result == ItemResolved(created, CatalogResolution.IMPORTED, attempts=1, matched_book_ids=())
+
+
+def test_new_books_only_with_two_isbn_matches_still_creates_ambiguous_book():
+    first, second = uuid4(), uuid4()
+    created = ref()
+    store = FakeStore(identities=[NEW], isbn_lookups=[[first, second]], persists=[created])
+
+    result = resolve(store, Fetch(draft(ISBN)), write_policy=WritePolicy.NEW_BOOKS_ONLY)
+
+    assert result == ItemResolved(
+        created,
+        CatalogResolution.AMBIGUOUS_CREATED,
+        attempts=1,
+        matched_book_ids=(first, second),
+    )
+    assert store.args_of("persist_new_source")[0][3] is None
+
+
+def test_normal_with_one_isbn_match_still_attaches():
+    book = uuid4()
+    created = ref()
+    store = FakeStore(identities=[NEW], isbn_lookups=[[book]], persists=[created])
+
+    result = resolve(store, Fetch(draft(ISBN)), write_policy=WritePolicy.NORMAL)
+
+    assert result == ItemResolved(created, CatalogResolution.ISBN_ATTACHED, attempts=1, matched_book_ids=(book,))
+    assert store.args_of("persist_new_source")[0][3] == book
+
+
+def test_policy_skip_carries_the_identity_warning_of_the_new_path():
+    book = uuid4()
+    store = FakeStore(identities=[SourceIdentity(IdentityKind.NEW, warning="drift test")], isbn_lookups=[[book]])
+
+    result = resolve(store, Fetch(draft(ISBN)), write_policy=WritePolicy.NEW_BOOKS_ONLY)
+
+    assert result == ItemPolicySkipped(matched_book_id=book, attempts=1, identity_warning="drift test")
+
+
+def test_policy_skip_after_uncertain_commit_re_resolve_finds_no_source_writes_nothing():
+    book = uuid4()
+    store = FakeStore(
+        identities=[NEW, NEW],
+        isbn_lookups=[[], [book]],
+        persists=[DB_ERROR],
+    )
+    fetch = Fetch(draft(ISBN))
+
+    result = resolve(store, fetch, write_policy=WritePolicy.NEW_BOOKS_ONLY)
+
+    assert result == ItemPolicySkipped(matched_book_id=book, attempts=2)
+    assert store.names().count("persist_new_source") == 1
+    assert fetch.attempts == [1]

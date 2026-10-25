@@ -4,7 +4,8 @@ The run takes a list of canonical category list page URLs (``kingstone.page_list
 
 1. The page is fetched and parsed. A fetch or parse failure skips the page (``record_page_skipped``) and the run goes on.
 2. Each card is resolved through ``catalog_core.service.resolve_item``. Existing Sources are touched and never fetched
-   again; new ones fetch their detail page, match ISBNs and persist. The outcome goes to ``KingstoneLedger``.
+   again; new ones fetch their detail page, match ISBNs and persist, under the run's write policy (``new-books-only``
+   skips the write when one existing Book matches the ISBN, spec §5). The outcome goes to ``KingstoneLedger``.
 3. When every card has an outcome the page is completed.
 
 Budget (plan §7). Before every request the run checks ``deps.budget``: the soft budget is spent in steps, and when it
@@ -26,7 +27,9 @@ page failure skips that page. Anything else escaping (a store exception from ide
 outside the grammar, an unexpected error) is fatal: the run stops and the report carries ``error``. The fatal message and
 every message that reaches the ledger or the log pass through ``catalog_core.redact.redact``.
 
-Identity warnings (URL drift on the touch path) are logged at WARNING and counted in the report.
+Identity warnings (URL drift on the touch path, or any warning an outcome carries) are logged at WARNING and counted in the report.
+
+Write policy. ``deps.write_policy`` is passed to every ``resolve_item``. Under ``new-books-only`` a card whose ISBN matches exactly one Book is a policy skip: nothing is written, and the card counts as handled, not failed.
 
 Not here: composing the real fetcher and the database store (Phase 5/6), the CLI and the exit code wiring. ``run_pages``
 never raises; the caller reads ``report.exit_code``.
@@ -41,9 +44,17 @@ from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import Protocol
 
-from catalog_core.models import BookDraft, ProviderCode
+from catalog_core.models import BookDraft, ProviderCode, WritePolicy
 from catalog_core.redact import redact
-from catalog_core.service import CatalogItem, CatalogStore, DraftFailure, ItemFailed, ItemResolved, resolve_item
+from catalog_core.service import (
+    CatalogItem,
+    CatalogStore,
+    DraftFailure,
+    ItemFailed,
+    ItemPolicySkipped,
+    ItemResolved,
+    resolve_item,
+)
 from kingstone.acquisition import AcquisitionError, AcquisitionFailure
 from kingstone.ledger import KingstoneLedger, KingstoneReport, RunStatus, SkippedPage, format_report
 from kingstone.models import KingstoneParseError, ListedItem, ProductNotFound
@@ -86,6 +97,8 @@ class KingstoneRunDependencies:
     The caller must pass the same ``budget`` to the real fetcher (``budget_remaining=budget.remaining``); the run checks it
     between cards and the fetcher checks it before each request. Composing these from the real fetcher and the database
     store is not done here (Phase 5/6).
+
+    ``write_policy`` has no default: the caller decides it (the Kingstone config defaults to ``new-books-only``).
     """
 
     fetcher: KingstoneFetcherPort
@@ -93,6 +106,7 @@ class KingstoneRunDependencies:
     budget: SoftBudget
     clock: Callable[[], datetime]  # UTC; observed_at and the report times
     sleep: Callable[[float], None]  # database retry backoff; injected so tests never wait
+    write_policy: WritePolicy
     max_item_attempts: int = MAX_ITEM_ATTEMPTS
 
 
@@ -120,7 +134,7 @@ def run_pages(deps: KingstoneRunDependencies, page_urls: Sequence[str], run_id: 
     """
     started_at = deps.clock()
     urls = tuple(dict.fromkeys(page_urls))
-    ledger = KingstoneLedger(urls)
+    ledger = KingstoneLedger(urls, deps.write_policy)
     error: str | None = None
     try:
         for url in urls:
@@ -175,7 +189,7 @@ def _run_page(deps: KingstoneRunDependencies, ledger: KingstoneLedger, url: str)
     return True
 
 
-def _resolve_card(deps: KingstoneRunDependencies, item: ListedItem) -> tuple[ItemResolved | ItemFailed, bool]:
+def _resolve_card(deps: KingstoneRunDependencies, item: ListedItem) -> tuple[ItemResolved | ItemFailed | ItemPolicySkipped, bool]:
     """One card through the shared resolver. Returns the outcome and whether the detail fetch hit the budget."""
     budget_hit = False
 
@@ -210,6 +224,7 @@ def _resolve_card(deps: KingstoneRunDependencies, item: ListedItem) -> tuple[Ite
         clock=deps.clock,
         attempts=lambda: _attempts(deps),
         on_attempt_failed=on_attempt_failed,
+        write_policy=deps.write_policy,
     )
     if isinstance(result, ItemFailed):
         result = replace(result, message=redact(result.message))

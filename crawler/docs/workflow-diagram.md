@@ -41,7 +41,7 @@ flowchart TD
 
 ## 共用單列管線
 
-本流程由 `catalog_core.service.resolve_item` 實作（provider-neutral）；Books 只提供 fetch／parse callback（`books_crawler/run.py` 的 `_fetch_and_parse`）與 log 行（rank 欄位、限制級、attempt、identity warning、ISBN 附加）。下圖即兩者合起來的行為。
+本流程由 `catalog_core.service.resolve_item` 實作（provider-neutral）；Books 只提供 fetch／parse callback（`books_crawler/run.py` 的 `_fetch_and_parse`）與 log 行（rank 欄位、限制級、attempt、identity warning、ISBN 附加）。下圖即兩者合起來的行為。寫入政策（`write_policy`，預設 `NORMAL`）只在 NEW 路徑的 ISBN 比對後生效：Books 永遠使用 `NORMAL`，因此圖中的「政策跳過」分支不會出現在 Books；金石堂 run 才可能走到它（見下方「金石堂逐頁 run」）。
 
 ```mermaid
 flowchart TD
@@ -56,7 +56,9 @@ flowchart TD
  F -->|否| H[skip 計一次一般錯誤]
  D -->|draft| I[ISBN 正規化後 distinct Book 查詢]
  C --> J{daily 已使用此 Book}
- I --> J
+ I --> Q{寫入政策}
+ Q -->|normal 或 ISBN 為 0 或 2 本以上| J
+ Q -->|new-books-only 且 ISBN 恰 1 本| P[政策跳過 不寫 Source 不 enrichment 計為已處理]
  J -->|是| H
  J -->|否且已知 URL| K[成功並歸零]
  J -->|否且新來源| L[每書 transaction 新 Book 或附加 source]
@@ -156,14 +158,16 @@ run_pages(deps, page_urls)
             其他 AcquisitionError → 該卡失敗（kind 小寫，不重試）
           parse_detail_html：ProductNotFound → product_not_found；KingstoneParseError → parse_error
           km_code 與卡片不符 → parse_error
-          ISBN 查詢 → persist_new_source（資料庫失敗後下一次先 re-resolve identity）
+          ISBN 查詢：write_policy 為 new-books-only 且恰 1 本 → ItemPolicySkipped（不呼叫 persist，計為已處理）
+          其他 → persist_new_source（資料庫失敗後下一次先 re-resolve identity；政策跳過不寫入，因此不會走到 re-resolve）
       record_item
     page_completed(url)
   report（terminal status 規則見 architecture「Run 帳本與 terminal status」）
   fatal（identity 查詢的 psycopg.Error、未預期例外、ValueError）→ 停止，report.error
 ```
 
-- 呼叫端責任：組裝 `KingstoneRunDependencies`；把同一個 `SoftBudget` 交給真 fetcher（`budget_remaining=budget.remaining`）；注入 `clock`、`sleep` 與 `run_id`。
-- 重跑（replay）：同一份清單再跑一次。Existing 只 touch；未完成的 New 才抓詳細頁。
+- 呼叫端責任：組裝 `KingstoneRunDependencies`（含 `write_policy`，無預設值；config 的預設為 `new-books-only`）；把同一個 `SoftBudget` 交給真 fetcher（`budget_remaining=budget.remaining`）；注入 `clock`、`sleep` 與 `run_id`。
+- 重跑（replay）：同一份清單再跑一次。Existing 只 touch；未完成的 New 才抓詳細頁。政策跳過的書沒有 Source，因此下一次 run 仍是 New，會再抓一次詳細頁。
+- `new-books-only` 的全部政策跳過 run 是合法 SUCCESS，但零寫入：報告以 `write_policy`、`policy_skipped` 與 `zero_progress_reason=null` 與真正零進度區分；它不能作為 promotion 到 `normal` 的證據。
 - 結果：`KingstoneReport`；一行 INFO `mode=kingstone …`；FAILED 另有一行 ERROR。exit code 由 `report.exit_code` 決定，接線在 Phase 6。
 

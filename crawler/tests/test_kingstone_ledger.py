@@ -7,8 +7,8 @@ from datetime import UTC, datetime
 
 import pytest
 
-from catalog_core.models import CatalogResolution, ProviderCode, SourceRef
-from catalog_core.service import ItemFailed, ItemResolved
+from catalog_core.models import CatalogResolution, ProviderCode, SourceRef, WritePolicy
+from catalog_core.service import ItemFailed, ItemPolicySkipped, ItemResolved
 from kingstone.ledger import (
     EXIT_FAILED,
     EXIT_SUCCESS,
@@ -50,6 +50,10 @@ def skipped(url, reason="fetch_error", message="HTTP 503", attempts=3):
     return SkippedPage(url=url, reason=reason, message=message, attempts=attempts)
 
 
+def policy_skip(*, warning=None):
+    return ItemPolicySkipped(uuid.UUID(int=9), attempts=1, identity_warning=warning)
+
+
 def build(ledger, *, error=None):
     return ledger.report(run_id="run-1", started_at=START, finished_at=FINISH, error=error)
 
@@ -65,7 +69,7 @@ def completed_page(ledger, page, *results):
 
 
 def test_fatal_error_is_failed_even_after_useful_progress():
-    ledger = KingstoneLedger([P1, P2])
+    ledger = KingstoneLedger([P1, P2], WritePolicy.NORMAL)
     completed_page(ledger, P1, resolved())
     report = build(ledger, error="database unavailable")
     assert report.status is RunStatus.FAILED
@@ -75,7 +79,7 @@ def test_fatal_error_is_failed_even_after_useful_progress():
 
 
 def test_every_page_skipped_is_failed_with_a_zero_progress_reason():
-    ledger = KingstoneLedger([P1, P2])
+    ledger = KingstoneLedger([P1, P2], WritePolicy.NORMAL)
     ledger.record_page_skipped(skipped(P1))
     ledger.record_page_skipped(skipped(P2, reason="redirect", message="HTTP 302", attempts=1))
     report = build(ledger)
@@ -86,7 +90,7 @@ def test_every_page_skipped_is_failed_with_a_zero_progress_reason():
 
 
 def test_budget_exhausted_before_the_first_page_completes_is_failed():
-    ledger = KingstoneLedger([P1, P2])
+    ledger = KingstoneLedger([P1, P2], WritePolicy.NORMAL)
     ledger.page_started(P1)
     item(ledger, P1, resolved())
     ledger.stop_for_budget()
@@ -100,7 +104,7 @@ def test_budget_exhausted_before_the_first_page_completes_is_failed():
 
 
 def test_budget_exhausted_before_any_page_starts_is_failed():
-    ledger = KingstoneLedger([P1])
+    ledger = KingstoneLedger([P1], WritePolicy.NORMAL)
     ledger.stop_for_budget()
     report = build(ledger)
     assert report.status is RunStatus.FAILED
@@ -109,14 +113,14 @@ def test_budget_exhausted_before_any_page_starts_is_failed():
 
 
 def test_empty_page_list_is_failed_with_a_reason():
-    report = build(KingstoneLedger([]))
+    report = build(KingstoneLedger([], WritePolicy.NORMAL))
     assert report.status is RunStatus.FAILED
     assert report.pages_listed == 0
     assert report.zero_progress_reason is not None
 
 
 def test_a_skipped_page_next_to_a_completed_one_is_partial_success():
-    ledger = KingstoneLedger([P1, P2])
+    ledger = KingstoneLedger([P1, P2], WritePolicy.NORMAL)
     ledger.record_page_skipped(skipped(P1))
     completed_page(ledger, P2, resolved(CatalogResolution.EXISTING))
     report = build(ledger)
@@ -127,7 +131,7 @@ def test_a_skipped_page_next_to_a_completed_one_is_partial_success():
 
 
 def test_a_failed_book_is_partial_success():
-    ledger = KingstoneLedger([P1])
+    ledger = KingstoneLedger([P1], WritePolicy.NORMAL)
     completed_page(ledger, P1, resolved(), failed())
     report = build(ledger)
     assert report.status is RunStatus.PARTIAL_SUCCESS
@@ -138,7 +142,7 @@ def test_a_failed_book_is_partial_success():
 
 
 def test_an_interrupted_page_is_partial_success_when_another_page_completed():
-    ledger = KingstoneLedger([P1, P2])
+    ledger = KingstoneLedger([P1, P2], WritePolicy.NORMAL)
     completed_page(ledger, P1, resolved())
     ledger.page_started(P2)
     item(ledger, P2, resolved())
@@ -151,7 +155,7 @@ def test_an_interrupted_page_is_partial_success_when_another_page_completed():
 
 
 def test_pages_not_reached_after_a_budget_stop_is_partial_success():
-    ledger = KingstoneLedger([P1, P2, P3])
+    ledger = KingstoneLedger([P1, P2, P3], WritePolicy.NORMAL)
     completed_page(ledger, P1, resolved(CatalogResolution.EXISTING))
     ledger.stop_for_budget()
     report = build(ledger)
@@ -162,7 +166,7 @@ def test_pages_not_reached_after_a_budget_stop_is_partial_success():
 
 
 def test_all_existing_books_is_success():
-    ledger = KingstoneLedger([P1, P2])
+    ledger = KingstoneLedger([P1, P2], WritePolicy.NORMAL)
     completed_page(ledger, P1, resolved(CatalogResolution.EXISTING), resolved(CatalogResolution.EXISTING))
     completed_page(ledger, P2, resolved(CatalogResolution.EXISTING))
     report = build(ledger)
@@ -173,7 +177,7 @@ def test_all_existing_books_is_success():
 
 
 def test_a_page_with_no_cards_is_success_and_counted_as_zero_card_page():
-    ledger = KingstoneLedger([P1, P2])
+    ledger = KingstoneLedger([P1, P2], WritePolicy.NORMAL)
     completed_page(ledger, P1)
     completed_page(ledger, P2, resolved())
     report = build(ledger)
@@ -183,7 +187,7 @@ def test_a_page_with_no_cards_is_success_and_counted_as_zero_card_page():
 
 
 def test_only_empty_pages_are_success_with_zero_progress_not_claimed():
-    ledger = KingstoneLedger([P1])
+    ledger = KingstoneLedger([P1], WritePolicy.NORMAL)
     completed_page(ledger, P1)
     report = build(ledger)
     assert report.status is RunStatus.SUCCESS
@@ -241,18 +245,18 @@ def test_decide_status_returns_no_reason_for_a_fatal_error():
 
 
 def test_exit_codes():
-    ledger = KingstoneLedger([P1])
+    ledger = KingstoneLedger([P1], WritePolicy.NORMAL)
     assert build(ledger).exit_code == EXIT_FAILED
     completed_page(ledger, P1, failed())
     assert build(ledger).exit_code == EXIT_SUCCESS
-    assert build(KingstoneLedger([P1]), error="x").exit_code == 1
+    assert build(KingstoneLedger([P1], WritePolicy.NORMAL), error="x").exit_code == 1
 
 
 # --- counters -------------------------------------------------------------------------------------------------------
 
 
 def test_resolution_counters_and_warnings_are_counted_per_outcome():
-    ledger = KingstoneLedger([P1, P2])
+    ledger = KingstoneLedger([P1, P2], WritePolicy.NORMAL)
     completed_page(
         ledger,
         P1,
@@ -277,7 +281,7 @@ def test_resolution_counters_and_warnings_are_counted_per_outcome():
 
 
 def test_skipped_pages_are_listed_in_order_and_not_counted_as_items():
-    ledger = KingstoneLedger([P1, P2, P3])
+    ledger = KingstoneLedger([P1, P2, P3], WritePolicy.NORMAL)
     ledger.record_page_skipped(skipped(P1))
     ledger.record_page_skipped(skipped(P2, reason="parse_error", message="no product list", attempts=1))
     completed_page(ledger, P3, resolved())
@@ -288,7 +292,7 @@ def test_skipped_pages_are_listed_in_order_and_not_counted_as_items():
 
 
 def test_pages_not_started_or_skipped_are_not_reached_when_the_run_ends_early():
-    ledger = KingstoneLedger([P1, P2, P3])
+    ledger = KingstoneLedger([P1, P2, P3], WritePolicy.NORMAL)
     completed_page(ledger, P1, resolved())
     report = build(ledger)
     assert report.pages_not_reached == 2
@@ -296,7 +300,7 @@ def test_pages_not_started_or_skipped_are_not_reached_when_the_run_ends_early():
 
 
 def test_a_run_that_stops_inside_a_page_reports_that_page_as_interrupted():
-    ledger = KingstoneLedger([P1, P2])
+    ledger = KingstoneLedger([P1, P2], WritePolicy.NORMAL)
     ledger.page_started(P1)
     item(ledger, P1, resolved())
     report = build(ledger, error="crash")
@@ -310,25 +314,25 @@ def test_a_run_that_stops_inside_a_page_reports_that_page_as_interrupted():
 
 def test_page_started_for_an_unlisted_url_is_rejected():
     with pytest.raises(ValueError):
-        KingstoneLedger([P1]).page_started(P2)
+        KingstoneLedger([P1], WritePolicy.NORMAL).page_started(P2)
 
 
 def test_page_started_twice_is_rejected():
-    ledger = KingstoneLedger([P1, P2])
+    ledger = KingstoneLedger([P1, P2], WritePolicy.NORMAL)
     ledger.page_started(P1)
     with pytest.raises(ValueError):
         ledger.page_started(P1)
 
 
 def test_a_second_page_cannot_start_while_one_is_open():
-    ledger = KingstoneLedger([P1, P2])
+    ledger = KingstoneLedger([P1, P2], WritePolicy.NORMAL)
     ledger.page_started(P1)
     with pytest.raises(ValueError):
         ledger.page_started(P2)
 
 
 def test_items_must_belong_to_the_open_page():
-    ledger = KingstoneLedger([P1, P2])
+    ledger = KingstoneLedger([P1, P2], WritePolicy.NORMAL)
     with pytest.raises(ValueError):
         item(ledger, P1, resolved())
     ledger.page_started(P1)
@@ -338,11 +342,11 @@ def test_items_must_belong_to_the_open_page():
 
 def test_page_completed_without_an_open_page_is_rejected():
     with pytest.raises(ValueError):
-        KingstoneLedger([P1]).page_completed(P1)
+        KingstoneLedger([P1], WritePolicy.NORMAL).page_completed(P1)
 
 
 def test_skipping_a_started_or_unlisted_page_is_rejected():
-    ledger = KingstoneLedger([P1, P2])
+    ledger = KingstoneLedger([P1, P2], WritePolicy.NORMAL)
     ledger.page_started(P1)
     with pytest.raises(ValueError):
         ledger.record_page_skipped(skipped(P1))
@@ -351,7 +355,7 @@ def test_skipping_a_started_or_unlisted_page_is_rejected():
 
 
 def test_no_page_can_start_after_a_budget_stop():
-    ledger = KingstoneLedger([P1, P2])
+    ledger = KingstoneLedger([P1, P2], WritePolicy.NORMAL)
     ledger.stop_for_budget()
     with pytest.raises(ValueError):
         ledger.page_started(P1)
@@ -362,7 +366,7 @@ def test_no_page_can_start_after_a_budget_stop():
 
 def test_skipped_pages_and_failed_books_are_logged_as_warnings_only(caplog):
     caplog.set_level(logging.INFO, logger="kingstone.ledger")
-    ledger = KingstoneLedger([P1, P2])
+    ledger = KingstoneLedger([P1, P2], WritePolicy.NORMAL)
     ledger.record_page_skipped(skipped(P1))
     completed_page(ledger, P2, resolved(CatalogResolution.EXISTING), failed())
     records = [record for record in caplog.records if record.name == "kingstone.ledger"]
@@ -373,7 +377,7 @@ def test_skipped_pages_and_failed_books_are_logged_as_warnings_only(caplog):
 
 def test_existing_and_imported_books_are_not_logged(caplog):
     caplog.set_level(logging.INFO, logger="kingstone.ledger")
-    ledger = KingstoneLedger([P1])
+    ledger = KingstoneLedger([P1], WritePolicy.NORMAL)
     completed_page(ledger, P1, resolved(CatalogResolution.EXISTING), resolved(CatalogResolution.IMPORTED))
     assert [record for record in caplog.records if record.name == "kingstone.ledger"] == []
 
@@ -383,6 +387,7 @@ def test_existing_and_imported_books_are_not_logged(caplog):
 FIELD_ORDER = [
     "run_id",
     "provider_code",
+    "write_policy",
     "started_at",
     "finished_at",
     "status",
@@ -398,6 +403,7 @@ FIELD_ORDER = [
     "imported",
     "isbn_attached",
     "ambiguous_created",
+    "policy_skipped",
     "failed",
     "recovered_commit_count",
     "identity_warning_count",
@@ -425,17 +431,17 @@ def parse_line(line):
 
 
 def test_format_report_fields_in_fixed_order_and_one_line():
-    ledger = KingstoneLedger([P1, P2])
+    ledger = KingstoneLedger([P1, P2], WritePolicy.NORMAL)
     ledger.record_page_skipped(skipped(P1, message="HTTP 503 at 停機"))
     completed_page(ledger, P2, resolved(CatalogResolution.IMPORTED), failed(message="layout changed"))
     line = format_report(build(ledger))
     assert "\n" not in line
     assert [key for key, _ in parse_line(line)] == FIELD_ORDER
-    assert line.startswith("run_id=run-1 provider_code=KINGSTONE started_at=2026-10-25T01:00:00+00:00 ")
+    assert line.startswith("run_id=run-1 provider_code=KINGSTONE write_policy=normal started_at=2026-10-25T01:00:00+00:00 ")
 
 
 def test_format_report_lists_are_json_without_ascii_escapes():
-    ledger = KingstoneLedger([P1, P2])
+    ledger = KingstoneLedger([P1, P2], WritePolicy.NORMAL)
     ledger.record_page_skipped(skipped(P1, message="HTTP 503 停機"))
     completed_page(ledger, P2, resolved(), failed(message="版面改變"))
     line = format_report(build(ledger))
@@ -449,7 +455,7 @@ def test_format_report_lists_are_json_without_ascii_escapes():
 
 
 def test_format_report_counts_and_flags():
-    ledger = KingstoneLedger([P1, P2])
+    ledger = KingstoneLedger([P1, P2], WritePolicy.NORMAL)
     completed_page(ledger, P1)
     ledger.stop_for_budget()
     values = dict(parse_line(format_report(build(ledger))))
@@ -466,7 +472,7 @@ def test_format_report_counts_and_flags():
 
 
 def test_format_report_quotes_free_text_and_shows_failed_status():
-    ledger = KingstoneLedger([P1])
+    ledger = KingstoneLedger([P1], WritePolicy.NORMAL)
     report = build(ledger, error="cannot write, retry later")
     values = dict(parse_line(format_report(report)))
     assert values["status"] == "FAILED"
@@ -476,8 +482,70 @@ def test_format_report_quotes_free_text_and_shows_failed_status():
 
 
 def test_report_is_a_frozen_value_with_its_exit_code():
-    report = build(KingstoneLedger([P1]))
+    report = build(KingstoneLedger([P1], WritePolicy.NORMAL))
     assert isinstance(report, KingstoneReport)
     assert report.provider_code is ProviderCode.KINGSTONE
     with pytest.raises(AttributeError):
         report.status = RunStatus.SUCCESS  # type: ignore[misc]
+
+
+# --- write policy (CB-07 Phase 5): policy skip is handled, not failed ---------------------------------------------
+
+
+def test_policy_skipped_items_are_counted_apart_from_writes_and_failures():
+    ledger = KingstoneLedger([P1], WritePolicy.NEW_BOOKS_ONLY)
+    completed_page(ledger, P1, policy_skip(), policy_skip(), resolved(CatalogResolution.IMPORTED))
+    report = build(ledger)
+    assert report.policy_skipped_count == 2
+    assert report.items_seen == 3
+    assert report.imported == 1
+    assert report.failed == 0
+    assert report.failed_items == ()
+    assert report.status is RunStatus.SUCCESS
+
+
+def test_all_policy_skipped_run_is_success_without_zero_progress_reason():
+    ledger = KingstoneLedger([P1, P2], WritePolicy.NEW_BOOKS_ONLY)
+    completed_page(ledger, P1, policy_skip(), policy_skip())
+    completed_page(ledger, P2, policy_skip())
+    report = build(ledger)
+    assert report.status is RunStatus.SUCCESS
+    assert report.exit_code == EXIT_SUCCESS
+    assert report.zero_progress_reason is None
+    assert report.policy_skipped_count == report.items_seen == 3
+    assert (report.existing_source, report.imported, report.isbn_attached, report.ambiguous_created, report.failed) == (0, 0, 0, 0, 0)
+    assert report.write_policy is WritePolicy.NEW_BOOKS_ONLY
+
+
+def test_policy_skip_identity_warning_is_counted_like_any_other_warning():
+    ledger = KingstoneLedger([P1], WritePolicy.NEW_BOOKS_ONLY)
+    completed_page(ledger, P1, policy_skip(warning="URL drift"))
+    assert build(ledger).identity_warning_count == 1
+
+
+def test_policy_skipped_page_next_to_a_failed_page_is_partial_success_with_the_count_kept():
+    ledger = KingstoneLedger([P1, P2], WritePolicy.NEW_BOOKS_ONLY)
+    completed_page(ledger, P1, policy_skip())
+    ledger.record_page_skipped(skipped(P2))
+    report = build(ledger)
+    assert report.status is RunStatus.PARTIAL_SUCCESS
+    assert report.policy_skipped_count == 1
+
+
+def test_format_report_shows_the_write_policy_and_the_policy_skip_count():
+    ledger = KingstoneLedger([P1], WritePolicy.NEW_BOOKS_ONLY)
+    completed_page(ledger, P1, policy_skip(), policy_skip())
+    values = dict(parse_line(format_report(build(ledger))))
+    assert values["write_policy"] == "new-books-only"
+    assert values["policy_skipped"] == "2"
+    assert values["items_seen"] == "2"
+    assert values["imported"] == "0"
+    assert values["zero_progress_reason"] == "null"
+
+
+def test_format_report_shows_normal_policy_with_zero_policy_skips():
+    ledger = KingstoneLedger([P1], WritePolicy.NORMAL)
+    completed_page(ledger, P1, resolved(CatalogResolution.ISBN_ATTACHED))
+    values = dict(parse_line(format_report(build(ledger))))
+    assert values["write_policy"] == "normal"
+    assert values["policy_skipped"] == "0"

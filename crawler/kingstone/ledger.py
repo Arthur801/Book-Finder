@@ -1,7 +1,10 @@
 """Run accounting for the Kingstone adapter (CB-07 Phase 4): the ledger, the run report and the one terminal status rule.
 
 The caller (the run, Phase 4 M2) drives the ledger in page order: ``page_started``, one ``record_item`` per card,
-``page_completed``. A page that cannot be fetched or parsed is ``record_page_skipped`` instead. ``stop_for_budget``
+``page_completed``. A card that ``new-books-only`` skipped (``ItemPolicySkipped``) is handled: it is counted as
+``policy_skipped`` and is not a failure. A run whose every card was policy-skipped is SUCCESS, and the report
+keeps its write policy and policy-skip count, so it cannot be read as zero progress. Such a run is not evidence
+for promotion to ``normal``. A page that cannot be fetched or parsed is ``record_page_skipped`` instead. ``stop_for_budget``
 ends the run early; the page that was open then is interrupted, and every listed page that was neither started nor
 skipped is not reached. ``report`` turns the counters into a ``KingstoneReport``.
 
@@ -27,8 +30,8 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
-from catalog_core.models import CatalogResolution, ProviderCode
-from catalog_core.service import ItemFailed, ItemResolved
+from catalog_core.models import CatalogResolution, ProviderCode, WritePolicy
+from catalog_core.service import ItemFailed, ItemPolicySkipped, ItemResolved
 
 EXIT_SUCCESS = 0
 EXIT_FAILED = 1
@@ -116,10 +119,12 @@ class KingstoneReport:
     imported: int
     isbn_attached: int
     ambiguous_created: int
+    policy_skipped_count: int  # new-books-only: ISBN matched one Book, nothing written (handled, not failed)
     failed: int
     recovered_commit_count: int
     identity_warning_count: int
     failed_items: tuple[FailedItem, ...]
+    write_policy: WritePolicy  # the policy this run was started with
     zero_progress_reason: str | None = None
     error: str | None = None
     provider_code: ProviderCode = ProviderCode.KINGSTONE
@@ -132,9 +137,10 @@ class KingstoneReport:
 class KingstoneLedger:
     """Accounts for one Kingstone run over the listed pages, in list order."""
 
-    def __init__(self, page_urls: Sequence[str]) -> None:
+    def __init__(self, page_urls: Sequence[str], write_policy: WritePolicy) -> None:
         if len(set(page_urls)) != len(page_urls):
             raise ValueError("the page URLs must be unique")
+        self._write_policy = write_policy
         self._listed = tuple(page_urls)
         self._listed_set = frozenset(self._listed)
         self._started: set[str] = set()
@@ -147,6 +153,7 @@ class KingstoneLedger:
         self._budget_exhausted = False
         self._items_seen = 0
         self._counts: dict[CatalogResolution, int] = {resolution: 0 for resolution in CatalogResolution}
+        self._policy_skipped = 0
         self._recovered = 0
         self._identity_warnings = 0
         self._failed_items: list[FailedItem] = []
@@ -164,7 +171,7 @@ class KingstoneLedger:
         self._open = url
         self._open_items = 0
 
-    def record_item(self, url: str, result: ItemResolved | ItemFailed, *, source_url: str, external_id: str) -> None:
+    def record_item(self, url: str, result: ItemResolved | ItemFailed | ItemPolicySkipped, *, source_url: str, external_id: str) -> None:
         """One card of the open page reached its outcome."""
         if url != self._open:
             raise ValueError(f"items must be recorded for the open page, not {url}")
@@ -174,6 +181,8 @@ class KingstoneLedger:
             self._counts[result.resolution] += 1
             if result.recovered_commit:
                 self._recovered += 1
+        elif isinstance(result, ItemPolicySkipped):
+            self._policy_skipped += 1
         elif isinstance(result, ItemFailed):
             self._counts[CatalogResolution.FAILED] += 1
             self._failed_items.append(
@@ -264,10 +273,12 @@ class KingstoneLedger:
             imported=c[CatalogResolution.IMPORTED],
             isbn_attached=c[CatalogResolution.ISBN_ATTACHED],
             ambiguous_created=c[CatalogResolution.AMBIGUOUS_CREATED],
+            policy_skipped_count=self._policy_skipped,
             failed=c[CatalogResolution.FAILED],
             recovered_commit_count=self._recovered,
             identity_warning_count=self._identity_warnings,
             failed_items=tuple(self._failed_items),
+            write_policy=self._write_policy,
             zero_progress_reason=reason,
             error=error,
         )
@@ -278,7 +289,8 @@ class KingstoneLedger:
 
 
 def format_report(report: KingstoneReport) -> str:
-    """One line of ``key=value`` pairs, in the fixed order below.
+    """One line of ``key=value`` pairs, in the fixed order of the list below (``write_policy`` follows ``provider_code``;
+    ``policy_skipped`` follows ``ambiguous_created``).
 
     Counts are plain integers, ``budget_exhausted`` is ``true`` or ``false``. ``zero_progress_reason`` and ``error`` are
     JSON strings or ``null``; ``skipped_pages`` and ``failed_items`` are JSON lists (``ensure_ascii=False``). The
@@ -287,6 +299,7 @@ def format_report(report: KingstoneReport) -> str:
     fields: list[tuple[str, Any]] = [
         ("run_id", report.run_id),
         ("provider_code", report.provider_code),
+        ("write_policy", report.write_policy),
         ("started_at", report.started_at.isoformat()),
         ("finished_at", report.finished_at.isoformat()),
         ("status", report.status),
@@ -302,6 +315,7 @@ def format_report(report: KingstoneReport) -> str:
         ("imported", report.imported),
         ("isbn_attached", report.isbn_attached),
         ("ambiguous_created", report.ambiguous_created),
+        ("policy_skipped", report.policy_skipped_count),
         ("failed", report.failed),
         ("recovered_commit_count", report.recovered_commit_count),
         ("identity_warning_count", report.identity_warning_count),

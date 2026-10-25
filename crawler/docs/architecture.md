@@ -19,7 +19,8 @@
 | [catalog_core/persistence](../catalog_core/persistence.py) | provider-neutral 持久化，每個函式明確接收 `provider`（無模組層級 PROVIDER）：`connect`、`provider_enabled`、`resolve_source_identity`（依 provider 查 external_id 與 URL）、`touch_source`（`GREATEST(last_seen_at, now)`，限定該 provider 的 Source；不符合或不存在時拋 `SourceTouchConflict` 且不改任何列）、`find_books_by_isbn`、`persist_new_source`（寫入 `external_id`）；autocommit + 顯式交易，不做 DDL |
 | [db](../books_crawler/db.py) | Books.com.tw 專屬：`replace_bestsellers`（榜單替換與 BOOKS_COM_TW ownership 驗證）與 `SnapshotValidationError`；不 re-export catalog_core 函式 |
 | [catalog_core/session](../catalog_core/session.py) | `DatabaseSession`（自 `books_crawler/session.py` 移入，provider-neutral）：連線 closed／broken 時以注入的 connect 重連（§13.1）；每次 run 一個，無模組層級狀態 |
-| [catalog_core/service](../catalog_core/service.py) | provider-neutral item 解析 `resolve_item`：identity → EXISTING 時 touch（不抓 detail）或 NEW 時 fetch／parse → ISBN 比對 → 寫入；CONFLICT 不抓不寫；共用 attempts、clock 與 retry 語意；寫入失敗後下一次先重新解析 identity（commit 不確定）：EXISTING 回報已 commit、NEW 繼續有限重試、CONFLICT 以 `source_identity_conflict` 結束，不再查 ISBN 或寫入（v11 計畫 §5；博客來沒有 `external_id`，不會走到 CONFLICT）。依賴 `CatalogStore` port（Protocol）與呼叫端注入的 `fetch_draft` callback；不含 HTML、ranking、psycopg 連線，也不記 log（由呼叫端依回傳值與 `on_attempt_failed` 記錄）。`ItemFailed.identity_warning` 攜帶 identity 的 warning，touch 失敗時仍可回報 |
+| [catalog_core/models](../catalog_core/models.py) | provider-neutral 型別。`WritePolicy`（`normal`／`new-books-only`，CB-07 Phase 5 M1，預設由金石堂設定決定）；`CatalogResolution`（含 `POLICY_SKIPPED_EXISTING_BOOK`：只在 `new-books-only` 產生，不建 Source、不 enrichment，不屬於 `RESOLVED_CATALOG_RESOLUTIONS`，也不是失敗）；`RESOLVED_CATALOG_RESOLUTIONS` 只含四個已寫入或已接受的值 |
+| [catalog_core/service](../catalog_core/service.py) | provider-neutral item 解析 `resolve_item`：identity → EXISTING 時 touch（不抓 detail）或 NEW 時 fetch／parse → ISBN 比對 → 寫入；CONFLICT 不抓不寫；共用 attempts、clock 與 retry 語意；寫入失敗後下一次先重新解析 identity（commit 不確定）：EXISTING 回報已 commit、NEW 繼續有限重試、CONFLICT 以 `source_identity_conflict` 結束，不再查 ISBN 或寫入（v11 計畫 §5；博客來沒有 `external_id`，不會走到 CONFLICT）。依賴 `CatalogStore` port（Protocol）與呼叫端注入的 `fetch_draft` callback；不含 HTML、ranking、psycopg 連線，也不記 log（由呼叫端依回傳值與 `on_attempt_failed` 記錄）。`ItemFailed.identity_warning` 攜帶 identity 的 warning，touch 失敗時仍可回報。寫入政策（Phase 5 M1）：`resolve_item(..., write_policy=WritePolicy.NORMAL)`；NEW 路徑中 ISBN 命中恰 1 本且政策為 `new-books-only` → 回傳 `ItemPolicySkipped(matched_book_id, attempts, identity_warning)`，不呼叫 `persist_new_source`（不建 Source、不 enrichment）；0 或 ≥2 本照常寫入。回傳型別為 `ItemResolved \| ItemFailed \| ItemPolicySkipped`。Books 不傳政策（預設 `NORMAL`），其 adapter 以 assert 排除 `ItemPolicySkipped`，`books_crawler/ledger.decide_ranking` 對非 resolved 的未知值 raise |
 | [catalog_core/store](../catalog_core/store.py) | `SessionCatalogStore`：以 `DatabaseSession` 與 `catalog_core/persistence` 實作 `CatalogStore`；每個方法在呼叫時取 `session.conn`（重連後仍有效）；`touch_source` 遇 `SourceTouchConflict` 回傳 `False`，其餘例外（含 `psycopg.Error`）原樣上拋給 service |
 | [page_list](../books_crawler/page_list.py) | books.com.tw 專屬：環境變數與預設檔路徑、books.com.tw 分類榜 URL 規則；檔案規則委派給 `catalog_core/page_list`（行為與訊息不變）；非法／空清單在請求前失敗 |
 | [kingstone/urls](../kingstone/urls.py) | 金石堂 URL grammar（CB-07）：`canonical_list_url`（`/book/<2–4 字母>/?dis=list&page=<n>[&sort=<key>]`，代碼轉小寫；`sort=sa_desc`（預設）canonical 時移除，與省略 sort 相同，其他 key 保留）、`detail_url`、`km_code_from_href`、`km_code_from_detail_url`（只接受與 `detail_url` 完全相等的 canonical 詳細頁 URL）；相對與絕對 href 共用同一組 query 字元集；純函式，不連線 |
@@ -28,7 +29,7 @@
 | [kingstone/parse_list](../kingstone/parse_list.py) | 金石堂分類列表頁 HTML → `ListPage`（純函式）；契約見下方「金石堂 adapter」 |
 | [kingstone/parse_detail](../kingstone/parse_detail.py) | 金石堂詳細頁 HTML → `BookDraft`（純函式）；soft 404 → `ProductNotFound`；契約見下方「金石堂 adapter」 |
 | [kingstone/acquisition](../kingstone/acquisition.py) | 金石堂 HTTP acquisition（Phase 3）：`Transport` port、`CurlTransport`（curl_cffi Chrome、不跟隨 redirect、libcurl `MAXFILESIZE_LARGE` 與串流計量兩道上限）、`KingstoneFetcher`（URL 守門、pacing、重試、budget、回應分類；timeout、max attempts、size 上限可設定）；契約見下方「金石堂 adapter」 |
-| [kingstone/config](../kingstone/config.py) | 金石堂 run 設定（Phase 4 M1）：`load_config(env) -> KingstoneConfig`，純函式、不讀檔不連網；讀取並驗證 `KINGSTONE_PAGES_FILE`、預算、HTTP 與回應大小設定；非法值 → `KingstoneConfigError`（`ValueError`，caller 對應 exit 2）；契約見下方「金石堂 adapter」 |
+| [kingstone/config](../kingstone/config.py) | 金石堂 run 設定（Phase 4 M1，Phase 5 M1 加入寫入政策）：`load_config(env) -> KingstoneConfig`，純函式、不讀檔不連網；讀取並驗證 `KINGSTONE_PAGES_FILE`、`KINGSTONE_WRITE_POLICY`、預算、HTTP 與回應大小設定；非法值 → `KingstoneConfigError`（`ValueError`，caller 對應 exit 2）；契約見下方「金石堂 adapter」 |
 | [kingstone/ledger](../kingstone/ledger.py) | 金石堂 run 帳本（Phase 4 M1）：`KingstoneLedger`（逐頁 started／completed／skipped、卡片結果計數、budget 停止）、`KingstoneReport`、集中的 terminal status 函式 `decide_status`、`format_report`；純記帳、不做 I/O（只記 WARNING log）；契約見下方「金石堂 adapter」 |
 | [kingstone/run](../kingstone/run.py) | 金石堂逐頁 run（Phase 4 M2）：`run_pages(deps, page_urls, run_id)` 永不 raise；`SoftBudget`、`KingstoneFetcherPort`、`KingstoneRunDependencies`；列表頁 → 卡片 → `catalog_core.service.resolve_item` → `KingstoneLedger`；詳細頁 fetch／parse 是 `fetch_draft` callback；契約見下方「Run（逐頁流程）」；目前沒有 caller（組裝是 Phase 5／6） |
 | [catalog_core/html_text](../catalog_core/html_text.py) | 共用 HTML 區段文字抽取 `text_with_line_breaks`（自 `books_crawler/parsers.py` 原樣搬出）：只有 `<br>` 與區塊元素邊界換行、inline 元素不切行、連續空行收為一行；博客來詳細頁與金石堂詳細頁共用；會就地修改傳入的 node |
@@ -112,16 +113,16 @@
 
 **設定**（`kingstone/config.py`，Phase 4 M1）
 
-- `load_config(env: Mapping[str, str]) -> KingstoneConfig` 是純函式：只讀傳入的 mapping，不讀 `.env`、不讀檔、不連網。`KingstoneConfig`（frozen）欄位：`pages_file`、`soft_budget_seconds`、`hard_limit_seconds`、`http_timeout_seconds`、`http_max_attempts`、`max_response_bytes`。
-- 鍵與預設：`KINGSTONE_PAGES_FILE`（經 `kingstone.page_list.resolve_pages_file`，預設 `crawler/kingstone-pages.txt`）；`KINGSTONE_SOFT_RUN_BUDGET_SECONDS`=3300；`CRAWLER_RUN_HARD_LIMIT_SECONDS`=3600；`KINGSTONE_HTTP_TIMEOUT_SECONDS`=`REQUEST_TIMEOUT_SECONDS`；`KINGSTONE_HTTP_MAX_ATTEMPTS`=`MAX_ATTEMPTS`；`KINGSTONE_MAX_RESPONSE_BYTES`=`MAX_RESPONSE_BYTES`。
+- `load_config(env: Mapping[str, str]) -> KingstoneConfig` 是純函式：只讀傳入的 mapping，不讀 `.env`、不讀檔、不連網。`KingstoneConfig`（frozen）欄位：`pages_file`、`write_policy: WritePolicy`、`soft_budget_seconds`、`hard_limit_seconds`、`http_timeout_seconds`、`http_max_attempts`、`max_response_bytes`。
+- 鍵與預設：`KINGSTONE_PAGES_FILE`（經 `kingstone.page_list.resolve_pages_file`，預設 `crawler/kingstone-pages.txt`）；`KINGSTONE_WRITE_POLICY`=`new-books-only`（只接受 `normal`／`new-books-only`；空白視為未設定；其他值 raise，訊息點名 key 且不回顯值）；`KINGSTONE_SOFT_RUN_BUDGET_SECONDS`=3300；`CRAWLER_RUN_HARD_LIMIT_SECONDS`=3600；`KINGSTONE_HTTP_TIMEOUT_SECONDS`=`REQUEST_TIMEOUT_SECONDS`；`KINGSTONE_HTTP_MAX_ATTEMPTS`=`MAX_ATTEMPTS`；`KINGSTONE_MAX_RESPONSE_BYTES`=`MAX_RESPONSE_BYTES`。
 - 驗證：秒數必須是有限的數字且 > 0；次數與位元組數必須是十進位整數且 ≥ 1（不接受小數、科學記號或正負號）；空白或只含空白的值視為未設定；`soft < hard`。非法值 raise `KingstoneConfigError`（`ValueError` 子類，caller 對應 exit 2），訊息點名 key。只有被範圍規則拒絕的有限數字會在訊息中回顯；非數字的值一律不回顯。
-- 不在本模組：寫入政策 `KINGSTONE_WRITE_POLICY`（Phase 5）、診斷大小 `KINGSTONE_DIAGNOSTIC_MAX_BYTES`（Phase 6）、`CRAWLER_ALERT_COMMAND`（Phase 6）。
+- 不在本模組：診斷大小 `KINGSTONE_DIAGNOSTIC_MAX_BYTES`（Phase 6）、`CRAWLER_ALERT_COMMAND`（Phase 6）。
 
 **Run 帳本與 terminal status**（`kingstone/ledger.py`，Phase 4 M1）
 
-- `KingstoneLedger(page_urls)` 依清單順序記帳，一次只允許一頁開啟。呼叫順序：`page_started(url)`（頁已取得並解析）→ 每張卡一次 `record_item(url, result, source_url=, external_id=)`（`result` 為 `ItemResolved` 或 `ItemFailed`）→ `page_completed(url)`；頁無法取得或解析時改為 `record_page_skipped(SkippedPage)`；`stop_for_budget()` 之後不再開始或跳過任何頁。違反順序（未列出的 URL、重複處理、在開啟的頁之外記卡片、budget 之後開始頁）raise `ValueError`。
+- `KingstoneLedger(page_urls, write_policy)` 依清單順序記帳，一次只允許一頁開啟；`write_policy` 只用於 `report`（寫入 `KingstoneReport.write_policy`），不影響計數或 status。呼叫順序：`page_started(url)`（頁已取得並解析）→ 每張卡一次 `record_item(url, result, source_url=, external_id=)`（`result` 為 `ItemResolved`、`ItemFailed` 或 `ItemPolicySkipped`）→ `page_completed(url)`；頁無法取得或解析時改為 `record_page_skipped(SkippedPage)`；`stop_for_budget()` 之後不再開始或跳過任何頁。違反順序（未列出的 URL、重複處理、在開啟的頁之外記卡片、budget 之後開始頁）raise `ValueError`。
 - 頁的狀態：completed（每張卡都已有結果）、skipped（`SkippedPage`：url、reason、message、attempts；reason 由 run 提供，帳本不解讀）、interrupted（已開始、未完成；`stop_for_budget` 或致命錯誤時仍開啟的頁）、not reached（清單中既未開始也未跳過的頁，`pages_not_reached = 清單數 − completed − interrupted − skipped`）。
-- 卡片計數：`ItemResolved` 依 `CatalogResolution` 計入 `existing_source`、`imported`、`isbn_attached`、`ambiguous_created`；`ItemFailed` 計入 `failed` 並保存 `FailedItem`（list_url、source_url、external_id、reason、message、attempts）。`recovered_commit_count` 計 `recovered_commit=True`；`identity_warning_count` 計任何帶 `identity_warning` 的結果。`items_seen` 為 `record_item` 次數。
+- 卡片計數：`ItemResolved` 依 `CatalogResolution` 計入 `existing_source`、`imported`、`isbn_attached`、`ambiguous_created`；`ItemPolicySkipped`（`new-books-only` 的 ISBN 命中 1 本）計入 `policy_skipped_count`，是已處理的卡，不是失敗、不進 `failed_items`；`ItemFailed` 計入 `failed` 並保存 `FailedItem`（list_url、source_url、external_id、reason、message、attempts）。`KingstoneReport` 另含 `write_policy`。`recovered_commit_count` 計 `recovered_commit=True`；`identity_warning_count` 計任何帶 `identity_warning` 的結果。`items_seen` 為 `record_item` 次數。
 - `zero_card_pages`：完成、但 0 張卡的頁數（合法空頁，是成功頁）。
 - **Useful progress**：至少一頁 completed。`decide_status(...)` 是唯一寫下 terminal 規則的地方，`KingstoneLedger.report` 只傳入計數：
 
@@ -133,16 +134,18 @@
 | 沒有 completed 頁，且 budget 已停止 | FAILED | budget 在任何一頁完成前用盡 |
 | 沒有 completed 頁，其他 | FAILED | 沒有清單頁完成 |
 | 有 completed 頁，且有跳過頁、失敗書、interrupted 頁或 not reached 頁 | PARTIAL_SUCCESS | None |
-| 其他（包含全部 Existing、成功頁全為 0 張卡） | SUCCESS | None |
+| 其他（包含全部 Existing、全部政策跳過、成功頁全為 0 張卡） | SUCCESS | None |
+
+全部政策跳過的 run 是合法 SUCCESS，但它零寫入：report 以 `write_policy=new-books-only`、`policy_skipped_count == items_seen`、`zero_progress_reason=null` 區分它與真正的零進度；`new-books-only` 的零 mutation 不能作為 promotion 到 `normal` 的證據（spec §7）。
 
 - `RunStatus`（`SUCCESS`、`PARTIAL_SUCCESS`、`FAILED`）是 kingstone 自己的 StrEnum，不 import `books_crawler`。`KingstoneReport.exit_code`：FAILED → `EXIT_FAILED`（1），其餘 → `EXIT_SUCCESS`（0）；`EXIT_CONFIG_ERROR`（2）由 caller 的設定失敗使用。
-- `format_report(report)`：一行 `key=value`，欄位順序固定（見 `format_report` docstring）；計數為整數，`budget_exhausted` 為 `true`／`false`；`zero_progress_reason`、`error` 為 JSON 字串或 `null`；`skipped_pages`、`failed_items` 為 `ensure_ascii=False` 的 JSON 陣列。訊息不在此層 redact：run 必須在傳入前處理（與 Books 的 `_failure` 相同責任）。
+- `format_report(report)`：一行 `key=value`，欄位順序固定（見 `format_report` docstring；`write_policy` 在 `provider_code` 後，`policy_skipped` 在 `ambiguous_created` 後）；計數為整數，`budget_exhausted` 為 `true`／`false`；`zero_progress_reason`、`error` 為 JSON 字串或 `null`；`skipped_pages`、`failed_items` 為 `ensure_ascii=False` 的 JSON 陣列。訊息不在此層 redact：run 必須在傳入前處理（與 Books 的 `_failure` 相同責任）。
 - 帳本只在記錄跳過頁與失敗書時寫 WARNING 到 `kingstone.ledger`；不寫其他 log，也不做 I/O。
 
 **Run（逐頁流程）**（`kingstone/run.py`，Phase 4 M2）
 
 - 入口：`run_pages(deps: KingstoneRunDependencies, page_urls, run_id=None) -> KingstoneReport`，永不 raise；fatal 錯誤進 `report.error`。`page_urls` 先依首見順序去重（清單檔已去重，這裡保持帳本的唯一性規則）。
-- 依賴：`fetcher`（`KingstoneFetcherPort`：`fetch_list_page(url) -> str`、`fetch_detail_page(url) -> str`）、`store`（`CatalogStore`）、`budget`（`SoftBudget(seconds, monotonic)`：建立時記起點，`remaining()`、`exhausted()`（remaining ≤ 0））、`clock`（UTC，observed_at 與報告時間）、`sleep`（DB 重試退避）、`max_item_attempts`（預設 3）。
+- 依賴：`fetcher`（`KingstoneFetcherPort`：`fetch_list_page(url) -> str`、`fetch_detail_page(url) -> str`）、`store`（`CatalogStore`）、`budget`（`SoftBudget(seconds, monotonic)`：建立時記起點，`remaining()`、`exhausted()`（remaining ≤ 0））、`clock`（UTC，observed_at 與報告時間）、`sleep`（DB 重試退避）、`write_policy`（`WritePolicy`，**無預設值**，由 caller 決定；config 的預設為 `new-books-only`）、`max_item_attempts`（預設 3）。`write_policy` 傳給每次 `resolve_item`。
 - **caller 必須把同一個 `budget` 交給真 fetcher**（`budget_remaining=budget.remaining`）。run 在每個清單頁與每張卡之前檢查 `budget.exhausted()`；fetcher 另在每次請求前檢查「等待時間是否超過剩餘預算」。兩道守門讀同一個時鐘，超出時都乾淨停止。真 fetcher 與 DB store 的組裝不在本模組（Phase 5／6）。
 - 流程（清單順序）：每頁先 `fetch_list_page`；`AcquisitionError` 的 `BUDGET_EXHAUSTED` → `stop_for_budget()`，該頁為 not reached；其他 kind → `record_page_skipped`，reason 為 kind 的小寫（`redirect`、`http_status`、`transport`、`oversize`、`decode_error`、`retry_after_too_long`），attempts 為 fetcher 報告的值。`parse_list_html` 的 `KingstoneParseError` → skipped，reason `parse_error`，attempts 1。解析成功 → `page_started`；每張卡：先檢查 budget，再 `resolve_item`，結果交 `record_item`；頁內全部完成 → `page_completed`。
 - budget 停止點（停止後不再發出任何請求）：(a) 清單頁之前：該頁與之後的頁 not reached；(b) 頁中、卡片之前：該頁 interrupted；(c) 詳細頁的 `BUDGET_EXHAUSTED`：該卡以 reason `budget_exhausted` 記為失敗（`failed_items`），然後該頁 interrupted；(d) 清單頁的 `BUDGET_EXHAUSTED`：同 (a)。正在進行的卡不會被中斷：檢查只在卡與卡之間與頁與頁之間。被停下的卡與頁沒有寫入，下一次 run 會再處理。
@@ -152,7 +155,7 @@
 - replay：沒有跨 run 的進度檔。重跑從清單開頭；Existing 只 touch（不抓詳細頁），未完成的 New 才抓。
 - fatal 範圍：`store.resolve_source_identity` 拋出的 `psycopg.Error`（identity 查詢不重試）、其他未預期例外，以及 `ValueError`（URL 不合 grammar 等程式錯誤）。發生時 run 停止，`report.error` 為 `"<例外型別>: <訊息>"`，status FAILED；已 commit 的卡保留（每本書一筆交易）。卡片的 DB 失敗（寫入、ISBN 查詢、touch）不是 fatal，只使該卡失敗。
 - redact：fatal 訊息、skipped 頁訊息、失敗書訊息與 log 中的 attempt 訊息，在進入帳本或 log 前經 `catalog_core.redact.redact`；帳本本身不 redact。
-- identity warning（URL 漂移）：在該卡 resolve 完成後記一行 WARNING（`kingstone.run`），並由帳本計入 `identity_warning_count`。金石堂的 warning 在查詢時尚未有 attempt 行可排序，因此不像 Books 那樣在查詢時記錄。
+- identity warning（URL 漂移，或政策跳過結果帶的 identity warning）：在該卡 resolve 完成後記一行 WARNING（`kingstone.run`），並由帳本計入 `identity_warning_count`。金石堂的 warning 在查詢時尚未有 attempt 行可排序，因此不像 Books 那樣在查詢時記錄。
 - log：logger `kingstone.run`。DB 重試失敗一行 WARNING；FAILED 一行 ERROR；結束時一行 INFO `mode=kingstone <format_report>`。
 
 ## 選型、替代與代價

@@ -167,9 +167,9 @@ python -m pytest tests/test_fetcher.py tests/test_curl_fetcher.py tests/test_pla
 
 - 責任／規格：`catalog_core/service`（Kingstone plan §3、§5，P1 M3；M3b 讓 Books 經由同一 service）；風險 L3（identity、touch、寫入與重試語意）；狀態：已有測試（2026-10-25 新增並執行）。
 - Given：`tests/test_catalog_service.py` 的 in-memory `CatalogStore` fake（可指定 identity、touch 結果、ISBN 匹配、寫入與各步驟拋出的 `psycopg.Error`）、可注入的 `fetch_draft`（draft、可重試或不可重試的 `DraftFailure`）、固定 clock 與 attempts。
-- When：逐一執行 service 的每個分支：CONFLICT；EXISTING touch 成功、失敗後重試成功、耗盡；touch 回傳 False；NEW 的 fetch 失敗、不可重試失敗、parse 後 ISBN 查詢失敗、1／0／2 本匹配、寫入失敗後 commit 不確定與重新解析（EXISTING 恢復、未 commit 繼續寫入、CONFLICT 結束且不再查 ISBN 或寫入）、耗盡。
-- Then：每個分支的 `ItemResolved`／`ItemFailed` 欄位（`attempts`、`reason`、`identity_warning`、`recovered_commit`、`matched_book_ids`）、`on_attempt_failed` 的呼叫次序，以及 CONFLICT 與 touch 衝突時 fetch 與寫入的次數都符合規格。
-- 來源與狀態：[test_catalog_service.py](../tests/test_catalog_service.py)（fake store，覆蓋所有分支）。Books 的整合測試（[test_db_integration.py](../tests/test_db_integration.py)、[test_first_book.py](../tests/test_first_book.py)、[test_reconnect_integration.py](../tests/test_reconnect_integration.py)）經由 adapter 與真實 session／store 覆蓋同一條路徑。
+- When：逐一執行 service 的每個分支：CONFLICT；EXISTING touch 成功、失敗後重試成功、耗盡；touch 回傳 False；NEW 的 fetch 失敗、不可重試失敗、parse 後 ISBN 查詢失敗、1／0／2 本匹配、寫入失敗後 commit 不確定與重新解析（EXISTING 恢復、未 commit 繼續寫入、CONFLICT 結束且不再查 ISBN 或寫入）、耗盡；寫入政策（Phase 5 M1）：`new-books-only` 下 ISBN 0／1／≥2 本、無 ISBN，`normal` 下 1 本，uncertain commit 後 re-resolve 得到政策跳過。
+- Then：每個分支的 `ItemResolved`／`ItemFailed`／`ItemPolicySkipped` 欄位（`attempts`、`reason`、`identity_warning`、`recovered_commit`、`matched_book_ids`、`matched_book_id`）、`on_attempt_failed` 的呼叫次序，以及 CONFLICT 與 touch 衝突時 fetch 與寫入的次數都符合規格。政策跳過時 `persist_new_source` 與 `touch_source` 都不被呼叫；`POLICY_SKIPPED_EXISTING_BOOK` 不在 `RESOLVED_CATALOG_RESOLUTIONS` 內。Books 的既有測試不改即過。
+- 來源與狀態：[test_catalog_service.py](../tests/test_catalog_service.py)（fake store，覆蓋所有分支；35 個測試，含 Phase 5 M1 的 8 個寫入政策案例）。Books 的整合測試（[test_db_integration.py](../tests/test_db_integration.py)、[test_first_book.py](../tests/test_first_book.py)、[test_reconnect_integration.py](../tests/test_reconnect_integration.py)）經由 adapter 與真實 session／store 覆蓋同一條路徑。
 
 ### CR-T18 — 共用 HTML 區段文字抽取
 
@@ -260,26 +260,26 @@ migration 011 的 schema 由 test_db_integration.py 在 011 上檢查（無 `sou
 ### CR-K06 — 金石堂 run 設定
 
 - **責任／規格**：[architecture](architecture.md)「金石堂 adapter」的「設定」段落與計畫 §7 設定表；風險 L2（決定 budget 與回應上限）；狀態：已有測試（2026-10-25 新增並執行）。純函式：只讀傳入的 mapping，不讀環境、不讀 `.env`、不讀檔。
-- **Given**：空 mapping；每個鍵的合法值（含前後空白）；空字串與只含空白的值；非數字（`abc`、`3 300s`、`1,5`）；0 與負數；`nan`、`inf`、`-inf`、`Infinity`、`1e400`；次數與位元組數的小數、科學記號、正號與含空白；`soft` 等於或大於 `hard`（3600 對 3600，以及預設 hard 下的 3700）；調低 hard 後 soft 仍小於 hard。
+- **Given**：空 mapping；`KINGSTONE_WRITE_POLICY` 的 `normal`、`new-books-only`、前後空白、空白與非法值（大小寫、底線、`all-books`、`all`、`0`）；每個鍵的合法值（含前後空白）；空字串與只含空白的值；非數字（`abc`、`3 300s`、`1,5`）；0 與負數；`nan`、`inf`、`-inf`、`Infinity`、`1e400`；次數與位元組數的小數、科學記號、正號與含空白；`soft` 等於或大於 `hard`（3600 對 3600，以及預設 hard 下的 3700）；調低 hard 後 soft 仍小於 hard。
 - **When**：`kingstone.config.load_config`。
-- **Then**：未設定時為 3300／3600 秒、30 秒、3 次、5 MiB 與預設清單檔；每個合法鍵都生效；空白值視為未設定；非法值 raise `KingstoneConfigError`（`ValueError` 子類），訊息點名 key，非數字的值不被回顯；`soft ≥ hard` 點名兩個 key。
-- **來源與狀態**：[test_kingstone_config.py](../tests/test_kingstone_config.py)（67 個測試）。
+- **Then**：未設定時為 3300／3600 秒、30 秒、3 次、5 MiB、預設清單檔與寫入政策 `new-books-only`；寫入政策只接受 `normal`／`new-books-only`，其他值 raise 且訊息點名 `KINGSTONE_WRITE_POLICY`、不回顯值；每個合法鍵都生效；空白值視為未設定；非法值 raise `KingstoneConfigError`（`ValueError` 子類），訊息點名 key，非數字的值不被回顯；`soft ≥ hard` 點名兩個 key。
+- **來源與狀態**：[test_kingstone_config.py](../tests/test_kingstone_config.py)（78 個測試）。
 
 ### CR-K07 — 金石堂 run 帳本與 terminal status
 
 - **責任／規格**：[architecture](architecture.md)「Run 帳本與 terminal status」與計畫 §7 terminal 表、useful progress 定義；風險 L2（決定 run 的 exit code 與報告）；狀態：已有測試（2026-10-25 新增並執行）。純記帳，不做 I/O，不需要資料庫或 fetcher。
-- **Given**：清單 URL；`ItemResolved`（各 resolution、`recovered_commit`、`identity_warning`）與 `ItemFailed`（含 warning）；跳過的頁；budget 在頁前、頁中、頁後停止；致命錯誤；空清單；只有空頁的清單；違反順序的呼叫（未列出的 URL、重複開始、開啟中的頁之外記卡片、budget 之後開始或跳過頁）。
+- **Given**：清單 URL；`ItemResolved`（各 resolution、`recovered_commit`、`identity_warning`）、`ItemFailed`（含 warning）與 `ItemPolicySkipped`（Phase 5 M1）；跳過的頁；budget 在頁前、頁中、頁後停止；致命錯誤；空清單；只有空頁的清單；違反順序的呼叫（未列出的 URL、重複開始、開啟中的頁之外記卡片、budget 之後開始或跳過頁）。
 - **When**：`KingstoneLedger` 的呼叫序列與 `report`；`decide_status` 的純計數表；`format_report`；`exit_code`。
-- **Then**：terminal 表每一列：致命錯誤 FAILED（無 zero-progress reason）；所有頁跳過 FAILED；budget 在第一頁完成前用盡 FAILED（頁中與頁前兩種）；清單為空 FAILED；部分跳過、失敗書、interrupted 頁、not reached 頁各自為 PARTIAL_SUCCESS；全部 Existing 為 SUCCESS；成功頁全為 0 張卡為 SUCCESS，`zero_card_pages` 計數；只有空頁亦為 SUCCESS 且不填 zero-progress reason。計數：各 resolution、`recovered_commit_count`、`identity_warning_count`、`items_seen`；`pages_interrupted` 與 `pages_not_reached` 依規則計算。違反順序的呼叫 raise `ValueError`。WARNING 只在跳過頁與失敗書時記在 `kingstone.ledger`，Existing 與 Imported 不記。`format_report`：欄位順序固定，每行一列，`budget_exhausted` 為 `true`／`false`，文字欄位與 `error` 為 JSON 字串或 `null`，清單欄位為 `ensure_ascii=False` 的 JSON（含中文訊息）；exit code 為 FAILED → 1、其餘 → 0。
-- **來源與狀態**：[test_kingstone_ledger.py](../tests/test_kingstone_ledger.py)（40 個測試）。已知驗證缺口：budget 停止與 replay 的行為由 CR-K08 以 fake 組裝驗證；真 fetcher 與 DB 的端到端仍未驗證（見 [backlog](backlog.md) CB-07 Phase 5／6）。訊息 redaction 由 run 負責（CR-K08），這裡只驗證輸出格式。
+- **Then**：terminal 表每一列：致命錯誤 FAILED（無 zero-progress reason）；所有頁跳過 FAILED；budget 在第一頁完成前用盡 FAILED（頁中與頁前兩種）；清單為空 FAILED；部分跳過、失敗書、interrupted 頁、not reached 頁各自為 PARTIAL_SUCCESS；全部 Existing 為 SUCCESS；成功頁全為 0 張卡為 SUCCESS，`zero_card_pages` 計數；只有空頁亦為 SUCCESS 且不填 zero-progress reason。計數：各 resolution、`recovered_commit_count`、`identity_warning_count`、`items_seen`；`pages_interrupted` 與 `pages_not_reached` 依規則計算。違反順序的呼叫 raise `ValueError`。WARNING 只在跳過頁與失敗書時記在 `kingstone.ledger`，Existing 與 Imported 不記。`format_report`：欄位順序固定，每行一列，`budget_exhausted` 為 `true`／`false`，文字欄位與 `error` 為 JSON 字串或 `null`，清單欄位為 `ensure_ascii=False` 的 JSON（含中文訊息）；exit code 為 FAILED → 1、其餘 → 0。寫入政策（Phase 5 M1）：政策跳過計入 `policy_skipped_count`，不計入失敗與 `failed_items`，其 identity warning 計入 `identity_warning_count`；全部政策跳過為 SUCCESS 且 `zero_progress_reason` 為 null；報告帶 `write_policy`，`format_report` 欄位含 `write_policy`（在 `provider_code` 後）與 `policy_skipped`（在 `ambiguous_created` 後）。
+- **來源與狀態**：[test_kingstone_ledger.py](../tests/test_kingstone_ledger.py)（46 個測試）。已知驗證缺口：budget 停止與 replay 的行為由 CR-K08 以 fake 組裝驗證；真 fetcher 與 DB 的端到端仍未驗證（見 [backlog](backlog.md) CB-07 Phase 5／6）。訊息 redaction 由 run 負責（CR-K08），這裡只驗證輸出格式。
 
 ### CR-K08 — 金石堂逐頁 run
 
 - **責任／規格**：[architecture](architecture.md)「Run（逐頁流程）」、[workflow-diagram](workflow-diagram.md)「金石堂逐頁 run」與計畫 §5、§7、§9 Phase 4；風險 L3（決定寫入 Catalog、budget 停止點與 replay）；狀態：已有測試（2026-10-25 新增並執行）。全部離線：fake fetcher（URL → HTML 或例外）、記憶體 store、fake clock、記錄型 sleep；HTML 用真實 detail fixture 與合成的列表頁，不連網、不碰資料庫。
 - **Given**：列表頁（合成卡片或真實 fixture）、詳細頁 fixture、soft 404、302、parse error、合法空頁；store 的 identity 狀態、DB 失敗腳本、commit 後才失敗的寫入；budget 在首頁前、第二頁前、頁中用盡，或詳細頁、列表頁回 `BUDGET_EXHAUSTED`；store 拋出含假 DSN 與密碼的 `psycopg.Error`。
-- **When**：`run_pages` 一次；同一 store 再跑一次（replay）。
-- **Then**：全部 New 寫入，report 計數正確，SUCCESS；replay 全部 Existing、詳細頁 0 次請求；列表頁 302 與 parse error 跳過該頁，下一頁照常；全部跳過為 FAILED 並附 zero_progress_reason；合法空頁為成功頁，`zero_card_pages` 計數；soft 404 只該書失敗（`product_not_found`）、不寫入；詳細頁 acquisition 錯誤只請求一次；DB 失敗後以同一 draft 重試（退避 1 秒），commit 不確定時 re-resolve 得到 EXISTING 並計入 `recovered_commit_count`；budget 在任何頁前用盡為 FAILED 且零請求，在第二頁前為 PARTIAL 且剩餘頁 not reached，頁中為 interrupted 且 PARTIAL，詳細頁或列表頁回 `BUDGET_EXHAUSTED` 時乾淨停止；第二次 run 從清單開頭 replay 並推進；identity 查詢拋出的 `psycopg.Error` 使 run FAILED，error 不含 DSN 與密碼；未預期的 `ValueError` 同為 FAILED；identity warning 記為 WARNING 並計數；每次 run 一行 `mode=kingstone`；`SoftBudget` 的剩餘時間與 exhausted 規則。
-- **來源與狀態**：[test_kingstone_run.py](../tests/test_kingstone_run.py)（31 個測試）。已知缺口：真 fetcher 與 DB store 的組裝、`budget.remaining` 接到真 fetcher、CLI 與 exit code 都尚未存在（Phase 5／6），所以真 HTTP 與真 DB 的端到端未驗證。
+- **When**：`run_pages` 一次；同一 store 再跑一次（replay）；寫入政策（Phase 5 M1）的 `new-books-only` 與 `normal` 各跑一次，store 的 ISBN 命中以 fixture 的 ISBN 設定。
+- **Then**：全部 New 寫入，report 計數正確，SUCCESS；replay 全部 Existing、詳細頁 0 次請求；列表頁 302 與 parse error 跳過該頁，下一頁照常；全部跳過為 FAILED 並附 zero_progress_reason；合法空頁為成功頁，`zero_card_pages` 計數；soft 404 只該書失敗（`product_not_found`）、不寫入；詳細頁 acquisition 錯誤只請求一次；DB 失敗後以同一 draft 重試（退避 1 秒），commit 不確定時 re-resolve 得到 EXISTING 並計入 `recovered_commit_count`；budget 在任何頁前用盡為 FAILED 且零請求，在第二頁前為 PARTIAL 且剩餘頁 not reached，頁中為 interrupted 且 PARTIAL，詳細頁或列表頁回 `BUDGET_EXHAUSTED` 時乾淨停止；第二次 run 從清單開頭 replay 並推進；identity 查詢拋出的 `psycopg.Error` 使 run FAILED，error 不含 DSN 與密碼；未預期的 `ValueError` 同為 FAILED；identity warning 記為 WARNING 並計數；每次 run 一行 `mode=kingstone`；`SoftBudget` 的剩餘時間與 exhausted 規則；`new-books-only` 下 ISBN 命中 1 本 → 政策跳過、不 persist、不 touch、仍抓詳細頁，全部政策跳過 run 為 SUCCESS，下一次 run 仍會再抓（Source 不存在）；`normal` 下同一命中 → 附加 Source；0 本與 2 本以上在 `new-books-only` 下照常寫入。
+- **來源與狀態**：[test_kingstone_run.py](../tests/test_kingstone_run.py)（35 個測試）。已知缺口：真 fetcher 與 DB store 的組裝、`budget.remaining` 接到真 fetcher、CLI 與 exit code 都尚未存在（Phase 5／6），所以真 HTTP 與真 DB 的端到端未驗證。
 
 ### 連線中斷與重連（crawler.md §13.1、§6.1，#119）
 
