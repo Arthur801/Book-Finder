@@ -2,11 +2,16 @@
 !Dockerfile
 !requirements-runtime.txt
 !category-pages.txt
+!kingstone-pages.txt
 !books_crawler/
 !books_crawler/**
 !catalog_core/
 !catalog_core/**
+!kingstone/
+!kingstone/**
 books_crawler/**/__pycache__/
 books_crawler/**/*.pyc
 catalog_core/**/__pycache__/
 catalog_core/**/*.pyc
+kingstone/**/__pycache__/
+kingstone/**/*.pyc
