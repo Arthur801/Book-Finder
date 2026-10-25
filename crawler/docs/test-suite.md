@@ -281,7 +281,7 @@ migration 011 的 schema 由 test_db_integration.py 在 011 上檢查（無 `sou
 - **責任／規格**：[architecture](architecture.md)「金石堂 adapter」的「設定」段落與計畫 §7 設定表；風險 L2（決定 budget 與回應上限）；狀態：已有測試（2026-10-25 新增並執行）。純函式：只讀傳入的 mapping，不讀環境、不讀 `.env`、不讀檔。
 - **Given**：空 mapping；`KINGSTONE_WRITE_POLICY` 的 `normal`、`new-books-only`、前後空白、空白與非法值（大小寫、底線、`all-books`、`all`、`0`）；每個鍵的合法值（含前後空白）；空字串與只含空白的值；非數字（`abc`、`3 300s`、`1,5`）；0 與負數；`nan`、`inf`、`-inf`、`Infinity`、`1e400`；次數與位元組數的小數、科學記號、正號與含空白；`soft` 等於或大於 `hard`（9000 對 9000，以及預設 hard 下的 9001）；調低 hard 後 soft 仍小於 hard。
 - **When**：`kingstone.config.load_config`。
-- **Then**：未設定時為 7200／9000 秒、30 秒、3 次、5 MiB、預設清單檔與寫入政策 `new-books-only`（Phase 6 M1 由 3300／3600 調整）；寫入政策只接受 `normal`／`new-books-only`，其他值 raise 且訊息點名 `KINGSTONE_WRITE_POLICY`、不回顯值；每個合法鍵都生效；空白值視為未設定；非法值 raise `KingstoneConfigError`（`ValueError` 子類），訊息點名 key，非數字的值不被回顯；`soft ≥ hard` 點名兩個 key。
+- **Then**：未設定時為 7200／9000 秒、30 秒、3 次、5 MiB、預設清單檔與寫入政策 `normal`（Phase 6 M1 由 3300／3600 調整；寫入政策預設於 Phase 7 由 `new-books-only` 改為 `normal`）；寫入政策只接受 `normal`／`new-books-only`，其他值 raise 且訊息點名 `KINGSTONE_WRITE_POLICY`、不回顯值；每個合法鍵都生效；空白值視為未設定；非法值 raise `KingstoneConfigError`（`ValueError` 子類），訊息點名 key，非數字的值不被回顯；`soft ≥ hard` 點名兩個 key。
 - **Phase 6 M5 新增**：`KINGSTONE_ARTIFACTS_DIR` 空白視為未設定（預設 `crawler/artifacts`，以 package 為基準）、可由環境覆寫；`KINGSTONE_DIAGNOSTIC_MAX_BYTES` 預設 2 MiB，只接受正整數（0、負數、小數、非數字、科學記號皆 raise，訊息點名 key）。
 - **來源與狀態**：[test_kingstone_config.py](../tests/test_kingstone_config.py)（84 個測試，含參數化案例）。預設值（7200／9000）由 `test_defaults_when_nothing_is_set` 固定；博客來不讀 `KINGSTONE_SOFT_RUN_BUDGET_SECONDS` 與 `CRAWLER_RUN_HARD_LIMIT_SECONDS`（全 crawler 原始碼搜尋只出現在 `kingstone/` 與其測試）。
 

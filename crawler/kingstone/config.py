@@ -5,7 +5,7 @@
 Error messages name the key. A value is echoed only when it is a finite number that was rejected for its range;
 anything that is not a number is never echoed.
 
-``KINGSTONE_WRITE_POLICY`` (``normal`` or ``new-books-only``, default ``new-books-only``) is validated here. The
+``KINGSTONE_WRITE_POLICY`` (``normal`` or ``new-books-only``, default ``normal``) is validated here. The
 error message never echoes the value, since it is not a number.
 
 ``KINGSTONE_ARTIFACTS_DIR`` (default ``crawler/artifacts``, located relative to the package, not the working directory)
@@ -27,7 +27,7 @@ from kingstone import acquisition
 from kingstone.page_list import PAGES_FILE_ENV, resolve_pages_file
 
 WRITE_POLICY_ENV = "KINGSTONE_WRITE_POLICY"
-DEFAULT_WRITE_POLICY = WritePolicy.NEW_BOOKS_ONLY  # spec §7: the canary policy until promotion is decided
+DEFAULT_WRITE_POLICY = WritePolicy.NORMAL  # Phase 7 user decision: an ISBN match attaches, so the Book links to both stores
 SOFT_BUDGET_ENV = "KINGSTONE_SOFT_RUN_BUDGET_SECONDS"
 HARD_LIMIT_ENV = "CRAWLER_RUN_HARD_LIMIT_SECONDS"
 HTTP_TIMEOUT_ENV = "KINGSTONE_HTTP_TIMEOUT_SECONDS"

@@ -122,7 +122,7 @@ class KingstoneRunDependencies:
     between cards and the fetcher checks it before each request. Composing these from the real fetcher and the database
     store is not done here (Phase 5/6).
 
-    ``write_policy`` has no default: the caller decides it (the Kingstone config defaults to ``new-books-only``).
+    ``write_policy`` has no default: the caller decides it (the Kingstone config defaults to ``normal``).
     """
 
     fetcher: KingstoneFetcherPort
