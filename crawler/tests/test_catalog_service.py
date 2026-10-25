@@ -10,6 +10,7 @@ import psycopg
 import pytest
 
 from catalog_core.identity import IdentityKind, SourceIdentity
+from catalog_core.migration_lock import MigrationLockBusy
 from catalog_core.models import (
     RESOLVED_CATALOG_RESOLUTIONS,
     BookDraft,
@@ -643,3 +644,34 @@ def test_policy_skip_after_uncertain_commit_re_resolve_finds_no_source_writes_no
     assert result == ItemPolicySkipped(matched_book_id=book, attempts=2)
     assert store.names().count("persist_new_source") == 1
     assert fetch.attempts == [1]
+
+
+# --- migration lock busy: never retried ------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("store", "expected_calls"),
+    [
+        (FakeStore(identities=[MigrationLockBusy("busy")]), ["resolve_source_identity"]),
+        (
+            FakeStore(identities=[existing(ref())], touches=[MigrationLockBusy("busy")]),
+            ["resolve_source_identity", "touch_source"],
+        ),
+        (
+            FakeStore(identities=[NEW], isbn_lookups=[MigrationLockBusy("busy")]),
+            ["resolve_source_identity", "find_books_by_isbn"],
+        ),
+        (
+            FakeStore(identities=[NEW], isbn_lookups=[[]], persists=[MigrationLockBusy("busy")]),
+            ["resolve_source_identity", "find_books_by_isbn", "persist_new_source"],
+        ),
+    ],
+    ids=["identity", "touch", "isbn-lookup", "persist"],
+)
+def test_migration_lock_busy_is_not_a_retryable_database_error(store, expected_calls):
+    fetch = Fetch(draft(ISBN))
+
+    with pytest.raises(MigrationLockBusy):
+        resolve(store, fetch)
+
+    assert store.names() == expected_calls  # the failing call was made once and nothing was retried

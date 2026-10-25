@@ -14,9 +14,15 @@ Environment:
 
 Exit codes:
     0 = SUCCESS or PARTIAL_SUCCESS,
-    1 = FAILED (the run could not continue, or the provider registry could not be read),
-    2 = configuration error: DATABASE_URL, a setting, the page list, or a disabled or unregistered provider.
+    1 = FAILED (the run could not continue, the provider registry could not be read, or the database was busy:
+        a migration holds the Catalog lock, see ``catalog_core.migration_lock``),
+    2 = configuration error: DATABASE_URL, a setting, the page list, a disabled or unregistered provider, or a
+        missing post-011 schema prerequisite (``SCHEMA_PREREQUISITE_MISSING``).
         Each of these is checked before the fetcher is built, so a configuration error sends no request.
+
+Database order (plan v12 §8): the first connection takes the shared migration lock, then the schema is checked
+read-only, and only then is the fetcher built and the run started. A busy lock or a missing prerequisite makes no
+request and no write.
 
 The hard limit (``CRAWLER_RUN_HARD_LIMIT_SECONDS``) is enforced by the runner's watchdog (Phase 6). This module only
 validates the value and keeps the soft budget below it.
@@ -34,6 +40,7 @@ from datetime import UTC, datetime
 import psycopg
 
 from catalog_core import persistence
+from catalog_core.migration_lock import MigrationLockBusy
 from catalog_core.models import ProviderCode
 from catalog_core.normalize import ensure_runtime_unicode_supported
 from catalog_core.redact import redact
@@ -120,12 +127,25 @@ def main(
         return EXIT_CONFIG_ERROR
 
     budget = SoftBudget(config.soft_budget_seconds, monotonic)
-    fetcher = (fetcher_factory or _default_fetcher)(config, budget)
-    log.info("using the kingstone HTTP fetcher; write policy %s", config.write_policy.value)
+    with DatabaseSession(lambda: persistence.connect(database_url)) as session:
+        # The first connection takes the shared migration lock; the schema is checked before anything is fetched.
+        try:
+            missing = persistence.missing_schema_prerequisites(session.conn)
+        except MigrationLockBusy:
+            log.error("maintenance busy: a database migration holds the Catalog lock; nothing was crawled")
+            return EXIT_FAILED
+        except psycopg.Error as exc:
+            log.error("could not connect to the database or check its schema: %s", redact(str(exc)))
+            return EXIT_FAILED
+        if missing:
+            log.error("SCHEMA_PREREQUISITE_MISSING: %s", redact("; ".join(missing)))
+            return EXIT_CONFIG_ERROR
 
-    # The fetcher must be closed however the run ends: normal result, FAILED, or an exception.
-    try:
-        with DatabaseSession(lambda: persistence.connect(database_url)) as session:
+        fetcher = (fetcher_factory or _default_fetcher)(config, budget)
+        log.info("using the kingstone HTTP fetcher; write policy %s", config.write_policy.value)
+
+        # The fetcher must be closed however the run ends: normal result, FAILED, or an exception.
+        try:
             deps = KingstoneRunDependencies(
                 fetcher=fetcher,
                 store=SessionCatalogStore(session),
@@ -135,9 +155,9 @@ def main(
                 write_policy=config.write_policy,
             )
             report = run_pages(deps, page_urls)
-        return report.exit_code
-    finally:
-        fetcher.close()
+        finally:
+            fetcher.close()
+    return report.exit_code
 
 
 if __name__ == "__main__":

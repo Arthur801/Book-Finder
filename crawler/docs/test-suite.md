@@ -179,6 +179,24 @@ python -m pytest tests/test_fetcher.py tests/test_curl_fetcher.py tests/test_pla
 - Then：只有 `<br>` 與區塊邊界產生換行；inline 元素不切行；原始碼換行不算換行；連續空行收為一行；頭尾空行去除；全空白區段回傳 None。Books 的規格文字由既有 Books 解析測試（未改）覆蓋。
 - 來源與狀態：[test_html_text.py](../tests/test_html_text.py)（15 個測試）；Books 端由 `books_crawler/parsers.py` 的既有測試覆蓋。
 
+### CR-T19 — Catalog migration lock（crawler 端，plan v12 §8）
+
+- **責任／規格**：[architecture](architecture.md)「catalog_core/session」與「catalog_core/migration_lock」、[workflow](workflow-diagram.md)「DB session 與 migration lock」；Kingstone plan v12 §8（第 1 點 shared lock 契約：每次初次連線與每次 reconnect 先取 shared，取不到不寫入；第 1 點的 Phase 6 必測）；風險 L3（決定 migration 與寫入是否互斥，寫入是否在 lock 之外發生）；狀態：已有測試（2026-10-25 新增並執行）。
+- **Given**：真 PostgreSQL（`db_url`）；另一條 admin 連線扮演 migration，以 `pg_advisory_lock`／`pg_try_advisory_lock` 持有 exclusive 側（key `CATALOG_MIGRATION_LOCK_KEY = 2026102501`）。crawler 端使用真 `DatabaseSession`、真 `SessionCatalogStore`，只有 fetcher 與 parser 是 fake。反覆斷線以 `pg_terminate_backend` 完成，與 CR-T（連線中斷與重連）相同。
+- **When／Then**：
+  - crawler 連線持有 shared → 另一條連線的 `pg_try_advisory_lock` 為 False（migration 不可開始）；pg_locks 上持有 shared 的 pid 即為 crawler backend。
+  - 連線關閉後 lock 釋放，另一條連線可取得 exclusive。
+  - migration 持有 exclusive → crawler 首次連線拋 `MigrationLockBusy`，連線已關閉，資料表計數（books、book_sources、book_identifiers）不變。
+  - migration 持有 exclusive → kingstone `run_pages` 以真 store 回報 FAILED（error 含 `migration lock busy`），計數不變；Books `run_pages`（pages）與 `run_once`（daily）同樣 FAILED、零寫入。
+  - crawler reconnect（terminate 後 `broken` 再取連線）→ 新 backend 取得 shared（pg_locks 確認），之後 `persist_new_source` 成功。
+  - run 中途連線斷線 → 重連後取得 shared，run 繼續到 SUCCESS，第三張卡的 backend 與斷線前不同、持有 shared。
+  - run 中途斷線，且 migration 在斷線後取得 exclusive → 重連 busy，run FAILED，只保留斷線前已寫入的第一張卡，不寫入第二張卡。
+  - `MigrationLockBusy` 不是 `psycopg.Error`；service 對它不重試，identity、touch、ISBN lookup、persist 四個呼叫點各只呼叫一次就拋出（[test_catalog_service.py](../tests/test_catalog_service.py)）。
+  - session 單元：每個新連線（含 reconnect）都取 lock 一次，已有的健康連線不重取；busy 關閉新連線並拋 `MigrationLockBusy`；busy 的 reconnect 關閉舊與新連線；lock 查詢的 `psycopg.Error` 原樣拋出並關閉連線（[test_session.py](../tests/test_session.py)）。
+  - 常數 `CATALOG_MIGRATION_LOCK_KEY == 2026102501`，`try_acquire_shared` 送出 `pg_try_advisory_lock_shared` 與該 key，回傳結果；`MigrationLockBusy` 不是 `psycopg.Error`（[test_migration_lock.py](../tests/test_migration_lock.py)，純函式）。
+- **已知驗證缺口**：deploy 端的 exclusive 取得、efbundle 掉線中止與 dirty 標記屬 M3，不在本 repo 的 crawler 測試內；跨模組一致性測試（crawler 常數與 `deploy/host/bookfinder_host/` 的常數相等）也由 M3 負責。真 migration（efbundle）與 crawler 的實際並行未驗證；本測試以第二條連線代替 migration。
+- **來源與狀態**：[test_migration_lock_integration.py](../tests/test_migration_lock_integration.py)（真 DB，鎖相關 6 個：crawler 持有 shared、釋放、busy 首次連線、Kingstone run 零寫入、Books pages 與 daily 零寫入；reconnect 3 個；其餘 preflight 案例屬 CR-K12）、[test_migration_lock.py](../tests/test_migration_lock.py)（純函式 3 個）、[test_session.py](../tests/test_session.py)（session 單元 11 個，其中 lock 相關 5 個）、[test_catalog_service.py](../tests/test_catalog_service.py)（busy 不重試 4 個參數化案例）。
+
 ## 狀態限制
 
 沒有明確暫緩的 crawler 核心功能；embedding 是明確不屬此模組，不建立待實作案例。artifact cleanup 是未實作改善提案；產品時間語意需決策。沒有程序取消狀態與取消測試，不推定 finally 可處理 SIGKILL。本次僅靜態文件檢查，所有命令均是日後測試入口。
@@ -283,10 +301,10 @@ migration 011 的 schema 由 test_db_integration.py 在 011 上檢查（無 `sou
 
 ### CR-K09 — 金石堂 CLI（`kingstone.cli`）
 
-- **責任／規格**：[architecture](architecture.md)「入口與組裝」、Kingstone plan v11 §4（清單無效 → exit 2）、§6（不輸出 DB URL）、§7（設定與 exit code）、§9 Phase 5；風險 L3（決定是否發出請求、exit code，以及 DATABASE_URL 是否外洩）；狀態：已有測試（2026-10-25 新增並執行）。離線：fake fetcher、注入的 provider 查詢；DATABASE_URL 是不可連線的假 DSN（密碼 `hunter2`），所有路徑都在碰到資料庫之前結束。
+- **責任／規格**：[architecture](architecture.md)「入口與組裝」、Kingstone plan v11 §4（清單無效 → exit 2）、§6（不輸出 DB URL）、§7（設定與 exit code）、§9 Phase 5；風險 L3（決定是否發出請求、exit code，以及 DATABASE_URL 是否外洩）；狀態：已有測試（2026-10-25 新增並執行）。離線：fake fetcher、注入的 provider 查詢；資料庫 session 與 schema 檢查以替身取代（`stub_database`），不開連線；DATABASE_URL 是假 DSN（密碼 `hunter2`），不得被連線或輸出。
 - **When**：`kingstone.cli.main` 的各種輸入。
 - **Then**：provider 停用或未註冊 → 2，不建 fetcher、不發請求；provider 查詢的 `psycopg.Error` → 1，訊息經 redact；清單為空、只有註解、非法 URL、缺檔、超過 400 筆 → 2，不建 fetcher、不查 provider；DATABASE_URL 未設或空白 → 2，不 log 值；非法設定（秒數非數字、soft ≥ hard、寫入政策非法、attempts 為 0）→ 2，不建 fetcher；不支援的 Unicode runtime → 2；所有頁跳過 → 1；致命錯誤 → 1 且 fetcher 仍被 close；建立 fetcher 之後的每條路徑（全頁跳過、致命錯誤、正常 run）都會 close fetcher；預設 fetcher 以設定值與 `budget.remaining` 建立並為 `KingstoneFetcher`；stdout 含 `kingstone.run` 的 INFO 行，不含 DATABASE_URL 或密碼。正常 run 的 exit 0 與寫入由 CR-K10 以真 DB 驗證。
-- **來源與狀態**：[test_kingstone_cli.py](../tests/test_kingstone_cli.py)（23 個測試，離線）。
+- **來源與狀態**：[test_kingstone_cli.py](../tests/test_kingstone_cli.py)（25 個測試，離線；含 Phase 6 M2 的 preflight 與 busy 兩案）。
 
 ### CR-K10 — 金石堂真 DB 整合（ingestion）
 
@@ -311,6 +329,20 @@ migration 011 的 schema 由 test_db_integration.py 在 011 上檢查（無 `sou
 - **When**：`tests/test_kingstone_image.py` 解析 Dockerfile 的 stage、`.dockerignore` 白名單與 CI docker job。
 - **Then**：存在名為 `kingstone` 的 target，且最後一階（`docker build` 的預設）仍是博客來；`kingstone` target 不含 playwright、chromium，也不安裝 `requirements.txt`（開發依賴，含 playwright）；`requirements-runtime.txt` 不含 playwright；`kingstone` target 複製 `catalog_core/`、`kingstone/`、`kingstone-pages.txt`，不含 `books_crawler`；UID 10001 與 `ENTRYPOINT ["python", "-m"]`、`CMD ["kingstone"]`；博客來預設 target 的 COPY、USER、CMD 不變；`.dockerignore` 允許 `kingstone/` 與 `kingstone-pages.txt`；CI 有 `docker build --target kingstone` 與 `--network none` 離線 smoke，smoke 斷言 `import playwright` 因 `ModuleNotFoundError` 失敗。
 - **來源與狀態**：[test_kingstone_image.py](../tests/test_kingstone_image.py)（7 個測試）。**已知驗證缺口**：本次未在本機 build image（`pip install` 需要網路）；build 與離線 smoke 的實際結果需由 CI docker job 驗證；CD 尚未推送此 image（backlog CB-07）。
+
+### CR-K12 — 金石堂 schema preflight（`SCHEMA_PREREQUISITE_MISSING`，plan v12 §8 第 3 點）
+
+- **責任／規格**：[architecture](architecture.md)「入口與組裝」步驟 (7)、(8) 與 `catalog_core/persistence` 的 `missing_schema_prerequisites`；Kingstone plan v12 §8 第 3 點（唯讀檢查必要欄位與 `source_providers`；失敗為 `SCHEMA_PREREQUISITE_MISSING`，零 HTTP、零 mutation）；風險 L3（決定是否開始寫入）；狀態：已有測試（2026-10-25 新增並執行）。
+- **Given**：真 PostgreSQL（post-011 schema）；破壞 schema 的變更只在 transaction 內執行（以 `rollback` 還原），或在 CLI 測試中以 commit 完成並於 `finally` 還原。
+- **When／Then**：
+  - 正常 DB → 清單為空。
+  - 逐項破壞：`book_sources.last_seen_at`、`external_id`、`source_code` 欄位改名；`book_sources` 加回 `source_type`；刪除 KINGSTONE 列；`ck_book_identifiers_identifier_type` 改為允許 `ISBN_10`；`book_subjects.source_code` 改名；`book_subjects` 加回 `source_type`；`book_subjects`、`book_contributors` 表改名（視為缺表）→ 每一項都在清單中回報，rollback 後恢復為空清單。
+  - CLI：`book_sources.last_seen_at`、`book_subjects.source_code` 改名、`book_subjects` 加回 `source_type`、`book_subjects`／`book_contributors` 缺表 → 各自 exit 2、log 對應項目、fetcher 未建立、`books` 與 `book_sources` 計數為 0。
+  - CLI：schema 缺欄位 → exit 2，log `SCHEMA_PREREQUISITE_MISSING: book_sources.last_seen_at`，fetcher 未建立（`factory_calls == []`），books 計數為 0。
+  - CLI：首次連線 busy → exit 1，log `maintenance busy`，fetcher 未建立，計數為 0。
+  - 單元：CLI 的 preflight 在 fetcher 建立之前執行，缺項時 exit 2 且不建 fetcher；busy 時 exit 1 且不建 fetcher（[test_kingstone_cli.py](../tests/test_kingstone_cli.py)，session 與 schema 檢查以替身取代）。
+- **已知驗證缺口**：`OTHER` 的 identifier type 仍允許（011 保留）；preflight 不檢查 DB 角色的實際 grant（屬部署範圍）。博客來入口未加 preflight（本次只為金石堂，見 [backlog](backlog.md) CB-07）。
+- **來源與狀態**：[test_migration_lock_integration.py](../tests/test_migration_lock_integration.py)（真 DB：正常通過 1 個、逐項破壞 10 個參數化、CLI exit 2 的 5 個參數化與 exit 1 的 1 個，共 17 個）、[test_kingstone_cli.py](../tests/test_kingstone_cli.py)（替身 session，preflight 與 busy 各 1 個單元案例）。
 
 ### CR-T20 — 本地 runner（`deploy/local/`，Phase 6 M4）
 
