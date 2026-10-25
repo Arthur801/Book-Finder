@@ -1,13 +1,17 @@
 # Crawler 優化與 debug 待辦
 
-**版本範圍**：crawler 核心以 `91333c3` 為原始查核基準；host wrapper／deployment coordination 另查核 PR #100 merge target `main` 的 `ce7b4f46c0889db6b10216294cac658136796ad7`（2026-10-24 擷取）。下述 host 流程描述合併後的 target 行為，不表示文件分支內較早的 wrapper 已變更；target 證據使用固定 SHA 連結。未執行 build、測試、部署或真實抓取。
+> 整理日期：2026-10-26；現況基準 `a0decb6d817bbbb094efdbfc9a3eff590679c2b9`。開始時工作樹乾淨；本次僅修改本目錄五份文件並做文件靜態檢查，未執行應用測試、build、migration、部署或真實抓取。先前測試與 canary 紀錄屬歷史證據，未於本次重跑。
 
-> 查核 2026-10-24；核心基準 `91333c3`。
-> backlog 整理（2026-10-25）補記：CB-01、CB-04、CB-05、CB-06 已完成，移至文末「已處理」；CB-03 補記 schema 與 production 狀態。核心來源依原始基準靜態閱讀；host 另依上述 merge-target snapshot；本次未執行 build、測試、部署、外部服務或真實抓取。
+本次未執行重現；程式可見的缺口與先前 production 觀察分開標示。待辦不構成外部操作授權。root `Docs/` 的規格、計畫與實作報告皆為歷史參考；current contract 見 [architecture](architecture.md) 與 [workflow](workflow-diagram.md)。
 
-未執行重現；未宣稱已重現 bug。待辦不構成外部操作授權。
+| 追蹤項目 | 現況與驗收入口 |
+|---|---|
+| CB-02 | Books 診斷保留政策待決策；CR-T11。Kingstone 已有 20 份上限。 |
+| CB-03 | EC2 舊排程啟用前 live 驗證；L4，CR-T12／CR-T13。 |
+| CB-07 | 金石堂與本地 runner 已實作；剩餘 acceptance、operational failure record、CD image 與真實故障測試；CR-K01～CR-K15、CR-T19／CR-T20。 |
+| CB-01／04／05／06 | 已處理，保留文末結案記錄，不重開為待辦。 |
 
-## CB-02 — 診斷產物容量與保留期限
+## CB-02 — Books 診斷產物容量與保留期限
 
 - P2；L2；狀態：改善提案。
 - 證據：[save_failure_diagnostics](../books_crawler/fetcher.py) 每次失敗新增 artifact、沒有清理；[deployment §8](../../Docs/deployment/deployment.md) 明示另管保留，logrotate 只管 host logs。
@@ -20,12 +24,23 @@
 - P1；L4；狀態：待驗證（2026-10-25 整理時 production 仍為 `CRAWLER_ENABLED=false`，博客來封鎖 EC2 IP，見 DEP-B01）。
 - 證據：[deployment §8](../../Docs/deployment/deployment.md) 要求 EC2 手動抓取驗證後才啟用；[test_deploy.py](../tests/test_deploy.py) 是替身測試，不能代表 SSM／IAM／EC2／來源成功。
 - 前置：當前任務 production／真實抓取授權，EF schema（011 已於 v0.0.7 套用）、image 預載（--pull=never）、專用 SSM secret、host 時區與權限。
-- 方向與驗收：依 [部署操作](../deploy/README.md) 留存去識別 status／exit／可解析證據，確認 UTC cron、72 小時狀態與失敗不前移、舊榜保護。另依 [target wrapper](https://github.com/Arthur801/Book-Finder/blob/ce7b4f46c0889db6b10216294cac658136796ad7/crawler/deploy/run-crawler.sh) 與 [target deployment §8](https://github.com/Arthur801/Book-Finder/blob/ce7b4f46c0889db6b10216294cac658136796ad7/Docs/deployment/deployment.md) 查核 host 與 crawler 使用相同 maintenance lock 路徑：先取 shared lock 再讀 state、容器期間持鎖、paused／dirty exit6、wait timeout exit3、無法解析 state exit2、absent state 保留相容行為。CR-T12-B 的現有替身案例只是 source 證據，不能替代此 L4 環境驗證。challenge 阻擋則不啟用；rollback 為停用該 cron 並保留現有榜單，不採規避技術。
+- 方向與驗收：依 [部署操作](../deploy/README.md) 留存去識別 status／exit／可解析證據，確認 UTC cron、72 小時狀態與失敗不前移、舊榜保護。另依 [EC2 wrapper](../deploy/run-crawler.sh) 與 [deployment architecture](../../deploy/docs/architecture.md) 查核 host 與 crawler 使用相同 maintenance lock 路徑：先取 shared lock 再讀 state、容器期間持鎖、paused／dirty exit6、wait timeout exit3、無法解析 state exit2、absent state 保留相容行為。CR-T12-B 的現有替身案例只是 source 證據，不能替代此 L4 環境驗證。challenge 阻擋則不啟用；rollback 為停用該 cron 並保留現有榜單，不採規避技術。
 - 入口：[wrapper](../deploy/run-crawler.sh)；CR-T12、CR-T13。
 
 ## CB-07 — 金石堂分類頁 crawler（v11）
 
-- P2；L3；狀態：E0 完成；Phase 1（共用 `catalog_core`：型別、identity、ISBN、provider 明確的 persistence、單調 touch、item 解析 service，博客來已改走 service）完成（2026-10-25，見 [實作報告](../../Docs/Implementation-Report/kingstone-phase1-core.md)）；Phase 2 完成：清單檔、URL grammar（#134）、列表頁 parser（#135）、詳細頁 parser（#136），見 [實作報告](../../Docs/Implementation-Report/kingstone-phase2-adapter.md)；Phase 3 core acquisition 完成（URL 守門、pacing、retry、budget、回應分類，見 [architecture](architecture.md)「金石堂 adapter」）；計畫 §6 的有限額診斷檔（`KINGSTONE_DIAGNOSTIC_MAX_BYTES`，預設 2 MiB）已於 Phase 6 M5 實作（列表頁與詳細頁的 parse error，見 [architecture](architecture.md)「報告、alert 與診斷」）；Phase 4 完成（run 帳本與逐頁流程；尚無 CLI／DB composition；見 [實作報告](../../Docs/Implementation-Report/kingstone-phase4-run.md)）：設定與 run 帳本（M1：`kingstone/config.py`、`kingstone/ledger.py`，含 terminal status 規則），逐頁 run（M2：`kingstone/run.py`，budget 停止、replay、fatal 範圍與 redact，見 [architecture](architecture.md)「Run（逐頁流程）」）；Phase 5 完成（寫入政策、組裝與 CLI、真 DB 整合）：寫入政策（M1：`catalog_core` 的 `WritePolicy`、`resolve_item(write_policy=)` 與 `ItemPolicySkipped`；金石堂 `KINGSTONE_WRITE_POLICY`，預設原為 `new-books-only`，Phase 7 改為 `normal`；ledger 的 `policy_skipped`，見 [architecture](architecture.md)「Run 帳本與 terminal status」）；組裝與入口（M2：`kingstone/cli.py`、`kingstone/__main__.py`，真 fetcher 與 DB store 的組裝、`budget.remaining` 接線、exit code，見 [architecture](architecture.md)「入口與組裝」）；真 DB 整合（M2：全流程、replay、政策、atomicity、uncertain commit、Bestseller protection，CR-K09、CR-K10）。Phase 6 進行中（M1：清單、上限、image；見 [architecture](architecture.md)「Image」；M2：每個 DB session 的新連線（首次與 reconnect）先取 shared migration lock，取不到不寫入（CR-T19），以及金石堂 schema preflight `SCHEMA_PREREQUISITE_MISSING`（CR-K12，入口 exit 2）；M5：terminal JSON（`last-run.json`）、bounded history、log alert、診斷檔與計數欄位（CR-K13、CR-K14、CR-K15）；M3：deploy 端以存活的 lock session 持有 exclusive lock（#146，見 deploy/docs）；M4：本地 runner，含 writer fencing、watchdog 與 runner 的 ALERT 與 record）；Phase 6 實作完成，CD 推送 `KINGSTONE_CRAWLER_IMAGE` 待後續；Phase 7 進行中（見 [實作報告](../../Docs/Implementation-Report/kingstone-phase7-acceptance.md)）：P1、P2、P5（`new-books-only` 與 `normal` 各一次 1 頁 canary）通過，P3 主要項目已在 canary 中實測（2026-10-25，見下方「Phase 7 進度」）；寫入政策預設已改為 `normal`（使用者決定，#154）；剩 P3 的斷線、signal 實測與完整清單的首次執行。
+- P2；L3；狀態：Phase 1～6 已實作，Phase 7 部分驗證；本次只整理文件，未刷新 live 證據。
+
+| 階段 | 已完成的責任與證據入口 | 剩餘驗證／限制 |
+|---|---|---|
+| E0／Phase 1 | 來源 fixture、provider-neutral core、identity、ISBN、persistence 與 service；[架構](architecture.md)、CR-K01、CR-T16／CR-T17 | E0 觀察不能推論未出現的 challenge。 |
+| Phase 2／3 | 清單、URL grammar、列表／詳細 parser、HTTP acquisition；CR-K02～CR-K05 | challenge fixture、傳輸上限與 TLS reset 分類仍見下方。 |
+| Phase 4／5 | run config／ledger、逐頁 run、寫入政策、CLI 與 DB composition；CR-K06～CR-K10 | 不是「尚無 CLI」；預設政策現為 `normal`，`new-books-only` 仍可選。 |
+| Phase 6 M1～M5 | HTTP-only image、shared advisory lock／schema preflight、deploy exclusive lock、本地 runner、terminal JSON／alert／診斷；CR-K11～CR-K15、CR-T19／CR-T20 | CD 推送獨立 image 待辦；一般 operational failure 尚無 record。deploy 責任見 [部署架構](../../deploy/docs/architecture.md)。 |
+| Phase 7 | P1、P2、P5 與部分 P3 有先前 canary 紀錄，詳見下方「Phase 7 進度」 | 完整清單、tunnel 斷線、signal、hard limit／kill 與真 migration 並行尚待查核。 |
+
+歷史實作報告：[Phase 1](../../Docs/Implementation-Report/kingstone-phase1-core.md)、[Phase 2](../../Docs/Implementation-Report/kingstone-phase2-adapter.md)、[Phase 4](../../Docs/Implementation-Report/kingstone-phase4-run.md)、[Phase 7](../../Docs/Implementation-Report/kingstone-phase7-acceptance.md)。這些是實作／驗證紀錄，不另立 current contract。
+
 - 決定（使用者 2026-10-25）：比照博客來分類榜，由使用者在 `crawler/kingstone-pages.txt` 提供金石堂分類列表頁；每個 URL 只抓那一頁、不跟分頁；不探索分類樹；沒有跨 run 進度狀態檔，靠 replay＋Source identity 推進；`HTTP_ONLY`；請求間隔 3～10 秒。來源契約見下方「CB-07 來源契約」。
 - 證據：[kingstone fixtures](../tests/fixtures/kingstone/README.md)（13 份）與 CR-K01。
 - 待做：Phase 6 的 M1～M5 已完成；CD 推送 `KINGSTONE_CRAWLER_IMAGE` 待後續。Phase 7：acceptance（依 [v12 計畫](../../Docs/plans/kingstone-category-crawler.md) §9、§10）。Phase 1～5 已完成（見上）。
@@ -51,9 +66,9 @@
     - Phase 7 實作報告。
 - Phase 6 M4 之後仍待辦：
   - **EC2 crawler cron 移除（另案）**：目前以 `CRAWLER_ENABLED=false` 停用，cron 仍安裝於 EC2；移除需另行決定與執行。
-  - **P3 真實驗證（待使用者本機執行）**：真實 SSH 轉發與 `ExitOnForwardFailure`、SSM 權限、Docker 的 `--cidfile`、UID 10001 對 artifacts 與 CA mount 的讀寫、`docker stop`／`kill`／`ps` 語意、tunnel 斷線、以及 deploy migration 與 crawler 的互斥（見 v12 §10 P3）。本次只有假指令測試。
-  - **與 migration 的互斥由 crawler 程式與 deploy 負責，不在 runner**：container 內的 crawler 在每次 DB 連線與重連時取 shared advisory lock（`catalog_core.session`，PR #145），deploy 在 migration 期間以存活的 lock session 持有 exclusive lock（PR #146）；runner 本身不取 lock。#145、#146 已合併；deploy 端在下一次 production deploy 後才生效，在此之前本地執行仍須自行避開 CD 部署窗口（[deploy README](../deploy/README.md) §9.5）。
-  - **`deploy/docs` 同步（不在本 PR 改 `deploy/`）**：`deploy/docs/architecture.md`、`workflow-diagram.md` 若仍描述 crawler 在 EC2 執行，需同步 runtime ownership；`deploy/` 的 migration 與 advisory lock 變更屬 deploy 的 M2／M3。
+  - **P3 剩餘真實驗證**：依上方 canary 歷史，SSH／SSM／TLS 與一般 container 收尾已有先前觀察；仍須驗證 tunnel 斷線、signal、hard limit／kill、paused 容器，以及 deploy migration 與 crawler 並行互斥。CR-T19／CR-T20 是測試來源，本次沒有執行或刷新 live 證據。
+  - **與 migration 的互斥由 crawler 程式與 deploy 負責，不在 runner**：container 內的 crawler 在每次 DB 連線與重連時取 shared advisory lock（`catalog_core.session`，PR #145），deploy 在 migration 期間以存活的 lock session 持有 exclusive lock（PR #146）；runner 本身不取 lock。#145、#146 已合併；deploy 端是否已在 production 生效需核對實際 release；未確認前仍須自行避開 CD 部署窗口（[deploy README](../deploy/README.md) §9.5）。
+  - **`deploy/docs` 邊界（本次不修改）**：部署架構已描述本地 crawler 的 DB shared lock 與 deploy exclusive lock；其他跨模組文件若仍殘留舊 runtime ownership，另案查核，不把它當成 crawler lock 未實作。
   - **博客來 hard limit 3600 秒未量測**：`BOOKS_RUN_HARD_LIMIT_SECONDS` 預設值取自計畫表的「原 3600」；博客來 daily 與 pages 的實際耗時未驗證，P3 時應確認不會被 watchdog 誤殺。
   - ~~runner 端 orphan alert，以及 hard limit、signal 的 `ALERT` 與 terminal record~~：已於 #148 完成（容器外 lifecycle failure；見 [deploy README](../deploy/README.md) §9.4.1）。容器內結果仍由 crawler 的 last-run JSON 與 ALERT 負責（#147）。
   - **runner 的一般 operational failure 沒有 ALERT 與 terminal record（待修正，PR #148 review）**：目前只有容器 lifecycle failure（13、14、20、21、22）會經 `record_terminal`；下列 exit 只走 `fail`（stderr 後直接 exit），沒有 `ALERT` 行、stdout terminal JSON，也沒有 `artifacts/runner/<mode>-last-run.json`，不符 v12 observability contract「每次 run 有 terminal JSON；FAILED 觸發 ALERT」。AWS profile 過期、SSH 主機暫時連不上、Docker daemon 未啟動都是本地 runner 的常見情況。
@@ -81,29 +96,29 @@
   - 詳細頁在 budget 停止時被截斷的卡，以 `budget_exhausted` 記入 `failed_items`（統計上算失敗，下次 replay 會處理）；是否改為不計入失敗另定。
 - Phase 3 留下的待辦：
   - challenge／CAPTCHA 分類待 fixture：目前 200 照常回傳，由 parser fail closed，落在 `unclassified_200` alert（保守告警，Phase 6 M5 後續）；收錄 fixture 後把可辨識的部分細分為 `challenge`，其餘維持 `unclassified_200`。
-  - `budget_remaining` 由 Phase 4 run 以 `SoftBudget` 提供（caller 組裝時傳入 `budget.remaining`）；Phase 3 預設 `math.inf`（不限制）。真 fetcher 的組裝已於 Phase 5 M2 完成（`kingstone/cli.py`）；真站上的 budget 行為仍未驗證（禁止連網）。
-  - libcurl 傳輸中的大小上限（`MAXFILESIZE_LARGE`）未以真實傳輸驗證：開發環境禁止連網，單元測試只驗證選項有傳入與 `FILESIZE_EXCEEDED`（63）的對應。目前保證 5 MiB 記憶體上限的是 per-call 串流計量（第二道）；第一道是額外保護。
+  - `budget_remaining` 由 Phase 4 run 以 `SoftBudget` 提供（caller 組裝時傳入 `budget.remaining`）；Phase 3 預設 `math.inf`（不限制）。真 fetcher 的組裝已於 Phase 5 M2 完成（`kingstone/cli.py`）；真站上的 budget 行為仍未驗證（本次未連網）。
+  - libcurl 傳輸中的大小上限（`MAXFILESIZE_LARGE`）未以真實傳輸驗證：開發環境本次未連網，單元測試只驗證選項有傳入與 `FILESIZE_EXCEEDED`（63）的對應。目前保證 5 MiB 記憶體上限的是 per-call 串流計量（第二道）；第一道是額外保護。
   - TLS 握手中被 reset 若以 curl `RECV_ERROR` 回報，會歸為 `ConnectionError` 並被重試；計畫把 TLS 失敗列為不重試，此分支沒有測試，也未經真站確認。
   - 最後一次嘗試的 Retry-After 不讀，失敗記為 `HTTP_STATUS`；原因分類可能失真（伺服器的意圖是要求等待），目前保留，之後若要區分需另定錯誤類別。
 - Phase 5 留下的待辦（M2）：
-  - 真站（金石堂網站）的端到端未驗證：所有 HTTP 都是 fake；真站抓取需要當前任務的明確授權。
+  - 真站端到端：單頁 canary 已有上方歷史紀錄；完整清單與故障路徑尚待驗證，新的真站抓取需要當前任務授權。
   - 必要 DB 測試的 skip 風險：既有 `conftest.py` 在缺 dotnet SDK 時 skip EF schema 測試（Books 既有行為，未改）。本次執行 Kingstone DB 測試 19 個全部執行。
-  - DB 角色權限：程式只發出 SELECT、INSERT、UPDATE；實際 role 的 grant 屬部署（Phase 6），未驗證。
-  - hard limit 強制執行與 runner 屬 Phase 6（見上方待做）。Dockerfile 已於 Phase 6 M1 完成；alert 與診斷檔已於 Phase 6 M5 完成。
+  - DB 角色權限：P2 已有先前查核紀錄（見上）；新 migration 後仍需核對 GRANT，本次未刷新 production 權限。
+  - hard limit 強制執行與 runner 已於 Phase 6 實作；真實中止驗證仍見 P3。Dockerfile 已於 Phase 6 M1 完成；alert 與診斷檔已於 Phase 6 M5 完成。
 - Phase 6 M5 留下的待辦：
   - challenge／CAPTCHA 偵測未實作：acquisition 回 200，parser fail closed，無法與其他無法解析的頁區分。**已以 `unclassified_200` 保守告警**（任何 200 之後的 parse 失敗，不論 status，含列表頁與詳細頁；soft 404 不算）；待收錄 challenge fixture 後，再把其中可辨識的部分細分為 `challenge`，其餘維持 `unclassified_200`。不做猜測性偵測，不以 HTML 猜測 challenge。
-  - runner 端的 orphan alert（`ORPHAN_WRITER`）屬 Phase 6 M4；runner 也要把 artifacts 目錄掛入 container（目前程式只使用 `KINGSTONE_ARTIFACTS_DIR`）。
+  - runner 端 orphan alert 與 artifacts bind mount 已於 Phase 6 M4 完成；一般 operational failure 的 record 缺口仍見上方待辦。
   - `pages_not_reached` streak：history 有壞檔時不判定 streak（少報）；壞檔會留到被 20 份上限擠掉為止，期間 streak alert 不會觸發，需要人工刪除壞檔才恢復。
   - 「provider 停用或未註冊」的 pre-run 結果以 `failed` alert 表達（status FAILED，exit 2）。這是實作決定，若只想對執行失敗告警需另定。
   - `items_listed` 是解析去重後的卡片數（同頁重複的 km_code 只計一次），與計畫 §8「items listed」的字面定義一致，但不等於頁面上可見的卡片總數。
 - Phase 6 M1 留下的待辦：
   - CD 尚未推送 `KINGSTONE_CRAWLER_IMAGE` 與 release metadata：`cd.yml` 仍以 `docker build crawler/`（預設 target＝博客來）建置；待後續另案。
-  - Kingstone image 在本機未 build（`pip install` 需網路）；build 與離線 smoke 以 CI docker job 為準，實際結果待確認。
-  - 清單內容由使用者提供；金石堂真站對這 328 頁的可達性與 image 內的實際抓取未驗證（禁止連網）。
+  - CI／release image 的 build 與 smoke 結果待依實際 run 查核；先前 canary 使用的暫時 image 不等同 CD image 發布完成。
+  - 清單內容由使用者提供；完整清單的可達性仍未驗證；單頁 canary 紀錄不能推論所有頁成功。清單長度以實際檔案為準，不把歷史 328 筆當固定 contract。
 
 ### CB-07 來源契約（E0 凍結）
 
-> 2026-10-25 E0 凍結的來源契約。已實作的部分（清單檔、URL grammar、列表頁與詳細頁 parser、acquisition）以 [architecture](architecture.md)「金石堂 adapter」為現行 authority，本節對應段落只留指標；尚未實作的 run、ingestion、runner 仍依本節契約。實作計畫見 [kingstone-category-crawler.md](../../Docs/plans/kingstone-category-crawler.md)（v11）；之後每實作一部分，就依實際行為移入 architecture／workflow-diagram。
+> E0 來源觀察與決策的歷史快照。清單、URL grammar、parser、acquisition、run、ingestion 與 runner 皆已實作；current contract 由 [architecture](architecture.md) 與 [workflow](workflow-diagram.md) 持有，本節不能把已完成工作重列為 planned behavior。實作計畫見 [kingstone-category-crawler.md](../../Docs/plans/kingstone-category-crawler.md)（v11）；之後每實作一部分，就依實際行為移入 architecture／workflow-diagram。
 > 證據：使用者授權的有限真站抓取，2026-10-25 03:39–03:55 UTC，31 次循序請求（curl_cffi Chrome、不跟隨 redirect、3～30 秒隨機等待），沒有 429、challenge、Retry-After 或登入頁。原始回應在 `crawler/artifacts/kingstone-e0/`（不 commit）；fixture 見 [kingstone fixtures](../tests/fixtures/kingstone/README.md)。
 
 **範圍**（使用者 2026-10-25 決定）：比照博客來分類榜。使用者在清單提供金石堂分類列表頁，crawler 只抓清單上每一頁列出的書；不探索分類樹、不跟分頁、沒有跨 run 進度狀態檔。
