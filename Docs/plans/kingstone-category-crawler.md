@@ -215,7 +215,7 @@ Production 保持 disabled，全部通過才 activation：
 - **P2**：crawler 使用的 DB 帳號只有必要 Catalog read/write、無 DDL 權限。由主 agent 提供唯讀 SQL，使用者經 tunnel 以 crawler 帳號執行並回貼結果（使用者決定）。**2026-10-25 通過**：原本 crawler 連線使用 RDS 主帳號 `bookfinder_admin`（`rds_superuser`、擁有所有表），改建專用帳號 `bookfinder_crawler`（7 張表的最小權限、連線上限 5、無 DDL、不擁有物件），SSM 參數改為此帳號；SQL 見 `crawler/deploy/local/sql/`。RDS 版本 17.11。
 - **P3**：本地 host 驗證 UID／mounts／Docker limits／watchdog／fencing／tunnel 斷線行為，以及 deploy migration 與 crawler 的 advisory lock 互斥。
 - ~~P4~~：v12 取消（alert 只寫 log，不需外部送達）。
-- **P5**：使用者已授權真站抓取；controlled enable KINGSTONE，以 `new-books-only` 手動 canary，清單**只放 1 頁**；需實際 new Source、無 duplicate／Bestseller／deploy 異常。再 controlled `normal`，使用合適資料驗證 exact-one ISBN attach／NULL enrichment；全部 skip 不算 promotion 證據。**2026-10-25：`new-books-only` 1 頁 canary 通過**（`imported=39`、`policy_skipped=9`、0 失敗；production 核對無重複、博客來與 Bestseller 未變動；結果見 `crawler/docs/backlog.md` CB-07「Phase 7 進度」）；`normal` 尚未執行。本地執行不佔 EC2 的 run.lock，但仍不得與 deploy migration 重疊（advisory lock 保證）。金石堂若封鎖本地 IP，依 rollback 停用、不採規避技術。
+- **P5**：使用者已授權真站抓取；controlled enable KINGSTONE，以 `new-books-only` 手動 canary，清單**只放 1 頁**；需實際 new Source、無 duplicate／Bestseller／deploy 異常。再 controlled `normal`，使用合適資料驗證 exact-one ISBN attach／NULL enrichment；全部 skip 不算 promotion 證據。**2026-10-25：`new-books-only` 1 頁 canary 通過**（`imported=39`、`policy_skipped=9`、0 失敗；production 核對無重複、博客來與 Bestseller 未變動；結果見 `crawler/docs/backlog.md` CB-07「Phase 7 進度」）；**`normal` 1 頁通過**（`isbn_attached=9`、`existing_source=39`、0 失敗；9 本原本欄位齊全，NULL enrichment 未在真實資料觸發）。本地執行不佔 EC2 的 run.lock，但仍不得與 deploy migration 重疊（advisory lock 保證）。金石堂若封鎖本地 IP，依 rollback 停用、不採規避技術。
 
 不加排程（使用者決定）：canary 與之後的 run 都由使用者手動執行；排程另行討論。
 
