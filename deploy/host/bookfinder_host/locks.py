@@ -14,6 +14,12 @@ from bookfinder_host.ports import Clock
 
 POLL_INTERVAL_S = 0.05
 
+# The database advisory lock that serialises the catalog migration against the crawler (plan v12 §8, item 1).
+# Must equal the key in crawler/catalog_core/migration_lock.py (the crawler takes it shared; the deploy's lock holder
+# takes it exclusive for the whole forward migration). The deploy side is pinned by a test; the cross-module check
+# is added when the crawler side lands.
+CATALOG_MIGRATION_LOCK_KEY = 2026102501
+
 
 class LockTimeout(Exception):
     """The lock stayed busy until the deadline."""

@@ -292,6 +292,31 @@
 | DEP-LOCK-02 | 逾時設為 NaN、0 或負數 | 設定 | 拒絕 | `test_config.py::test_rejects_lock_timeout_that_is_not_a_finite_positive_number` 與 `test_locks.py::test_rejects_non_finite_or_non_positive_timeout` | 已有測試但本次未執行（M） |
 | DEP-LOCK-03 | 鎖檔為符號連結 | 取得 | 拒絕 | `host/test_locks.py::test_lock_file_symlink_is_refused` | 已有測試但本次未執行（M） |
 
+### 3.14a DB migration lock（類別 M，`host/test_machine.py`、`host/test_adapters.py`、`host/test_locks.py`）
+
+以 fake lock holder、fake efbundle 容器與可控時間驗證 forward migration 的 DB advisory lock（plan v12 §8、Phase 6 必測的 deploy 兩項）。psql 與 docker 不被啟動；真實行為只能由 3.10 的整合測試與營運驗證。
+
+| ID | Given | When | Then | 測試位置 | 狀態 |
+|---|---|---|---|---|---|
+| DEP-MIGLOCK-01 | crawler 持有 shared，lock 取得逾時 | forward deploy | drift；efbundle 與 aws 從未呼叫；crawler 恢復（paused 清除）；lock 從未取得故無 release | `test_machine.py::test_crawler_holding_the_lock_shared_stops_the_migration_before_any_efbundle_run` | 本次新增（M） |
+| DEP-MIGLOCK-02 | lock session 在 efbundle 執行中掉線（第 3 次 heartbeat 無回應） | forward deploy | efbundle 收到 SIGTERM、不重試；`failed-migration`；dirty 與 paused 保留；最後一個 lock 事件是 release；未呼叫 compose | `test_machine.py::test_lock_session_lost_during_efbundle_terminates_it_and_fails_closed_without_retry` | 本次新增（M） |
+| DEP-MIGLOCK-03 | efbundle 忽略 SIGTERM | lock 掉線 | 30 秒寬限後 SIGKILL；journal 記錄 `killed after the grace period` | `test_machine.py::test_efbundle_that_ignores_sigterm_is_killed_after_the_grace_period` | 本次新增（M） |
+| DEP-MIGLOCK-04 | efbundle 超過 3600 秒 | forward deploy | 依 lock 掉線的同一路徑停止，`failed-migration` | `test_machine.py::test_efbundle_that_runs_past_the_time_bound_is_stopped_as_a_failed_migration` | 本次新增（M） |
+| DEP-MIGLOCK-05 | 正常 forward | deploy | 順序為 lock 取得、snapshot、efbundle、lock 釋放、switch；efbundle 期間有 heartbeat；鎖與 `db-maintenance.lock` 都已釋放後才 switch | `test_machine.py::test_success_takes_the_lock_before_the_snapshot_heartbeats_while_efbundle_runs_and_releases_before_the_switch` | 本次新增（M） |
+| DEP-MIGLOCK-06 | snapshot 失敗 | forward deploy | lock 釋放、crawler 恢復、未啟動 efbundle | `test_machine.py::test_snapshot_failure_releases_the_lock_and_resumes_the_crawler_without_efbundle` | 本次新增（M） |
+| DEP-MIGLOCK-07 | efbundle 結束碼非 0 | forward deploy | lock 釋放；dirty 與 paused 保留 | `test_machine.py::test_efbundle_failure_releases_the_lock_and_keeps_dirty_and_paused` | 本次新增（M） |
+| DEP-MIGLOCK-08 | efbundle 無法啟動（`EffectFailed`） | forward deploy | `failed-migration`；lock 釋放 | `test_machine.py::test_efbundle_that_cannot_start_is_a_failed_migration_and_releases_the_lock` | 本次新增（M） |
+| DEP-MIGLOCK-09 | lock 釋放失敗 | 成功或失敗的 forward | 結果不變；journal 記錄 `migration lock release failed` | `test_machine.py::test_a_failed_lock_release_is_recorded_and_never_changes_a_success` 與 `…::test_a_failed_lock_release_never_changes_a_failed_migration` | 本次新增（M） |
+| DEP-MIGLOCK-10 | 連線字串已含 `Options=` | forward deploy | exit 2，`rejected`，任何變更前拒絕（無 pause、無 lock、無 aws）；錯誤訊息不含值 | `test_machine.py::test_a_connection_string_that_already_sets_options_refuses_the_migration_before_any_change` | 本次新增（M） |
+| DEP-MIGLOCK-11 | in-sync deploy | deploy | 不取 lock；不寫 efbundle 檔 | `test_machine.py::test_an_in_sync_deploy_writes_no_efbundle_file_and_takes_no_lock` | 本次新增（M） |
+| DEP-MIGLOCK-12 | efbundle 與 web 的 env file | 寫入 | efbundle 的檔案含 `Options=-c client_connection_check_interval=10000`；web 的檔案不含 | `test_machine.py::test_migration_connection_goes_to_efbundle_and_the_web_file_stays_on_the_web_connection`、`…::test_without_the_migration_key_efbundle_gets_the_web_connection_with_the_check_interval` | 已更新（M） |
+| DEP-MIGLOCK-13 | lock holder 的 psql 指令 | 組出 | argv 為固定的 docker 指令，URL 只在 env（`DATABASE_URL`）；URL 含 keepalive 參數，已有 `?` 時以 `&` 連接 | `test_adapters.py::test_lock_session_runs_psql_from_the_pinned_image_with_the_url_only_in_the_environment`、`…::test_lock_url_gets_keepalive_options_after_an_existing_query_string_with_ampersand` | 本次新增（M） |
+| DEP-MIGLOCK-14 | lock 取得 | acquire | 先設 `lock_timeout`，再 `pg_advisory_lock(key)`；未確認即失敗時移除 session 與容器（`docker rm -f`）；錯誤不含 URL，stderr 的密碼遮蔽 | `test_adapters.py::test_lock_session_sends_a_server_side_lock_timeout_and_the_exclusive_advisory_lock`、`…::test_lock_not_taken_within_the_timeout_removes_the_session_and_its_container`、`…::test_lock_failure_message_keeps_the_stderr_tail_with_the_password_masked` | 本次新增（M） |
+| DEP-MIGLOCK-15 | heartbeat | 有 `1` 的回應、無回應、或結果不符 | 前者通過，後兩者為 lost session | `test_adapters.py::test_heartbeat_*`（3 案） | 本次新增（M） |
+| DEP-MIGLOCK-16 | release | 有活著的 session、或 session 已死 | 送 `pg_advisory_unlock_all()`、關閉、移除容器；第二次 release 為 no-op；session 已死時仍清除狀態 | `test_adapters.py::test_release_*` 與 `…::test_release_after_the_session_died_still_clears_the_holder` | 本次新增（M） |
+| DEP-MIGLOCK-17 | efbundle 子程序 | 啟動、結束、被停止 | 退出碼與輸出可讀；停止以容器名稱 `docker kill`；輸出只保留尾端 | `test_adapters.py::test_efbundle_child_reports_exit_code_and_output_and_is_stopped_by_name`、`…::test_efbundle_output_keeps_only_the_tail_of_a_chatty_migration` | 本次新增（M） |
+| DEP-MIGLOCK-18 | lock key 常數 | 讀取 | 等於 `2026102501` | `host/test_locks.py::test_catalog_migration_lock_key_is_the_agreed_value` | 本次新增（M）；跨模組比對待 M2 合併後加入（backlog DEP-B22） |
+
 ### 3.15 CD 腳本（類別 M，`.github/scripts/tests/test_cd_release.py`）
 
 | ID | Given | When | Then | 測試位置 | 狀態 |

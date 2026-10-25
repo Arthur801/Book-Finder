@@ -66,6 +66,7 @@ git log --reverse --no-merges --format='@@%h' --numstat -- <同上路徑>
 
 | 日期 | SHA | 主旨 | 影響檔案（+/-） | diff 摘要 |
 |---|---|---|---|---|
+| 2026-10-25 | 本次 commit | `feat(deploy): hold the catalog migration lock for the whole migration and abort on its loss` | `host/bookfinder_host/adapters.py`（+317/-11）、`machine.py`（+120/-11）、`ports.py`（+49/-7）、`testing.py`（+97/-2）、`locks.py`（+6）、`tests/host/test_adapters.py`（+275/-23）、`test_machine.py`（+156/-6）、`test_locks.py`（+6）、`README.md`（+12/-5）、`docs/*`（architecture、workflow-diagram、test-suite、backlog） | forward migration 在 efbundle 前取得 DB advisory lock（`pg_advisory_lock(2026102501)`，exclusive，專用 psql session，60 秒逾時）；efbundle 期間每 5 秒 heartbeat，掉線即 SIGTERM→30 秒→SIGKILL，`failed-migration`，不重試；任何路徑釋放 lock；efbundle 的 env file 一律獨立（forward）並附加 `client_connection_check_interval`；連線字串已含 `Options=` 則 forward 拒絕（exit 2）。既有的 `db-maintenance.lock` 保留。 |
 | 2026-10-13 | `082cd80` | Deploy crawler with docker | `crawler/deploy/README.md`（+146）、`crawler.conf.example`（+5）、`crawler.cron`（+7）、`crawler.logrotate`（+9）、`run-crawler.sh`（+73） | 建立 host 端的 crawler 部署檔案：cron 排程、logrotate、設定範例，以及第一版 `run-crawler.sh`（`daily`、`pages` 模式） |
 
 ### 3.2 整體 CI 與版本同步（2026-10-23，CI 通用，與部署相關的部分）

@@ -445,7 +445,8 @@ def test_forward_success_orders_pause_snapshot_dirty_efbundle_and_releases_the_l
     assert snapshots["paused_at_snapshot"] is True and snapshots["dirty_at_snapshot"] is False
     assert snapshots["dirty_at_efbundle"] is True and snapshots["paused_at_efbundle"] is True
     assert snapshots["env_mode"] == 0o600
-    assert snapshots["env_lines"] == ["ConnectionStrings__DefaultConnection", "OPENAIAPI_KEY", "Jwt__SigningKey"]
+    # efbundle reads its own file: only the connection string, with the check-interval option (the web file keeps all three).
+    assert snapshots["env_lines"] == ["ConnectionStrings__DefaultConnection"]
     assert snapshots["lock_free_at_up"] is True  # the maintenance lock was released before the switch
     assert snapshots["dirty_at_up"] is False and snapshots["applied_at_up"] == [ID1, ID2]
 
@@ -1168,6 +1169,8 @@ def test_more_than_one_web_container_is_noted_instead_of_guessing_which_one_to_r
 MIGRATION_PARAMETER = "/book-finder/prod/migration-connection"
 MIGRATION_VALUE = "Host=db.internal;Database=book_finder;Username=owner;Password=pw-MIG-1"
 MIGRATE_LINE = "ConnectionStrings__DefaultConnection=" + MIGRATION_VALUE + "\n"
+# efbundle's file: the same connection string plus the check-interval option (plan v12 §8: a killed efbundle must not leave a server statement running).
+MIGRATE_LINE_WITH_OPTION = "ConnectionStrings__DefaultConnection=" + MIGRATION_VALUE + ";Options=-c client_connection_check_interval=10000\n"
 
 
 def migrate_env_path(world, run_id=RUN_ID) -> Path:
@@ -1196,7 +1199,7 @@ def test_migration_connection_goes_to_efbundle_and_the_web_file_stays_on_the_web
     code, _out, err = world.run_unit(deploy_text(world, chain="forward", tag=TAG2))
     assert code == OK, err
     assert world.fx.docker.env_files_seen == [str(migrate_env_path(world))]
-    assert seen["efbundle_file"] == MIGRATE_LINE
+    assert seen["efbundle_file"] == MIGRATE_LINE_WITH_OPTION
     assert seen["efbundle_mode"] == 0o600
     assert seen["web_file_during_efbundle"].startswith(f"ConnectionStrings__DefaultConnection={web_value}\n")
     assert MIGRATION_VALUE not in seen["web_file_during_efbundle"] and "pw-MIG-1" not in seen["web_file_during_efbundle"]
@@ -1217,12 +1220,15 @@ def test_migration_connection_files_are_removed_when_the_migration_fails(tmp_pat
     assert "pw-MIG-1" not in err and MIGRATION_VALUE not in err
 
 
-def test_without_the_migration_key_efbundle_uses_the_web_file_as_before(tmp_path):
+def test_without_the_migration_key_efbundle_gets_the_web_connection_with_the_check_interval(tmp_path):
     world = forward_world(tmp_path)
+    seen = {}
+    world.fx.docker.efbundle_hook = lambda reference, env_file: seen.update(text=Path(env_file).read_text(encoding="utf-8"))
     assert world.run_unit(deploy_text(world, chain="forward", tag=TAG2))[0] == OK
-    assert world.fx.docker.env_files_seen == [str(env_path(world))]
-    assert not any("migrate-" in t for t in world.fx.trace)
-    assert not migrate_env_path(world).exists()
+    # efbundle still reads the web connection (no migration key), but from its own file, which alone carries the option.
+    assert world.fx.docker.env_files_seen == [str(migrate_env_path(world))]
+    assert seen["text"] == "ConnectionStrings__DefaultConnection=secret-for-" + world.settings.ssm_db_connection.strip("/").replace("/", "-") + LOCK_OPTION + "\n"
+    assert not migrate_env_path(world).exists() and not env_path(world).exists()
 
 
 def test_migration_connection_read_failure_is_drift_and_changes_nothing(tmp_path):
@@ -1314,3 +1320,147 @@ def test_masking_still_covers_the_migration_secret_after_a_rollback(tmp_path):
     history = Path(world.settings.history_file).read_text()
     for text in (out, err, history):
         assert MIGRATION_VALUE not in text and "pw-MIG-1" not in text
+
+
+# Migration lock (plan v12 §8, item 1): the DB advisory lock is held for the whole forward migration.
+
+LOCK_OPTION = ";Options=-c client_connection_check_interval=10000"
+
+
+def lock_events(world) -> list[str]:
+    return [t for t in world.fx.trace if t.startswith("lock.")]
+
+
+def test_crawler_holding_the_lock_shared_stops_the_migration_before_any_efbundle_run(tmp_path):
+    world = forward_world(tmp_path)
+    world.fx.lock_holder.acquire_error = "lock wait timed out"
+    code, _out, err = world.run_unit(deploy_text(world, chain="forward", tag=TAG2))
+    assert code == DRIFT, err
+    assert "crawler run may hold it shared" in err
+    assert not any(t.startswith(("docker.efbundle", "aws.")) for t in world.fx.trace)
+    assert world.fx.lock_holder.acquired == [(2026102501, 60.0)]
+    assert "lock.release" not in world.fx.trace  # never taken, so nothing to release
+    state = world.load_state()
+    assert state.crawler.paused is None and state.schema.dirty is False  # the crawler was resumed
+    assert [e["result"] for e in completed_records(world)] == ["drift"]
+
+
+def test_lock_session_lost_during_efbundle_terminates_it_and_fails_closed_without_retry(tmp_path):
+    world = forward_world(tmp_path)
+    world.fx.docker.efbundle_polls = 50
+    world.fx.lock_holder.heartbeats_ok = 2  # the third heartbeat gets no reply
+    code, _out, err = world.run_unit(deploy_text(world, chain="forward", tag=TAG2))
+    assert code == FAILED_MIGRATION, err
+    assert "lock session lost" in err and "no automatic retry" in err
+    child = world.fx.docker.children[0]
+    assert child.terminated and not child.killed
+    assert sum(1 for t in world.fx.trace if t.startswith("docker.efbundle")) == 1  # never retried
+    assert not any(t.startswith("compose.") for t in world.fx.trace)  # the switch never started
+    state = world.load_state()
+    assert state.schema.dirty is True and state.crawler.paused is not None
+    assert lock_events(world)[-1] == "lock.release"
+    assert [e["result"] for e in completed_records(world)] == ["failed-migration"]
+
+
+def test_efbundle_that_ignores_sigterm_is_killed_after_the_grace_period(tmp_path):
+    world = forward_world(tmp_path)
+    world.fx.docker.efbundle_polls = 50
+    world.fx.docker.efbundle_ignores_term = True
+    world.fx.lock_holder.heartbeats_ok = 1
+    code, _out, err = world.run_unit(deploy_text(world, chain="forward", tag=TAG2))
+    assert code == FAILED_MIGRATION, err
+    child = world.fx.docker.children[0]
+    assert child.terminated and child.killed
+    assert "killed after the grace period" in err
+    assert world.load_state().schema.dirty is True
+
+
+def test_efbundle_that_runs_past_the_time_bound_is_stopped_as_a_failed_migration(tmp_path):
+    world = forward_world(tmp_path)
+    world.fx.docker.efbundle_polls = 10**9
+    code, _out, err = world.run_unit(deploy_text(world, chain="forward", tag=TAG2))
+    assert code == FAILED_MIGRATION, err
+    assert "did not finish within 3600 s" in err
+    assert world.fx.docker.children[0].terminated
+    assert lock_events(world)[-1] == "lock.release"
+
+
+def test_success_takes_the_lock_before_the_snapshot_heartbeats_while_efbundle_runs_and_releases_before_the_switch(tmp_path):
+    world = forward_world(tmp_path)
+    world.fx.docker.efbundle_polls = 3
+    code, _out, err = world.run_unit(deploy_text(world, chain="forward", tag=TAG2))
+    assert code == OK, err
+    trace = world.fx.trace
+    acquire = index_of(trace, "lock.acquire")
+    create = index_of(trace, "aws.create")
+    efbundle = index_of(trace, "docker.efbundle")
+    release = index_of(trace, "lock.release")
+    up = index_of(trace, "compose.up")
+    assert acquire < create < efbundle < release < up
+    assert world.fx.lock_holder.heartbeat_calls >= 2
+    assert world.fx.lock_holder.acquired == [(2026102501, 60.0)]
+    assert [e["result"] for e in completed_records(world)] == ["success"]
+
+
+def test_snapshot_failure_releases_the_lock_and_resumes_the_crawler_without_efbundle(tmp_path):
+    world = forward_world(tmp_path)
+    world.fx.aws.create_error = "snapshot refused"
+    code, _out, err = world.run_unit(deploy_text(world, chain="forward", tag=TAG2))
+    assert code == DRIFT, err
+    assert lock_events(world)[-1] == "lock.release"
+    assert not any(t.startswith("docker.efbundle") for t in world.fx.trace)
+    assert world.load_state().crawler.paused is None
+
+
+def test_efbundle_failure_releases_the_lock_and_keeps_dirty_and_paused(tmp_path):
+    world = forward_world(tmp_path)
+    world.fx.docker.efbundle_rc = 1
+    code, _out, err = world.run_unit(deploy_text(world, chain="forward", tag=TAG2))
+    assert code == FAILED_MIGRATION, err
+    assert lock_events(world)[-1] == "lock.release"
+    state = world.load_state()
+    assert state.schema.dirty is True and state.crawler.paused is not None
+
+
+def test_efbundle_that_cannot_start_is_a_failed_migration_and_releases_the_lock(tmp_path):
+    world = forward_world(tmp_path)
+    world.fx.docker.efbundle_raises = EffectFailed("docker run failed")
+    code, _out, err = world.run_unit(deploy_text(world, chain="forward", tag=TAG2))
+    assert code == FAILED_MIGRATION, err
+    assert lock_events(world)[-1] == "lock.release"
+
+
+def test_a_failed_lock_release_is_recorded_and_never_changes_a_success(tmp_path):
+    world = forward_world(tmp_path)
+    world.fx.lock_holder.release_error = "release failed: session busy"
+    code, _out, err = world.run_unit(deploy_text(world, chain="forward", tag=TAG2))
+    assert code == OK, err
+    assert "migration lock release failed" in err
+
+
+def test_a_failed_lock_release_never_changes_a_failed_migration(tmp_path):
+    world = forward_world(tmp_path)
+    world.fx.docker.efbundle_rc = 1
+    world.fx.lock_holder.release_error = "release failed"
+    code, _out, err = world.run_unit(deploy_text(world, chain="forward", tag=TAG2))
+    assert code == FAILED_MIGRATION, err
+    assert "migration lock release failed" in err
+
+
+def test_a_connection_string_that_already_sets_options_refuses_the_migration_before_any_change(tmp_path):
+    world = forward_world(tmp_path)
+    world.fx.ssm.values[world.settings.ssm_db_connection] = "Host=db.internal;Options=-c search_path=public;Password=pw-OPT-9"
+    code, _out, err = world.run_unit(deploy_text(world, chain="forward", tag=TAG2))
+    assert code == BAD_INPUT, err
+    assert "already sets Options" in err
+    assert "pw-OPT-9" not in err
+    assert not any(t.startswith(("lock.", "aws.", "docker.efbundle")) for t in world.fx.trace)
+    state = world.load_state()
+    assert state.crawler.paused is None and state.schema.dirty is False
+
+
+def test_an_in_sync_deploy_writes_no_efbundle_file_and_takes_no_lock(tmp_path):
+    world = in_sync_world(tmp_path)
+    assert world.run(deploy_text(world)) == OK
+    assert lock_events(world) == []
+    assert not any("migrate-" in t for t in world.fx.trace)

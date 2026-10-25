@@ -48,8 +48,8 @@ class Docker(Protocol):
     def extract_release(self, reference: str, dest: Path) -> None:
         """Copies /opt/release out of the image into dest, which must not exist yet."""
 
-    def run_efbundle(self, reference: str, env_file: str) -> tuple[int, str]:
-        """Returns (exit code, stdout and stderr of the migration container)."""
+    def start_efbundle(self, reference: str, env_file: str) -> "Child":
+        """Starts the migration container without waiting; the caller polls the handle and stops it on lock loss."""
 
     def smoke_crawler(self, reference: str) -> int:
         """Returns the exit code of the crawler import smoke test (no network)."""
@@ -59,6 +59,42 @@ class Docker(Protocol):
 
     def logs(self, container: str, tail: int) -> str:
         """The last tail lines of a container's logs, stdout and stderr together; raises EffectFailed."""
+
+
+class Child(Protocol):
+    """A started external process that the host watches and may stop. Its output is kept for the journal."""
+
+    def poll(self) -> int | None:
+        """The exit code once the process has ended, otherwise None."""
+
+    def terminate(self) -> None:
+        """Asks the process to stop (SIGTERM, delivered to the container as well)."""
+
+    def kill(self) -> None:
+        """Stops the process and any container it started, without asking."""
+
+    def output(self) -> str:
+        """The process output so far (stdout and stderr together, the last part only)."""
+
+
+class LockHolder(Protocol):
+    """Holds the database advisory migration lock for as long as the forward migration runs.
+
+    Why a long-lived session: a session-level advisory lock is released by PostgreSQL when its session ends, so the
+    holder being alive is what keeps the crawler out. The host therefore heartbeats it while the migration runs.
+    """
+
+    def acquire(self, key: int, timeout_s: float) -> None:
+        """Takes the exclusive lock, waiting at most timeout_s; raises EffectFailed when it is not taken."""
+
+    def heartbeat(self, timeout_s: float) -> None:
+        """Proves the holder session still answers; raises EffectFailed when it does not within timeout_s."""
+
+    def alive(self) -> bool:
+        """True while the holder's process is still running."""
+
+    def release(self) -> None:
+        """Releases the lock and ends the holder session; raises EffectFailed when the holder cannot be stopped cleanly."""
 
 
 class Compose(Protocol):
@@ -114,6 +150,16 @@ class Effects:
     systemd: Systemd
     http: Http
     files: Files
+    lock_holder: LockHolder
+
+
+def child_environment(extra: Mapping[str, str] | None = None) -> dict[str, str]:
+    """The environment every child process gets: the fixed PATH, UTF-8 and HOME, plus the caller's extra variables."""
+    child_env = {"PATH": SAFE_PATH, "LANG": "C.UTF-8"}
+    if "HOME" in os.environ:
+        child_env["HOME"] = os.environ["HOME"]
+    child_env.update(extra or {})
+    return child_env
 
 
 class SubprocessRunner:
@@ -123,16 +169,12 @@ class SubprocessRunner:
         self._timeout_s = timeout_s
 
     def run(self, argv: Sequence[str], *, env: Mapping[str, str] | None = None) -> CommandResult:
-        child_env = {"PATH": SAFE_PATH, "LANG": "C.UTF-8"}
-        if "HOME" in os.environ:
-            child_env["HOME"] = os.environ["HOME"]
-        child_env.update(env or {})
         try:
             done = subprocess.run(
                 list(argv),
                 capture_output=True,
                 text=True,
-                env=child_env,
+                env=child_environment(env),
                 timeout=self._timeout_s,
                 check=False,
             )

@@ -55,8 +55,8 @@
 | `config.py` | host.conf 解析、鍵白名單、值字元集、DB_CA_BUNDLE 檢查、User-Agent | 各處 | 檔案系統 | `Settings` |
 | `manifest.py` | release metadata 與 migration 的解析、classify、pending | `commands`、`machine` | — | `ReleaseMetadata` |
 | `release_content.py` | 取出後的內容驗證（symlink、大小、必要檔案） | `machine._materialize_release` | — | `ReleaseContent` |
-| `adapters.py` | 真實的外部呼叫（AWS CLI、docker、compose、systemctl、urllib、檔案） | `ports` 介面 | OS | — |
-| `locks.py` | flock 包裝，有界輪詢，拒絕 symlink 鎖檔 | `commands`、`machine`、`operator_cli` | fcntl | 鎖 |
+| `adapters.py` | 真實的外部呼叫（AWS CLI、docker、compose、systemctl、urllib、檔案）；`ProcessLauncher` 啟動 efbundle 子程序與 psql lock session；`RealLockHolder` 持有 DB advisory lock | `ports` 介面 | OS | — |
+| `locks.py` | flock 包裝，有界輪詢，拒絕 symlink 鎖檔；`CATALOG_MIGRATION_LOCK_KEY`（DB advisory lock 的 key，與 crawler 端一致） | `commands`、`machine`、`operator_cli` | fcntl | 鎖 |
 | `runs.py` | unit 名稱（`book-finder-deploy-<run_id>`）、unit 狀態、indeterminate 清單 | `commands`、`machine` | `systemctl` | — |
 | `ports.py`、`testing.py`、`tests/host/worlds.py` | 介面（ports）與測試替身（fake world、fake clock） | 測試與 `machine` | — | — |
 | `run-crawler.sh` | crawler 的 cron 入口、lock、state 閘門、SSM DB URL、docker run | cron | `aws`、`docker`、`python3 -I`（讀 state） | 日誌、退出碼 |
@@ -77,10 +77,10 @@
 | 來源證明 | `actions/attest-build-provenance` 加 `verify-attestation` 在 CD 端；host 不驗證 | I7、runbook §5.2、§7.1 | host 以 `gh` 驗證 | host 無 `gh` 與 sigstore；人工 `--rebuild-web-digest` 與 `--adopt-*` 的 provenance 由操作者負責 |
 | 反向代理與 TLS | host nginx（不在 repository），web 綁 `127.0.0.1:5000`；TLS 由 `acme.sh` | ADR-006 Alternatives（保留 host nginx） | nginx 放進 container | nginx 規則不在本 repository（runbook §7.2 #7 待確認）；Cloudflare 位於前方（營運觀察） |
 | compose 設定注入 | `env_file` `format: raw`，啟動前以 probe 確認 Compose 支援（不使用版本下限） | `machine.compose_raw_env_check`、commit `3b21c71`（以能力探測取代版本下限） | 版本下限；Compose 插值 | 每次 plan 與 deploy 都會呼叫 `docker compose config`；probe 失敗即拒絕 |
-| secret 來源 | host 以 EC2 IAM role 讀 SSM；寫 `web-RUN.env`（600），用後刪除；設定 `SSM_MIGRATION_CONNECTION` 時另寫 `migrate-RUN.env`（600，只供 efbundle）；crawler 另有自己的 DB URL 參數 | deployment.md §5、runbook §2.3 | 把 secret 放進 host.conf 或 compose | 值不寫入 history 與 journal；遮蔽只做字面替換（見 DEP-B12） |
+| secret 來源 | host 以 EC2 IAM role 讀 SSM；寫 `web-RUN.env`（600），用後刪除；forward 時一律另寫 `migrate-RUN.env`（600，只供 efbundle；連線字串附加 `Options=-c client_connection_check_interval=10000`，web 的 env file 不含此項）；crawler 另有自己的 DB URL 參數 | deployment.md §5、runbook §2.3 | 把 secret 放進 host.conf 或 compose | 值不寫入 history 與 journal；遮蔽只做字面替換（見 DEP-B12） |
 | migration 時機 | 只在 forward 時由 host 執行 image 內 `efbundle`；web 啟動不跑 migration | deployment.md §6 | web 啟動時自動 migrate | 失敗後 dirty，只能人工解除（N2、I3）；不自動回滾（I5） |
 | 人工指令的並行 | `operator-started` 寫入後才變更；未完成的 operation 讓後續指令拒絕（exit 8） | S8、S10 | 不記錄 started | 人工中斷會造成 operator operation 保持 open，必須 `resolve-run` |
-| 爬蟲與 migration 的互斥 | `db-maintenance.lock`：deploy 取 exclusive，crawler 取 shared，且先取鎖再讀 state | N3 | 只靠 paused 旗標 | 爬蟲等待上限 7200 秒；兩端預設值需一致（runbook §7.2 #16） |
+| 爬蟲與 migration 的互斥 | 兩層：(1) host `db-maintenance.lock`（flock）：deploy 取 exclusive，EC2 上的 crawler 取 shared，且先取鎖再讀 state；(2) DB advisory lock（`pg_advisory_lock(2026102501)`）：deploy 的 lock holder 以專用 psql session 取 exclusive，覆蓋 efbundle 全程，本機 runner 的 crawler 每次連線取 shared（crawler 端由 M2 定義）。lock holder 存活是 migration 執行的必要條件：每 5 秒 heartbeat 並檢查 efbundle，掉線即停止 efbundle（SIGTERM、30 秒後 SIGKILL）、標 dirty 與 paused、`failed-migration`、不重試 | N3、plan v12 §8 | 只靠 paused 旗標；只靠 host flock（本機 runner 拿不到該鎖） | flock 等待上限 7200 秒；DB lock 等待上限 60 秒（crawler 持有 shared 時 deploy 逾時 drift）；兩端 flock 預設值需一致（runbook §7.2 #16）；efbundle 被停止後，server 端 statement 最遲於 `client_connection_check_interval`（10 秒）後才會察覺 client 已離開（backlog DEP-B20） |
 | 爬蟲 pause 的範圍 | in-sync 的 crawler 步驟失敗也會 pause（與 N3 原文不同） | runbook §7.1（刻意偏離，已記錄） | 只在 forward pause | 由 `run-crawler.sh` 閘門執行；恢復需 `resume-crawler`（L4） |
 | 健康檢查 | 本機 `127.0.0.1:5000` 先，再 `PUBLIC_URL`；每段 90 秒；送出 `book-finder-deploy/<max>` UA，不跟隨 redirect | machine.py 常數、commit `2fb5e27`（#105） | 只檢查本機 | 公開階段依賴 edge 放行 UA（見 DEP-B02） |
 | 爬蟲 fetcher | curl_cffi（預設）；browser 僅供診斷 | deployment.md §5、crawler.md §12 | — | EC2 的 IP 被博客來封鎖（營運觀察，見 DEP-B01） |
@@ -186,7 +186,7 @@
 
 詳細項目與驗收條件見 [backlog.md](backlog.md)。摘要：
 
-- **production 未驗證的路徑**：forward migration、RDS snapshot、efbundle 寫入 dirty、`resolve-run`、`reconcile-schema --mark-clean`、`resume-crawler --adopt-release`、rollback 的 docker 分支。（DEP-B04）
+- **production 未驗證的路徑**：forward migration、RDS snapshot、efbundle 寫入 dirty、`resolve-run`、`reconcile-schema --mark-clean`、`resume-crawler --adopt-release`、rollback 的 docker 分支。（DEP-B04）；DB migration lock 的整合行為（DEP-B23）。
 - **爬蟲在 EC2 不可用**：博客來封鎖 EC2 IP，`CRAWLER_ENABLED=false`（營運觀察）。（DEP-B01）
 - **公開健康檢查**：User-Agent 修正（#106 已合併）需在 EC2 的 host 程式與 edge 規則生效；營運觀察未記錄 EC2 上 host 程式的版本。（DEP-B02）
 - **回滾下限**：`DB_CA_BUNDLE` 啟用後，`v0.0.1` 與 `v0.0.2` 不可作為回滾目標（已以 git tree 確認這兩個 tag 沒有 `compose.ca-bundle.yaml`）。（DEP-B03）

@@ -130,20 +130,24 @@ flowchart TD
   S2 -- "取出失敗 exit 3" --> X3E["結束：drift"]
   S2 -- "內容拒絕（symlink、超量、結構、缺少 CA override）exit 2" --> X2C["結束：rejected"]
   S2 -- "同 digest 目錄的 compose 不同 exit 3" --> X3F["結束：drift"]
-  S2 -- "成功" --> S3{"step 3：SSM 讀取三個 secret（設定 SSM_MIGRATION_CONNECTION 時另讀一個），寫 web-RUN.env（600）；設定時另寫 migrate-RUN.env（600，只供 efbundle）"}
+  S2 -- "成功" --> S3{"step 3：SSM 讀取三個 secret（設定 SSM_MIGRATION_CONNECTION 時另讀一個），寫 web-RUN.env（600）；forward 時另寫 migrate-RUN.env（600，只供 efbundle；連線字串附加 Options=-c client_connection_check_interval=10000）"}
   S3 -- "讀取失敗 exit 3" --> X3G["結束：drift"]
   S3 -- "值為空或含控制字元 exit 2" --> X2D["結束：rejected"]
   S3 -- "成功" --> CH{"step 4：chain"}
 
   CH -- "forward" --> F0["step 4a：取得 db-maintenance lock（exclusive，逾時 exit 3）"]
   F0 --> F1["step 4b：pause crawler，寫 state"]
-  F1 --> F2{"step 4c：建立 RDS snapshot 並等待 available"}
-  F2 -- "失敗：恢復 crawler，未 migrate，exit 3" --> X3H["結束：drift"]
+  F1 --> FL{"step 4b（lock）：取得 DB advisory lock（專用 psql session，exclusive，server 端 lock_timeout 60 秒）"}
+  FL -- "逾時或失敗（crawler 持有 shared）：恢復 crawler，未 migrate，exit 3" --> X3L["結束：drift"]
+  FL -- "取得" --> F2{"step 4c：建立 RDS snapshot 並等待 available"}
+  F2 -- "失敗：釋放 lock，恢復 crawler，未 migrate，exit 3" --> X3H["結束：drift"]
   F2 -- "成功" --> F3["step 4d：設 dirty，寫 state"]
-  F3 --> F4["step 4e：efbundle（image 內；讀 migrate-RUN.env，未設定時讀 web-RUN.env）"]
-  F4 --> F5{"exit 0 且 DB migration id 與 manifest 完全相同？"}
+  F3 --> F4["step 4e：efbundle（image 內；讀 migrate-RUN.env）；執行中每 5 秒 heartbeat lock session 並 poll efbundle"]
+  F4 -- "lock session 掉線或 heartbeat 無回應：SIGTERM，30 秒後 SIGKILL；dirty 與 paused 保留；不重試，exit 4" --> X4L["結束：failed-migration（人工，§5.2、§5.3）"]
+  F4 -- "efbundle 自行結束" --> F5{"exit 0 且 DB migration id 與 manifest 完全相同？"}
   F5 -- "否：dirty 與 paused 保留，efbundle 輸出尾端寫入 journal，exit 4" --> X4["結束：failed-migration（人工，§5.2、§5.3）"]
   F5 -- "是：清除 dirty 寫 state" --> SW
+  F5 -. "任何路徑結束前都釋放 lock；釋放失敗只記 journal，不改變結果" .-> SW
   CH -- "in-sync 或 schema-ahead" --> SW
 
   SW{"step 5：cutover 時先 systemctl stop unit，再 compose up；健康檢查本機 90 秒，再 PUBLIC_URL 90 秒"}
@@ -182,7 +186,7 @@ flowchart TD
   B -- "否" --> C{"兩者完全相同？"}
   C -- "是" --> IS["in-sync：不跑 migration；可用於首次 cutover"]
   C -- "否" --> D{"applied 是目標的嚴格前綴？"}
-  D -- "是" --> FW["forward：先 pause，snapshot，dirty，efbundle，再切換 web"]
+  D -- "是" --> FW["forward：先 pause，取 DB migration lock，snapshot，dirty，efbundle（期間 heartbeat），釋放 lock，再切換 web"]
   D -- "否" --> E{"目標是 applied 的嚴格前綴？"}
   E -- "是" --> SA["schema-ahead：不跑 migration；web 換版本；crawler 不變（S7）"]
   E -- "否" --> DV
