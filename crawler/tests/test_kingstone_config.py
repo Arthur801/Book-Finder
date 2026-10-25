@@ -36,7 +36,7 @@ def test_defaults_when_nothing_is_set():
     config = load_config({})
     assert config == KingstoneConfig(
         pages_file=DEFAULT_PAGES_FILE,
-        write_policy=WritePolicy.NEW_BOOKS_ONLY,
+        write_policy=WritePolicy.NORMAL,
         soft_budget_seconds=7200.0,
         hard_limit_seconds=9000.0,
         http_timeout_seconds=float(acquisition.REQUEST_TIMEOUT_SECONDS),
@@ -195,11 +195,12 @@ def test_config_error_is_a_value_error():
     assert issubclass(KingstoneConfigError, ValueError)
 
 
-# --- write policy (CB-07 Phase 5): default new-books-only, two legal values -------------------------------------------
+# --- write policy (CB-07 Phase 5; default normal since Phase 7): two legal values -------------------------------------------
 
 
-def test_write_policy_defaults_to_new_books_only():
-    assert load_config({}).write_policy is WritePolicy.NEW_BOOKS_ONLY
+def test_write_policy_defaults_to_normal():
+    # Phase 7 user decision: an ISBN match attaches the Kingstone Source, so the Book links to both stores.
+    assert load_config({}).write_policy is WritePolicy.NORMAL
 
 
 @pytest.mark.parametrize(("raw", "policy"), [("normal", WritePolicy.NORMAL), ("new-books-only", WritePolicy.NEW_BOOKS_ONLY)])
@@ -213,7 +214,7 @@ def test_write_policy_surrounding_whitespace_is_ignored():
 
 @pytest.mark.parametrize("blank", ["", "   "])
 def test_blank_write_policy_counts_as_unset_and_takes_the_default(blank):
-    assert load_config({WRITE_POLICY_ENV: blank}).write_policy is WritePolicy.NEW_BOOKS_ONLY
+    assert load_config({WRITE_POLICY_ENV: blank}).write_policy is WritePolicy.NORMAL
 
 
 @pytest.mark.parametrize("value", ["Normal", "new_books_only", "all-books", "all", "0"])

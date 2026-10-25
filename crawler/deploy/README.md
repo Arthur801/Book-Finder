@@ -307,7 +307,7 @@ crawler/deploy/local/run-local-crawler.sh daily
 
 1. 確認 EC2 deploy state 沒有 paused 或 dirty（runner 會檢查，但部署進行中時請不要啟動）。與 migration 的互斥由 container 內 crawler 的 shared advisory lock（PR #145）與 deploy 的 exclusive lock（PR #146）負責，runner 不取 lock；兩者都合併且 deploy 端上線前，請自行避開部署窗口。
 2. 清單只放 1 頁：暫時把 `crawler/kingstone-pages.txt` 改為只有一行，`docker build --target kingstone -t kingstone:canary crawler`，設定 `KINGSTONE_CRAWLER_IMAGE=kingstone:canary`。測試完成後還原清單檔，並重建 image。
-3. 確認寫入策略為 `new-books-only`。這是程式的預設值（`KINGSTONE_WRITE_POLICY` 未設定即是），本 runner 不轉傳此變數；不要在 image 或環境中改為 `normal`。
+3. 寫入政策：程式預設為 `normal`（Phase 7 起；ISBN 命中 1 本既有書時掛上金石堂 Source 並補 NULL 欄位）。runner 不轉傳 `KINGSTONE_WRITE_POLICY`；若要只建新書（`new-books-only`），以 `FROM <image>` 加 `ENV KINGSTONE_WRITE_POLICY=new-books-only` 建暫時 image。
 4. 執行 `run-local-crawler.sh kingstone`，確認 exit code、`artifacts/kingstone/last-run.json`（M5 之後）與 log 中的 `container=end exit_code=...`。
 5. 成功後還原清單與 image tag，再視需要以 `normal` 進行下一步（另案）。
 

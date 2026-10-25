@@ -6,7 +6,7 @@ Composition only: it reads and validates the settings, builds the real fetcher a
 Environment:
     DATABASE_URL                    PostgreSQL URL of the shared database (required; secret, never logged).
     KINGSTONE_PAGES_FILE            Category list page file (default ``crawler/kingstone-pages.txt``).
-    KINGSTONE_WRITE_POLICY          ``new-books-only`` (default) or ``normal``.
+    KINGSTONE_WRITE_POLICY          ``normal`` (default) or ``new-books-only``.
     KINGSTONE_SOFT_RUN_BUDGET_SECONDS  Soft run budget (default 7200); no request starts once it runs out.
     CRAWLER_RUN_HARD_LIMIT_SECONDS  The hard run limit (default 9000); the soft budget must be below it.
     KINGSTONE_HTTP_TIMEOUT_SECONDS, KINGSTONE_HTTP_MAX_ATTEMPTS, KINGSTONE_MAX_RESPONSE_BYTES
