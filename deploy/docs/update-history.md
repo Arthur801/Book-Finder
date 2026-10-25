@@ -66,7 +66,7 @@ git log --reverse --no-merges --format='@@%h' --numstat -- <同上路徑>
 
 | 日期 | SHA | 主旨 | 影響檔案（+/-） | diff 摘要 |
 |---|---|---|---|---|
-| 2026-10-25 | 本次 commit | `feat(deploy): hold the catalog migration lock for the whole migration and abort on its loss` | `host/bookfinder_host/adapters.py`（+317/-11）、`machine.py`（+120/-11）、`ports.py`（+49/-7）、`testing.py`（+97/-2）、`locks.py`（+6）、`tests/host/test_adapters.py`（+275/-23）、`test_machine.py`（+156/-6）、`test_locks.py`（+6）、`README.md`（+12/-5）、`docs/*`（architecture、workflow-diagram、test-suite、backlog） | forward migration 在 efbundle 前取得 DB advisory lock（`pg_advisory_lock(2026102501)`，exclusive，專用 psql session，60 秒逾時）；efbundle 期間每 5 秒 heartbeat，掉線即 SIGTERM→30 秒→SIGKILL，`failed-migration`，不重試；任何路徑釋放 lock；efbundle 的 env file 一律獨立（forward）並附加 `client_connection_check_interval`；連線字串已含 `Options=` 則 forward 拒絕（exit 2）。既有的 `db-maintenance.lock` 保留。 |
+| 2026-10-25 | `02dcbb0` | `feat(deploy): hold the catalog migration lock for the whole migration and abort on its loss` | `host/bookfinder_host/adapters.py`（+317/-11）、`machine.py`（+120/-11）、`ports.py`（+49/-7）、`testing.py`（+97/-2）、`locks.py`（+6）、`tests/host/test_adapters.py`（+275/-23）、`test_machine.py`（+156/-6）、`test_locks.py`（+6）、`README.md`（+12/-5）、`docs/*`（architecture、workflow-diagram、test-suite、backlog） | forward migration 在 efbundle 前取得 DB advisory lock（`pg_advisory_lock(2026102501)`，exclusive，專用 psql session，60 秒逾時）；efbundle 期間每 5 秒 heartbeat，掉線即 SIGTERM→30 秒→SIGKILL，`failed-migration`，不重試；任何路徑釋放 lock；efbundle 的 env file 一律獨立（forward）並附加 `client_connection_check_interval`；連線字串已含 `Options=` 則 forward 拒絕（exit 2）。既有的 `db-maintenance.lock` 保留。 |
 | 2026-10-13 | `082cd80` | Deploy crawler with docker | `crawler/deploy/README.md`（+146）、`crawler.conf.example`（+5）、`crawler.cron`（+7）、`crawler.logrotate`（+9）、`run-crawler.sh`（+73） | 建立 host 端的 crawler 部署檔案：cron 排程、logrotate、設定範例，以及第一版 `run-crawler.sh`（`daily`、`pages` 模式） |
 
 ### 3.2 整體 CI 與版本同步（2026-10-23，CI 通用，與部署相關的部分）
@@ -284,6 +284,16 @@ git log --reverse --no-merges --format='@@%h' --numstat -- <同上路徑>
 | 日期 | SHA | 主旨 | 影響檔案（+/-） | diff 摘要 |
 |---|---|---|---|---|
 | 2026-10-25 | 本次 backlog 整理 commit | docs(backlog): tidy deploy backlog after v0.0.6 and v0.0.7 | `deploy/docs/backlog.md`、`deploy/docs/update-history.md` | DEP-B04、DEP-B18 移至 backlog §3「已處理」；DEP-B01 補記 production 仍停用；未改 deploy 程式或測試 |
+
+### 3.16 PR #146 之後：migration lock 的兩道保險、review 修正與整合實測（2026-10-25）
+
+| 日期 | SHA | 主旨 | 影響檔案（+/-） | diff 摘要 |
+|---|---|---|---|---|
+| 2026-10-25 | `f250b09` | feat(deploy): wait for the migration connection before releasing the lock; refuse residual migration containers | `host/bookfinder_host/adapters.py`（+66/-1）、`machine.py`（+96/-11）、`ports.py`（+30）、`testing.py`（+35/-2）、`tests/host/test_adapters.py`（+134/-3）、`test_machine.py`（+156/-3） | DEP-B21 (a)：efbundle 連線帶 `Application Name=bookfinder-efbundle`，釋放前有界等待（120 秒）連線結束，仍存在則保留 lock；(b)：pause 前拒絕執行中的殘留容器，已結束者 journal 後移除；容器加 `com.bookfinder.role` label；既有 argv 與連線字串的測試同步更新 |
+| 2026-10-25 | `4f665e5` | fix(deploy): accept an efbundle result only after a final heartbeat on the lock session | `host/bookfinder_host/machine.py`（+24）、`testing.py`（+14）、`tests/host/test_machine.py`（+42） | review 修正：efbundle 結束後先做同一 lock session 的 alive 與 final heartbeat，通過才接受 exit code；失敗為 `failed-migration`，不 switch、不 terminate。以修正前的 `machine.py` 執行 race 測試時會 switch（已驗證） |
+| 2026-10-25 | 本次 commit | docs(deploy): document the lock insurances, integration results and the final-heartbeat fix | `deploy/tests/integration/test_migration_lock_it.py`（新增）、`deploy/docs/*`、`deploy/README.md` | 新增 9 個 `BOOKFINDER_IT=1` 整合案例（真 lock holder、PG 17.11、Npgsql 連線字串）；backlog DEP-B20、B21、B23 更新；architecture、workflow-diagram、test-suite（DEP-MIGLOCK-19 至 37）與 README §5.8 同步 |
+
+本段的命令與結果：`deploy/tests` 非整合測試全過（721 passed，含新增）；`BOOKFINDER_IT=1` 完整結果見 test-suite §3.22 與 §2。ruff check 與 format check 皆通過。未 push、未連線任何 AWS、EC2 或 RDS。
 
 ## 4. 目前工作樹與未提交差異
 

@@ -136,18 +136,25 @@ flowchart TD
   S3 -- "成功" --> CH{"step 4：chain"}
 
   CH -- "forward" --> F0["step 4a：取得 db-maintenance lock（exclusive，逾時 exit 3）"]
-  F0 --> F1["step 4b：pause crawler，寫 state"]
+  F0 --> FR{"step 4a（b）：殘留容器檢查（label efbundle、deploy-lock）"}
+  FR -- "running 或非 exited／dead：exit 3，未改動任何狀態" --> X3R["結束：drift"]
+  FR -- "無，或 exited／dead：journal 後 docker rm" --> F1["step 4b：pause crawler，寫 state"]
   F1 --> FL{"step 4b（lock）：取得 DB advisory lock（專用 psql session，exclusive，server 端 lock_timeout 60 秒）"}
   FL -- "逾時或失敗（crawler 持有 shared）：恢復 crawler，未 migrate，exit 3" --> X3L["結束：drift"]
   FL -- "取得" --> F2{"step 4c：建立 RDS snapshot 並等待 available"}
   F2 -- "失敗：釋放 lock，恢復 crawler，未 migrate，exit 3" --> X3H["結束：drift"]
   F2 -- "成功" --> F3["step 4d：設 dirty，寫 state"]
   F3 --> F4["step 4e：efbundle（image 內；讀 migrate-RUN.env）；執行中每 5 秒 heartbeat lock session 並 poll efbundle"]
-  F4 -- "lock session 掉線或 heartbeat 無回應：SIGTERM，30 秒後 SIGKILL；dirty 與 paused 保留；不重試，exit 4" --> X4L["結束：failed-migration（人工，§5.2、§5.3）"]
-  F4 -- "efbundle 自行結束" --> F5{"exit 0 且 DB migration id 與 manifest 完全相同？"}
+  F4 -- "lock session 掉線或 heartbeat 無回應：SIGTERM，30 秒後 SIGKILL，再執行 (a)；dirty 與 paused 保留；不重試，exit 4" --> FWL["(a) 等待，或 session 無法回應；結果仍為 failed-migration，不進入 id 驗證"]
+  FWL --> X4L["結束：failed-migration（人工，§5.2、§5.3）"]
+  F4 -- "efbundle 自行結束" --> FPROOF{"final 驗證：同一 lock session alive，且 heartbeat 成功？（先於 (a)）"}
+  FPROOF -- "否：journal efbundle 輸出；不 terminate（已結束）；dirty 與 paused 保留，不 switch，exit 4" --> X4P["結束：failed-migration（人工，§5.2、§5.3）"]
+  FPROOF -- "是" --> FWAIT{"step 4e（a）：等待 migration 連線結束（pg_stat_activity 無 application_name=bookfinder-efbundle，≤120 秒，lock 持有中）"}
+  FWAIT -- "仍存在：保留 lock（不 unlock），dirty 與 paused 保留，exit 4" --> X4W["結束：failed-migration（人工，§5.2、§5.3）"]
+  FWAIT -- "已結束；或 lock session 無法回應（維持原結果）" --> F5{"exit 0 且 DB migration id 與 manifest 完全相同？"}
   F5 -- "否：dirty 與 paused 保留，efbundle 輸出尾端寫入 journal，exit 4" --> X4["結束：failed-migration（人工，§5.2、§5.3）"]
   F5 -- "是：清除 dirty 寫 state" --> SW
-  F5 -. "任何路徑結束前都釋放 lock；釋放失敗只記 journal，不改變結果" .-> SW
+  F5 -. "釋放 lock（(a) 仍存在時不釋放）；釋放失敗只記 journal，不改變結果" .-> SW
   CH -- "in-sync 或 schema-ahead" --> SW
 
   SW{"step 5：cutover 時先 systemctl stop unit，再 compose up；健康檢查本機 90 秒，再 PUBLIC_URL 90 秒"}
