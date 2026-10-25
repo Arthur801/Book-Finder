@@ -136,6 +136,43 @@ Fetcher 每次含首次／重試以 3～30 秒目標循序節流，解析／DB�
 
 相關：[流程](workflow-diagram.md)／[架構](architecture.md)／[待辦](backlog.md)／[歷史](update-history.md)／[案例](test-suite.md)。
 
+## 本地 runner（`deploy/local/`，Phase 6 M4）
+
+入口：`deploy/local/run-local-crawler.sh daily|first_book|pages|kingstone`（使用者在本機手動執行，不經 cron）。順序與 exit code 的完整說明見 [deploy README](../deploy/README.md) §9。
+
+Invocation order（本地）：
+
+1. 讀 `CRAWLER_LOCAL_CONF`。`CRAWLER_ENABLED` 先於其他驗證：`false` → `skipped=disabled`、exit 0、無任何外部工作；其他值非法 → exit 10。必要值與格式、CA bundle（`0644`、非 symlink）、artifacts 目錄（owner 10001 或 world-writable）驗證失敗 → exit 10。
+2. 本地 `run.lock`，非阻塞，所有 mode 共用；已被持有 → exit 11。
+3. SSH 唯讀讀取 EC2 `state.json`（`BatchMode=yes`，`python3 -I` 判定，與 `run-crawler.sh` 同規則）：paused／dirty → `skipped=…`、exit 6；讀不到或檔案不存在 → exit 12（fail closed）。
+4. Orphan check：`docker ps -a --filter label=com.bookfinder.role=catalog-crawler`。running／restarting／paused／removing → `ORPHAN_WRITER`、exit 13，不取 secret；exited／dead／created → `docker rm` 後繼續；docker 不可用 → exit 18。
+5. DB secret：`DB_SECRET_SOURCE=ssm`（`aws ssm get-parameter --with-decryption --profile`）或 `file`（600、owner 為自己、非 symlink）；空值 → exit 15。secret 只經 stdin 與 bash 變數傳遞，不進 argv、log 或 env。
+6. 改寫連線字串（`runner_support.py rewrite-url`）：保留 userinfo 與 path（不解碼），host 必須等於 `RDS_ENDPOINT`（否則 exit 17），port 換成 `LOCAL_DB_PORT`，加上 `hostaddr=127.0.0.1`、`sslmode=verify-full`、`sslrootcert=/etc/book-finder/rds-ca-bundle.pem`；寫入 600 的 env file（只含 `DATABASE_URL`，mktemp 建立）。
+7. 開 tunnel：`ssh -N -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o BatchMode=yes -L 127.0.0.1:<port>:<RDS>:5432 <alias>`（背景）；以 `python3 -I` 檢查本機埠，上限 `TUNNEL_WAIT_SECONDS`；ssh 先退出或逾時 → exit 16。
+8. 啟動 container：`docker run --rm=false --pull=never --init --network host --name book-finder-crawler-active`，labels `com.bookfinder.role`／`mode`／`provider`，`--cidfile`、`--env-file`，artifacts 與 CA 的 bind mount（CA 唯讀）。kingstone 使用 `KINGSTONE_CRAWLER_IMAGE`、預設 CMD，並傳入 `CRAWLER_RUN_HARD_LIMIT_SECONDS`；博客來使用 `CRAWLER_IMAGE` 與對應 module，傳入 `CRAWLER_FETCHER=curl`。
+9. Watchdog：`docker run` 客戶端存活期間每秒檢查，觸發條件為超過 hard limit、收到 INT／TERM，或客戶端已結束但 container 仍在運作。流程為 `docker stop -t <grace>`（paused 先 `docker unpause`）→ 仍在運作則 `docker kill` → 以 `docker ps` 確認；absent、exited、dead、created 才算已停止。確認失敗 → `ORPHAN_WRITER`、exit 14，不 `rm`，下一次啟動於步驟 4 被擋下。確認停止 → exit 20（hard limit 或客戶端異常）或 21（signal）。
+10. 正常結束：確認 container 已非運作後 `docker rm`，回傳 container 的 exit code（0、1、2，或 Docker 自身的其他值原樣傳回）。
+11. 清理（EXIT trap，所有路徑含錯誤與 signal）：關閉 tunnel（kill 後 wait）、刪除 env file 與 cidfile；fd 9 關閉即放鎖。子程序以 `9>&-` 不繼承鎖。
+
+失敗路徑的告警與紀錄（runner 端）：
+
+| 路徑 | stderr | record `reason`（exit） |
+|---|---|---|
+| 步驟 4，startup orphan | `ALERT reasons=orphan` | `ORPHAN_WRITER`（13） |
+| 步驟 9，watchdog 因 hard limit 停止成功 | `ALERT reasons=hard_limit` | `HARD_LIMIT`（20） |
+| 步驟 9，hard limit 觸發且無法確認停止 | `ALERT reasons=orphan,hard_limit` | `ORPHAN_WRITER`（14） |
+| 步驟 9，signal 或客戶端結束時無法確認停止 | `ALERT reasons=orphan` | `ORPHAN_WRITER`（14） |
+| 步驟 9，signal 停止成功 | `ALERT reasons=signal_stop` | `SIGNAL_STOP`（21） |
+| signal 於 container 啟動前 | `ALERT reasons=signal_stop` | `SIGNAL_STOP`（21） |
+| 客戶端結束但 container 仍在運作，且已停止 | `ALERT reasons=orphan` | `CLIENT_LOST`（22） |
+| container 正常結束（0、1、2） | 無 | 無（由 container 的結果負責） |
+
+record 寫入 `artifacts/runner/<mode>-last-run.json`（原子寫入，UTC 時間，不含 secret），同一份 JSON 印在 stdout。寫入失敗只印 `WARNING`，exit code 不變。
+
+Writer fencing 只依 container 名稱與 label 判定：同一時間最多一個 `book-finder-crawler-active`；provider 與 mode 只作為 label，不分別建立鎖。
+
+來源：[run-local-crawler.sh](../deploy/local/run-local-crawler.sh)、[runner_support.py](../deploy/local/runner_support.py)。測試：[test_local_runner.py](../tests/test_local_runner.py)（CR-T20）。
+
 ## 金石堂入口（`python -m kingstone`，Phase 5 M2；產物與 ALERT，Phase 6 M5）
 
 ```text
@@ -187,7 +224,7 @@ terminal 結果（run 報告，或 pre-run：步驟 5、6、7、8 的失敗）
 - 「停用」與「未註冊」都是設定錯誤（exit 2），都不建立 fetcher、不發出請求。
 - 步驟 7、8 失敗時 fetcher 尚未建立，沒有 HTTP、沒有寫入。
 - Exit 1 來自步驟 6、7 的查詢或 busy 失敗與 run 的 FAILED（包括清單所有頁都被跳過，以及 run 中途遇到 migration lock busy）。
-- `CRAWLER_RUN_HARD_LIMIT_SECONDS` 只被讀取與驗證；強制終止由 runner watchdog 執行（Phase 6），本入口不計時、不殺程序。
+- `CRAWLER_RUN_HARD_LIMIT_SECONDS` 只被讀取與驗證；強制終止由本地 runner watchdog 執行（Phase 6 M4，見「本地 runner」），本入口不計時、不殺程序。
 - 來源：[cli](../kingstone/cli.py)、[run](../kingstone/run.py)、[config](../kingstone/config.py)、[page_list](../kingstone/page_list.py)、[persistence](../catalog_core/persistence.py)（`provider_enabled` 與 `missing_schema_prerequisites` 為讀取；寫入由 run 經 store 呼叫）。
 
 ## DB session 與 migration lock（所有 provider，Phase 6 M2）
@@ -204,7 +241,7 @@ DatabaseSession.conn（首次存取，或既有連線 closed／broken 時重連�
 - Lock 是 session-level：連線關閉即釋放；因此 migration（deploy 端的 exclusive holder）存在時，crawler 不能開始寫入，而寫入中的連線若被切斷，重連時必須重新取得。
 - Books：`run_once`、`run_first_book`、`run_pages` 的 `MigrationLockBusy` 落在各自的 `except Exception`，run 以 FAILED 結束，error 含 `migration lock busy`；已 commit 的 Book 保留，其他列不變。
 - 金石堂：首次連線 busy → 入口 exit 1；run 中途 busy → `run_pages` 的 fatal → FAILED，exit 1；已 commit 的 Book 保留，下次 replay。
-- 本節只描述 crawler 端。deploy 端的 exclusive 取得（`deploy/host/bookfinder_host/`）屬 M3，尚未實作。
+- 本節只描述 crawler 端。deploy 端以存活的 lock session 持有 exclusive lock（`deploy/host/bookfinder_host/`，Phase 6 M3），見 deploy/docs。
 - 來源：[session](../catalog_core/session.py)、[migration_lock](../catalog_core/migration_lock.py)、[store](../catalog_core/store.py)；測試 CR-T19。
 
 ## 金石堂逐頁 run（Phase 4 M2）
