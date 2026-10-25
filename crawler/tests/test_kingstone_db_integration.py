@@ -11,6 +11,7 @@ them. Sleep is a recording fake and the clock is controlled by the test.
 
 from __future__ import annotations
 
+import json
 import logging
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -80,6 +81,11 @@ class FakeFetcher:
         self.pages = pages
         self.calls: list[str] = []
         self.closed = 0
+        self.http_failures = 0
+
+    @property
+    def http_attempts(self) -> int:
+        return len(self.calls)
 
     def fetch_list_page(self, url: str) -> str:
         return self._get(url)
@@ -428,7 +434,7 @@ def test_the_provider_check_with_the_disabled_registry_row_exits_2_before_any_fe
     created = []
 
     code = cli.main(
-        {"DATABASE_URL": db_url, "KINGSTONE_PAGES_FILE": _page_file(tmp_path, LIST_A)},
+        {"DATABASE_URL": db_url, "KINGSTONE_PAGES_FILE": _page_file(tmp_path, LIST_A), "KINGSTONE_ARTIFACTS_DIR": str(tmp_path / "artifacts")},
         fetcher_factory=lambda config, budget: created.append(config) or fetcher,
         monotonic=lambda: 0.0,
     )
@@ -444,7 +450,12 @@ def test_the_cli_full_run_exits_0_writes_the_books_and_closes_the_fetcher(db_url
     fetcher = FakeFetcher(site(LIST_A, REAL, soft_404=True))
 
     code = cli.main(
-        {"DATABASE_URL": db_url, "KINGSTONE_PAGES_FILE": _page_file(tmp_path, LIST_A), "KINGSTONE_WRITE_POLICY": "normal"},
+        {
+            "DATABASE_URL": db_url,
+            "KINGSTONE_PAGES_FILE": _page_file(tmp_path, LIST_A),
+            "KINGSTONE_ARTIFACTS_DIR": str(tmp_path / "artifacts"),
+            "KINGSTONE_WRITE_POLICY": "normal",
+        },
         fetcher_factory=lambda config, budget: fetcher,
         monotonic=lambda: 0.0,
     )
@@ -459,11 +470,46 @@ def test_the_cli_full_run_exits_0_writes_the_books_and_closes_the_fetcher(db_url
     assert db_url not in out
 
 
+def test_the_cli_writes_last_run_with_the_counts_and_no_alert_for_a_normal_run_and_its_replay(db_url, tmp_path, kingstone_enabled, capsys):
+    artifacts = tmp_path / "artifacts"
+    environ = {
+        "DATABASE_URL": db_url,
+        "KINGSTONE_PAGES_FILE": _page_file(tmp_path, LIST_A),
+        "KINGSTONE_ARTIFACTS_DIR": str(artifacts),
+        "KINGSTONE_WRITE_POLICY": "normal",
+    }
+    fetcher = FakeFetcher(site(LIST_A, REAL, soft_404=True))
+
+    code = cli.main(environ, fetcher_factory=lambda config, budget: fetcher, monotonic=lambda: 0.0)
+
+    assert code == 0
+    data = json.loads((artifacts / "kingstone" / "last-run.json").read_text(encoding="utf-8"))
+    assert data["status"] == "PARTIAL_SUCCESS"  # the soft 404 is one failed card
+    assert data["imported"] == len(REAL)
+    assert data["failed"] == 1
+    assert data["items_listed"] == data["items_seen"] == data["details_fetched"] == data["imported"] + data["failed"]
+    assert data["http_attempts"] == len(fetcher.calls)
+    assert data["http_failures"] == 0
+    assert data["write_policy"] == "normal"
+    assert data["alert_reasons"] == []
+    assert len(list((artifacts / "kingstone" / "history").glob("*.json"))) == 1
+    assert "ALERT" not in capsys.readouterr().out
+
+    replay = FakeFetcher(site(LIST_A, REAL, soft_404=True))
+    assert cli.main(environ, fetcher_factory=lambda config, budget: replay, monotonic=lambda: 0.0) == 0
+
+    replayed = json.loads((artifacts / "kingstone" / "last-run.json").read_text(encoding="utf-8"))
+    assert replayed["existing_source"] == len(REAL)
+    assert replayed["details_fetched"] == 1  # only the soft 404 is fetched again: Existing cards are touched, not fetched
+    assert replayed["alert_reasons"] == []
+    assert len(list((artifacts / "kingstone" / "history").glob("*.json"))) == 2
+
+
 def test_the_cli_run_with_every_page_skipped_exits_1_and_the_fetcher_is_closed(db_url, tmp_path, kingstone_enabled):
     fetcher = FakeFetcher({LIST_A: AcquisitionError(AcquisitionFailure.HTTP_STATUS, "503", attempts=3, status=503)})
 
     code = cli.main(
-        {"DATABASE_URL": db_url, "KINGSTONE_PAGES_FILE": _page_file(tmp_path, LIST_A)},
+        {"DATABASE_URL": db_url, "KINGSTONE_PAGES_FILE": _page_file(tmp_path, LIST_A), "KINGSTONE_ARTIFACTS_DIR": str(tmp_path / "artifacts")},
         fetcher_factory=lambda config, budget: fetcher,
         monotonic=lambda: 0.0,
     )
@@ -476,7 +522,12 @@ def test_the_cli_run_with_every_page_skipped_exits_1_and_the_fetcher_is_closed(d
 def test_the_cli_is_a_second_entry_for_the_same_composition_as_run_pages(db_url, tmp_path, kingstone_enabled):
     # The CLI's first run and a direct run through the same store must agree on the same rows.
     code = cli.main(
-        {"DATABASE_URL": db_url, "KINGSTONE_PAGES_FILE": _page_file(tmp_path, LIST_A), "KINGSTONE_WRITE_POLICY": "normal"},
+        {
+            "DATABASE_URL": db_url,
+            "KINGSTONE_PAGES_FILE": _page_file(tmp_path, LIST_A),
+            "KINGSTONE_ARTIFACTS_DIR": str(tmp_path / "artifacts"),
+            "KINGSTONE_WRITE_POLICY": "normal",
+        },
         fetcher_factory=lambda config, budget: FakeFetcher(site(LIST_A, REAL)),
         monotonic=lambda: 0.0,
     )

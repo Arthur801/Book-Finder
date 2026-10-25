@@ -81,6 +81,15 @@ class FakeFetcher:
         self._responses = dict(responses)
         self._on_request = on_request
         self.calls: list[str] = []
+        self.failures = 0
+
+    @property
+    def http_attempts(self) -> int:
+        return len(self.calls)
+
+    @property
+    def http_failures(self) -> int:
+        return self.failures
 
     def fetch_list_page(self, url: str) -> str:
         return self._get(url)
@@ -691,3 +700,125 @@ def test_policy_skipped_book_stays_new_so_the_next_run_fetches_it_again():
     assert first.policy_skipped_count == second.policy_skipped_count == 1
     assert fetcher.detail_calls() == [detail_url(KM_1), detail_url(KM_1)]
     assert store.persisted == []
+
+
+# ---------------------------------------------------------------------------
+# Counts, diagnostics (plan v12 §8)
+# ---------------------------------------------------------------------------
+
+
+class RecordingSink:
+    """A diagnostic sink that records the calls. ``error`` makes every call raise."""
+
+    def __init__(self, error: BaseException | None = None) -> None:
+        self.saved: list[tuple[str, str, str]] = []
+        self.error = error
+
+    def save_html(self, *, kind: str, code: str, html: str) -> None:
+        if self.error is not None:
+            raise self.error
+        self.saved.append((kind, code, html))
+
+
+def test_the_counts_cover_listed_cards_detail_fetches_and_the_fetcher_counters():
+    fetcher = FakeFetcher(
+        {
+            LIST_A: list_html([KM_1, KM_2]),
+            detail_url(KM_1): detail_html(KM_1),
+            detail_url(KM_2): acquisition(AcquisitionFailure.HTTP_STATUS, attempts=1, status=500),
+        }
+    )
+    store = MemoryStore()
+
+    report = run_pages(make_deps(fetcher, store), [LIST_A], run_id="run-counts")
+
+    assert report.items_listed == 2
+    assert report.details_fetched == 2  # a fetch that failed still counts as a detail fetch
+    assert report.failed == 1
+    assert report.http_attempts == len(fetcher.calls) == 3
+    assert report.items_seen == 2
+
+
+def test_a_skipped_list_page_adds_no_listed_items_and_no_details():
+    fetcher = FakeFetcher({LIST_A: acquisition(AcquisitionFailure.REDIRECT, attempts=1, status=302), LIST_B: list_html([])})
+
+    report = run_pages(make_deps(fetcher, MemoryStore()), [LIST_A, LIST_B])
+
+    assert report.items_listed == 0
+    assert report.details_fetched == 0
+
+
+def test_a_list_parse_error_is_saved_as_a_list_diagnostic_with_the_category_code():
+    sink = RecordingSink()
+    broken = "<html><body>no product section</body></html>"
+    fetcher = FakeFetcher({LIST_A: broken, LIST_B: list_html([KM_1]), detail_url(KM_1): detail_html(KM_1)})
+    deps = make_deps(fetcher, MemoryStore())
+    deps = KingstoneRunDependencies(**{**deps.__dict__, "diagnostics": sink})
+
+    report = run_pages(deps, [LIST_A, LIST_B])
+
+    assert sink.saved == [("list", "jdc", broken)]
+    assert report.pages_skipped[0].reason == "parse_error"
+
+
+def test_a_detail_parse_error_is_saved_as_a_detail_diagnostic_with_the_km_code():
+    sink = RecordingSink()
+    broken = "<html><head><title>金石堂網路書店</title></head><body>layout changed</body></html>"
+    fetcher = FakeFetcher({LIST_A: list_html([KM_1]), detail_url(KM_1): broken})
+    deps = KingstoneRunDependencies(**{**make_deps(fetcher, MemoryStore()).__dict__, "diagnostics": sink})
+
+    report = run_pages(deps, [LIST_A])
+
+    assert sink.saved == [("detail", KM_1, broken)]
+    assert report.failed == 1
+
+
+def test_a_soft_404_and_an_acquisition_failure_are_not_saved():
+    sink = RecordingSink()
+    fetcher = FakeFetcher(
+        {
+            LIST_A: list_html([SOFT_404, KM_1]),
+            detail_url(SOFT_404): SOFT_404_HTML,
+            detail_url(KM_1): acquisition(AcquisitionFailure.TRANSPORT, attempts=3),
+        }
+    )
+    deps = KingstoneRunDependencies(**{**make_deps(fetcher, MemoryStore()).__dict__, "diagnostics": sink})
+
+    run_pages(deps, [LIST_A])
+
+    assert sink.saved == []
+
+
+def test_a_failing_diagnostic_sink_never_changes_the_run():
+    fetcher = FakeFetcher({LIST_A: "<html><body>broken</body></html>", LIST_B: list_html([KM_1]), detail_url(KM_1): detail_html(KM_1)})
+    deps = KingstoneRunDependencies(**{**make_deps(fetcher, MemoryStore()).__dict__, "diagnostics": RecordingSink(OSError("disk full"))})
+
+    report = run_pages(deps, [LIST_A, LIST_B])
+
+    assert report.error is None
+    assert report.pages_completed == 1
+    assert report.imported == 1
+
+
+def test_a_list_parse_error_and_a_detail_parse_error_are_both_counted_as_parse_error_200():
+    fetcher = FakeFetcher(
+        {
+            LIST_A: "<html><body>maintenance</body></html>",
+            LIST_B: list_html([KM_1]),
+            detail_url(KM_1): "<html><head><title>金石堂網路書店</title></head><body>layout changed</body></html>",
+        }
+    )
+
+    report = run_pages(make_deps(fetcher, MemoryStore()), [LIST_A, LIST_B])
+
+    assert report.parse_error_200_count == 2
+    assert report.status is RunStatus.PARTIAL_SUCCESS
+
+
+def test_a_soft_404_and_an_all_existing_run_have_no_parse_error_200():
+    fetcher = FakeFetcher({LIST_A: list_html([SOFT_404]), detail_url(SOFT_404): SOFT_404_HTML})
+
+    report = run_pages(make_deps(fetcher, MemoryStore()), [LIST_A])
+
+    assert report.failed == 1
+    assert report.parse_error_200_count == 0
