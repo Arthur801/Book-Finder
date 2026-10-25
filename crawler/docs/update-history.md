@@ -4,6 +4,8 @@
 
 > 查核 2026-10-24；HEAD `91333c334148fa5bfe07055d0e799dc13bb0bb4e`。依基準版本靜態閱讀；本次未執行 build、測試、部署、外部服務或真實抓取。
 
+> 2026-10-25（金石堂 E0，CB-07）：實作前 HEAD `590a574`（docs 分支 `docs/kingstone-plan-v10-reconcile`）。使用者授權的有限真站抓取 31 次；新增 13 份金石堂 fixture、architecture 的 source contract 與 CR-K01。本次執行完整 crawler pytest（19684 passed、0 skip，含 DB integration）與 ruff；沒有金石堂程式、沒有部署。
+
 > 2026-10-25（PR4 M2：crawler 只查 `ISBN`，DB integration 在 011 schema 上執行）：實作前 HEAD `6c67e3e`；本次執行 crawler pytest（含 DB integration）、ruff check／format 與 `unicode_tables.py --check`，未執行部署或真實抓取。
 
 > 2026-10-25（#116 phase A、phase B、review 修正、Unicode 15.1 分段 NFKC 與 PR #119 連線重連）：實作前 HEAD `ee29e02`；各階段的 commits 列於文末「#116 phase A」「#116 phase B 與 review 修正」。本次有執行 pytest（DB integration 含）、C# DatabaseIntegration、ruff 與 deploy tests，未執行部署或真實抓取。
@@ -120,5 +122,10 @@ Workflow／architecture／CR-T12 的 host 現況引用 [target wrapper](https://
 | 2026-10-25 | `868ba40` | Arthur801 | test(crawler): assert the migration 011 schema in DB tests | M crawler/tests/{test_db_integration,test_e2e_real_fixtures,test_run_pages}.py |
 | 2026-10-25 | `f92a63d` | Arthur801 | feat(crawler): match distinct Books on the ISBN type only | M crawler/books_crawler/{models,db,run}.py；M crawler/tests/test_normalize.py |
 | 2026-10-25 | 本次 backlog 整理 commit | Arthur801 | docs(backlog): tidy crawler backlog after #113 PR3–PR4 | `docs/backlog.md`：CB-01、CB-04、CB-05、CB-06 移至「已處理」；CB-03 補記 production 與 schema 狀態；補記標頭；未改程式 |
+| 2026-10-25 | `a386144` | Arthur801 | test(kingstone): add E0 list and detail fixtures and the source contract | A crawler/tests/fixtures/kingstone/（README＋13 份 HTML）；M `docs/architecture.md`（金石堂 source contract） |
+| 2026-10-25 | `81cd973` | Arthur801 | test(kingstone): pin the E0 fixture contract | A crawler/tests/test_kingstone_fixture_contract.py（59 個測試） |
+| 2026-10-25 | `e6f2b3f` | Arthur801 | docs(crawler): record Kingstone E0 in backlog, tests and history | `docs/backlog.md` CB-07；`docs/test-suite.md` CR-K01；本表 |
+| 2026-10-25 | `84451bf` | Arthur801 | test(kingstone): apply review fixes to the E0 fixtures and contract test | 兩軸 review 修正：`list_sj_p1.html` 以清單格式 URL 重抓（第 32 次請求）、soft 404 改名 `detail_2099999999999.html`、subjects 去掉「中文書」、補 title／image／分級／breadcrumb／卡片無 ISBN 測試（共 92 個） |
+| 2026-10-25 | 本次 commit | Arthur801 | docs(crawler): move the Kingstone source contract to backlog CB-07 | 使用者決定：未實作的契約不放 current-state 的 `docs/architecture.md`，移到 `docs/backlog.md` CB-07；architecture 只留指向；test-suite、fixture README 與測試 docstring 的參照同步 |
 
 行為轉折：ISBN 不再驗證 checksum，所有非空正規化值都以 `ISBN` 寫入；既有 Source 每次出現都更新 `last_seen_at`；`replace_bestsellers` 不再更新 `last_seen_at`；停用的 provider 以 exit 2 拒絕執行。新 DB 測試依 migration 010 的 trigger 驗證 `source_type = source_code`。

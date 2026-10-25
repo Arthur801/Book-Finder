@@ -193,6 +193,14 @@ migration 011 的 schema 由 test_db_integration.py 在 011 上檢查（無 `sou
 - **Then**：每組結果與 c4 逐字相同；未指派 code point 原樣保留並分段；舊 runtime 啟動時 exit 2。
 - **來源與狀態**：[test_unicode_nfkc_conformance.py](../tests/test_unicode_nfkc_conformance.py)、[test_isbn_fixture.py](../tests/test_isbn_fixture.py)、[test_cli.py](../tests/test_cli.py)；CI `unicode_tables.py --check` 檢查產生檔沒有漂移。
 
+### CR-K01 — 金石堂 fixture contract（E0）
+
+- **責任／規格**：[backlog](backlog.md)「CB-07 來源契約」；風險 L2；狀態：已有測試（2026-10-25 新增並執行）。尚無金石堂程式，這組測試直接以 BeautifulSoup 讀 fixture，固定之後 parser 必須遵守的解讀。
+- **Given**：[kingstone fixtures](../tests/fixtures/kingstone/README.md) 的 5 個列表頁、7 個詳細頁、1 個 soft 404。
+- **When**：以 contract 的選擇器與欄位規則讀取每份 fixture。
+- **Then**：列表卡數 48／48／39／0／6，`data-prodno` 與連結 km_code 一致，卡片文字沒有 ISBN；空頁有 `.emptyCategory`、沒有 `.productGrid`，巢狀推薦卡不被選到；`sort=pu_desc` 出版日遞減；詳細頁 `sku` 等於檔名、`isbn` 等於 `gtin13`、`name` 非空、`image[0]` 是 assets 網址、「分級」為普通級；簡體書規格表是中文簡體但 JSON-LD `inLanguage` 是 `zh-TW`；作者連結含原文姓名、「、」串接與「審訂/」前綴，JSON-LD `author` 只有第一個連結；譯者是純文字；breadcrumb 原始清單重複兩次，subjects 依序去重並去掉「中文書」；soft 404 沒有 Product JSON-LD；README 與檔案一一對應。
+- **來源與狀態**：[test_kingstone_fixture_contract.py](../tests/test_kingstone_fixture_contract.py)。Phase 2 的 parser 測試要沿用同一批 fixture；之後各 Phase 的必測行為見 [v11 計畫](../../Docs/plans/kingstone-category-crawler.md) §9。
+
 ### 連線中斷與重連（crawler.md §13.1、§6.1，#119）
 
 - **Given**：DB integration 的 PostgreSQL；fetcher 與 parser 是 fake，不連線博客來。會話斷線以 `pg_terminate_backend(<crawler backend pid>)` 從另一個 admin 連線執行，在操作前的 hook 中觸發。
