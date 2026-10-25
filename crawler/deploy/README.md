@@ -307,9 +307,11 @@ crawler/deploy/local/run-local-crawler.sh daily
 
 1. 確認 EC2 deploy state 沒有 paused 或 dirty（runner 會檢查，但部署進行中時請不要啟動）。與 migration 的互斥由 container 內 crawler 的 shared advisory lock（PR #145）與 deploy 的 exclusive lock（PR #146）負責，runner 不取 lock；兩者都合併且 deploy 端上線前，請自行避開部署窗口。
 2. 清單只放 1 頁：暫時把 `crawler/kingstone-pages.txt` 改為只有一行，`docker build --target kingstone -t kingstone:canary crawler`，設定 `KINGSTONE_CRAWLER_IMAGE=kingstone:canary`。測試完成後還原清單檔，並重建 image。
-3. 確認寫入策略為 `new-books-only`。這是程式的預設值（`KINGSTONE_WRITE_POLICY` 未設定即是），本 runner 不轉傳此變數；不要在 image 或環境中改為 `normal`。
-4. 執行 `run-local-crawler.sh kingstone`，確認 exit code、`artifacts/kingstone/last-run.json`（M5 之後）與 log 中的 `container=end exit_code=...`。
-5. 成功後還原清單與 image tag，再視需要以 `normal` 進行下一步（另案）。
+3. 確認 production 的 `source_providers` 中 KINGSTONE 為 `enabled = true`；否則 crawler 以 exit 2 拒絕（`source provider KINGSTONE is disabled or not registered`），不發出請求。啟用以主帳號執行 [`local/sql/enable-kingstone.sql`](local/sql/enable-kingstone.sql)；web 會開始顯示金石堂的外部連結，回復即改回 `false`。
+4. 確認寫入策略為 `new-books-only`。這是程式的預設值（`KINGSTONE_WRITE_POLICY` 未設定即是），本 runner 不轉傳此變數；不要在 image 或環境中改為 `normal`。
+5. 執行 `run-local-crawler.sh kingstone`，確認 exit code、`artifacts/kingstone/last-run.json`（M5 之後）與 log 中的 `container=end exit_code=...`。
+6. 以唯讀 SQL 核對 production 的新資料（範例：[`local/sql/verify-canary-2026-10-25.sql`](local/sql/verify-canary-2026-10-25.sql)，時段需改成該次 run）。
+7. 成功後還原清單與 image tag，再視需要以 `normal` 進行下一步（另案）。
 
 金石堂若封鎖本地 IP，依 rollback 停用（`CRAWLER_ENABLED=false`），不採取規避技術。
 
