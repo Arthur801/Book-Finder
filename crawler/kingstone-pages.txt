@@ -1,0 +1,11 @@
+# 金石堂分類清單頁（kingstone pages mode）
+#
+# 格式：每行一個 URL；以 # 開頭的行是註解；空行會被忽略；前後空白會被去除。
+# 接受的格式（canonical grammar，見 crawler/kingstone/urls.py）：
+#   https://www.kingstone.com.tw/book/<分類代碼>/?dis=list&page=<n>[&sort=<排序>]
+#   - <分類代碼>：2 到 4 個英文字母，大小寫皆可（比對時轉為小寫）
+#   - <n>：正整數，不可有前導零或正負號
+#   - <排序>：可省略；可用值 sa_desc、pu_desc、pu_asc、pr_desc、pr_asc
+#   - 查詢參數的順序不限；不接受其他參數、重複參數、片段（#）或其他主機
+# 每個 URL 只讀取一次，不會自動追蹤「下一頁」；重複的 URL 只保留第一筆；最多 200 個 URL。
+# 本檔目前沒有任何 URL，使用者會另外提供；在提供之前載入本檔會回報錯誤。

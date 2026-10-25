@@ -1,4 +1,4 @@
-"""Pure normalization rules from ``Docs/data/data-model.md`` §2, §2.1, §5.4, §5.5. The ISBN rules (§7.1) live in ``catalog_core.normalize``.
+"""Pure normalization rules from ``Docs/data/data-model.md`` §2, §2.1, §5.4, §5.5. The ISBN rules (§7.1), ``clean_text`` and the contributor role rules live in ``catalog_core.normalize``.
 
 Every function returns ``None`` (or the documented fallback) instead of guessing when a value
 cannot be interpreted reliably. Nothing here touches the network or the database.
@@ -10,10 +10,8 @@ import logging
 import re
 from datetime import date
 
-from books_crawler.models import (
-    ContributorRole,
-    PublishedDatePrecision,
-)
+from books_crawler.models import PublishedDatePrecision
+from catalog_core.normalize import clean_text
 
 log = logging.getLogger("books_crawler.normalize")
 
@@ -26,26 +24,8 @@ LANGUAGE_MAP: dict[str, str] = {
     "韓文": "ko",
 }
 
-# crawler.md §11.1: 博客來 contributor label → role. Unknown labels → OTHER.
-ROLE_MAP: dict[str, ContributorRole] = {
-    "作者": ContributorRole.AUTHOR,
-    "原文作者": ContributorRole.ORIGINAL_AUTHOR,
-    "譯者": ContributorRole.TRANSLATOR,
-    "編者": ContributorRole.EDITOR,
-    "繪者": ContributorRole.ILLUSTRATOR,
-}
-
-_WHITESPACE = re.compile(r"\s+")
 # 2026, 2026/10, 2026/10/11 (also accepts - and . as separators). Anything else is not parsed.
 _DATE = re.compile(r"^(\d{4})(?:[/.\-](\d{1,2})(?:[/.\-](\d{1,2}))?)?$")
-
-
-def clean_text(raw: str | None) -> str | None:
-    """Collapse internal whitespace and strip. Empty → None."""
-    if raw is None:
-        return None
-    value = _WHITESPACE.sub(" ", raw).strip()
-    return value or None
 
 
 def map_language(raw: str | None) -> str | None:
@@ -57,22 +37,6 @@ def map_language(raw: str | None) -> str | None:
     if code is None:
         log.warning("unmapped language label %r; storing NULL", value)
     return code
-
-
-def normalize_role_label(raw: str) -> str:
-    """Strip whitespace and a trailing full-width or ASCII colon from a contributor label."""
-    value = clean_text(raw) or ""
-    return value.rstrip("：:").strip()
-
-
-def map_contributor_role(raw: str) -> ContributorRole:
-    """Map a 博客來 contributor label (作者 / 譯者 / ...) to a contributor role."""
-    label = normalize_role_label(raw)
-    role = ROLE_MAP.get(label)
-    if role is None:
-        log.debug("contributor label %r has no role mapping; using OTHER", label)
-        return ContributorRole.OTHER
-    return role
 
 
 def parse_published_date(raw: str | None) -> tuple[date | None, PublishedDatePrecision | None]:

@@ -74,7 +74,7 @@ python -m pytest tests/test_fetcher.py tests/test_curl_fetcher.py tests/test_pla
 - Given：UTF-8 BOM、註解、空行、重複合法 URL；另製非法 URL／非 UTF8／空檔，DB URL 缺失、fetcher 或 timeout 非法。
 - When：cli.main(env, mode=CrawlerMode.PAGES)。
 - Then：合法清單按首次順序；無效設定 exit 2、fetcher／request 不建立；錯誤含路徑行號不回顯敏感行，secret 不進 log；timeout 範圍 1..300000。
-- 現有測試或擴充入口：[test_page_list.py](../tests/test_page_list.py)、[test_cli.py](../tests/test_cli.py)。
+- 現有測試或擴充入口：[test_page_list.py](../tests/test_page_list.py)、[test_cli.py](../tests/test_cli.py)；共用檔案規則的核心測試在 [test_catalog_page_list.py](../tests/test_catalog_page_list.py)（2026-10-25 新增，含非法行不回顯、canonical 去重與上限）。
 
 ### CR-T08 — pages Catalog 與時間邊界
 
@@ -216,6 +216,14 @@ migration 011 的 schema 由 test_db_integration.py 在 011 上檢查（無 `sou
 - **When**：以 contract 的選擇器與欄位規則讀取每份 fixture。
 - **Then**：列表卡數 48／48／39／0／6，`data-prodno` 與連結 km_code 一致，卡片文字沒有 ISBN；空頁有 `.emptyCategory`、沒有 `.productGrid`，巢狀推薦卡不被選到；`sort=pu_desc` 出版日遞減；詳細頁 `sku` 等於檔名、`isbn` 等於 `gtin13`、`name` 非空、`image[0]` 是 assets 網址、「分級」為普通級；簡體書規格表是中文簡體但 JSON-LD `inLanguage` 是 `zh-TW`；作者連結含原文姓名、「、」串接與「審訂/」前綴，JSON-LD `author` 只有第一個連結；譯者是純文字；breadcrumb 原始清單重複兩次，subjects 依序去重並去掉「中文書」；soft 404 沒有 Product JSON-LD；README 與檔案一一對應。
 - **來源與狀態**：[test_kingstone_fixture_contract.py](../tests/test_kingstone_fixture_contract.py)。Phase 2 的 parser 測試要沿用同一批 fixture；之後各 Phase 的必測行為見 [v11 計畫](../../Docs/plans/kingstone-category-crawler.md) §9。
+
+### CR-K02 — 金石堂清單與 URL grammar
+
+- **責任／規格**：[backlog](backlog.md)「CB-07 來源契約」與 Kingstone plan v11 §3–§4；風險 L2；狀態：已有測試（2026-10-25 新增並執行）。純函式與檔案讀取，不連線金石堂，也不碰資料庫。
+- **Given**：[fixtures README](../tests/fixtures/kingstone/README.md) 列出的五個列表頁網址、五種排序鍵、以及不在 grammar 內的網址（http、其他主機、無 www、userinfo、port、fragment、`/normal/book/jd`、缺尾斜線、代碼 1 或 5 字母或含數字、缺 `dis` 或 `page`、`dis=pic`、page 為 0／-1／01／abc、未知 sort、多餘或重複參數）；`list_jdc_p1.html` 的每張卡片連結；一份含 BOM、註解、空行、大小寫不同代碼的清單檔；`kingstone-pages.txt`（目前沒有 URL）。
+- **When**：`canonical_list_url`、`detail_url`、`km_code_from_href` 與 `kingstone.page_list.load_page_urls` 處理上述輸入。
+- **Then**：合法網址得到固定順序（dis、page、sort）的 canonical 形式，代碼轉小寫，查詢參數順序不影響結果；不合法網址回 None；`detail_url` 只接受 13 位數字；每張卡片的 href 都解析為 `data-prodno`；清單檔以 canonical 值去重並保留首見順序，非法行的錯誤含檔名與行號但不含網址文字，超過 200 個 URL 失敗，空清單與目前的預設檔都回 `PageListError`。
+- **來源與狀態**：[test_kingstone_urls.py](../tests/test_kingstone_urls.py)、[test_kingstone_page_list.py](../tests/test_kingstone_page_list.py)、[test_catalog_page_list.py](../tests/test_catalog_page_list.py)（核心 loader）；Books 的 [test_page_list.py](../tests/test_page_list.py) 不變。
 
 ### 連線中斷與重連（crawler.md §13.1、§6.1，#119）
 

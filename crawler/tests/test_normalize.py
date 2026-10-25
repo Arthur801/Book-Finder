@@ -5,11 +5,10 @@ import pytest
 
 from books_crawler.models import Identifier, IdentifierType
 from books_crawler.normalize import (
-    map_contributor_role,
     map_language,
     parse_published_date,
 )
-from catalog_core.normalize import normalize_isbn
+from catalog_core.normalize import map_contributor_role, normalize_isbn
 
 # ISBN normalization (data-model §7.1): no checksum, no length check; stored type ISBN
 
