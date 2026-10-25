@@ -22,7 +22,7 @@ from bs4 import BeautifulSoup, Tag
 
 from catalog_core.html_text import text_with_line_breaks
 from catalog_core.models import BookDraft, Contributor, ContributorRole, PublishedDatePrecision
-from catalog_core.normalize import clean_text, map_contributor_role, normalize_isbn
+from catalog_core.normalize import clean_text, normalize_isbn
 from kingstone.models import KingstoneParseError, ProductNotFound
 from kingstone.urls import SITE_ORIGIN
 
@@ -201,17 +201,21 @@ def _section_text(soup: BeautifulSoup, selector: str) -> str | None:
 
 
 def _role_and_name(piece: str) -> tuple[ContributorRole, str] | None:
-    """A single name, optionally with a ``角色/`` prefix. Unprefixed names are AUTHOR."""
+    """A single name, optionally with a ``角色/`` prefix. Unprefixed names are AUTHOR; prefixed names are OTHER.
+
+    Kingstone's role-prefix vocabulary is its own, not the Books.com.tw one. The E0 fixtures show only ``審訂/``,
+    which has no Catalog role, so no prefix maps to a specific role until a fixture shows one.
+    """
     value = clean_text(piece)
     if value is None:
         return None
     if _ROLE_SEPARATOR not in value:
         return ContributorRole.AUTHOR, value
-    label, _, name = value.partition(_ROLE_SEPARATOR)
+    _, _, name = value.partition(_ROLE_SEPARATOR)
     cleaned = clean_text(name)
     if cleaned is None:
         return None
-    return map_contributor_role(label), cleaned
+    return ContributorRole.OTHER, cleaned
 
 
 def _author_pairs(unit: Tag) -> list[tuple[ContributorRole, str]]:

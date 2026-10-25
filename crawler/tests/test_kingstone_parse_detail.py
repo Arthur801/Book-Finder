@@ -514,12 +514,13 @@ def test_enumeration_comma_splits_names_inside_one_link():
     )
 
 
-def test_role_prefix_maps_known_label_and_unknown_label_is_other():
+def test_every_role_prefix_is_other_because_kingstone_does_not_use_the_books_role_vocabulary():
+    # Only 審訂/ is observed (E0); even a label the Books.com.tw table knows (繪者) is not mapped here.
     units = _author_unit(_link("繪者/林小畫") + _link("顧問/王五") + _link("李四"))
     draft = parse_detail_html(_page(basic_units=units), URL)
 
     assert draft.contributors == (
-        Contributor(1, "林小畫", ContributorRole.ILLUSTRATOR),
+        Contributor(1, "林小畫", OTHER),
         Contributor(2, "王五", OTHER),
         Contributor(3, "李四", AUTHOR),
     )
