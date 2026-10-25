@@ -49,7 +49,7 @@
   - 已於 Phase 5 M2 解決：`kingstone/cli.py` 把 `KINGSTONE_SOFT_RUN_BUDGET_SECONDS` 轉成 `SoftBudget`，並把同一個 budget 交給真 fetcher（`budget_remaining=budget.remaining`）。
   - 詳細頁在 budget 停止時被截斷的卡，以 `budget_exhausted` 記入 `failed_items`（統計上算失敗，下次 replay 會處理）；是否改為不計入失敗另定。
 - Phase 3 留下的待辦：
-  - challenge／CAPTCHA 分類待 fixture：目前 200 照常回傳，由 parser fail closed；收錄 fixture 後再定分類。
+  - challenge／CAPTCHA 分類待 fixture：目前 200 照常回傳，由 parser fail closed，落在 `unclassified_200` alert（保守告警，Phase 6 M5 後續）；收錄 fixture 後把可辨識的部分細分為 `challenge`，其餘維持 `unclassified_200`。
   - `budget_remaining` 由 Phase 4 run 以 `SoftBudget` 提供（caller 組裝時傳入 `budget.remaining`）；Phase 3 預設 `math.inf`（不限制）。真 fetcher 的組裝已於 Phase 5 M2 完成（`kingstone/cli.py`）；真站上的 budget 行為仍未驗證（禁止連網）。
   - libcurl 傳輸中的大小上限（`MAXFILESIZE_LARGE`）未以真實傳輸驗證：開發環境禁止連網，單元測試只驗證選項有傳入與 `FILESIZE_EXCEEDED`（63）的對應。目前保證 5 MiB 記憶體上限的是 per-call 串流計量（第二道）；第一道是額外保護。
   - TLS 握手中被 reset 若以 curl `RECV_ERROR` 回報，會歸為 `ConnectionError` 並被重試；計畫把 TLS 失敗列為不重試，此分支沒有測試，也未經真站確認。
@@ -60,7 +60,7 @@
   - DB 角色權限：程式只發出 SELECT、INSERT、UPDATE；實際 role 的 grant 屬部署（Phase 6），未驗證。
   - hard limit 強制執行與 runner 屬 Phase 6（見上方待做）。Dockerfile 已於 Phase 6 M1 完成；alert 與診斷檔已於 Phase 6 M5 完成。
 - Phase 6 M5 留下的待辦：
-  - challenge／CAPTCHA 偵測未實作：acquisition 回 200，parser fail closed，無法與其他無法解析的頁區分；待收錄 challenge fixture 後定義分類與 `challenge` alert reason（不做猜測性偵測）。
+  - challenge／CAPTCHA 偵測未實作：acquisition 回 200，parser fail closed，無法與其他無法解析的頁區分。**已以 `unclassified_200` 保守告警**（任何 200 之後的 parse 失敗，不論 status，含列表頁與詳細頁；soft 404 不算）；待收錄 challenge fixture 後，再把其中可辨識的部分細分為 `challenge`，其餘維持 `unclassified_200`。不做猜測性偵測，不以 HTML 猜測 challenge。
   - runner 端的 orphan alert（`ORPHAN_WRITER`）屬 Phase 6 M4；runner 也要把 artifacts 目錄掛入 container（目前程式只使用 `KINGSTONE_ARTIFACTS_DIR`）。
   - `pages_not_reached` streak：history 有壞檔時不判定 streak（少報）；壞檔會留到被 20 份上限擠掉為止，期間 streak alert 不會觸發，需要人工刪除壞檔才恢復。
   - 「provider 停用或未註冊」的 pre-run 結果以 `failed` alert 表達（status FAILED，exit 2）。這是實作決定，若只想對執行失敗告警需另定。

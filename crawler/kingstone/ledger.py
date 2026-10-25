@@ -36,6 +36,7 @@ from catalog_core.service import ItemFailed, ItemPolicySkipped, ItemResolved
 EXIT_SUCCESS = 0
 EXIT_FAILED = 1
 EXIT_CONFIG_ERROR = 2
+PARSE_ERROR_REASON = "parse_error"  # a 200 page or detail body that the parser rejected (KingstoneParseError)
 
 log = logging.getLogger("kingstone.ledger")
 
@@ -132,6 +133,7 @@ class KingstoneReport:
     details_fetched: int = 0  # detail page fetches the run asked for (a failed fetch counts too)
     http_attempts: int = 0  # requests the fetcher actually sent, retries included
     http_failures: int = 0  # sent requests that gave no usable 200 body
+    parse_error_200_count: int = 0  # list pages skipped and failed detail cards with reason parse_error (unclassified_200)
 
     @property
     def exit_code(self) -> int:
@@ -163,6 +165,7 @@ class KingstoneLedger:
         self._recovered = 0
         self._identity_warnings = 0
         self._failed_items: list[FailedItem] = []
+        self._parse_error_200 = 0
 
     def page_started(self, url: str, *, items_listed: int = 0) -> None:
         """The page was fetched and parsed; its cards are recorded next. One page is open at a time.
@@ -199,6 +202,8 @@ class KingstoneLedger:
             self._policy_skipped += 1
         elif isinstance(result, ItemFailed):
             self._counts[CatalogResolution.FAILED] += 1
+            if result.reason == PARSE_ERROR_REASON:
+                self._parse_error_200 += 1
             self._failed_items.append(
                 FailedItem(
                     list_url=url,
@@ -242,6 +247,8 @@ class KingstoneLedger:
             raise ValueError(f"{page.url} was already processed")
         self._skipped.append(page)
         self._skipped_urls.add(page.url)
+        if page.reason == PARSE_ERROR_REASON:
+            self._parse_error_200 += 1
         log.warning("page skipped after %d attempt(s) (%s): %s: %s", page.attempts, page.reason, page.url, page.message)
 
     def stop_for_budget(self) -> None:
@@ -304,6 +311,7 @@ class KingstoneLedger:
             details_fetched=self._details_fetched,
             http_attempts=http_attempts,
             http_failures=http_failures,
+            parse_error_200_count=self._parse_error_200,
         )
 
     def _require_listed(self, url: str) -> None:
@@ -314,7 +322,7 @@ class KingstoneLedger:
 def format_report(report: KingstoneReport) -> str:
     """One line of ``key=value`` pairs, in the fixed order of the list below (``write_policy`` follows ``provider_code``;
     ``policy_skipped`` follows ``ambiguous_created``; ``items_listed``, ``details_fetched``, ``http_attempts`` and
-    ``http_failures`` follow ``items_seen``).
+    ``http_failures`` follow ``items_seen``; ``parse_error_200_count`` follows ``failed``).
 
     Counts are plain integers, ``budget_exhausted`` is ``true`` or ``false``. ``zero_progress_reason`` and ``error`` are
     JSON strings or ``null``; ``skipped_pages`` and ``failed_items`` are JSON lists (``ensure_ascii=False``). The
@@ -345,6 +353,7 @@ def format_report(report: KingstoneReport) -> str:
         ("ambiguous_created", report.ambiguous_created),
         ("policy_skipped", report.policy_skipped_count),
         ("failed", report.failed),
+        ("parse_error_200_count", report.parse_error_200_count),
         ("recovered_commit_count", report.recovered_commit_count),
         ("identity_warning_count", report.identity_warning_count),
         ("zero_progress_reason", _json_text(report.zero_progress_reason)),

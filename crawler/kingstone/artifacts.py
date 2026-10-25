@@ -8,13 +8,14 @@ Layout under the artifacts root (``KINGSTONE_ARTIFACTS_DIR``, default ``crawler/
 
 The history is for observability only. It is not a progress file and is never read for replay.
 
-Order (``KingstoneArtifacts.publish``). The alert reasons are computed first, from the history as it was before this run
-(so this run is never counted twice). Then ``last-run.json`` is written, then this run's history entry is written and the
-history is pruned. A failed write is logged at ERROR and does not change the run's result: ``publish`` always returns
-the alert reasons.
+One record for every output. ``KingstoneArtifacts.finalize`` turns a record (from the report or the pre-run facts) into the
+final record: it adds ``alert_reasons`` and redacts every string. The CLI prints that same final record as one stdout
+JSON line, and ``KingstoneArtifacts.write`` stores it as ``last-run.json`` and as the history summary. So stdout,
+last-run and history never disagree.
 
-Records are built only from the report or the pre-run facts, and every string in them passes through
-``catalog_core.redact.redact``.
+Order. ``finalize`` reads the history as it was before this run (so this run is never counted twice) and computes the
+alert reasons. ``write`` then writes ``last-run.json``, then this run's history entry, and prunes the history. A failed
+write is logged at ERROR and never raises, so ``write`` cannot stop the caller from printing the record.
 """
 
 from __future__ import annotations
@@ -49,6 +50,7 @@ _EMPTY_COUNTS: dict[str, Any] = {
     "pages_interrupted": 0,
     "pages_not_reached": None,  # unknown for a run that never reached its pages: not counted in the streak
     "zero_card_pages": 0,
+    "parse_error_200_count": 0,
     "budget_exhausted": False,
     "items_listed": 0,
     "details_fetched": 0,
@@ -86,6 +88,7 @@ def record_from_report(report: KingstoneReport) -> dict[str, Any]:
         "pages_interrupted": report.pages_interrupted,
         "pages_not_reached": report.pages_not_reached,
         "zero_card_pages": report.zero_card_pages,
+        "parse_error_200_count": report.parse_error_200_count,
         "budget_exhausted": report.budget_exhausted,
         "items_listed": report.items_listed,
         "details_fetched": report.details_fetched,
@@ -174,11 +177,8 @@ class KingstoneArtifacts:
         self.diagnostics_dir = self.directory / DIAGNOSTICS_DIR_NAME
         self._history_retain = history_retain
 
-    def publish(self, record: Mapping[str, Any]) -> list[str]:
-        """Computes the alert reasons (from the history before this run), writes last-run.json and this run's history entry.
-
-        Returns the alert reasons (possibly empty). Write failures are logged at ERROR and do not raise.
-        """
+    def finalize(self, record: Mapping[str, Any]) -> dict[str, Any]:
+        """The final record: the alert reasons (from the history before this run) added, every string redacted. Writes nothing."""
         history, unreadable = _read_history(self.history_dir)
         if unreadable:
             # An unreadable entry may be one of the last runs, and its count is unknown: skipping it could join two
@@ -193,9 +193,12 @@ class KingstoneArtifacts:
             pages_completed=int(record["pages_completed"]),
             zero_card_pages=int(record["zero_card_pages"]),
             streak_reached=streak,
+            parse_error_200_count=int(record["parse_error_200_count"]),
         )
-        final = _redact_tree({**record, "alert_reasons": reasons})
+        return _redact_tree({**record, "alert_reasons": reasons})
 
+    def write(self, final: Mapping[str, Any]) -> None:
+        """Writes ``last-run.json`` and this run's history summary, then prunes the history. Never raises."""
         try:
             atomic_write_json(self.last_run_path, final)
         except Exception as exc:  # noqa: BLE001 - artifacts never change the run's result
@@ -209,13 +212,18 @@ class KingstoneArtifacts:
                 "exit_code": final["exit_code"],
                 "reason": final["reason"],
                 "pages_not_reached": final["pages_not_reached"],
-                "alert_reasons": reasons,
+                "alert_reasons": final["alert_reasons"],
             }
             atomic_write_json(self.history_dir / f"{final['run_id']}.json", summary)
             self._prune_history()
         except Exception as exc:  # noqa: BLE001 - artifacts never change the run's result
             log.error("could not write the kingstone history under %s: %s", self.history_dir, _describe(exc))
-        return reasons
+
+    def publish(self, record: Mapping[str, Any]) -> dict[str, Any]:
+        """``finalize`` then ``write``. Returns the final record."""
+        final = self.finalize(record)
+        self.write(final)
+        return final
 
     def _prune_history(self) -> None:
         """Keeps the newest ``history_retain`` files by finished_at. Unreadable files count as the oldest."""

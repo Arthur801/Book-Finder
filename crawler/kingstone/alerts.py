@@ -6,11 +6,15 @@ An alert is a log line only (``ALERT`` on ``kingstone.cli``, WARNING); nothing i
 - ``schema_prerequisite_missing``: the post-011 schema preflight failed (``SCHEMA_PREREQUISITE_MISSING``).
 - ``maintenance_busy``: the first connection found the Catalog lock held by a migration. A busy run that was orphaned
   mid-run is the runner's alert (plan v12 §8, Phase 6 M4), not this module's.
+- ``unclassified_200``: at least one HTTP 200 page or detail body failed to parse (``parse_error``). Not a soft 404,
+  not an acquisition failure. It is the conservative stand-in for ``challenge``: see below.
 - ``zero_card_pages``: at least one page completed and every completed page listed zero cards.
 - ``pages_not_reached_streak``: ``pages_not_reached`` was above 0 in the last ``STREAK_LENGTH`` runs (see below).
 
 Not implemented: ``challenge``. Acquisition returns a 200 body and the parser fails closed on it, and no challenge
-fixture exists yet, so a challenge cannot be told apart from another unparseable page (backlog CB-07).
+fixture exists yet, so a challenge cannot be told apart from another unparseable page (backlog CB-07). Until a fixture
+exists, every 200 parse failure raises ``unclassified_200`` (any run status), so a challenge is never silently skipped.
+Once a fixture exists, its recognisable part is split out as ``challenge`` and the rest stays ``unclassified_200``.
 
 An all-Existing run that completed its pages triggers nothing.
 
@@ -53,8 +57,14 @@ def alert_reasons(
     pages_completed: int,
     zero_card_pages: int,
     streak_reached: bool,
+    parse_error_200_count: int = 0,
 ) -> list[str]:
-    """The alert reasons of one run, in a fixed order. Empty when nothing is alerted."""
+    """The alert reasons of one run, in a fixed order. Empty when nothing is alerted.
+
+    Order: failed, schema_prerequisite_missing, maintenance_busy, unclassified_200, zero_card_pages,
+    pages_not_reached_streak. ``unclassified_200`` comes before ``zero_card_pages``: a parse failure means the page
+    content is unknown, so it is reported before the weaker "parsed but empty" signal.
+    """
     reasons: list[str] = []
     if status == FAILED_STATUS:
         reasons.append("failed")
@@ -62,6 +72,8 @@ def alert_reasons(
         reasons.append("schema_prerequisite_missing")
     if reason == BUSY_REASON:
         reasons.append("maintenance_busy")
+    if parse_error_200_count > 0:
+        reasons.append("unclassified_200")
     if pages_completed > 0 and zero_card_pages == pages_completed:
         reasons.append("zero_card_pages")
     if streak_reached:

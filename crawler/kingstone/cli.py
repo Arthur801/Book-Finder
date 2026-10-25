@@ -32,13 +32,16 @@ validates the value and keeps the soft budget below it.
 Artifacts (plan v12 §8). Every terminal result after the configuration is loaded writes ``kingstone/last-run.json``
 and a history entry: the full report of a run, or the minimal pre-run record for the results before or instead of
 one (a page list, provider, schema or lock problem, a database connection problem). A configuration that is invalid
-(or an environment without DATABASE_URL) writes nothing, because the artifacts directory is then unknown. When the
-alert reasons are not empty, one ``ALERT`` line is logged on ``kingstone.cli``. Artifact failures are logged and never
-change the exit code.
+(or an environment without DATABASE_URL) writes nothing, because the artifacts directory is then unknown. Every such
+terminal record is also printed to stdout as one JSON line (``json.dumps(record, ensure_ascii=False, sort_keys=True)``),
+before the artifact files are written, so the line is there even when a write fails. It is the same record as
+``last-run.json``. When the alert reasons are not empty, one ``ALERT`` line is logged on ``kingstone.cli``. Artifact
+failures are logged and never change the exit code.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import sys
@@ -126,10 +129,14 @@ class _RunRecorder:
 
     def _publish(self, record: Mapping[str, object]) -> None:
         try:
-            reasons = self.artifacts.publish(dict(record))
-        except Exception as exc:  # noqa: BLE001 - artifacts never change the run's result
-            self._log.error("could not record the kingstone run: %s: %s", type(exc).__name__, redact(str(exc)))
+            final = self.artifacts.finalize(dict(record))
+        except Exception as exc:  # noqa: BLE001 - the record is built from our own facts; log and keep the exit code
+            self._log.error("could not build the kingstone run record: %s: %s", type(exc).__name__, redact(str(exc)))
             return
+        # The one terminal line on stdout. print, not logging: the line is raw JSON, so json.loads() reads it directly.
+        print(json.dumps(final, ensure_ascii=False, sort_keys=True), flush=True)
+        self.artifacts.write(final)  # never raises; a failure is logged there
+        reasons = final["alert_reasons"]
         if reasons:
             self._log.warning("ALERT reasons=%s last_run=%s", ",".join(reasons), self.artifacts.last_run_path)
 

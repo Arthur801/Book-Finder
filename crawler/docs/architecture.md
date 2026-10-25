@@ -59,7 +59,7 @@
 
 設定（`kingstone/config.py`）與 run 帳本（`kingstone/ledger.py`）為純函式；逐頁 run（`kingstone/run.py`）已把兩者與 acquisition、catalog_core 接起來，由入口呼叫（見下方「入口與組裝」與「Run（逐頁流程）」）。
 
-已實作的報告面（Phase 6 M5）：每次 terminal 結果寫 `artifacts/kingstone/last-run.json`、bounded history、log 形式的 alert 與診斷 HTML（見「報告、alert 與診斷」）。尚未實作：runner（watchdog 強制 hard limit、fencing、`deploy/` 與 CD 推送 `KINGSTONE_CRAWLER_IMAGE`，Phase 6 M3–M4）、runner 端 orphan alert、challenge 偵測、acceptance（Phase 7），見 [backlog](backlog.md) CB-07。URL grammar 與錯誤分類仍以 backlog CB-07 為來源契約。
+已實作的報告面（Phase 6 M5）：每次 terminal 結果寫 `artifacts/kingstone/last-run.json`、bounded history、log 形式的 alert 與診斷 HTML（見「報告、alert 與診斷」）。尚未實作：runner（watchdog 強制 hard limit、fencing、`deploy/` 與 CD 推送 `KINGSTONE_CRAWLER_IMAGE`，Phase 6 M3–M4）、runner 端 orphan alert、challenge 的細分偵測（目前以 `unclassified_200` 保守告警代替，見下）、acceptance（Phase 7），見 [backlog](backlog.md) CB-07。URL grammar 與錯誤分類仍以 backlog CB-07 為來源契約。
 
 **入口與組裝**（`kingstone/cli.py`、`kingstone/__main__.py`，Phase 5 M2）
 
@@ -182,20 +182,23 @@
 **報告、alert 與診斷**（`kingstone/artifacts.py`、`kingstone/alerts.py`、`kingstone/diagnostics.py`，Phase 6 M5；計畫 v12 §8）
 
 - 位置（`KINGSTONE_ARTIFACTS_DIR` 之下）：`kingstone/last-run.json`（最新一次 terminal record）、`kingstone/history/<run_id>.json`（每次 terminal 結果一份摘要，最多 20 份）、`kingstone/diagnostics/<UTC>-<list|detail>-<code>.html`（最多 20 份）。這些檔案只供觀察，不是進度狀態，不參與 replay；Books 不寫入任何一個（`books_crawler` 不 import 本模組）。
-- record 欄位（`last-run.json`，UTF-8 JSON、排序鍵）：`run_id`、`provider`（`KINGSTONE`）、`status`、`exit_code`、`reason`（pre-run 的代碼：`SCHEMA_PREREQUISITE_MISSING`、`MAINTENANCE_BUSY`，否則 null）、`error`（pre-run 或致命錯誤的訊息，經 redact）、`write_policy`、`started_at`、`finished_at`（ISO 8601）、`pages_listed`、`pages_completed`、`pages_skipped`（每筆含 url、reason、message、attempts）、`pages_interrupted`、`pages_not_reached`、`zero_card_pages`、`budget_exhausted`、`items_listed`、`details_fetched`、`items_seen`、`existing_source`、`imported`、`isbn_attached`、`ambiguous_created`、`policy_skipped`、`failed`、`recovered_commit_count`、`identity_warning_count`、`failed_items`（每筆含 list_url、source_url、external_id、reason、message、attempts）、`http_attempts`、`http_failures`、`zero_progress_reason`、`alert_reasons`（陣列，固定順序）。所有字串經 `catalog_core.redact.redact`。
+- 單一 record（Phase 6 M5 修正）：`KingstoneArtifacts.finalize(record)` 是唯一產生最終 record 的地方（加上 `alert_reasons`、全部字串 redact）；CLI 把**同一份** final record 用於三處：(a) stdout 一行 JSON（`json.dumps(record, ensure_ascii=False, sort_keys=True)`，以 `print` 輸出，不經 logging 前綴，整行可直接 `json.loads`）；(b) `last-run.json`；(c) history 摘要（`alert_reasons` 直接取自 final）。`KingstoneArtifacts.publish(record)` 只是 `finalize` 再 `write` 的組合，供測試與舊呼叫端使用。
+- stdout 的時序：每個寫 last-run 的 terminal 結果（正常 run、run FAILED、`SCHEMA_PREREQUISITE_MISSING`、maintenance busy、清單無效、provider 停用／查詢失敗、schema 檢查的連線錯誤）都在 `write` 之前印出該行。產物寫入失敗（例如 `artifacts` 路徑是一個檔案）時 stdout JSON 仍輸出，exit code 不變。設定無效或缺 `DATABASE_URL` 時沒有 record，因此 stdout 也沒有 JSON 行（只有 log）。
+- record 欄位（`last-run.json`，UTF-8 JSON、排序鍵）：`run_id`、`provider`（`KINGSTONE`）、`status`、`exit_code`、`reason`（pre-run 的代碼：`SCHEMA_PREREQUISITE_MISSING`、`MAINTENANCE_BUSY`，否則 null）、`error`（pre-run 或致命錯誤的訊息，經 redact）、`write_policy`、`started_at`、`finished_at`（ISO 8601）、`pages_listed`、`pages_completed`、`pages_skipped`（每筆含 url、reason、message、attempts）、`pages_interrupted`、`pages_not_reached`、`zero_card_pages`、`budget_exhausted`、`items_listed`、`details_fetched`、`items_seen`、`existing_source`、`imported`、`isbn_attached`、`ambiguous_created`、`policy_skipped`、`failed`、`parse_error_200_count`（列表頁被跳過的 `parse_error` 加上詳細頁 failed item 的 `parse_error`，見 `unclassified_200`）、`recovered_commit_count`、`identity_warning_count`、`failed_items`（每筆含 list_url、source_url、external_id、reason、message、attempts）、`http_attempts`、`http_failures`、`zero_progress_reason`、`alert_reasons`（陣列，固定順序）。所有字串經 `catalog_core.redact.redact`。
 - pre-run record：所有計數為 0、清單為空，`pages_not_reached` 為 null（未知；不計入 streak）；`started_at` 為入口建立 recorder 的時間。
 - history 摘要：`run_id`、`finished_at`、`status`、`exit_code`、`reason`、`pages_not_reached`、`alert_reasons`。history 依 `finished_at` 排序（不依檔名）；超過 20 份時刪最舊；無法讀取（JSON 錯誤、非物件、缺 run_id／status、`finished_at` 無時區或無法解析、count 非整數或 null 以外）的檔案 log 一行 WARNING 並略過；修剪時無法讀取的檔案視為最舊。
 - 寫入：同目錄 temp 檔 → `fsync` → `os.replace`，再 best-effort `fsync` 目錄。失敗只記一行 ERROR（`kingstone.artifacts`），不改 run 的 exit code，也不吞掉 `alert_reasons` 的計算結果。
-- **順序（`KingstoneArtifacts.publish`）**：(1) 讀取既有 history（不含本次）；(2) 計算 `alert_reasons`（streak 只用 (1)，本次不會被算兩次）；(3) 原子寫入 `last-run.json`；(4) 寫入本次 history 摘要並修剪。
-- alert reasons（`alerts.alert_reasons`，固定順序；全部 Existing 的正常 run 不觸發）：
+- **順序**：`finalize`（(1) 讀取既有 history，不含本次；(2) 計算 `alert_reasons`，streak 只用 (1)，本次不會被算兩次）→ stdout 一行 JSON → `write`（(3) 原子寫入 `last-run.json`；(4) 寫入本次 history 摘要並修剪）→ ALERT 行。`write` 不拋例外。
+- alert reasons（`alerts.alert_reasons`，固定順序：`failed`、`schema_prerequisite_missing`、`maintenance_busy`、`unclassified_200`、`zero_card_pages`、`pages_not_reached_streak`；全部 Existing 的正常 run 不觸發）：
   - `failed`：status 為 FAILED（含所有 pre-run FAILED）。
   - `schema_prerequisite_missing`：`reason` 為 `SCHEMA_PREREQUISITE_MISSING`。
   - `maintenance_busy`：首次連線的 `MigrationLockBusy`（`reason` 為 `MAINTENANCE_BUSY`）。run 中途 orphan 屬 runner 的 alert（Phase 6 M4），不在這裡。
+  - `unclassified_200`（Phase 6 M5 修正）：本次 run 中**任何** HTTP 200 之後的 `KingstoneParseError` 就觸發，不論 status（PARTIAL_SUCCESS 也觸發）。來源是 `parse_error_200_count > 0`：列表頁被 `record_page_skipped` 的 `parse_error`，或詳細頁 failed item 的 `parse_error`（含 km_code 與卡片不符的 `parse_error`）。soft 404（`product_not_found`）與 acquisition 失敗（`http_status`、`transport` 等）不算。診斷 HTML 照常保存（同 `parse_error` 的診斷規則）。放在 `zero_card_pages` 之前的理由：parse 失敗表示頁面內容不明，比「解析成功但是空頁」的訊號更需要先被看見。
   - `zero_card_pages`：`pages_completed > 0` 且每一個完成的頁都是 0 張卡。
   - `pages_not_reached_streak`：見下。
-  - `challenge`：**未實作**。acquisition 回 200 body，parser fail closed，沒有 challenge fixture 可以區分它與其他無法解析的頁；待 fixture 後再加（見 [backlog](backlog.md) CB-07）。不做猜測性的偵測。
+  - `challenge`：**未實作，且不猜測偵測**。acquisition 回 200 body，parser fail closed，沒有 challenge fixture 可以區分它與其他無法解析的頁。目前 challenge 會落在 `unclassified_200`（保守：不漏報）。待取得 challenge fixture 後，再把其中可辨識的部分細分為 `challenge`，其餘維持 `unclassified_200`（見 [backlog](backlog.md) CB-07）。
 - streak（`pages_not_reached`）：視窗 = 本次 + history 中最新兩份可讀摘要（依 `finished_at`，新到舊）。本次或任一摘要的 count 為 0 即重設；本次 count 為 null（pre-run）或視窗中有 null、缺漏、無法讀取的項目，不成立，不 alert。連續第 1、2 次 > 0 不 alert，第 3 次起（含之後持續 > 0）alert。缺漏不計入視窗（寧可少報）。history 中只要有任何一份無法讀取，本次就不判定 streak（記一行 WARNING `streak not evaluated`）：壞檔的時間位置未知，略過它可能讓視窗接上較舊的摘要而誤報。
-- ALERT 行：`alert_reasons` 非空時，CLI 在寫入之後記一行 WARNING `ALERT reasons=<逗號分隔> last_run=<last-run.json 路徑>`（logger `kingstone.cli`）。沒有 `CRAWLER_ALERT_COMMAND`，沒有外部送達。
+- ALERT 行：`alert_reasons` 非空時，CLI 在 stdout 與寫入之後記一行 WARNING `ALERT reasons=<逗號分隔> last_run=<last-run.json 路徑>`（logger `kingstone.cli`）。沒有 `CRAWLER_ALERT_COMMAND`，沒有外部送達。
 - 診斷檔（`DiagnosticWriter`）：`save_html(kind=, code=, html=)` 把 UTF-8 body 寫到 `kingstone/diagnostics/`，檔名 `<%Y%m%dT%H%M%S%fZ>-<kind>-<code>.html`（code 只保留英數字；同一微秒內的第二份取下一個微秒，保證時間序）。不存 headers、cookies、URL 以外的 metadata。超過 `KINGSTONE_DIAGNOSTIC_MAX_BYTES` 的 body 在 UTF-8 字元邊界截斷，檔尾附一行 `<!-- diagnostic truncated … -->`，註記計入上限（檔案總大小 ≤ 上限；上限小於註記長度時只保留完整字元）。只保留最近 20 份（依檔名，即時間序）。寫檔失敗只記 WARNING，不影響 run。存檔的條件只有列表頁與詳細頁的 `KingstoneParseError`；soft 404 與 acquisition 失敗不存。
 
 ## 選型、替代與代價

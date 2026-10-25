@@ -798,3 +798,27 @@ def test_a_failing_diagnostic_sink_never_changes_the_run():
     assert report.error is None
     assert report.pages_completed == 1
     assert report.imported == 1
+
+
+def test_a_list_parse_error_and_a_detail_parse_error_are_both_counted_as_parse_error_200():
+    fetcher = FakeFetcher(
+        {
+            LIST_A: "<html><body>maintenance</body></html>",
+            LIST_B: list_html([KM_1]),
+            detail_url(KM_1): "<html><head><title>金石堂網路書店</title></head><body>layout changed</body></html>",
+        }
+    )
+
+    report = run_pages(make_deps(fetcher, MemoryStore()), [LIST_A, LIST_B])
+
+    assert report.parse_error_200_count == 2
+    assert report.status is RunStatus.PARTIAL_SUCCESS
+
+
+def test_a_soft_404_and_an_all_existing_run_have_no_parse_error_200():
+    fetcher = FakeFetcher({LIST_A: list_html([SOFT_404]), detail_url(SOFT_404): SOFT_404_HTML})
+
+    report = run_pages(make_deps(fetcher, MemoryStore()), [LIST_A])
+
+    assert report.failed == 1
+    assert report.parse_error_200_count == 0

@@ -80,3 +80,24 @@ def test_the_current_run_at_zero_resets_the_streak():
 def test_an_unknown_count_is_not_part_of_the_streak():
     assert pages_not_reached_streak(None, [{"pages_not_reached": 3}, {"pages_not_reached": 3}]) is False
     assert pages_not_reached_streak(3, [{"pages_not_reached": None}, {"pages_not_reached": 3}]) is False
+
+
+def test_a_parse_error_200_alerts_unclassified_200_even_when_partial():
+    reasons = alert_reasons(**{**NO_ALERT, "status": "PARTIAL_SUCCESS", "parse_error_200_count": 1})
+    assert reasons == ["unclassified_200"]
+
+
+def test_no_parse_error_200_alerts_nothing_extra():
+    assert alert_reasons(**{**NO_ALERT, "parse_error_200_count": 0}) == []
+
+
+def test_unclassified_200_comes_before_zero_card_pages_in_the_fixed_order():
+    reasons = alert_reasons(
+        status="FAILED",
+        reason=None,
+        pages_completed=1,
+        zero_card_pages=1,
+        streak_reached=True,
+        parse_error_200_count=2,
+    )
+    assert reasons == ["failed", "unclassified_200", "zero_card_pages", "pages_not_reached_streak"]

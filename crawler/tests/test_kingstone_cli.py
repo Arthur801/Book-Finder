@@ -470,8 +470,161 @@ def test_an_artifact_write_failure_is_logged_and_never_changes_the_exit_code(tmp
     assert "maintenance busy" in out
 
 
-def test_an_all_skipped_run_with_a_failing_artifact_write_still_returns_its_own_code(tmp_path, monkeypatch):
+def test_an_all_skipped_run_with_a_failing_artifact_write_still_returns_its_own_code(tmp_path, capsys):
     harness = Harness(tmp_path)
     (tmp_path / "artifacts").write_text("a file, not a folder", encoding="utf-8")
 
     assert harness.run() == 1
+
+    record = the_one_stdout_record(capsys.readouterr().out)
+    assert record["status"] == "FAILED"
+    assert record["exit_code"] == 1
+
+
+# ---------------------------------------------------------------------------
+# The terminal record on stdout (plan v12 §8): one JSON line, the same record as last-run.json
+# ---------------------------------------------------------------------------
+
+
+def stdout_json_objects(out: str) -> list[dict]:
+    """Every stdout line that is a JSON object. Logging lines start with a timestamp, so they never count."""
+    objects = []
+    for line in out.splitlines():
+        if line.startswith("{"):
+            objects.append(json.loads(line))  # a line that starts with "{" must be the whole JSON record
+    return objects
+
+
+def the_one_stdout_record(out: str) -> dict:
+    objects = stdout_json_objects(out)
+    assert len(objects) == 1, f"expected exactly one JSON line on stdout, got {len(objects)}"
+    return objects[0]
+
+
+class MapFetcher(FakeFetcher):
+    """Serves a body per list page URL."""
+
+    def __init__(self, bodies: dict[str, str]) -> None:
+        super().__init__()
+        self.bodies = bodies
+
+    def fetch_list_page(self, url: str) -> str:
+        self.calls.append(url)
+        return self.bodies[url]
+
+    @property
+    def http_failures(self) -> int:
+        return 0
+
+
+LIST_URL_2 = "https://www.kingstone.com.tw/book/jdc/?dis=list&page=2"
+BROKEN_PAGE = "<html><body>maintenance</body></html>"
+
+
+def test_a_successful_run_prints_one_json_line_equal_to_last_run(tmp_path, capsys):
+    harness = Harness(tmp_path, fetcher=ScriptedFetcher(EMPTY_PAGE))
+
+    assert harness.run() == 0
+
+    record = the_one_stdout_record(capsys.readouterr().out)
+    assert record["status"] == "SUCCESS"
+    assert record["exit_code"] == 0
+    assert record["alert_reasons"] == ["zero_card_pages"]
+    assert record == last_run(tmp_path)
+
+
+def test_a_failed_run_prints_one_json_line_equal_to_last_run(tmp_path, capsys):
+    harness = Harness(tmp_path)
+
+    assert harness.run() == 1
+
+    record = the_one_stdout_record(capsys.readouterr().out)
+    assert record["status"] == "FAILED"
+    assert record["exit_code"] == 1
+    assert record == last_run(tmp_path)
+
+
+def test_a_missing_schema_prints_one_json_line_equal_to_last_run(tmp_path, capsys, stub_database):
+    stub_database["missing"] = ["book_sources.last_seen_at"]
+    harness = Harness(tmp_path)
+
+    assert harness.run() == 2
+
+    record = the_one_stdout_record(capsys.readouterr().out)
+    assert record["reason"] == "SCHEMA_PREREQUISITE_MISSING"
+    assert record["exit_code"] == 2
+    assert record == last_run(tmp_path)
+
+
+def test_a_busy_maintenance_prints_one_json_line_equal_to_last_run(tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr(StubSession, "busy", True)
+    harness = Harness(tmp_path)
+
+    assert harness.run() == 1
+
+    record = the_one_stdout_record(capsys.readouterr().out)
+    assert record["reason"] == "MAINTENANCE_BUSY"
+    assert record["alert_reasons"] == ["failed", "maintenance_busy"]
+    assert record == last_run(tmp_path)
+
+
+def test_an_invalid_page_list_prints_its_record_on_stdout(tmp_path, capsys):
+    harness = Harness(tmp_path)
+    harness.pages.write_text("", encoding="utf-8")
+
+    assert harness.run() == 2
+
+    record = the_one_stdout_record(capsys.readouterr().out)
+    assert record["exit_code"] == 2
+    assert record == last_run(tmp_path)
+
+
+def test_an_invalid_config_prints_no_json_record(tmp_path, capsys):
+    harness = Harness(tmp_path)
+    harness.environ["KINGSTONE_SOFT_RUN_BUDGET_SECONDS"] = "abc"
+
+    assert harness.run() == 2
+
+    assert stdout_json_objects(capsys.readouterr().out) == []
+
+
+@pytest.mark.parametrize("busy", [False, True])
+def test_the_stdout_record_is_printed_when_the_artifacts_folder_cannot_be_written(tmp_path, capsys, monkeypatch, busy):
+    monkeypatch.setattr(StubSession, "busy", busy)
+    harness = Harness(tmp_path)
+    (tmp_path / "artifacts").write_text("a file, not a folder", encoding="utf-8")
+
+    assert harness.run() == 1
+
+    record = the_one_stdout_record(capsys.readouterr().out)
+    assert record["exit_code"] == 1
+    assert record["reason"] == ("MAINTENANCE_BUSY" if busy else None)
+
+
+# ---------------------------------------------------------------------------
+# unclassified_200 (CB-07): a 200 page that failed to parse, through the whole run
+# ---------------------------------------------------------------------------
+
+
+def test_a_broken_list_page_alerts_unclassified_200_and_keeps_the_saved_body(tmp_path, capsys):
+    harness = Harness(tmp_path, fetcher=ScriptedFetcher(BROKEN_PAGE))
+
+    assert harness.run() == 1
+
+    record = the_one_stdout_record(capsys.readouterr().out)
+    assert record["alert_reasons"] == ["failed", "unclassified_200"]
+    assert record["parse_error_200_count"] == 1
+    assert record["pages_skipped"][0]["reason"] == "parse_error"
+
+
+def test_a_partial_success_with_a_broken_page_still_alerts_unclassified_200(tmp_path, capsys):
+    harness = Harness(tmp_path, fetcher=MapFetcher({LIST_URL: BROKEN_PAGE, LIST_URL_2: EMPTY_PAGE}))
+    harness.pages.write_text(f"{LIST_URL}\n{LIST_URL_2}\n", encoding="utf-8")
+
+    assert harness.run() == 0
+
+    out = capsys.readouterr().out
+    record = the_one_stdout_record(out)
+    assert record["status"] == "PARTIAL_SUCCESS"
+    assert record["alert_reasons"] == ["unclassified_200", "zero_card_pages"]
+    assert "ALERT reasons=unclassified_200,zero_card_pages" in out

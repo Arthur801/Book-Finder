@@ -153,20 +153,25 @@ python -m kingstone（於 crawler/ 執行）→ kingstone.cli.main()
       SessionCatalogStore → KingstoneRunDependencies(write_policy = config)
       run_pages(deps, page_urls, run_id) → report（SUCCESS／PARTIAL_SUCCESS → 0，FAILED → 1）
   10 finally：fetcher.close()；with 結束時關閉 session
-  11 產物（步驟 4 之後的每個 terminal 結果，見下節）→ 回傳 exit code（產物失敗不改 exit code）
+  11 terminal 輸出（步驟 4 之後的每個 terminal 結果，見下節）：finalize → stdout 一行 JSON → 寫產物 → 回傳 exit code（產物失敗不改 exit code）
 ```
 
 金石堂 run 結束後的產物與 ALERT（Phase 6 M5，計畫 v12 §8）：
 
 ```text
 terminal 結果（run 報告，或 pre-run：步驟 5、6、7、8 的失敗）
-  ├─ alerts：讀 history（本次之前，只取可讀摘要，依 finished_at 新到舊）
-  │    alert_reasons = failed | schema_prerequisite_missing | maintenance_busy
-  │                  | zero_card_pages | pages_not_reached_streak（本次與前兩份 pages_not_reached 皆 > 0）
-  ├─ 原子寫入 artifacts/kingstone/last-run.json（同目錄 temp → fsync → os.replace）
-  ├─ 寫入 artifacts/kingstone/history/<run_id>.json，超過 20 份刪最舊
-  ├─ alert_reasons 非空 → log WARNING：ALERT reasons=<…> last_run=<路徑>（kingstone.cli）
-  └─ 寫入失敗 → log ERROR 一行；exit code 不變
+  ├─ finalize（KingstoneArtifacts，唯一產生最終 record）
+  │    ├─ 讀 history（本次之前，只取可讀摘要，依 finished_at 新到舊）
+  │    ├─ alert_reasons = failed | schema_prerequisite_missing | maintenance_busy
+  │    │                | unclassified_200（parse_error_200_count > 0，任何 status）
+  │    │                | zero_card_pages | pages_not_reached_streak（本次與前兩份 pages_not_reached 皆 > 0）
+  │    └─ 加入 alert_reasons，全部字串 redact → final record
+  ├─ stdout：print 一行 json.dumps(final, ensure_ascii=False, sort_keys=True)（先於寫檔；寫檔失敗也已輸出）
+  ├─ write（同一份 final）
+  │    ├─ 原子寫入 artifacts/kingstone/last-run.json（同目錄 temp → fsync → os.replace）
+  │    ├─ 寫入 artifacts/kingstone/history/<run_id>.json（summary 取自 final），超過 20 份刪最舊
+  │    └─ 寫入失敗 → log ERROR 一行，不拋例外；exit code 不變
+  └─ alert_reasons 非空 → log WARNING：ALERT reasons=<…> last_run=<路徑>（kingstone.cli）
 
 解析失敗（run 中途）：列表頁或詳細頁 KingstoneParseError → DiagnosticWriter.save_html
   → artifacts/kingstone/diagnostics/<UTC>-<list|detail>-<code>.html（≤ KINGSTONE_DIAGNOSTIC_MAX_BYTES，保留 20 份）
@@ -176,7 +181,8 @@ terminal 結果（run 報告，或 pre-run：步驟 5、6、7、8 的失敗）
 ```
 
 - 步驟 5 之前的 pre-run 結果（清單無效、provider 停用）也寫 last-run，`pages_not_reached` 為 null，不計入 streak。
-- challenge 的 alert 尚未實作（沒有 fixture 可判定，見 backlog CB-07）；runner 端的 orphan alert 屬 Phase 6 M4。
+- challenge 的 alert 尚未細分（沒有 fixture 可判定）；目前 challenge 落在 `unclassified_200`，見 backlog CB-07。runner 端的 orphan alert 屬 Phase 6 M4。
+- stdout 的 JSON 行與 log 行分開：log 有時間戳前綴，不以 `{` 開頭；取出 JSON 時讀以 `{` 開頭的行。
 
 - 「停用」與「未註冊」都是設定錯誤（exit 2），都不建立 fetcher、不發出請求。
 - 步驟 7、8 失敗時 fetcher 尚未建立，沒有 HTTP、沒有寫入。

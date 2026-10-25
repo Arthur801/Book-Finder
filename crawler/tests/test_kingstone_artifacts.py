@@ -57,6 +57,10 @@ def record_for(pages_not_reached: int, *, run_id: str, minutes: int) -> dict:
     return record_from_report(report_with(pages_not_reached, run_id=run_id, finished_minutes=minutes))
 
 
+def publish_reasons(store: KingstoneArtifacts, record: dict) -> list[str]:
+    return store.publish(record)["alert_reasons"]
+
+
 def read_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
@@ -77,10 +81,10 @@ def test_last_run_holds_the_terminal_fields_and_the_alert_reasons(tmp_path):
     ledger.page_completed(P1)
     report = ledger.report(run_id="run-a", started_at=START, finished_at=finished(2), http_attempts=5, http_failures=2)
 
-    reasons = store.publish(record_from_report(report))
+    final = store.publish(record_from_report(report))
 
     data = read_json(store.last_run_path)
-    assert reasons == []
+    assert final["alert_reasons"] == []
     assert data["run_id"] == "run-a"
     assert data["provider"] == ProviderCode.KINGSTONE.value
     assert data["status"] == "PARTIAL_SUCCESS"
@@ -199,7 +203,7 @@ def test_a_write_failure_is_logged_and_the_alert_reasons_are_still_returned(tmp_
     record = record_from_report(report_with(0, run_id="run-e"))
 
     with caplog.at_level(logging.ERROR, logger="kingstone.artifacts"):
-        reasons = store.publish(record)
+        reasons = publish_reasons(store, record)
 
     assert reasons == []
     errors = [r for r in caplog.records if r.levelno == logging.ERROR]
@@ -268,7 +272,7 @@ def test_history_is_ordered_by_finished_at_not_by_file_name(tmp_path):
 def run_sequence(store: KingstoneArtifacts, counts: list[int]) -> list[list[str]]:
     results = []
     for n, count in enumerate(counts):
-        results.append(store.publish(record_for(count, run_id=f"run-{n:02d}", minutes=n + 1)))
+        results.append(publish_reasons(store, record_for(count, run_id=f"run-{n:02d}", minutes=n + 1)))
     return results
 
 
@@ -294,7 +298,7 @@ def test_the_current_run_is_counted_once_because_the_history_is_read_before_it_i
     store = KingstoneArtifacts(tmp_path)
     run_sequence(store, [2, 2])
 
-    reasons = store.publish(record_for(2, run_id="run-02", minutes=3))
+    reasons = publish_reasons(store, record_for(2, run_id="run-02", minutes=3))
 
     assert reasons == ["pages_not_reached_streak"]
     assert len(list(store.history_dir.glob("*.json"))) == 3
@@ -306,7 +310,7 @@ def test_a_broken_history_entry_is_not_counted_in_the_streak(tmp_path, caplog):
     (store.history_dir / "run-01.json").write_text("garbage", encoding="utf-8")
 
     with caplog.at_level(logging.WARNING, logger="kingstone.artifacts"):
-        reasons = store.publish(record_for(2, run_id="run-02", minutes=3))
+        reasons = publish_reasons(store, record_for(2, run_id="run-02", minutes=3))
 
     assert reasons == []  # only run-00 is readable: the streak is not established
     assert any("run-01.json" in r.getMessage() for r in caplog.records if r.levelno == logging.WARNING)
@@ -318,7 +322,7 @@ def test_an_unreadable_entry_stops_the_streak_check_so_older_entries_cannot_brid
     (store.history_dir / "run-01.json").write_text("garbage", encoding="utf-8")
 
     with caplog.at_level(logging.WARNING, logger="kingstone.artifacts"):
-        reasons = store.publish(record_for(2, run_id="run-03", minutes=4))
+        reasons = publish_reasons(store, record_for(2, run_id="run-03", minutes=4))
 
     # Skipping run-01 would leave run-03, run-02 and run-00 all above 0: a false streak. It is not evaluated.
     assert reasons == []
@@ -332,7 +336,53 @@ def test_a_pre_run_result_with_no_page_count_does_not_count_and_does_not_reset(t
         record_pre_run(run_id="busy", status="FAILED", exit_code=1, reason="MAINTENANCE_BUSY", write_policy="normal", started_at=START, finished_at=finished(9))
     )
 
-    reasons = store.publish(record_for(2, run_id="run-03", minutes=10))
+    reasons = publish_reasons(store, record_for(2, run_id="run-03", minutes=10))
 
     assert "maintenance_busy" not in reasons
     assert "pages_not_reached_streak" not in reasons  # the busy entry is in the window and has no count
+
+
+# ---------------------------------------------------------------------------
+# One record for stdout, last-run.json and the history (finalize, then write)
+# ---------------------------------------------------------------------------
+
+
+def test_finalize_builds_the_record_with_alert_reasons_and_writes_nothing(tmp_path):
+    store = KingstoneArtifacts(tmp_path)
+    record = record_from_report(report_with(0, run_id="run-f"))
+
+    final = store.finalize(record)
+
+    assert final["run_id"] == "run-f"
+    assert final["alert_reasons"] == []
+    assert not (tmp_path / "kingstone").exists()
+
+
+def test_write_stores_the_same_record_in_last_run_and_the_history_summary(tmp_path):
+    store = KingstoneArtifacts(tmp_path)
+    ledger = KingstoneLedger([P1], WritePolicy.NORMAL)
+    ledger.record_page_skipped(SkippedPage(url=P1, reason="parse_error", message="layout changed", attempts=1))
+    report = ledger.report(run_id="run-g", started_at=START, finished_at=finished(4))
+    final = store.finalize(record_from_report(report))
+
+    store.write(final)
+
+    assert read_json(store.last_run_path) == json.loads(json.dumps(final))
+    summary = read_json(store.history_dir / "run-g.json")
+    assert summary["alert_reasons"] == final["alert_reasons"] == ["failed", "unclassified_200"]
+    assert read_json(store.last_run_path)["parse_error_200_count"] == 1
+
+
+def test_the_parse_error_200_count_is_in_the_report_record_and_is_zero_in_the_pre_run_record():
+    report = report_with(0, run_id="run-h")
+    assert record_from_report(report)["parse_error_200_count"] == 0
+    pre = record_pre_run(
+        run_id="run-i",
+        status="FAILED",
+        exit_code=2,
+        reason=None,
+        write_policy="normal",
+        started_at=START,
+        finished_at=finished(0),
+    )
+    assert pre["parse_error_200_count"] == 0
