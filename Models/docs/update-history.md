@@ -88,3 +88,4 @@ git show cda623f -- Models
 | 2026-10-25 | `bbe0a0a` | refactor(catalog): share ISBN-family types and display priority | `BookDetailViewModel.cs`：ISBN 去重與排序改用 IsbnIdentifierTypes，view model 為唯一的去重與排序層 |
 | 2026-10-25 | `c3021e3` | fix(catalog): make the detail reader own ISBN identifier order | `BookDetailViewModel.cs`：註解改為 reader 擁有排序，view model 只做同值去重（行為不變） |
 | 2026-10-25 | `5052361` | feat(catalog): contract migration 011 and read only the ISBN type | `BookDetailViewModel.cs`：`IdentifierLabel` 移除 `Isbn13`／`Isbn10`；`IdentifierRows` 改為只取 `Isbn` 並依值排序，移除同值去重與 `IsbnIdentifierTypes` 依賴 |
+| 2026-10-25 | 本次 backlog 整理 commit | docs(backlog): tidy models backlog after #113 PR2 and PR4 | `docs/backlog.md`：M-B05 移出表格至「已處理」；補記標頭；未改程式 |

@@ -125,6 +125,7 @@ git show --format= --numstat <sha> -- Application ':(exclude)Application/docs'
 | 2026-10-25 | `aa792bf` | fix(catalog): pin ISBN NFKC to Unicode 15.1 independent of the runtime | `Catalog/IsbnNormalizer.cs`（分段 NFKC、啟動防護）、`Catalog/Unicode151Assigned.cs`（新增，產生檔）|
 | 2026-10-25 | `c3021e3` | fix(catalog): make the detail reader own ISBN identifier order | `Catalog/BookDetail.cs`：註解改為 reader 負責順序 |
 | 2026-10-25 | `5052361` | feat(catalog): contract migration 011 and read only the ISBN type | `Catalog/BookDetail.cs`：`Identifiers` 註解改為只含 ISBN，依值排序（僅註解，型別不變） |
+| 2026-10-25 | 本次 backlog 整理 commit | docs(backlog): tidy application backlog after #113 PR2–PR4 | `docs/backlog.md`：APP-B04 移至「已處理」；補記標頭；其餘狀態未變；未改程式 |
 
 ## 導覽
 

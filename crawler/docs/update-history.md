@@ -119,5 +119,6 @@ Workflow／architecture／CR-T12 的 host 現況引用 [target wrapper](https://
 | 2026-10-25 | `a17da36` | Arthur801 | docs(crawler): specify the reconnect rule and document its tests | M Docs/modules/crawler.md；M crawler/docs/{architecture,workflow-diagram,test-suite}.md |
 | 2026-10-25 | `868ba40` | Arthur801 | test(crawler): assert the migration 011 schema in DB tests | M crawler/tests/{test_db_integration,test_e2e_real_fixtures,test_run_pages}.py |
 | 2026-10-25 | `f92a63d` | Arthur801 | feat(crawler): match distinct Books on the ISBN type only | M crawler/books_crawler/{models,db,run}.py；M crawler/tests/test_normalize.py |
+| 2026-10-25 | 本次 backlog 整理 commit | Arthur801 | docs(backlog): tidy crawler backlog after #113 PR3–PR4 | `docs/backlog.md`：CB-01、CB-04、CB-05、CB-06 移至「已處理」；CB-03 補記 production 與 schema 狀態；補記標頭；未改程式 |
 
 行為轉折：ISBN 不再驗證 checksum，所有非空正規化值都以 `ISBN` 寫入；既有 Source 每次出現都更新 `last_seen_at`；`replace_bestsellers` 不再更新 `last_seen_at`；停用的 provider 以 exit 2 拒絕執行。新 DB 測試依 migration 010 的 trigger 驗證 `source_type = source_code`。

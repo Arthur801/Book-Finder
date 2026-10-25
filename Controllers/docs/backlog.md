@@ -1,5 +1,7 @@
 # Controllers 優化與 Debug 待辦
 
+> backlog 整理（2026-10-25）補記：CTL-12 已完成，移至文末「已處理」；其餘狀態未變。
+
 整理日期：2026-10-24；基準：`91333c3`。本文件僅記錄工作，不代表已修改程式或授權部署。`P1` 優先處理既有規格缺口，`P2` 補驗證與效能證據，`P3` 維護改善；此優先序不是正式 issue label。
 
 狀態定義：**確認缺口**＝由現行程式與規格可直接對照；**明確暫緩**＝已有決定；**待驗證**＝調查題目，不宣稱已重現 bug；**改善提案**＝須以證據判斷是否值得做。所有項目目前均未在本次執行。
@@ -35,13 +37,6 @@
 - [ ] **P3／改善提案／L1**，須由後續允許編輯 Docs 的任務處理。
 - 證據：`Docs/testing/test-plan.md` §2 仍稱 Web 測試為骨架；`book-catalog.md` §4.1 留有 #11 前 Library 空容器敘述。現況已有 Web 測試與 Library 區塊。
 - 驗收：更新現況描述並保留歷史限定語意；不改 endpoint／Library contract；不要把 implementation report 升格為 authority。
-
-### CTL-12 — Book 詳細頁與搜尋在 multi-source 下的回歸（#113 PR2）
-
-- [x] **P2／已處理（#115 PR2，`d9d8948`）**。Controller 本身未改；行為由 WebIntegration 的 BookDetailPageTests、SearchPageTests 覆蓋（三種 ISBN、去重、ABC123 關鍵字、disabled provider）。資料來源與顯示規則的變更在 Application／Infrastructure／Models。
-- 規格：[book-catalog.md §3、§4](../../Docs/modules/book-catalog.md)。
-- 待辦：PR2 確認 `BooksController` 的 Detail 與 `SearchController` 在 provider registry 與三種 ISBN 類型下行為不變：404、cache（Library 狀態不進 cache）、ISBN 搜尋與分頁重導。
-- 驗收：disabled provider 的來源仍顯示；ISBN、ISBN_13、ISBN_10 皆可搜尋；`ABC123` 走關鍵字模式；既有 WebIntegration 測試通過。
 
 ## 2. Debug 調查與測試補強
 
@@ -105,3 +100,7 @@
 3. 保存 request method/path、必要的去識別輸入、status、Content-Type、Location、ProblemDetails type/traceId、fake calls 與 DB 前後差異。不可記錄 cookie、JWT、密碼、secret 或原始私人需求文字。
 4. 「有測試」不等於「已執行」；結案附命令、環境、實際通過／失敗／未執行結果。瀏覽器 JS 行為不能由 WebApplicationFactory 的 HTML 測試單獨證明。
 5. 改 contract、schema、auth policy 或架構時先依根目錄 AGENTS 規範處理；本文件不構成對這些變更的額外授權。
+
+## 已處理
+
+- **CTL-12**（#113 PR2，`d9d8948`，PR #117）：Controller 未改；`BookDetailPageTests`、`SearchPageTests` 覆蓋三種 ISBN 搜尋、去重、`ABC123` 關鍵字模式與 disabled provider 來源仍顯示。

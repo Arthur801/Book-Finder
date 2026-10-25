@@ -77,3 +77,4 @@ git show <commit> -- Controllers
 |---|---|---|
 | `7c14b09` | docs(browse): sync specs to 書庫 and suspended Bestseller Web | 規格同步；Controllers 程式無變更 |
 | 本 M3 baseline commit | docs(browse): record 書庫 query plan baseline and implementation report | CTL-11 補上量測結果（見實作報告）；待辦狀態不變（仍待 Catalog 增長後觀察） |
+| 本次 backlog 整理 commit | docs(backlog): tidy controllers backlog after #113 PR2 | `docs/backlog.md`：CTL-12 移至「已處理」；補記標頭；其餘狀態未變；未改程式 |
