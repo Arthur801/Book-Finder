@@ -203,6 +203,7 @@ v12 計畫（`Docs/plans/kingstone-category-crawler.md` §8）改由使用者的
 - **AWS 或 secret 檔（擇一）**：
   - `DB_SECRET_SOURCE=ssm`：本機的 AWS profile 要有 `ssm:GetParameter`（與 `kms:Decrypt`，若使用客戶管理金鑰）權限，讀取與 EC2 相同的 `DATABASE_URL_PARAMETER`；
   - `DB_SECRET_SOURCE=file`：`DB_SECRET_FILE` 指向本機的檔案，權限必須是 `600` 且 owner 是自己；內容是 psycopg 的 PostgreSQL URL（與 SSM 參數相同格式）。
+- **DB 帳號**：連線字串使用 crawler 專用帳號 `bookfinder_crawler`（Catalog 7 張表的最小權限，無 DDL），不要使用 RDS 主帳號。建立方式見 [`local/sql/create-crawler-role.sql`](local/sql/create-crawler-role.sql)（以主帳號執行；密碼以 psql 的 `\password` 設定）；權限檢查見 [`local/sql/p2-crawler-privileges.sql`](local/sql/p2-crawler-privileges.sql)（唯讀，以 crawler 帳號執行）。之後的 migration 若新增 crawler 需要的表，需補 GRANT。
 - **CA bundle**：RDS CA bundle 放在本機（`DB_CA_BUNDLE`），權限 `0644`。runner 以唯讀方式掛到容器內 `/etc/book-finder/rds-ca-bundle.pem`，`sslrootcert` 指向這個路徑。
 - **Docker**：daemon 正常執行；image 需已存在於本機（runner 使用 `--pull=never`）。
 - **Artifacts 目錄**：`CRAWLER_LOCAL_ARTIFACTS_DIR` 掛到容器內 `/app/crawler/artifacts`。容器以 UID 10001 執行，因此目錄須屬於 `10001`（`sudo chown 10001:10001 <dir>`）或為 world-writable；否則 runner 以 exit 10 拒絕。runner 另寫自己的 terminal record 到 `artifacts/runner/`（§9.4.1），該子目錄須由本機使用者可寫（容器不需要寫入）；若尚未建立，請以 `sudo install -d -o "$(id -u)" -m 755 <CRAWLER_LOCAL_ARTIFACTS_DIR>/runner` 建立。缺少時 runner 仍會 ALERT 與印出 JSON，但 record 寫入失敗並印 `WARNING`。

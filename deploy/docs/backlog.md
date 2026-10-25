@@ -37,7 +37,7 @@
 | DEP-B15 | P3 | L2 | 改善提案 | `/etc/book-finder` 目錄權限未由程式檢查 |
 | DEP-B17 | P3 | L3 | 改善提案 | exit 3 同時對應 history 的 `drift` 與 `rejected` |
 | DEP-B19 | P3 | L2 | 改善提案（#120 review） | compat contract allowance 與 gate 9 script 的結構整理 |
-| DEP-B20 | P1 | L4 | 部分驗證 | `client_connection_check_interval` 經 Npgsql `Options` 傳給 efbundle：Npgsql 送出 Options（負向對照已證）、生效值未讀到；RDS 版本（PG 14+）未確認 |
+| DEP-B20 | P1 | L4 | 部分驗證 | `client_connection_check_interval` 經 Npgsql `Options` 傳給 efbundle：Npgsql 送出 Options（負向對照已證）、生效值未讀到；RDS 版本已確認為 17.11（≥ 14） |
 | DEP-B21 | P1 | L4 | 已緩解；殘留風險待決策 | 保險 (a) 釋放前等連線結束、(b) 殘留容器拒絕、效果接受前的 final heartbeat；超時後的殘留風險與 host 被 SIGKILL 的風險仍在 |
 | DEP-B23 | P1 | L3 | 大部分已驗證；未驗證項保留 | 真 lock holder 與拋棄式 PG 17 的整合測試已執行（test-suite §3.22）；efbundle 的 SIGTERM／kill 與 RDS 版本仍未驗證 |
 
@@ -212,11 +212,10 @@
 
 - **優先序／風險**：P1／L4（production migration 的連線設定）。
 - **狀態**：部分驗證（本機，拋棄式 PostgreSQL 17.11；RDS 未驗證）。
-- **證據與影響**：專案的 Npgsql 版本為 10.0.3。Npgsql 文件（`NpgsqlConnectionStringBuilder.Options`）說明為「Set PostgreSQL configuration parameter default values for the connection.」。本機整合測試（`deploy/tests/integration/test_migration_lock_it.py::test_npgsql_accepts_the_application_name_and_options_in_the_efbundle_connection_string`）以 `book-finder-web:local` 的 efbundle 對空的拋棄式 DB 執行：連線字串含 `Application Name=bookfinder-efbundle;Options=-c client_connection_check_interval=10000` 時 exit 0，PostgreSQL 的 `log_connections` 紀錄 `application_name=bookfinder-efbundle`；同一 efbundle 以 `Options=-c client_connection_check_interval=bogus` 時被伺服器拒絕，證明 Npgsql 會把 Options 送出。**仍未驗證**：伺服器端實際生效的值是 `10s`（只能在 efbundle 連線中讀取，本測試未做）；RDS 的 PostgreSQL 主版本（repo 內無紀錄；`client_connection_check_interval` 需要 PG 14+）。
+- **證據與影響**：專案的 Npgsql 版本為 10.0.3。Npgsql 文件（`NpgsqlConnectionStringBuilder.Options`）說明為「Set PostgreSQL configuration parameter default values for the connection.」。本機整合測試（`deploy/tests/integration/test_migration_lock_it.py::test_npgsql_accepts_the_application_name_and_options_in_the_efbundle_connection_string`）以 `book-finder-web:local` 的 efbundle 對空的拋棄式 DB 執行：連線字串含 `Application Name=bookfinder-efbundle;Options=-c client_connection_check_interval=10000` 時 exit 0，PostgreSQL 的 `log_connections` 紀錄 `application_name=bookfinder-efbundle`；同一 efbundle 以 `Options=-c client_connection_check_interval=bogus` 時被伺服器拒絕，證明 Npgsql 會把 Options 送出。**仍未驗證**：伺服器端實際生效的值是 `10s`（只能在 efbundle 連線中讀取，本測試未做）；~~RDS 的 PostgreSQL 主版本~~：2026-10-25 經 tunnel 查詢 `server_version` 為 **17.11**（crawler P2 檢查），支援 `client_connection_check_interval`（PG 14+）。
 - **失敗方式**：若 Npgsql 不傳遞此選項，efbundle 會以原本的設定連線（效果退回沒有 check interval 的行為，與 DEP-B21 的殘留風險相同）。若 server 版本低於 14，startup 會因未知的 GUC 而失敗，migration 會 fail closed（`failed-migration`，不會部分套用）。
 - **調查方向**：在 staging 的 forward migration 中，於 efbundle 連線期間查詢 `SHOW client_connection_check_interval;`（或以 `pg_settings` 搭配 `source`），確認值為 `10s`；並確認 RDS 主版本。
-- **前置決策**：若 RDS 版本低於 14，決定是否要求升級，或移除此選項並接受 DEP-B21 的風險。
-- **驗收條件**：在 staging 的 forward migration 中確認 efbundle 連線的 `client_connection_check_interval` 為 `10s`；RDS 版本記錄於 runbook。
+- **驗收條件**：在 staging 的 forward migration 中確認 efbundle 連線的 `client_connection_check_interval` 為 `10s`。
 - **測試入口**：`deploy/tests/host/test_machine.py::test_migration_connection_goes_to_efbundle_and_the_web_file_stays_on_the_web_connection`（檔案內容）；`deploy/tests/integration/test_migration_lock_it.py::test_npgsql_accepts_the_application_name_and_options_in_the_efbundle_connection_string`（Npgsql 接受與送出）。
 
 ### DEP-B21 migration lock 掉線後的殘留風險
@@ -247,7 +246,7 @@
 - **未驗證**（保留）：
   1. `docker rm -f` 作為 backstop 的效果：本次 lock 逾時後容器自行結束，`docker rm -f` 是 no-op，未能與「未執行」區分。
   2. efbundle 的 SIGTERM 與 `docker kill` 的實際行為（本次只在 fake 驗證）。
-  3. RDS 的 PostgreSQL 版本（DEP-B20）。
+  3. ~~RDS 的 PostgreSQL 版本（DEP-B20）~~：已確認 17.11。
 - **測試入口**：`deploy/tests/integration/test_migration_lock_it.py`。
 
 ## 3. 已處理
