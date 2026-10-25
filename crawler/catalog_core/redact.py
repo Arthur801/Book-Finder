@@ -1,7 +1,8 @@
-"""Secret redaction for provider-neutral crawler output (crawler.md §12).
+"""Secret redaction for everything the crawler writes to the log (crawler.md §12).
 
-The same rules as ``books_crawler/redact.py``, which predates this module and is left as it is for now (CB-07 backlog:
-Books switches to this copy once its own change is allowed). Keep the two patterns identical until then.
+Error messages come from libraries (psycopg, Playwright, requests) and can echo a connection
+string or a password. Every log line and every stored error message passes through ``redact``.
+Both providers use this module; ``books_crawler.redact`` re-exports it.
 """
 
 from __future__ import annotations

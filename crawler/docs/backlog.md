@@ -38,7 +38,6 @@
 - Phase 2 留下的待辦：
   - `.productGrid` 內沒有 `data-prodno` 的 `.mod_prod_card` 目前被靜默略過（選擇器要求 `data-prodno`）；E0 fixture 沒有此情形，是否改為 parse error 待定。
   - Dockerfile、`.dockerignore` 與 runner 納入 `kingstone/` 留到 Phase 6。
-  - 金石堂清單讀檔錯誤未經 `books_crawler.redact`（`catalog_core` 不依賴 `books_crawler`；清單讀檔錯誤不含 DSN），Phase 6 runner 整合時再確認 log redact 範圍。
   - 只讀「作者：」「譯者：」兩種標籤；其他角色標籤（繪者等）出現時再定。
   - 角色前綴一律 `OTHER`（E0 只見「審訂/」）；出現可對應 Catalog 角色的金石堂標籤時，依 fixture 加入金石堂自己的對應。
   - 作者值含 `/` 一律視為角色前綴（`角色/姓名`）；真實作者名含 `/` 時會被拆錯。E0 沒有此情形，出現時再定規則。
@@ -48,7 +47,6 @@
   - 寫入政策 `KINGSTONE_WRITE_POLICY`、診斷大小 `KINGSTONE_DIAGNOSTIC_MAX_BYTES` 與 `CRAWLER_ALERT_COMMAND` 不在 M1 config 內，留給 Phase 5／6。
   - `KingstoneConfig` 的 budget 與 HTTP 設定目前沒有 caller；組裝（Phase 5／6）要把 `KINGSTONE_SOFT_RUN_BUDGET_SECONDS` 轉成 `SoftBudget`，並把同一個 budget 交給真 fetcher。
   - 詳細頁在 budget 停止時被截斷的卡，以 `budget_exhausted` 記入 `failed_items`（統計上算失敗，下次 replay 會處理）；是否改為不計入失敗另定。
-  - Books 尚未改用 `catalog_core/redact`（兩份規則相同的複本）；Books 變更不在 Kingstone 範圍內，待另案處理。
 - Phase 3 留下的待辦：
   - 診斷檔（限額）未實作，所以 Phase 3 只算 core acquisition 完成：金石堂 acquisition 不寫 failure diagnostics；計畫 §6 要求「診斷有限額」，§7 設定表有 `KINGSTONE_DIAGNOSTIC_MAX_BYTES`（2 MiB）。留待 runner／production 整合（Phase 6）時一併定內容、數量、保留期限（參考 CB-02）並實作。
   - challenge／CAPTCHA 分類待 fixture：目前 200 照常回傳，由 parser fail closed；收錄 fixture 後再定分類。

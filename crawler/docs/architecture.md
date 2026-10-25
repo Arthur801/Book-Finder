@@ -32,7 +32,7 @@
 | [kingstone/ledger](../kingstone/ledger.py) | 金石堂 run 帳本（Phase 4 M1）：`KingstoneLedger`（逐頁 started／completed／skipped、卡片結果計數、budget 停止）、`KingstoneReport`、集中的 terminal status 函式 `decide_status`、`format_report`；純記帳、不做 I/O（只記 WARNING log）；契約見下方「金石堂 adapter」 |
 | [kingstone/run](../kingstone/run.py) | 金石堂逐頁 run（Phase 4 M2）：`run_pages(deps, page_urls, run_id)` 永不 raise；`SoftBudget`、`KingstoneFetcherPort`、`KingstoneRunDependencies`；列表頁 → 卡片 → `catalog_core.service.resolve_item` → `KingstoneLedger`；詳細頁 fetch／parse 是 `fetch_draft` callback；契約見下方「Run（逐頁流程）」；目前沒有 caller（組裝是 Phase 5／6） |
 | [catalog_core/html_text](../catalog_core/html_text.py) | 共用 HTML 區段文字抽取 `text_with_line_breaks`（自 `books_crawler/parsers.py` 原樣搬出）：只有 `<br>` 與區塊元素邊界換行、inline 元素不切行、連續空行收為一行；博客來詳細頁與金石堂詳細頁共用；會就地修改傳入的 node |
-| [catalog_core/redact](../catalog_core/redact.py) | 共用 secret redaction：與 `books_crawler/redact.py` 相同規則的複本（Books 尚未改用，見 CB-07 Phase 4 待辦）；金石堂 run 的錯誤訊息、skipped 頁與失敗書訊息經此處理 |
+| [catalog_core/redact](../catalog_core/redact.py) | 共用 secret redaction（DSN、`password=`）：`books_crawler/redact.py` 只重新匯出它；金石堂 run 的錯誤訊息、skipped 頁與失敗書訊息、金石堂清單讀檔錯誤都經此處理 |
 | [Dockerfile](../Dockerfile) | Python 3.14、UID 10001、runtime 依賴與清單 |
 | [target wrapper](https://github.com/Arthur801/Book-Finder/blob/ce7b4f46c0889db6b10216294cac658136796ad7/crawler/deploy/run-crawler.sh) | host scheduling、SSM secret retrieval、daily/pages serialization、DB maintenance coordination、deployment state gate、Docker execution 與 pages schedule state |
 

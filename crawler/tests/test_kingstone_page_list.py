@@ -138,3 +138,13 @@ def test_201_distinct_pages_are_an_error_even_when_one_of_them_has_an_sa_desc_tw
 
     with pytest.raises(PageListError, match=rf"{path!s}: more than 200 distinct"):
         load_page_urls(path)
+
+
+def test_a_read_error_message_is_redacted(tmp_path):
+    missing = tmp_path / "password=hunter2" / "kingstone-pages.txt"
+
+    with pytest.raises(PageListError) as excinfo:
+        load_page_urls(missing)
+
+    assert "hunter2" not in str(excinfo.value)
+    assert "password=<redacted>" in str(excinfo.value)
