@@ -8,7 +8,7 @@ from contextlib import nullcontext
 import psycopg
 import pytest
 
-from books_crawler.session import DatabaseSession
+from catalog_core.session import DatabaseSession
 
 
 class FakeConnection:

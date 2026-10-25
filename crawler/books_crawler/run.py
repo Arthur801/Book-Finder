@@ -12,6 +12,9 @@ Resolution of a discovery item gives a ``CatalogResolution`` (crawler.md §6):
       (``AMBIGUOUS_CREATED``).
    A draft without any ISBN value is always a new Book (``IMPORTED``).
 
+The per-row resolution above is implemented by ``catalog_core.service.resolve_item``; this module supplies the
+Books fetch and parse step and the log lines.
+
 Retry and skip (crawler.md §13.1). A new source gets at most ``MAX_ATTEMPTS`` attempts in total:
 
 - a fetch or parse failure is retried from the detail request (the page is fetched again);
@@ -49,7 +52,6 @@ from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
-from uuid import UUID
 
 import psycopg
 
@@ -67,7 +69,6 @@ from books_crawler.models import (
     SkippedPage,
     SkippedRow,
     SkipReason,
-    SourceRef,
 )
 from books_crawler.parsers import (
     RANKING_PAGE_URL,
@@ -77,9 +78,11 @@ from books_crawler.parsers import (
 )
 from books_crawler.ranking import validate_ranking
 from books_crawler.redact import redact
-from books_crawler.session import DatabaseSession
-from catalog_core import persistence
-from catalog_core.identity import IdentityKind
+from catalog_core.identity import SourceIdentity
+from catalog_core.models import ProviderCode
+from catalog_core.service import CatalogItem, DraftFailure, FailureReason, ItemFailed, resolve_item
+from catalog_core.session import DatabaseSession
+from catalog_core.store import SessionCatalogStore
 
 log = logging.getLogger("books_crawler.run")
 
@@ -92,15 +95,6 @@ class _RestrictedPage:
     """Detail step outcome: a restricted member page. Skipped without retry (crawler.md §13.2)."""
 
     message: str
-
-
-@dataclass(frozen=True)
-class _WrittenSource:
-    """Write step outcome: the new source was written, with its Catalog resolution (data-model §7.2)."""
-
-    ref: SourceRef
-    resolution: CatalogResolution
-    matched_book_ids: tuple[UUID, ...]
 
 
 def utc_now() -> datetime:
@@ -258,65 +252,23 @@ def _fetch_and_parse(
         return _failure(SkipReason.PARSE_ERROR, str(exc), attempt)
 
 
-@dataclass(frozen=True)
-class _WriteFailure:
-    """A failed write step. ``maybe_committed``: the Book transaction may have committed before the client saw it (§13.1)."""
+class _BooksCatalogStore(SessionCatalogStore):
+    """The run's store for one ranking row. It logs the URL-drift WARNING when the identity is looked up.
 
-    failure: Failure
-    maybe_committed: bool
-
-
-def _touch_with_retries(session: DatabaseSession, row: RankingRow, source_id: UUID, deps: RunDependencies) -> Failure | None:
-    """``last_seen_at`` touch of an existing Source (crawler.md §6.1): DB retry rule, no detail refetch.
-
-    Each attempt uses the run's session, which reconnects when the connection is broken (crawler.md §13.1).
-    Returns None on success, or the database failure after the last attempt. A touch that matches no
-    Source of this provider is a source identity conflict: not a database error, so it is not retried.
+    The old resolver logged the identity warning before the touch, so it appears even when the touch fails.
+    ``ItemFailed``/``ItemResolved`` also carry it, but logging afterwards would move it behind the touch's
+    attempt lines. Books has no ``external_id``, so only the first lookup can carry a warning.
     """
-    last_failure: Failure | None = None
-    for attempt in _attempts(deps):
-        try:
-            persistence.touch_source(session.conn, PROVIDER, source_id, deps.clock())
-            return None
-        except persistence.SourceTouchConflict as exc:
-            log.warning("rank %d source identity conflict, not written: %s: %s", row.rank, row.url, exc)
-            return _failure(SkipReason.SOURCE_IDENTITY_CONFLICT, str(exc), attempt)
-        except psycopg.Error as exc:
-            last_failure = _failure(SkipReason.DATABASE_ERROR, str(exc), attempt)
-            _log_attempt_failed(row, attempt, last_failure)
-    assert last_failure is not None  # the loop runs at least once and only continues on failure
-    return last_failure
 
+    def __init__(self, session: DatabaseSession, row: RankingRow) -> None:
+        super().__init__(session)
+        self._row = row
 
-def _write_new_source(
-    session: DatabaseSession,
-    draft: BookDraft,
-    deps: RunDependencies,
-    attempt: int,
-) -> _WrittenSource | _WriteFailure:
-    """ISBN match and the Book transaction for one parsed draft (data-model §7.2). Database errors are retryable.
-
-    Exactly one matching Book attaches the source (ISBN_ATTACHED, with gap filling); none creates a
-    Book (IMPORTED); two or more create a Book (AMBIGUOUS_CREATED). The source is written even when its
-    Book is already used by an earlier rank: that decision is the ledger's (crawler.md §14.2).
-    """
-    values = [item.identifier_value for item in draft.identifiers]
-    try:
-        matches = persistence.find_books_by_isbn(session.conn, values)
-    except psycopg.Error as exc:
-        return _WriteFailure(_failure(SkipReason.DATABASE_ERROR, str(exc), attempt), maybe_committed=False)
-
-    if len(matches) == 1:
-        resolution = CatalogResolution.ISBN_ATTACHED
-        attach_to = matches[0]
-    else:
-        resolution = CatalogResolution.AMBIGUOUS_CREATED if len(matches) >= 2 else CatalogResolution.IMPORTED
-        attach_to = None
-    try:
-        ref = persistence.persist_new_source(session.conn, PROVIDER, draft, deps.clock(), attach_to_book_id=attach_to)
-    except psycopg.Error as exc:
-        return _WriteFailure(_failure(SkipReason.DATABASE_ERROR, str(exc), attempt), maybe_committed=True)
-    return _WrittenSource(ref, resolution, tuple(matches))
+    def resolve_source_identity(self, provider: ProviderCode, source_url: str, external_id: str | None) -> SourceIdentity:
+        identity = super().resolve_source_identity(provider, source_url, external_id)
+        if identity.warning is not None:
+            log.warning("rank %d %s: %s", self._row.rank, self._row.url, identity.warning)
+        return identity
 
 
 def _resolve_row(
@@ -324,101 +276,72 @@ def _resolve_row(
     row: RankingRow,
     deps: RunDependencies,
 ) -> ResolvedRow | SkippedRow:
-    """Resolve one ranking row to a Catalog outcome, or fail it (crawler.md §6, §13).
+    """Resolve one ranking row through ``catalog_core.service.resolve_item`` (crawler.md §6, §13).
 
-    Returns a ``ResolvedRow`` with its ``CatalogResolution`` (the Catalog side is committed), or a
-    ``SkippedRow`` (``RESTRICTED`` or ``FAILED``). Whether a resolved Book may be ranked is decided by
-    ``RunLedger``, not here.
-
-    The source identity lookup is not retried (crawler.md §6.1): a connection error there fails the run.
-    Retries after a write re-resolve the identity first (crawler.md §13.1): if the earlier attempt had
-    committed, the Source is reported as EXISTING and is not inserted again.
+    This adapter supplies the Books fetch/parse step (``_fetch_and_parse``), the retry budget and the log
+    lines. Identity, touch, ISBN match, persistence, the retry rules and the re-resolve after a failed write
+    are the service's. Returns a ``ResolvedRow`` (the Catalog side is committed) or a ``SkippedRow``.
+    Whether a resolved Book may be ranked is decided by ``RunLedger``, not here.
     """
-    identity = persistence.resolve_source_identity(session.conn, PROVIDER, row.url)
-    if identity.kind is IdentityKind.CONFLICT:
-        log.warning("rank %d source identity conflict, not written: %s: %s", row.rank, row.url, identity.reason)
-        return _skipped(row, _failure(SkipReason.SOURCE_IDENTITY_CONFLICT, identity.reason or "", attempts=0))
-    if identity.kind is IdentityKind.EXISTING:
-        # The detail page is never fetched for a known URL (attempts = 0); the touch is its only write.
-        assert identity.ref is not None
-        if identity.warning is not None:
-            log.warning("rank %d %s: %s", row.rank, row.url, identity.warning)
-        touch_failure = _touch_with_retries(session, row, identity.ref.source_id, deps)
-        if touch_failure is not None:
-            return _skipped(row, touch_failure)
-        return ResolvedRow(rank=row.rank, url=row.url, source_ref=identity.ref, resolution=CatalogResolution.EXISTING)
-
     draft: BookDraft | None = None
-    last_failure: Failure | None = None
-    maybe_committed = False
-    for attempt in _attempts(deps):
-        if draft is None:
-            fetched = _fetch_and_parse(row, deps, attempt)
-            if isinstance(fetched, _RestrictedPage):
-                log.info("rank %d restricted product skipped without retry: %s", row.rank, row.url)
-                return _skipped(row, _failure(SkipReason.RESTRICTED_BOOK, fetched.message, attempts=attempt))
-            if isinstance(fetched, Failure):
-                last_failure = fetched
-                _log_attempt_failed(row, attempt, fetched)
-                continue
-            draft = fetched
 
-        if maybe_committed:
-            # An earlier write may have committed before the client saw the result. Look again before writing.
-            try:
-                committed = persistence.resolve_source_identity(session.conn, PROVIDER, row.url)
-            except psycopg.Error as exc:
-                last_failure = _failure(SkipReason.DATABASE_ERROR, str(exc), attempt)
-                _log_attempt_failed(row, attempt, last_failure)
-                continue
-            if committed.kind is IdentityKind.EXISTING:
-                # Reported as EXISTING: the original resolution is not stored, so it cannot be recovered (§13.1).
-                # The NULL fill was in the same transaction and is not repeated.
-                assert committed.ref is not None
-                log.info("rank %d: the Source was committed by an earlier attempt; not inserted again: %s", row.rank, row.url)
-                return ResolvedRow(
-                    rank=row.rank,
-                    url=row.url,
-                    source_ref=committed.ref,
-                    resolution=CatalogResolution.EXISTING,
-                    attempts=attempt,
-                )
-            maybe_committed = False
+    def fetch_draft(attempt: int) -> BookDraft | DraftFailure:
+        nonlocal draft
+        fetched = _fetch_and_parse(row, deps, attempt)
+        if isinstance(fetched, _RestrictedPage):
+            log.info("rank %d restricted product skipped without retry: %s", row.rank, row.url)
+            return DraftFailure(SkipReason.RESTRICTED_BOOK, fetched.message, retryable=False)
+        if isinstance(fetched, Failure):
+            return DraftFailure(fetched.error_type, fetched.error_message, retryable=True)
+        draft = fetched
+        return fetched
 
-        written = _write_new_source(session, draft, deps, attempt)
-        if isinstance(written, _WriteFailure):
-            last_failure = written.failure
-            maybe_committed = written.maybe_committed
-            _log_attempt_failed(row, attempt, last_failure)
-            continue
+    def on_attempt_failed(attempt: int, reason: str, message: str) -> None:
+        _log_attempt_failed(row, attempt, _failure(SkipReason(reason), message, attempt))
 
-        isbn_text = ",".join(item.identifier_value for item in draft.identifiers)
-        if written.resolution is CatalogResolution.ISBN_ATTACHED:
-            log.info(
-                "attached BOOKS_COM_TW source to existing Book: rank=%d url=%s matched=ISBN:%s book_id=%s",
-                row.rank,
-                row.url,
-                isbn_text,
-                written.matched_book_ids[0],
-            )
-        elif written.resolution is CatalogResolution.AMBIGUOUS_CREATED:
-            log.info(
-                "ambiguous ISBN match, created a new Book: rank=%d url=%s isbn=%s matched_book_ids=%s",
-                row.rank,
-                row.url,
-                isbn_text,
-                ",".join(str(item) for item in written.matched_book_ids),
-            )
-        return ResolvedRow(
-            rank=row.rank,
-            url=row.url,
-            source_ref=written.ref,
-            resolution=written.resolution,
-            attempts=attempt,
+    result = resolve_item(
+        _BooksCatalogStore(session, row),
+        CatalogItem(PROVIDER, row.url),
+        fetch_draft,
+        clock=deps.clock,
+        attempts=lambda: _attempts(deps),
+        on_attempt_failed=on_attempt_failed,
+    )
+
+    if isinstance(result, ItemFailed):
+        if result.reason == FailureReason.SOURCE_IDENTITY_CONFLICT:
+            log.warning("rank %d source identity conflict, not written: %s: %s", row.rank, row.url, result.message)
+        return _skipped(row, _failure(SkipReason(result.reason), result.message, result.attempts))
+
+    if result.recovered_commit:
+        # Reported as EXISTING: the original resolution is not stored, so it cannot be recovered (§13.1).
+        # The NULL fill was in the same transaction and is not repeated.
+        log.info("rank %d: the Source was committed by an earlier attempt; not inserted again: %s", row.rank, row.url)
+    elif result.resolution is CatalogResolution.ISBN_ATTACHED:
+        assert draft is not None
+        log.info(
+            "attached BOOKS_COM_TW source to existing Book: rank=%d url=%s matched=ISBN:%s book_id=%s",
+            row.rank,
+            row.url,
+            ",".join(item.identifier_value for item in draft.identifiers),
+            result.matched_book_ids[0],
         )
-
-    assert last_failure is not None  # the loop runs at least once and only continues on failure
-    return _skipped(row, last_failure)
+    elif result.resolution is CatalogResolution.AMBIGUOUS_CREATED:
+        assert draft is not None
+        log.info(
+            "ambiguous ISBN match, created a new Book: rank=%d url=%s isbn=%s matched_book_ids=%s",
+            row.rank,
+            row.url,
+            ",".join(item.identifier_value for item in draft.identifiers),
+            ",".join(str(item) for item in result.matched_book_ids),
+        )
+    return ResolvedRow(
+        rank=row.rank,
+        url=row.url,
+        source_ref=result.source_ref,
+        resolution=result.resolution,
+        attempts=result.attempts,
+    )
 
 
 def run_first_book(deps: RunDependencies, run_id: str | None = None) -> RunReport:

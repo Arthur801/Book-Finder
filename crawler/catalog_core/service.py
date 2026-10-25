@@ -89,6 +89,7 @@ class ItemFailed:
     reason: str  # FailureReason value or the DraftFailure.reason
     message: str
     attempts: int
+    identity_warning: str | None = None  # set when the identity was EXISTING with a warning (touch path only)
 
 
 def _no_failure_event(attempt: int, reason: str, message: str) -> None:
@@ -135,8 +136,9 @@ def _touch_existing(
         if not touched:
             return ItemFailed(
                 FailureReason.SOURCE_IDENTITY_CONFLICT,
-                f"Book Source {source_id} vanished or is not a {item.provider} Source",
+                f"Book Source {source_id} is not a {item.provider} Book Source; nothing was touched",
                 attempts=attempt,
+                identity_warning=identity.warning,
             )
         return ItemResolved(
             identity.ref,
@@ -144,7 +146,12 @@ def _touch_existing(
             attempts=0,
             identity_warning=identity.warning,
         )
-    return ItemFailed(FailureReason.DATABASE_ERROR, last_message, attempts=last_attempt)
+    return ItemFailed(
+        FailureReason.DATABASE_ERROR,
+        last_message,
+        attempts=last_attempt,
+        identity_warning=identity.warning,
+    )
 
 
 def _resolve_new(

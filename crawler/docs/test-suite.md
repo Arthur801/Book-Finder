@@ -155,6 +155,14 @@ python -m pytest tests/test_fetcher.py tests/test_curl_fetcher.py tests/test_pla
 - Then：僅第一次匯入 rank1，新來源再跑重用；榜與既有來源時間不變；rank1 一般失敗 exit1，限制級 exit0 partial，設定錯誤 exit2；fetcher 關閉。
 - 現有測試或擴充入口：[test_first_book.py](../tests/test_first_book.py)、[test_first_book_integration.py](../tests/test_first_book_integration.py)。
 
+### CR-T17 — 共用 item 解析 service
+
+- 責任／規格：`catalog_core/service`（Kingstone plan §3、§5，P1 M3；M3b 讓 Books 經由同一 service）；風險 L3（identity、touch、寫入與重試語意）；狀態：已有測試（2026-10-25 新增並執行）。
+- Given：`tests/test_catalog_service.py` 的 in-memory `CatalogStore` fake（可指定 identity、touch 結果、ISBN 匹配、寫入與各步驟拋出的 `psycopg.Error`）、可注入的 `fetch_draft`（draft、可重試或不可重試的 `DraftFailure`）、固定 clock 與 attempts。
+- When：逐一執行 service 的每個分支：CONFLICT；EXISTING touch 成功、失敗後重試成功、耗盡；touch 回傳 False；NEW 的 fetch 失敗、不可重試失敗、parse 後 ISBN 查詢失敗、1／0／2 本匹配、寫入失敗後 commit 不確定與重新解析（EXISTING 恢復、未 commit 繼續寫入）、耗盡。
+- Then：每個分支的 `ItemResolved`／`ItemFailed` 欄位（`attempts`、`reason`、`identity_warning`、`recovered_commit`、`matched_book_ids`）、`on_attempt_failed` 的呼叫次序，以及 CONFLICT 與 touch 衝突時 fetch 與寫入的次數都符合規格。
+- 來源與狀態：[test_catalog_service.py](../tests/test_catalog_service.py)（fake store，覆蓋所有分支）。Books 的整合測試（[test_db_integration.py](../tests/test_db_integration.py)、[test_first_book.py](../tests/test_first_book.py)、[test_reconnect_integration.py](../tests/test_reconnect_integration.py)）經由 adapter 與真實 session／store 覆蓋同一條路徑。
+
 ### CR-T16 — 單調 touch 與 provider 隔離
 
 - 責任／規格：catalog_core persistence（Kingstone plan §3、§5，P1 M2）；風險 L3（touch 寫入與 provider 邊界）；狀態：已有測試（2026-10-25 新增並執行）。
