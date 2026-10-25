@@ -25,14 +25,14 @@
 
 ## CB-07 — 金石堂分類頁 crawler（v11）
 
-- P2；L3；狀態：E0 完成；Phase 1（共用 `catalog_core`：型別、identity、ISBN、provider 明確的 persistence、單調 touch、item 解析 service，博客來已改走 service）完成（2026-10-25，見 [實作報告](../../Docs/Implementation-Report/kingstone-phase1-core.md)）；Phase 2 完成：清單檔、URL grammar（#134）、列表頁 parser（#135）、詳細頁 parser（#136），見 [實作報告](../../Docs/Implementation-Report/kingstone-phase2-adapter.md)；Phase 3 core acquisition 完成（URL 守門、pacing、retry、budget、回應分類，見 [architecture](architecture.md)「金石堂 adapter」）；計畫 §6 的有限額診斷檔（`KINGSTONE_DIAGNOSTIC_MAX_BYTES`，預設 2 MiB）尚未實作，留待 runner／production 整合（Phase 6）；Phase 4 進行中：設定與 run 帳本（M1：`kingstone/config.py`、`kingstone/ledger.py`，含 terminal status 規則）完成，run 本身（逐頁流程、replay 接線、報告輸出）未完成；Phase 5 起未實作。
+- P2；L3；狀態：E0 完成；Phase 1（共用 `catalog_core`：型別、identity、ISBN、provider 明確的 persistence、單調 touch、item 解析 service，博客來已改走 service）完成（2026-10-25，見 [實作報告](../../Docs/Implementation-Report/kingstone-phase1-core.md)）；Phase 2 完成：清單檔、URL grammar（#134）、列表頁 parser（#135）、詳細頁 parser（#136），見 [實作報告](../../Docs/Implementation-Report/kingstone-phase2-adapter.md)；Phase 3 core acquisition 完成（URL 守門、pacing、retry、budget、回應分類，見 [architecture](architecture.md)「金石堂 adapter」）；計畫 §6 的有限額診斷檔（`KINGSTONE_DIAGNOSTIC_MAX_BYTES`，預設 2 MiB）尚未實作，留待 runner／production 整合（Phase 6）；Phase 4 完成（run 帳本與逐頁流程；尚無 CLI／DB composition）：設定與 run 帳本（M1：`kingstone/config.py`、`kingstone/ledger.py`，含 terminal status 規則），逐頁 run（M2：`kingstone/run.py`，budget 停止、replay、fatal 範圍與 redact，見 [architecture](architecture.md)「Run（逐頁流程）」）；Phase 5 起未實作。
 - 決定（使用者 2026-10-25）：比照博客來分類榜，由使用者在 `crawler/kingstone-pages.txt` 提供金石堂分類列表頁；每個 URL 只抓那一頁、不跟分頁；不探索分類樹；沒有跨 run 進度狀態檔，靠 replay＋Source identity 推進；`HTTP_ONLY`；請求間隔 3～10 秒。來源契約見下方「CB-07 來源契約」。
 - 證據：[kingstone fixtures](../tests/fixtures/kingstone/README.md)（13 份）與 CR-K01。
-- 待做：Phase 1～7 依 [v11 計畫](../../Docs/plans/kingstone-category-crawler.md) §9：共用 core（含單調 touch，會改變博客來的 touch 行為）、清單與 parser、acquisition、逐頁 run 與 budget、ingestion、runner／fencing／alert、acceptance。
+- 待做：Phase 5～7 依 [v11 計畫](../../Docs/plans/kingstone-category-crawler.md) §9：ingestion（含真 fetcher 與 DB store 的組裝、`budget.remaining` 接線）、runner／fencing／alert、acceptance。Phase 1～4 已完成（見上）。
 - 前置決策（Phase 6）：host `CRAWLER_ENABLED` 是全域開關，production 目前為 `false`（CB-03），金石堂是否用獨立開關；清單檔隨 image 發布或由 host mount。
 - 未覆蓋：E0 沒有觀察到 challenge、CAPTCHA、限制級頁、429／5xx、無 ISBN 的書；出現時先收錄 fixture。
 - Phase 1 留下的待辦：
-  - `ItemResolved`／`ItemFailed.identity_warning` 目前只有 service 測試讀取；博客來沒有 `external_id`，不會產生 URL 漂移 warning。金石堂（有 km_code）在 Phase 4／5 要從回傳值記錄這個 warning。
+  - `ItemResolved`／`ItemFailed.identity_warning` 目前只有 service 測試讀取；博客來沒有 `external_id`，不會產生 URL 漂移 warning。金石堂（有 km_code）的 warning 已由 Phase 4 run 記錄（`kingstone.run`，WARNING 一行並計入 `identity_warning_count`）。
   - `books_crawler/models.py` 重新匯出 `catalog_core.models` 的型別，讓既有測試的 import 不用改；同一型別因此有兩個匯入入口，之後把測試改成直接從 `catalog_core` 匯入，再移除這層相容匯出。
   - Phase 5 在 `catalog_core.service` 加入 `new-books-only` 寫入政策（v11 計畫 §5）。
 - Phase 2 留下的待辦：
@@ -43,16 +43,16 @@
   - 角色前綴一律 `OTHER`（E0 只見「審訂/」）；出現可對應 Catalog 角色的金石堂標籤時，依 fixture 加入金石堂自己的對應。
   - 作者值含 `/` 一律視為角色前綴（`角色/姓名`）；真實作者名含 `/` 時會被拆錯。E0 沒有此情形，出現時再定規則。
   - 規格表「分級」欄（限制級辨識）尚未讀取；E0 的 7 本都是「普通級」，待有限制級 fixture 再定。
-- Phase 4 M1 留下的待辦：
-  - run 尚未接線：`KingstoneConfig` 與 `KingstoneLedger` 目前沒有任何呼叫端，逐頁流程、budget 停止、replay 與 `format_report` 的實際輸出都還沒有整體驗證。
-  - `identity_warning` 目前只計入 `identity_warning_count`，帳本不記 log；run 要決定是否在 log 中逐筆記錄（延續 Phase 1 的待辦）。
-  - 帳本保存的 `failed_items[].message` 與 `skipped_pages[].message` 不做 redaction；run 在傳入前必須先處理（Books 的 `_failure` 同樣責任）。
+- Phase 4 留下的待辦（M1、M2）：
   - `zero_card_pages` 已計數，但 alert 條件與送出位置屬於 Phase 6。
   - 寫入政策 `KINGSTONE_WRITE_POLICY`、診斷大小 `KINGSTONE_DIAGNOSTIC_MAX_BYTES` 與 `CRAWLER_ALERT_COMMAND` 不在 M1 config 內，留給 Phase 5／6。
+  - `KingstoneConfig` 的 budget 與 HTTP 設定目前沒有 caller；組裝（Phase 5／6）要把 `KINGSTONE_SOFT_RUN_BUDGET_SECONDS` 轉成 `SoftBudget`，並把同一個 budget 交給真 fetcher。
+  - 詳細頁在 budget 停止時被截斷的卡，以 `budget_exhausted` 記入 `failed_items`（統計上算失敗，下次 replay 會處理）；是否改為不計入失敗另定。
+  - Books 尚未改用 `catalog_core/redact`（兩份規則相同的複本）；Books 變更不在 Kingstone 範圍內，待另案處理。
 - Phase 3 留下的待辦：
   - 診斷檔（限額）未實作，所以 Phase 3 只算 core acquisition 完成：金石堂 acquisition 不寫 failure diagnostics；計畫 §6 要求「診斷有限額」，§7 設定表有 `KINGSTONE_DIAGNOSTIC_MAX_BYTES`（2 MiB）。留待 runner／production 整合（Phase 6）時一併定內容、數量、保留期限（參考 CB-02）並實作。
   - challenge／CAPTCHA 分類待 fixture：目前 200 照常回傳，由 parser fail closed；收錄 fixture 後再定分類。
-  - `budget_remaining` 由 Phase 4 run 提供；Phase 3 預設 `math.inf`（不限制），run 接上前 budget 行為只有單元測試，未經整體流程驗證。
+  - `budget_remaining` 由 Phase 4 run 以 `SoftBudget` 提供（caller 組裝時傳入 `budget.remaining`）；Phase 3 預設 `math.inf`（不限制）。真 fetcher 的組裝是 Phase 5／6，在那之前 budget 只由 fake fetcher 的測試驗證。
   - libcurl 傳輸中的大小上限（`MAXFILESIZE_LARGE`）未以真實傳輸驗證：開發環境禁止連網，單元測試只驗證選項有傳入與 `FILESIZE_EXCEEDED`（63）的對應。目前保證 5 MiB 記憶體上限的是 per-call 串流計量（第二道）；第一道是額外保護。
   - TLS 握手中被 reset 若以 curl `RECV_ERROR` 回報，會歸為 `ConnectionError` 並被重試；計畫把 TLS 失敗列為不重試，此分支沒有測試，也未經真站確認。
   - 最後一次嘗試的 Retry-After 不讀，失敗記為 `HTTP_STATUS`；原因分類可能失真（伺服器的意圖是要求等待），目前保留，之後若要區分需另定錯誤類別。

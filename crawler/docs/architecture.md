@@ -30,26 +30,28 @@
 | [kingstone/acquisition](../kingstone/acquisition.py) | 金石堂 HTTP acquisition（Phase 3）：`Transport` port、`CurlTransport`（curl_cffi Chrome、不跟隨 redirect、libcurl `MAXFILESIZE_LARGE` 與串流計量兩道上限）、`KingstoneFetcher`（URL 守門、pacing、重試、budget、回應分類；timeout、max attempts、size 上限可設定）；契約見下方「金石堂 adapter」 |
 | [kingstone/config](../kingstone/config.py) | 金石堂 run 設定（Phase 4 M1）：`load_config(env) -> KingstoneConfig`，純函式、不讀檔不連網；讀取並驗證 `KINGSTONE_PAGES_FILE`、預算、HTTP 與回應大小設定；非法值 → `KingstoneConfigError`（`ValueError`，caller 對應 exit 2）；契約見下方「金石堂 adapter」 |
 | [kingstone/ledger](../kingstone/ledger.py) | 金石堂 run 帳本（Phase 4 M1）：`KingstoneLedger`（逐頁 started／completed／skipped、卡片結果計數、budget 停止）、`KingstoneReport`、集中的 terminal status 函式 `decide_status`、`format_report`；純記帳、不做 I/O（只記 WARNING log）；契約見下方「金石堂 adapter」 |
+| [kingstone/run](../kingstone/run.py) | 金石堂逐頁 run（Phase 4 M2）：`run_pages(deps, page_urls, run_id)` 永不 raise；`SoftBudget`、`KingstoneFetcherPort`、`KingstoneRunDependencies`；列表頁 → 卡片 → `catalog_core.service.resolve_item` → `KingstoneLedger`；詳細頁 fetch／parse 是 `fetch_draft` callback；契約見下方「Run（逐頁流程）」；目前沒有 caller（組裝是 Phase 5／6） |
 | [catalog_core/html_text](../catalog_core/html_text.py) | 共用 HTML 區段文字抽取 `text_with_line_breaks`（自 `books_crawler/parsers.py` 原樣搬出）：只有 `<br>` 與區塊元素邊界換行、inline 元素不切行、連續空行收為一行；博客來詳細頁與金石堂詳細頁共用；會就地修改傳入的 node |
+| [catalog_core/redact](../catalog_core/redact.py) | 共用 secret redaction：與 `books_crawler/redact.py` 相同規則的複本（Books 尚未改用，見 CB-07 Phase 4 待辦）；金石堂 run 的錯誤訊息、skipped 頁與失敗書訊息經此處理 |
 | [Dockerfile](../Dockerfile) | Python 3.14、UID 10001、runtime 依賴與清單 |
 | [target wrapper](https://github.com/Arthur801/Book-Finder/blob/ce7b4f46c0889db6b10216294cac658136796ad7/crawler/deploy/run-crawler.sh) | host scheduling、SSM secret retrieval、daily/pages serialization、DB maintenance coordination、deployment state gate、Docker execution 與 pages schedule state |
 
 ## 金石堂 adapter（kingstone/）— 已實作的解析契約
 
-現況：清單檔讀取、URL grammar、列表頁與詳細頁 parser 是純函式，不連網、不寫 DB；acquisition 經 transport 連網但不寫 DB；沒有任何入口或流程串接。資料流：
+現況：清單檔讀取、URL grammar、列表頁與詳細頁 parser 是純函式，不連網、不寫 DB；acquisition 經 transport 連網但不寫 DB；run 已把它們串成逐頁流程，經注入的 store 寫入 DB，但沒有任何入口（caller 待 Phase 5／6）。資料流：
 
 ```text
 金石堂列表頁 URL ──► kingstone.acquisition.KingstoneFetcher.fetch_list_page ──► HTML
     ──► kingstone.parse_list.parse_list_html ──► ListPage(items: ListedItem…)
-                                                  └─► （未實作）run：New 的 ListedItem 抓詳細頁
+                                                  └─► kingstone.run（逐頁）：每張卡 → catalog_core.service.resolve_item（Existing 只 touch；New 才抓詳細頁）
 金石堂詳細頁 URL ──► kingstone.acquisition.KingstoneFetcher.fetch_detail_page ──► HTML
     ──► kingstone.parse_detail.parse_detail_html ──► BookDraft（external_id = km_code）
-                                                  └─► （未實作）catalog_core.service 的 fetch_draft callback
+                                                  └─► kingstone.run 的 fetch_draft callback（只在 New 時）→ catalog_core.service 寫入
 ```
 
-設定與 run 帳本（`kingstone/config.py`、`kingstone/ledger.py`）已實作為純函式，尚未接到任何 run；它們定義的 terminal status 與報告格式是之後 run 的依據。
+設定（`kingstone/config.py`）與 run 帳本（`kingstone/ledger.py`）為純函式；逐頁 run（`kingstone/run.py`）已把兩者與 acquisition、catalog_core 接起來，但尚無任何入口（見下方「Run（逐頁流程）」）。
 
-尚未實作：run（逐頁流程、把 config 與 ledger 接到 acquisition 與 catalog_core）、ingestion、runner，以及 Dockerfile 納入 `kingstone/`（見 [backlog](backlog.md) CB-07）。URL grammar 與錯誤分類仍以 backlog CB-07 為來源契約。
+尚未實作：ingestion composition（真 fetcher 與 DB store 的組裝、`SoftBudget` 與 `budget_remaining` 的接線）、CLI／runner，以及 Dockerfile 納入 `kingstone/`（見 [backlog](backlog.md) CB-07）。URL grammar 與錯誤分類仍以 backlog CB-07 為來源契約。
 
 **列表頁**（`parse_list_html(html, url) -> ListPage`）
 
@@ -137,6 +139,22 @@
 - `format_report(report)`：一行 `key=value`，欄位順序固定（見 `format_report` docstring）；計數為整數，`budget_exhausted` 為 `true`／`false`；`zero_progress_reason`、`error` 為 JSON 字串或 `null`；`skipped_pages`、`failed_items` 為 `ensure_ascii=False` 的 JSON 陣列。訊息不在此層 redact：run 必須在傳入前處理（與 Books 的 `_failure` 相同責任）。
 - 帳本只在記錄跳過頁與失敗書時寫 WARNING 到 `kingstone.ledger`；不寫其他 log，也不做 I/O。
 
+**Run（逐頁流程）**（`kingstone/run.py`，Phase 4 M2）
+
+- 入口：`run_pages(deps: KingstoneRunDependencies, page_urls, run_id=None) -> KingstoneReport`，永不 raise；fatal 錯誤進 `report.error`。`page_urls` 先依首見順序去重（清單檔已去重，這裡保持帳本的唯一性規則）。
+- 依賴：`fetcher`（`KingstoneFetcherPort`：`fetch_list_page(url) -> str`、`fetch_detail_page(url) -> str`）、`store`（`CatalogStore`）、`budget`（`SoftBudget(seconds, monotonic)`：建立時記起點，`remaining()`、`exhausted()`（remaining ≤ 0））、`clock`（UTC，observed_at 與報告時間）、`sleep`（DB 重試退避）、`max_item_attempts`（預設 3）。
+- **caller 必須把同一個 `budget` 交給真 fetcher**（`budget_remaining=budget.remaining`）。run 在每個清單頁與每張卡之前檢查 `budget.exhausted()`；fetcher 另在每次請求前檢查「等待時間是否超過剩餘預算」。兩道守門讀同一個時鐘，超出時都乾淨停止。真 fetcher 與 DB store 的組裝不在本模組（Phase 5／6）。
+- 流程（清單順序）：每頁先 `fetch_list_page`；`AcquisitionError` 的 `BUDGET_EXHAUSTED` → `stop_for_budget()`，該頁為 not reached；其他 kind → `record_page_skipped`，reason 為 kind 的小寫（`redirect`、`http_status`、`transport`、`oversize`、`decode_error`、`retry_after_too_long`），attempts 為 fetcher 報告的值。`parse_list_html` 的 `KingstoneParseError` → skipped，reason `parse_error`，attempts 1。解析成功 → `page_started`；每張卡：先檢查 budget，再 `resolve_item`，結果交 `record_item`；頁內全部完成 → `page_completed`。
+- budget 停止點（停止後不再發出任何請求）：(a) 清單頁之前：該頁與之後的頁 not reached；(b) 頁中、卡片之前：該頁 interrupted；(c) 詳細頁的 `BUDGET_EXHAUSTED`：該卡以 reason `budget_exhausted` 記為失敗（`failed_items`），然後該頁 interrupted；(d) 清單頁的 `BUDGET_EXHAUSTED`：同 (a)。正在進行的卡不會被中斷：檢查只在卡與卡之間與頁與頁之間。被停下的卡與頁沒有寫入，下一次 run 會再處理。
+- 詳細頁不在 service 層重試（決定）：acquisition 已在 HTTP 層重試（最多 3 次，`MAX_ATTEMPTS`），若 service 再重試抓取，同一本書最多會發出 9 次請求。因此非 budget 的 `AcquisitionError` 轉為 `DraftFailure(kind 小寫, retryable=False)`，立即記為該卡失敗。service 的 attempts（`max_item_attempts`，預設 3）只用於資料庫失敗，且解析出的 draft 保留，不會為了資料庫重試而重抓詳細頁。退避為 1 秒、2 秒（`BACKOFF_BASE_SECONDS * 2**(n-2)`，n = 2、3）。
+- 詳細頁的 `DraftFailure` reason：`product_not_found`（soft 404，`ProductNotFound`）、`parse_error`（`KingstoneParseError`，或下方防禦分支）、`budget_exhausted`、acquisition 的 kind 小寫。
+- `external_id` 防禦：解析出的 `BookDraft.external_id` 必須等於卡片的 km_code。不符 → `parse_error`（單本失敗，不中止 run）。理由：parser 已用 URL 驗證 sku，而 URL 由卡片的 km_code 建立，不符只可能來自程式錯誤；把它當作單本失敗比中止整個 run 局部，並在 `failed_items` 留下證據。
+- replay：沒有跨 run 的進度檔。重跑從清單開頭；Existing 只 touch（不抓詳細頁），未完成的 New 才抓。
+- fatal 範圍：`store.resolve_source_identity` 拋出的 `psycopg.Error`（identity 查詢不重試）、其他未預期例外，以及 `ValueError`（URL 不合 grammar 等程式錯誤）。發生時 run 停止，`report.error` 為 `"<例外型別>: <訊息>"`，status FAILED；已 commit 的卡保留（每本書一筆交易）。卡片的 DB 失敗（寫入、ISBN 查詢、touch）不是 fatal，只使該卡失敗。
+- redact：fatal 訊息、skipped 頁訊息、失敗書訊息與 log 中的 attempt 訊息，在進入帳本或 log 前經 `catalog_core.redact.redact`；帳本本身不 redact。
+- identity warning（URL 漂移）：在該卡 resolve 完成後記一行 WARNING（`kingstone.run`），並由帳本計入 `identity_warning_count`。金石堂的 warning 在查詢時尚未有 attempt 行可排序，因此不像 Books 那樣在查詢時記錄。
+- log：logger `kingstone.run`。DB 重試失敗一行 WARNING；FAILED 一行 ERROR；結束時一行 INFO `mode=kingstone <format_report>`。
+
 ## 選型、替代與代價
 
 | 面向 | 現行依據 | 替代差異（本次分析，非 ADR 決策） | 代價／維護 |
@@ -181,6 +199,6 @@ SSM 僅取 DB URL，log／JSON 遮罩；HTML 是原始頁面，PNG 可能含畫�
 
 確認字面差距（#113 前的規格）：舊 §16.9 說 pages 不寫任何來源 last_seen_at，但 `_insert_source` 對新建／附加來源 INSERT 初始化 now；既有來源確實不刷新。見 CB-01，未確認功能 bug。artifact 無清理政策實作，deployment 已明示另管，屬 CB-02 改善提案。EC2、SSM／IAM、GHCR／CD、cron 安裝、來源可抓性本次未驗證（CB-03），不能由設定存在推定已部署。
 
-金石堂（KINGSTONE）目前有清單檔、URL grammar、列表頁與詳細頁 parser、HTTP acquisition（見「金石堂 adapter」）；其餘（run、ingestion、runner）尚未實作，來源契約與計畫見 [backlog](backlog.md) CB-07。
+金石堂（KINGSTONE）目前有清單檔、URL grammar、列表頁與詳細頁 parser、HTTP acquisition、設定、run 帳本與逐頁 run（見「金石堂 adapter」）；ingestion composition 與 runner 尚未實作，來源契約與計畫見 [backlog](backlog.md) CB-07。
 
 相關：[流程](workflow-diagram.md)／[架構](architecture.md)／[待辦](backlog.md)／[歷史](update-history.md)／[案例](test-suite.md)。
