@@ -13,7 +13,7 @@ import logging
 from collections.abc import Callable
 from typing import Any, Self
 
-log = logging.getLogger("books_crawler.session")
+log = logging.getLogger("catalog_core.session")
 
 
 class DatabaseSession:

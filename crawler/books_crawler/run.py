@@ -253,11 +253,11 @@ def _fetch_and_parse(
 
 
 class _BooksCatalogStore(SessionCatalogStore):
-    """The run's store for one ranking row. It logs the URL-drift WARNING when the identity is looked up.
+    """The run's store for one ranking row. It logs the URL-drift WARNING at the identity lookup.
 
-    The old resolver logged the identity warning before the touch, so it appears even when the touch fails.
-    ``ItemFailed``/``ItemResolved`` also carry it, but logging afterwards would move it behind the touch's
-    attempt lines. Books has no ``external_id``, so only the first lookup can carry a warning.
+    Logging there keeps the WARNING ahead of the touch's attempt lines, so it appears even when the touch
+    fails. ``ItemFailed``/``ItemResolved`` also carry the warning, but logging afterwards would place it behind
+    those lines. Books has no ``external_id``, so only the first lookup can carry a warning.
     """
 
     def __init__(self, session: DatabaseSession, row: RankingRow) -> None:
@@ -313,6 +313,7 @@ def _resolve_row(
             log.warning("rank %d source identity conflict, not written: %s: %s", row.rank, row.url, result.message)
         return _skipped(row, _failure(SkipReason(result.reason), result.message, result.attempts))
 
+    isbn_text = "" if draft is None else ",".join(item.identifier_value for item in draft.identifiers)
     if result.recovered_commit:
         # Reported as EXISTING: the original resolution is not stored, so it cannot be recovered (§13.1).
         # The NULL fill was in the same transaction and is not repeated.
@@ -323,7 +324,7 @@ def _resolve_row(
             "attached BOOKS_COM_TW source to existing Book: rank=%d url=%s matched=ISBN:%s book_id=%s",
             row.rank,
             row.url,
-            ",".join(item.identifier_value for item in draft.identifiers),
+            isbn_text,
             result.matched_book_ids[0],
         )
     elif result.resolution is CatalogResolution.AMBIGUOUS_CREATED:
@@ -332,7 +333,7 @@ def _resolve_row(
             "ambiguous ISBN match, created a new Book: rank=%d url=%s isbn=%s matched_book_ids=%s",
             row.rank,
             row.url,
-            ",".join(item.identifier_value for item in draft.identifiers),
+            isbn_text,
             ",".join(str(item) for item in result.matched_book_ids),
         )
     return ResolvedRow(

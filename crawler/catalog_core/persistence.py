@@ -12,7 +12,7 @@ Rules:
   column and its sync triggers, so SQL here never names them.
 - The schema is owned by EF Core and has no DB defaults, so UUIDs and timestamps come from here.
 - Decisions (which Book a new source belongs to, whether a Book may be ranked twice) are made by
-  the caller (``run``) and by ``identity``. This module only looks up and writes.
+  ``catalog_core.service`` and by ``identity``. This module only looks up and writes.
 """
 
 from __future__ import annotations

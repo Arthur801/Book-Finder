@@ -1084,6 +1084,18 @@ def test_existing_sources_are_touched_in_each_run_and_first_seen_is_kept(db_url)
     assert query(db_url, "SELECT count(*) FROM book_sources WHERE last_seen_at = %s AND first_seen_at = %s", (LATER, NOW)) == [(100,)]
 
 
+def test_a_clock_moved_back_keeps_a_later_last_seen_and_the_source_is_still_existing(db_url):
+    _seed_with_identifiers(db_url, {})
+    run(db_url, ranking_rows(100), now=LATER)
+
+    report, _ = run(db_url, ranking_rows(100), now=NOW)
+
+    assert report.status is RunStatus.SUCCESS
+    assert report.existing_source_count == 100
+    assert query(db_url, "SELECT last_seen_at FROM book_sources WHERE source_url = %s", (product_url(1),)) == [(LATER,)]
+    assert query(db_url, "SELECT count(*) FROM book_sources WHERE last_seen_at = %s", (LATER,)) == [(100,)]
+
+
 def test_replace_bestsellers_does_not_update_last_seen_at(db_url):
     _seed_with_identifiers(db_url, {})
     source = query(db_url, "SELECT id, book_id FROM book_sources WHERE source_url = %s", (product_url(1),))[0]
