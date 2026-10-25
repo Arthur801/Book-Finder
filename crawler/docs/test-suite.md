@@ -219,7 +219,7 @@ migration 011 的 schema 由 test_db_integration.py 在 011 上檢查（無 `sou
 
 ### CR-K01 — 金石堂 fixture contract（E0）
 
-- **責任／規格**：[backlog](backlog.md)「CB-07 來源契約」；風險 L2；狀態：已有測試（2026-10-25 新增並執行）。尚無金石堂程式，這組測試直接以 BeautifulSoup 讀 fixture，固定之後 parser 必須遵守的解讀。
+- **責任／規格**：[backlog](backlog.md)「CB-07 來源契約」；風險 L2；狀態：已有測試（2026-10-25 新增並執行）。這組測試在 parser 存在之前寫成，直接以 BeautifulSoup 讀 fixture，固定 fixture 的解讀；parser 本身的行為由 CR-K03、CR-K04 驗證。
 - **Given**：[kingstone fixtures](../tests/fixtures/kingstone/README.md) 的 5 個列表頁、7 個詳細頁、1 個 soft 404。
 - **When**：以 contract 的選擇器與欄位規則讀取每份 fixture。
 - **Then**：列表卡數 48／48／39／0／6，`data-prodno` 與連結 km_code 一致，卡片文字沒有 ISBN；空頁有 `.emptyCategory`、沒有 `.productGrid`，巢狀推薦卡不被選到；`sort=pu_desc` 出版日遞減；詳細頁 `sku` 等於檔名、`isbn` 等於 `gtin13`、`name` 非空、`image[0]` 是 assets 網址、「分級」為普通級；簡體書規格表是中文簡體但 JSON-LD `inLanguage` 是 `zh-TW`；作者連結含原文姓名、「、」串接與「審訂/」前綴，JSON-LD `author` 只有第一個連結；譯者是純文字；breadcrumb 原始清單重複兩次，subjects 依序去重並去掉「中文書」；soft 404 沒有 Product JSON-LD；README 與檔案一一對應。
@@ -248,6 +248,14 @@ migration 011 的 schema 由 test_db_integration.py 在 011 上檢查（無 `sou
 - **When**：`parse_detail_html(html, canonical_url)`；非 canonical URL 另測。
 - **Then**：真實頁各欄位符合 fixture 的已知值；description 與目錄保留換行、無相鄰區塊文字外漏（活動、相關主題、作者介紹不被讀）；soft 404 為 `ProductNotFound` 而非 parse error；損壞 JSON 或 sku 不符、name 缺少為 `KingstoneParseError`；日期無效與語言未知為 None（後者記 WARNING）；ISBN 只來自 `isbn` 或 `gtin13` 並經共用正規化；作者與譯者的角色與順序依規則；譯者列排除「追蹤」「?」；subjects 去掉「中文書」並去重；非 canonical URL 為 `ValueError`。
 - **來源與狀態**：[test_kingstone_parse_detail.py](../tests/test_kingstone_parse_detail.py)（74 個測試）。
+
+### CR-K05 — 金石堂 HTTP acquisition
+
+- **責任／規格**：[architecture](architecture.md)「金石堂 adapter」的 Acquisition 段落（來源：backlog CB-07「Acquisition」）與計畫 §6、§9 Phase 3；風險 L3（URL 守門、重送與 budget 決定是否對外發出請求）；狀態：已有測試（2026-10-25 新增並執行）。全部離線：fake transport、fake clock、記錄型 fake sleep 與 fake curl session，不連網。
+- **Given**：合法的列表頁與詳細頁 canonical URL；不合法的 URL（非 canonical 列表頁、`sort=sa_desc`、http、其他 host、userinfo、port、IP literal、詳細頁帶 query、列表與詳細頁互換、非字串）；transport 依序回傳的 200、3xx、4xx、429／500／502／503／504、timeout、connection error、`ResponseTooLarge`、非 UTF-8 的 200，以及 Retry-After（秒數、極長的數字、HTTP-date、已過去的日期、無法解析、超過 120 秒、最後一次嘗試）；固定的 sample delay；有限的 budget（含 0 與負數，且 pacing 已過的情況）；fake curl session 的 Content-Length、串流、例外、headers 與 session 建立參數（含 `MAXFILESIZE_LARGE`）；curl 的 `RequestException`（code 63 `FILESIZE_EXCEEDED` 與其他 code）。
+- **When**：`KingstoneFetcher.fetch_list_page`、`fetch_detail_page`，以及 `CurlTransport.get`。
+- **Then**：不合法 URL 為 `ValueError` 且 transport 未被呼叫；第一個請求也等待 sample delay，已過時間計入，重試也受 pacing 約束，pacing 與 backoff 取最大值；timeout、connection error 與 429／500／502／503／504 重試，用盡時為 `TRANSPORT`／`HTTP_STATUS`（attempts=3）；400、403、404 與其他 transport 例外不重試；backoff 為 5、10 秒並受 60 秒上限約束；Retry-After 秒數與 HTTP-date 生效，超過 120 秒立即 `RETRY_AFTER_TOO_LONG` 且不重送；每次請求前檢查 budget：budget 為 0 或負數時即使 pacing 已過也 `BUDGET_EXHAUSTED`，不睡、不送；等待超過 budget 時同樣；極長的 Retry-After 數字為 `RETRY_AFTER_TOO_LONG`；302 為 `REDIRECT`，不跟隨、不重試；`ResponseTooLarge` 為 `OVERSIZE` 不重試，transport 收到的 max_bytes 為 5 MiB、timeout 為 30；200 非 UTF-8 為 `DECODE_ERROR`；錯誤訊息不含 body、cookie、header 或 transport 例外的訊息；`CurlTransport` 送出 `allow_redirects=False`、`stream=True`、Chrome impersonation 與 Accept-Language，Content-Length 或串流超過上限即 `ResponseTooLarge` 並關閉 response，timeout 與 connection 例外映射為可重試例外，SSL 例外不映射；session 以 `MAXFILESIZE_LARGE = 5 MiB` 建立，libcurl 的 code 63 映射為 `ResponseTooLarge`（`OVERSIZE`，不重試），其他 curl 例外原樣傳出；每次請求一行 INFO，重試一行 WARNING。
+- **來源與狀態**：[test_kingstone_acquisition.py](../tests/test_kingstone_acquisition.py)（96 個測試，`pytest --collect-only -q tests/test_kingstone_acquisition.py`）。已知驗證缺口：libcurl 傳輸中的 63 實際觸發未以真站或真實傳輸驗證（禁止連網）；TLS 握手中的 reset 分類未有測試（見 [backlog](backlog.md) CB-07 Phase 3 待辦）。
 
 ### 連線中斷與重連（crawler.md §13.1、§6.1，#119）
 

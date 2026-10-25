@@ -9,12 +9,12 @@ from __future__ import annotations
 import re
 from urllib.parse import urlsplit
 
-SITE_ORIGIN = "https://www.kingstone.com.tw"
+SITE_HOST = "www.kingstone.com.tw"
+SITE_ORIGIN = f"https://{SITE_HOST}"
 SORT_KEYS = frozenset({"sa_desc", "pu_desc", "pu_asc", "pr_desc", "pr_asc"})
 # The site default (by sales). A page with this sort and a page with no sort are the same page.
 DEFAULT_SORT = "sa_desc"
 
-_SITE_HOST = "www.kingstone.com.tw"
 _LIST_PATH = re.compile(r"/book/([A-Za-z]{2,4})/")
 _PAGE = re.compile(r"[1-9][0-9]*")
 _KM_CODE = re.compile(r"[0-9]{13}")
@@ -43,7 +43,7 @@ def canonical_list_url(raw: str) -> str | None:
         parts = urlsplit(raw)
     except ValueError:
         return None
-    if parts.scheme != "https" or parts.netloc != _SITE_HOST:
+    if parts.scheme != "https" or parts.netloc != SITE_HOST:
         return None
     path = _LIST_PATH.fullmatch(parts.path)
     if path is None:
@@ -112,7 +112,7 @@ def km_code_from_href(href: str) -> str | None:
         parts = urlsplit(href)
     except ValueError:
         return None
-    if parts.scheme != "https" or parts.netloc != _SITE_HOST:
+    if parts.scheme != "https" or parts.netloc != SITE_HOST:
         return None
     path = _ABSOLUTE_DETAIL_PATH.fullmatch(parts.path)
     if path is None:

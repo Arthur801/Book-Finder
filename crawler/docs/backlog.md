@@ -25,7 +25,7 @@
 
 ## CB-07 — 金石堂分類頁 crawler（v11）
 
-- P2；L3；狀態：E0 完成；Phase 1（共用 `catalog_core`：型別、identity、ISBN、provider 明確的 persistence、單調 touch、item 解析 service，博客來已改走 service）完成（2026-10-25，見 [實作報告](../../Docs/Implementation-Report/kingstone-phase1-core.md)）；Phase 2 完成：清單檔、URL grammar（#134）、列表頁 parser（#135）、詳細頁 parser（#136），見 [實作報告](../../Docs/Implementation-Report/kingstone-phase2-adapter.md)；Phase 3 起未實作。
+- P2；L3；狀態：E0 完成；Phase 1（共用 `catalog_core`：型別、identity、ISBN、provider 明確的 persistence、單調 touch、item 解析 service，博客來已改走 service）完成（2026-10-25，見 [實作報告](../../Docs/Implementation-Report/kingstone-phase1-core.md)）；Phase 2 完成：清單檔、URL grammar（#134）、列表頁 parser（#135）、詳細頁 parser（#136），見 [實作報告](../../Docs/Implementation-Report/kingstone-phase2-adapter.md)；Phase 3 core acquisition 完成（URL 守門、pacing、retry、budget、回應分類，見 [architecture](architecture.md)「金石堂 adapter」）；計畫 §6 的有限額診斷檔（`KINGSTONE_DIAGNOSTIC_MAX_BYTES`，預設 2 MiB）尚未實作，留待 runner／production 整合（Phase 6）；Phase 4 起未實作。
 - 決定（使用者 2026-10-25）：比照博客來分類榜，由使用者在 `crawler/kingstone-pages.txt` 提供金石堂分類列表頁；每個 URL 只抓那一頁、不跟分頁；不探索分類樹；沒有跨 run 進度狀態檔，靠 replay＋Source identity 推進；`HTTP_ONLY`；請求間隔 3～10 秒。來源契約見下方「CB-07 來源契約」。
 - 證據：[kingstone fixtures](../tests/fixtures/kingstone/README.md)（13 份）與 CR-K01。
 - 待做：Phase 1～7 依 [v11 計畫](../../Docs/plans/kingstone-category-crawler.md) §9：共用 core（含單調 touch，會改變博客來的 touch 行為）、清單與 parser、acquisition、逐頁 run 與 budget、ingestion、runner／fencing／alert、acceptance。
@@ -43,15 +43,22 @@
   - 角色前綴一律 `OTHER`（E0 只見「審訂/」）；出現可對應 Catalog 角色的金石堂標籤時，依 fixture 加入金石堂自己的對應。
   - 作者值含 `/` 一律視為角色前綴（`角色/姓名`）；真實作者名含 `/` 時會被拆錯。E0 沒有此情形，出現時再定規則。
   - 規格表「分級」欄（限制級辨識）尚未讀取；E0 的 7 本都是「普通級」，待有限制級 fixture 再定。
+- Phase 3 留下的待辦：
+  - 診斷檔（限額）未實作，所以 Phase 3 只算 core acquisition 完成：金石堂 acquisition 不寫 failure diagnostics；計畫 §6 要求「診斷有限額」，§7 設定表有 `KINGSTONE_DIAGNOSTIC_MAX_BYTES`（2 MiB）。留待 runner／production 整合（Phase 6）時一併定內容、數量、保留期限（參考 CB-02）並實作。
+  - challenge／CAPTCHA 分類待 fixture：目前 200 照常回傳，由 parser fail closed；收錄 fixture 後再定分類。
+  - `budget_remaining` 由 Phase 4 run 提供；Phase 3 預設 `math.inf`（不限制），run 接上前 budget 行為只有單元測試，未經整體流程驗證。
+  - libcurl 傳輸中的大小上限（`MAXFILESIZE_LARGE`）未以真實傳輸驗證：開發環境禁止連網，單元測試只驗證選項有傳入與 `FILESIZE_EXCEEDED`（63）的對應。目前保證 5 MiB 記憶體上限的是 per-call 串流計量（第二道）；第一道是額外保護。
+  - TLS 握手中被 reset 若以 curl `RECV_ERROR` 回報，會歸為 `ConnectionError` 並被重試；計畫把 TLS 失敗列為不重試，此分支沒有測試，也未經真站確認。
+  - 最後一次嘗試的 Retry-After 不讀，失敗記為 `HTTP_STATUS`；原因分類可能失真（伺服器的意圖是要求等待），目前保留，之後若要區分需另定錯誤類別。
 
-### CB-07 來源契約（E0 凍結，尚未實作）
+### CB-07 來源契約（E0 凍結）
 
-> 2026-10-25 E0 凍結。**尚無金石堂程式**；以下是之後實作必須遵守的來源契約，不是現有行為。實作計畫見 [kingstone-category-crawler.md](../../Docs/plans/kingstone-category-crawler.md)（v11）；實作後依實際行為移入 architecture／workflow-diagram。
+> 2026-10-25 E0 凍結的來源契約。已實作的部分（清單檔、URL grammar、列表頁與詳細頁 parser、acquisition）以 [architecture](architecture.md)「金石堂 adapter」為現行 authority，本節對應段落只留指標；尚未實作的 run、ingestion、runner 仍依本節契約。實作計畫見 [kingstone-category-crawler.md](../../Docs/plans/kingstone-category-crawler.md)（v11）；之後每實作一部分，就依實際行為移入 architecture／workflow-diagram。
 > 證據：使用者授權的有限真站抓取，2026-10-25 03:39–03:55 UTC，31 次循序請求（curl_cffi Chrome、不跟隨 redirect、3～30 秒隨機等待），沒有 429、challenge、Retry-After 或登入頁。原始回應在 `crawler/artifacts/kingstone-e0/`（不 commit）；fixture 見 [kingstone fixtures](../tests/fixtures/kingstone/README.md)。
 
 **範圍**（使用者 2026-10-25 決定）：比照博客來分類榜。使用者在清單提供金石堂分類列表頁，crawler 只抓清單上每一頁列出的書；不探索分類樹、不跟分頁、沒有跨 run 進度狀態檔。
 
-**Acquisition**：`HTTP_ONLY`。需要的頁面都是 server-rendered HTML（200），不需要 browser，不新增 Playwright production dependency。只允許 origin `https://www.kingstone.com.tw`；robots.txt 禁止的 `/api/`、`/bms/`、`/dks/`、`/cart/`、`/Refund/`、`/einvoice/`、`/wp-admin/` 都不使用。循序請求，每次請求（含重試）前隨機等待 **3～10 秒**（使用者 2026-10-25 依 E0 證據決定）。不跟隨 redirect。
+**Acquisition**：已實作，現行契約見 [architecture](architecture.md)「金石堂 adapter」的 Acquisition 段落。來源端的前提（仍有效）：`HTTP_ONLY`，不需要 browser，不新增 Playwright production dependency；只允許 origin `https://www.kingstone.com.tw`；robots.txt 禁止的 `/api/`、`/bms/`、`/dks/`、`/cart/`、`/Refund/`、`/einvoice/`、`/wp-admin/` 都不使用；循序請求，每次請求（含重試）前隨機等待 **3～10 秒**（使用者 2026-10-25 依 E0 證據決定）；不跟隨 redirect。
 
 **URL grammar**（其他 URL 一律拒絕）：
 
