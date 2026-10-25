@@ -27,50 +27,41 @@
 | [kingstone/models](../kingstone/models.py) | 金石堂 adapter 的資料型別：`ListedItem`、`ListPage`，以及 `KingstoneParseError`、`ProductNotFound` |
 | [kingstone/parse_list](../kingstone/parse_list.py) | 金石堂分類列表頁 HTML → `ListPage`（純函式）；契約見下方「金石堂 adapter」 |
 | [kingstone/parse_detail](../kingstone/parse_detail.py) | 金石堂詳細頁 HTML → `BookDraft`（純函式）；soft 404 → `ProductNotFound`；契約見下方「金石堂 adapter」 |
+| [kingstone/acquisition](../kingstone/acquisition.py) | 金石堂 HTTP acquisition（Phase 3）：`Transport` port、`CurlTransport`（curl_cffi Chrome、不跟隨 redirect、串流計量上限）、`KingstoneFetcher`（URL 守門、pacing、重試、budget、回應分類）；契約見下方「金石堂 adapter」 |
 | [catalog_core/html_text](../catalog_core/html_text.py) | 共用 HTML 區段文字抽取 `text_with_line_breaks`（自 `books_crawler/parsers.py` 原樣搬出）：只有 `<br>` 與區塊元素邊界換行、inline 元素不切行、連續空行收為一行；博客來詳細頁與金石堂詳細頁共用；會就地修改傳入的 node |
 | [Dockerfile](../Dockerfile) | Python 3.14、UID 10001、runtime 依賴與清單 |
 | [target wrapper](https://github.com/Arthur801/Book-Finder/blob/ce7b4f46c0889db6b10216294cac658136796ad7/crawler/deploy/run-crawler.sh) | host scheduling、SSM secret retrieval、daily/pages serialization、DB maintenance coordination、deployment state gate、Docker execution 與 pages schedule state |
 
 ## 金石堂 adapter（kingstone/）— 已實作的解析契約
 
-現況：清單檔讀取、URL grammar、列表頁與詳細頁 parser，都是純函式；不連網、不寫 DB，沒有任何入口或流程串接。資料流：
+現況：清單檔讀取、URL grammar、列表頁與詳細頁 parser 是純函式，不連網、不寫 DB；acquisition 經 transport 連網但不寫 DB；沒有任何入口或流程串接。資料流：
 
 ```text
-金石堂列表頁 HTML ──► kingstone.parse_list.parse_list_html ──► ListPage(items: ListedItem…)
-                                                              └─► （未實作）acquisition／run：New 的 ListedItem 抓詳細頁
-金石堂詳細頁 HTML ──► kingstone.parse_detail.parse_detail_html ──► BookDraft（external_id = km_code）
-                                                                └─► （未實作）catalog_core.service 的 fetch_draft callback
+金石堂列表頁 URL ──► kingstone.acquisition.KingstoneFetcher.fetch_list_page ──► HTML
+    ──► kingstone.parse_list.parse_list_html ──► ListPage(items: ListedItem…)
+                                                  └─► （未實作）run：New 的 ListedItem 抓詳細頁
+金石堂詳細頁 URL ──► kingstone.acquisition.KingstoneFetcher.fetch_detail_page ──► HTML
+    ──► kingstone.parse_detail.parse_detail_html ──► BookDraft（external_id = km_code）
+                                                  └─► （未實作）catalog_core.service 的 fetch_draft callback
 ```
 
-尚未實作：acquisition（fetch／pacing）、run、ingestion、runner，以及 Dockerfile 納入 `kingstone/`（見 [backlog](backlog.md) CB-07）。URL grammar、錯誤分類與 acquisition 原則仍以 backlog CB-07 為來源契約。
+尚未實作：run（逐頁流程、budget 來源、terminal status）、ingestion、runner，以及 Dockerfile 納入 `kingstone/`（見 [backlog](backlog.md) CB-07）。URL grammar 與錯誤分類仍以 backlog CB-07 為來源契約。
 
-**列表頁**（`parse_list_html(html, url) -> ListPage`）
+**Acquisition**（`kingstone/acquisition.py`，Phase 3）
 
-- `url` 必須是 canonical 列表頁 URL，否則 `ValueError`（caller 錯誤，不是 parse error）。
-- 必要結構：`section#allProducts` 與其內的 `#displayCSS`；缺少即 `KingstoneParseError`。
-- 商品卡只取 `section#allProducts #displayCSS > .productGrid > .mod_prod_card[data-prodno]`；`#allProducts` 外的輪播卡、空頁巢狀 `section.prodSlider` 內的推薦卡不計。
-- 空頁：沒有 `.productGrid`，且 `#displayCSS > .emptyCategory` 清理空白後為「此分類沒有相關商品唷！」→ 成功的零列頁（`empty=True`）。沒有 grid 也沒有此提示 → parse error。
-- 每張卡：`data-prodno` 必須是 13 位數；`.coverbox a` 的 href 必須符合詳細頁 grammar（相對 `/basic/<km_code>/[?query]`，或同 origin 的絕對 URL）；連結的 km_code 必須等於 `data-prodno`。任一不符即 parse error。
-- 刻意採用的 fail-closed／實作決定（非 CB-07 逐字要求，變更時同步此處與測試）：每頁超過 48 張 → parse error；有 `.productGrid` 但 0 張卡 → parse error；同頁重複的 km_code 只保留首見（重複卡仍逐一驗證）。
-- 產出 `ListedItem`：`external_id` = km_code、`source_url` = `/basic/<km_code>/`（追蹤參數不進 URL）、`list_url` = 列表頁 URL。卡片的書名、作者、出版社、日期不讀；列表頁沒有 ISBN，所以 New Source 一律要抓詳細頁。
-- `input#totalPages` 與「共計<span>n</span>筆」是 best-effort 的 report metadata，只寫入 `ListPage.total_pages`、`total_count`，不影響 `items`，也不跟分頁：缺少 → None；合法 → int；存在但格式無法解析（totalPages 非正整數、共計非純數字）→ None，並在 `kingstone.parse_list` logger 記一筆 WARNING（不回顯 HTML），商品卡照常處理。
-
-**詳細頁**（`parse_detail_html(html, url) -> BookDraft`）
-
-- `url` 必須是 canonical 詳細頁 URL（`kingstone.urls.km_code_from_detail_url`：`https://www.kingstone.com.tw/basic/<13 位數>/`），否則 `ValueError`。
-- 身分來自第一個含 `Product` 字樣的 `application/ld+json` script（物件、`@graph` 或陣列皆可，取 `@type` 含 `Product` 者）。該 script 不是合法 JSON 即 parse error，因此損壞的商品區塊不會被誤判為 soft 404。
-- 沒有 Product JSON-LD 時：`<title>` 清理後等於「金石堂」→ `ProductNotFound`（soft 404，不重試、不寫入）；其他情況 → `KingstoneParseError`。
-- `sku` 必須等於 URL 的 km_code；`name` 必填（缺少、空白或非字串皆為 parse error）。`external_id` = km_code，`source_url` = 傳入的 URL。title 與 publisher 經 `clean_text`（收斂內部空白）。
-- `publisher` ← `publisher.name`（選填）；`published_date` ← `datePublished`，僅接受有效的 `YYYY-MM-DD`，精度 `DAY`；格式不合或日期無效時記 WARNING 並為 None；`thumbnail_url` ← `image`（陣列取第一個，字串直接用；字串形式同樣接受）。
-- ISBN：`isbn` 非空即採用，否則採 `gtin13`；經共用 `normalize_isbn` 正規化，有值才寫入 `identifiers=(ISBN,)`。不驗證前綴或 checksum。
-- 語言來自規格表「語言」列：中文繁體 → `zh-TW`、中文簡體 → `zh-CN`；其他非空值 → None 並記 WARNING；列不存在 → None。**不使用** JSON-LD `inLanguage`。
-- 頁數來自規格表「頁數」列：純數字且大於 0 才有值，否則 None。
-- 作者（`li.basicunit` 中標籤為「作者：」）：取列內連結文字，排除「追蹤」、「?」與整段被括號包住的連結（原文姓名，例如「(Gao Junqing)」或「（某某）」；括號須成對且內部不含括號，否則照一般作者名處理）；文字以「、」拆分。值含 `/` 時，前段為角色標籤、後段為姓名，角色一律為 `OTHER`；無 `/` 者為 `AUTHOR`。金石堂不借用博客來的 `ROLE_MAP`：E0 只見「審訂/」，沒有可對應到 Catalog 角色的標籤，出現時再依 fixture 加入金石堂自己的對應。
-- 譯者（標籤為「譯者：」）：取該列去掉標籤後的文字節點，排除文字為「追蹤」「?」的節點（與作者欄一致），以「、」拆分，角色為 `TRANSLATOR`。其他標籤（如繪者）的列不讀。`Contributor.order` 依文件順序從 1 編號。
-- subjects：`.basic-category-breadcrumb a` 的文字依序去重，並去掉根節點「中文書」。
-- description 取 `.pdintro .panelCon`，table_of_contents 取 `.catalog .panelCon`，兩者都經 `catalog_core.html_text.text_with_line_breaks`：只有 `<br>` 與區塊元素邊界產生換行，inline 元素不切行，行內空白收斂為一個空白，連續空行收為一行，頭尾空行去除。目錄保留出版社原文內容（含開頭的作者簡介／內容簡介／目錄字樣），只做與簡介相同的換行與空白正規化。區塊不存在 → None。description、table_of_contents 只供 AI，不公開。
-- 目前刻意採用的 fail-closed／實作決定（非 CB-07 逐字要求，變更時需同步此處與測試）：JSON-LD `image` 為字串也接受；譯者列與作者欄同樣排除「追蹤」「?」；原文名括號須成對且內部不含括號。
-- 只讀上述區塊；活動、相關主題、作者介紹與贈品區塊不讀。
+- 兩層：`Transport` port（`get(url, *, timeout, max_bytes) -> RawResponse`，另有 `close`）與策略層 `KingstoneFetcher`。`CurlTransport` 是唯一接觸 curl_cffi 的地方：`Session(impersonate="chrome")`、`allow_redirects=False`、`stream=True`、TLS 驗證開啟、`Accept-Language: zh-TW,zh;q=0.9`。
+- `KingstoneFetcher` 的依賴全部可注入：`transport`、`sleep`、`clock`（monotonic）、`wall_clock`、`sample_delay`（預設 uniform 3～10 秒）、`budget_remaining`（預設 `math.inf`，Phase 4 run 提供剩餘秒數）。公開方法：`fetch_list_page(url) -> str`、`fetch_detail_page(url) -> str`、`close()`。
+- URL 守門（每次請求前；不通過即 `ValueError`，transport 未被呼叫）：列表頁必須 `canonical_list_url(url) == url`（`&sort=sa_desc` 不合格，因為 canonical 形式省略它）；詳細頁必須 `km_code_from_detail_url(url)` 非 None（帶 query 不合格）。兩者另明確要求 `https`、host 恰為 `www.kingstone.com.tw`、無 userinfo、無 port、非 IP literal；非字串一律拒絕。
+- Pacing：每次請求（含重試）前，等到距「上一次請求結束」達到 `sample_delay()` 秒；第一個請求也等。請求成功或失敗都記錄結束時間，parse 與 DB 時間計入。
+- Retry：最多 3 次（含第一次）。只重試 `TransportTimeout`、`TransportConnectionError` 與 HTTP 429、500、502、503、504。curl 的 `SSLError`（憑證或 TLS 失敗）不映射為可重試例外，直接歸為 `TRANSPORT`：憑證問題不會因重送而消失（計畫未明列，此為實作決定）。
+- 等待的合併：pacing、retry backoff、Retry-After 都是「距上一次請求結束」的下限，實際等待取三者最大值，不相加。retry 前的 backoff 為 `min(60, 5 * 2 ** (attempt - 2))`，即第 2 次 5 秒、第 3 次 10 秒（`backoff_seconds`）。
+- Retry-After（只在 429、503 且仍會重送時讀取）：秒數與 HTTP-date 都支援；HTTP-date 以注入的 wall clock 換算，已過去的日期視為 0；無法解析的值忽略，只用 backoff。值大於 120 秒 → `RETRY_AFTER_TOO_LONG`，不提早重送。最後一次嘗試的 Retry-After 不讀取（沒有可延後的重送），該次直接以 `HTTP_STATUS`（attempts=3）失敗。
+- Budget：任何等待（合併後的值）大於 `budget_remaining()` → 不睡、不送，`BUDGET_EXHAUSTED`。
+- 回應分類：200 → 嚴格 UTF-8 解碼，失敗為不重試的 `DECODE_ERROR`；3xx → `REDIRECT`（不跟隨、不重試；訊息只含 Location 的 path，列表頁 302 到 `/book/` 即分類不存在）；其他 4xx（含 403、404）與其他非 200 狀態 → `HTTP_STATUS`，不重試；可重試狀態用盡 → `HTTP_STATUS`（attempts=3）；body 超過 5 MiB → `OVERSIZE`（`Content-Length` 先判斷，串流計量超過即中止）；可重試 transport 例外用盡 → `TRANSPORT`；其他 transport 例外 → `TRANSPORT`（不重試）。
+- 失敗一律 raise `AcquisitionError(kind, message, attempts, status)`，`kind` 為 `AcquisitionFailure`（`REDIRECT`、`HTTP_STATUS`、`OVERSIZE`、`TRANSPORT`、`DECODE_ERROR`、`RETRY_AFTER_TOO_LONG`、`BUDGET_EXHAUSTED`）。`attempts` 是實際送出的請求數，budget 在第一次請求前失敗時為 0；訊息不含 body、cookie 或 header 值。
+- 常數：`MAX_ATTEMPTS=3`、`REQUEST_TIMEOUT_SECONDS=30`、`MAX_BACKOFF_SECONDS=60`、`MAX_RETRY_AFTER_SECONDS=120`、`MAX_RESPONSE_BYTES=5 MiB`、`MIN_PAGE_DELAY_SECONDS=3`、`MAX_PAGE_DELAY_SECONDS=10`。
+- log：logger `kingstone.acquisition`；每次送出請求一行 INFO `GET <url> status=<n> bytes=<n> attempt=<n>`（連線層失敗為 `error=<例外型別>`）；每次重試一行 WARNING。
+- 不在本層：challenge、CAPTCHA、限制級頁的判斷（200 照常回傳，交給 parser fail closed）、cookie 持久化、Playwright、診斷檔。
 
 ## 選型、替代與代價
 
@@ -116,6 +107,6 @@ SSM 僅取 DB URL，log／JSON 遮罩；HTML 是原始頁面，PNG 可能含畫�
 
 確認字面差距（#113 前的規格）：舊 §16.9 說 pages 不寫任何來源 last_seen_at，但 `_insert_source` 對新建／附加來源 INSERT 初始化 now；既有來源確實不刷新。見 CB-01，未確認功能 bug。artifact 無清理政策實作，deployment 已明示另管，屬 CB-02 改善提案。EC2、SSM／IAM、GHCR／CD、cron 安裝、來源可抓性本次未驗證（CB-03），不能由設定存在推定已部署。
 
-金石堂（KINGSTONE）目前只有清單檔、URL grammar、列表頁與詳細頁 parser（見「金石堂 adapter」）；其餘尚未實作，來源契約與計畫見 [backlog](backlog.md) CB-07。
+金石堂（KINGSTONE）目前有清單檔、URL grammar、列表頁與詳細頁 parser、HTTP acquisition（見「金石堂 adapter」）；其餘（run、ingestion、runner）尚未實作，來源契約與計畫見 [backlog](backlog.md) CB-07。
 
 相關：[流程](workflow-diagram.md)／[架構](architecture.md)／[待辦](backlog.md)／[歷史](update-history.md)／[案例](test-suite.md)。

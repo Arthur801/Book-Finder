@@ -25,7 +25,7 @@
 
 ## CB-07 — 金石堂分類頁 crawler（v11）
 
-- P2；L3；狀態：E0 完成；Phase 1（共用 `catalog_core`：型別、identity、ISBN、provider 明確的 persistence、單調 touch、item 解析 service，博客來已改走 service）完成（2026-10-25，見 [實作報告](../../Docs/Implementation-Report/kingstone-phase1-core.md)）；Phase 2 完成：清單檔、URL grammar（#134）、列表頁 parser（#135）、詳細頁 parser（#136），見 [實作報告](../../Docs/Implementation-Report/kingstone-phase2-adapter.md)；Phase 3 起未實作。
+- P2；L3；狀態：E0 完成；Phase 1（共用 `catalog_core`：型別、identity、ISBN、provider 明確的 persistence、單調 touch、item 解析 service，博客來已改走 service）完成（2026-10-25，見 [實作報告](../../Docs/Implementation-Report/kingstone-phase1-core.md)）；Phase 2 完成：清單檔、URL grammar（#134）、列表頁 parser（#135）、詳細頁 parser（#136），見 [實作報告](../../Docs/Implementation-Report/kingstone-phase2-adapter.md)；Phase 3 完成（acquisition：URL 守門、pacing、retry、budget、回應分類，見 [architecture](architecture.md)「金石堂 adapter」）；Phase 4 起未實作。
 - 決定（使用者 2026-10-25）：比照博客來分類榜，由使用者在 `crawler/kingstone-pages.txt` 提供金石堂分類列表頁；每個 URL 只抓那一頁、不跟分頁；不探索分類樹；沒有跨 run 進度狀態檔，靠 replay＋Source identity 推進；`HTTP_ONLY`；請求間隔 3～10 秒。來源契約見下方「CB-07 來源契約」。
 - 證據：[kingstone fixtures](../tests/fixtures/kingstone/README.md)（13 份）與 CR-K01。
 - 待做：Phase 1～7 依 [v11 計畫](../../Docs/plans/kingstone-category-crawler.md) §9：共用 core（含單調 touch，會改變博客來的 touch 行為）、清單與 parser、acquisition、逐頁 run 與 budget、ingestion、runner／fencing／alert、acceptance。
@@ -43,6 +43,10 @@
   - 角色前綴一律 `OTHER`（E0 只見「審訂/」）；出現可對應 Catalog 角色的金石堂標籤時，依 fixture 加入金石堂自己的對應。
   - 作者值含 `/` 一律視為角色前綴（`角色/姓名`）；真實作者名含 `/` 時會被拆錯。E0 沒有此情形，出現時再定規則。
   - 規格表「分級」欄（限制級辨識）尚未讀取；E0 的 7 本都是「普通級」，待有限制級 fixture 再定。
+- Phase 3 留下的待辦：
+  - 診斷檔（限額）未實作：金石堂 acquisition 不寫 failure diagnostics；計畫 §6 要求有限額，需另定內容、數量與保留期限後再實作。
+  - challenge／CAPTCHA 分類待 fixture：目前 200 照常回傳，由 parser fail closed；收錄 fixture 後再定分類。
+  - `budget_remaining` 由 Phase 4 run 提供；Phase 3 預設 `math.inf`（不限制），run 接上前 budget 行為只有單元測試，未經整體流程驗證。
 
 ### CB-07 來源契約（E0 凍結，尚未實作）
 
@@ -51,7 +55,7 @@
 
 **範圍**（使用者 2026-10-25 決定）：比照博客來分類榜。使用者在清單提供金石堂分類列表頁，crawler 只抓清單上每一頁列出的書；不探索分類樹、不跟分頁、沒有跨 run 進度狀態檔。
 
-**Acquisition**：`HTTP_ONLY`。需要的頁面都是 server-rendered HTML（200），不需要 browser，不新增 Playwright production dependency。只允許 origin `https://www.kingstone.com.tw`；robots.txt 禁止的 `/api/`、`/bms/`、`/dks/`、`/cart/`、`/Refund/`、`/einvoice/`、`/wp-admin/` 都不使用。循序請求，每次請求（含重試）前隨機等待 **3～10 秒**（使用者 2026-10-25 依 E0 證據決定）。不跟隨 redirect。
+**Acquisition**：已實作，現行契約見 [architecture](architecture.md)「金石堂 adapter」的 Acquisition 段落。來源端的前提（仍有效）：`HTTP_ONLY`，不需要 browser，不新增 Playwright production dependency；只允許 origin `https://www.kingstone.com.tw`；robots.txt 禁止的 `/api/`、`/bms/`、`/dks/`、`/cart/`、`/Refund/`、`/einvoice/`、`/wp-admin/` 都不使用；循序請求，每次請求（含重試）前隨機等待 **3～10 秒**（使用者 2026-10-25 依 E0 證據決定）；不跟隨 redirect。
 
 **URL grammar**（其他 URL 一律拒絕）：
 

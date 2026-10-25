@@ -249,6 +249,14 @@ migration 011 的 schema 由 test_db_integration.py 在 011 上檢查（無 `sou
 - **Then**：真實頁各欄位符合 fixture 的已知值；description 與目錄保留換行、無相鄰區塊文字外漏（活動、相關主題、作者介紹不被讀）；soft 404 為 `ProductNotFound` 而非 parse error；損壞 JSON 或 sku 不符、name 缺少為 `KingstoneParseError`；日期無效與語言未知為 None（後者記 WARNING）；ISBN 只來自 `isbn` 或 `gtin13` 並經共用正規化；作者與譯者的角色與順序依規則；譯者列排除「追蹤」「?」；subjects 去掉「中文書」並去重；非 canonical URL 為 `ValueError`。
 - **來源與狀態**：[test_kingstone_parse_detail.py](../tests/test_kingstone_parse_detail.py)（74 個測試）。
 
+### CR-K05 — 金石堂 HTTP acquisition
+
+- **責任／規格**：[architecture](architecture.md)「金石堂 adapter」的 Acquisition 段落（來源：backlog CB-07「Acquisition」）與計畫 §6、§9 Phase 3；風險 L3（URL 守門、重送與 budget 決定是否對外發出請求）；狀態：已有測試（2026-10-25 新增並執行）。全部離線：fake transport、fake clock、記錄型 fake sleep 與 fake curl session，不連網。
+- **Given**：合法的列表頁與詳細頁 canonical URL；不合法的 URL（非 canonical 列表頁、`sort=sa_desc`、http、其他 host、userinfo、port、IP literal、詳細頁帶 query、列表與詳細頁互換、非字串）；transport 依序回傳的 200、3xx、4xx、429／500／502／503／504、timeout、connection error、`ResponseTooLarge`、非 UTF-8 的 200，以及 Retry-After（秒數、HTTP-date、已過去的日期、無法解析、超過 120 秒、最後一次嘗試）；固定的 sample delay；有限的 budget；fake curl session 的 Content-Length、串流、例外與 headers。
+- **When**：`KingstoneFetcher.fetch_list_page`、`fetch_detail_page`，以及 `CurlTransport.get`。
+- **Then**：不合法 URL 為 `ValueError` 且 transport 未被呼叫；第一個請求也等待 sample delay，已過時間計入，重試也受 pacing 約束，pacing 與 backoff 取最大值；timeout、connection error 與 429／500／502／503／504 重試，用盡時為 `TRANSPORT`／`HTTP_STATUS`（attempts=3）；400、403、404 與其他 transport 例外不重試；backoff 為 5、10 秒並受 60 秒上限約束；Retry-After 秒數與 HTTP-date 生效，超過 120 秒立即 `RETRY_AFTER_TOO_LONG` 且不重送；任一等待超過 budget 時 `BUDGET_EXHAUSTED`，不睡、不送；302 為 `REDIRECT`，不跟隨、不重試；`ResponseTooLarge` 為 `OVERSIZE` 不重試，transport 收到的 max_bytes 為 5 MiB、timeout 為 30；200 非 UTF-8 為 `DECODE_ERROR`；錯誤訊息不含 body、cookie、header 或 transport 例外的訊息；`CurlTransport` 送出 `allow_redirects=False`、`stream=True`、Chrome impersonation 與 Accept-Language，Content-Length 或串流超過上限即 `ResponseTooLarge` 並關閉 response，timeout 與 connection 例外映射為可重試例外，SSL 例外不映射；每次請求一行 INFO，重試一行 WARNING。
+- **來源與狀態**：[test_kingstone_acquisition.py](../tests/test_kingstone_acquisition.py)（87 個測試）。
+
 ### 連線中斷與重連（crawler.md §13.1、§6.1，#119）
 
 - **Given**：DB integration 的 PostgreSQL；fetcher 與 parser 是 fake，不連線博客來。會話斷線以 `pg_terminate_backend(<crawler backend pid>)` 從另一個 admin 連線執行，在操作前的 hook 中觸發。
