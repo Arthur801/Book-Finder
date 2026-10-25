@@ -51,6 +51,56 @@ def provider_enabled(database_url: str, code: ProviderCode) -> bool | None:
     return None if row is None else bool(row[0])
 
 
+# The post-011 shape the crawler needs (plan v12 §8, item 3). Checked read-only before any Catalog write.
+POST_011_TABLES = ("books", "book_sources", "book_identifiers", "book_subjects", "book_contributors", "source_providers")
+# Columns a New Source write depends on, per table; book_contributors only has to exist.
+POST_011_COLUMNS = {
+    "book_sources": ("source_code", "external_id", "last_seen_at"),
+    "book_subjects": ("source_code",),  # 011 replaced source_type and keyed subjects by (book_id, subject, source_code)
+}
+LEGACY_SOURCE_TYPE_TABLES = ("book_sources", "book_subjects")
+LEGACY_IDENTIFIER_TYPES = ("ISBN_10", "ISBN_13")
+
+
+def missing_schema_prerequisites(conn: psycopg.Connection) -> list[str]:
+    """What the crawler needs from the schema that is not there. Read-only; an empty list means ready.
+
+    Checks the post-011 tables a New Source write touches (``book_contributors`` only for existence), the columns in
+    ``POST_011_COLUMNS``, that ``source_type`` (removed by 011 from ``book_sources`` and ``book_subjects``) is gone, that the KINGSTONE row of
+    ``source_providers`` exists, and that ``book_identifiers`` holds and allows only the ``ISBN`` value the crawler
+    matches on (the legacy ``ISBN_10``/``ISBN_13`` values are not allowed). ``OTHER`` stays allowed: 011 keeps it.
+    """
+    missing: list[str] = []
+    tables = {row[0] for row in conn.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema()")}
+    for table in POST_011_TABLES:
+        if table not in tables:
+            missing.append(f"table {table}")
+    for table in sorted(set(POST_011_COLUMNS) | set(LEGACY_SOURCE_TYPE_TABLES)):
+        if table not in tables:
+            continue
+        columns = {
+            row[0] for row in conn.execute("SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = %s", (table,))
+        }
+        for column in POST_011_COLUMNS.get(table, ()):
+            if column not in columns:
+                missing.append(f"{table}.{column}")
+        if table in LEGACY_SOURCE_TYPE_TABLES and "source_type" in columns:
+            missing.append(f"{table}.source_type (legacy column still present; migration 011 not applied)")
+    if "source_providers" in tables:
+        row = conn.execute("SELECT 1 FROM source_providers WHERE code = %s", (ProviderCode.KINGSTONE,)).fetchone()
+        if row is None:
+            missing.append("source_providers row KINGSTONE")
+    if "book_identifiers" in tables:
+        constraint = conn.execute("SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = 'ck_book_identifiers_identifier_type'").fetchone()
+        if constraint is None:
+            missing.append("book_identifiers check ck_book_identifiers_identifier_type")
+        elif any(f"'{value}'" in constraint[0] for value in LEGACY_IDENTIFIER_TYPES):
+            missing.append("book_identifiers.identifier_type still allows legacy ISBN_10/ISBN_13")
+        if conn.execute("SELECT count(*) FROM book_identifiers WHERE identifier_type = ANY(%s)", (list(LEGACY_IDENTIFIER_TYPES),)).fetchone()[0]:
+            missing.append("book_identifiers has legacy ISBN_10/ISBN_13 rows")
+    return missing
+
+
 def _lookup(conn: psycopg.Connection, provider: ProviderCode, where: str, value: object) -> SourceRecord | None:
     row = conn.execute(
         f"SELECT id, book_id, external_id FROM book_sources WHERE source_code = %s AND {where} = %s",

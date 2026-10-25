@@ -29,6 +29,7 @@ from tests.fakes import (
     RANKING_HTML,
     FakeFetcher,
     FakeSleep,
+    LockGrantingConnection,
     fake_detail_parser,
     fake_ranking_parser,
     make_draft,
@@ -149,7 +150,7 @@ def crawl(
         fetcher=fetcher,
         parse_ranking=parse_category,
         parse_detail=parse_detail or fake_detail_parser({url: make_draft(url) for url in products}),
-        connect=connect or (lambda: nullcontext(object())),
+        connect=connect or (lambda: nullcontext(LockGrantingConnection())),
         clock=lambda: NOW,
         sleep=FakeSleep(),
     )

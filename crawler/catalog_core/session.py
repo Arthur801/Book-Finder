@@ -5,6 +5,10 @@ on the dead connection, so a retry would only fail again. ``DatabaseSession`` ow
 ``closed``/``broken`` on each access and opens a new one through the injected factory when the old one is gone.
 Retries go through the same session, so they run on a live connection. The session is created by the run and
 passed down; there is no module-level state.
+
+Every connection the session opens, the first one and each reconnect, first takes the shared Catalog migration lock
+(``catalog_core.migration_lock``). A connection that cannot take it is closed and ``MigrationLockBusy`` is raised: no
+statement that writes runs on it. The lock is session-level, so it lasts until that connection closes.
 """
 
 from __future__ import annotations
@@ -12,6 +16,8 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from typing import Any, Self
+
+from catalog_core.migration_lock import MigrationLockBusy, try_acquire_shared
 
 log = logging.getLogger("catalog_core.session")
 
@@ -21,10 +27,13 @@ class DatabaseSession:
 
     ``connect`` returns a context manager whose value is the connection (``db.connect`` does; tests may
     return ``nullcontext(fake)``). A failed connect raises from ``conn``; the next access tries again.
+    ``acquire_lock`` takes the shared migration lock on a new connection; production uses the real one, and
+    only the pure unit tests inject a stand-in.
     """
 
-    def __init__(self, connect: Callable[[], Any]) -> None:
+    def __init__(self, connect: Callable[[], Any], *, acquire_lock: Callable[[Any], bool] = try_acquire_shared) -> None:
         self._connect = connect
+        self._acquire_lock = acquire_lock
         self._context: Any = None
         self._conn: Any = None
 
@@ -58,6 +67,14 @@ class DatabaseSession:
         context = self._connect()
         self._conn = context.__enter__()
         self._context = context
+        try:
+            acquired = self._acquire_lock(self._conn)
+        except BaseException:
+            self.close()  # a failed lock attempt leaves no open connection behind; the error is raised as it was
+            raise
+        if not acquired:
+            self.close()
+            raise MigrationLockBusy("migration lock busy: a database migration holds the Catalog lock; nothing was written")
 
 
 def _is_gone(conn: Any) -> bool:
