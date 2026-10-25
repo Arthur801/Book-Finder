@@ -44,7 +44,10 @@
   - **P3 已實測的項目**（同一次 canary）：EC2 state gate（`sudo -n cat`，#152）、SSM 讀取、URL 改寫、SSH 轉發與 `verify-full`、crawler 帳號的讀寫、UID 10001 寫入 artifacts、container 結束與移除、terminal JSON 與 ALERT（失敗的兩次 run 各產生 `ALERT reasons=failed`）。
   - **觀察：暫時性的逾時**：canary 前一次 run（`f03377c2`）列表頁 3 次皆 `TransportTimeout`（各 30 秒），結果 `FAILED`、`every listed page was skipped (1 of 1)`、exit 1、未寫入。隨後在同一主機以 curl 與 canary image 內的 curl_cffi 各發一次請求皆 200（約 1 秒），重跑即成功。判定為暫時性；之後若重複出現，需比對 container 內外是否同時不通。
   - **待做**：
-    - P3：tunnel 中途斷線、SIGTERM（exit 21）、博客來模式的 hard limit。
+    - **P3 剩餘實測（待使用者本機執行）**。三項都在 container 啟動後才觸發；每項結束後都要確認：`docker ps -a --filter label=com.bookfinder.role=catalog-crawler` 沒有 running／paused 的 container、`pgrep -af 'ssh -N .* -L 127.0.0.1:<port>:'` 沒有輸出、runner 的 stdout 只有一份 JSON、stderr 只有一行 `ALERT`。
+      1. **tunnel 中途斷線**：用 `kingstone:canary`（1 頁）執行；看到第一個詳細頁的 `GET` 之後，另開終端以 `pkill -f 'ssh -N .* -L 127.0.0.1:<port>:'` 結束 tunnel。預期：crawler 的 DB 操作與重連失敗（本機埠已關閉，連線立即被拒），該卡以 `database_error` 記為失敗，run 不卡住、在有限時間內結束；exit 非 0、`ALERT reasons` 含 `failed`；`kingstone/last-run.json` 寫出。之後以唯讀 SQL 確認沒有半寫入：斷線時段內建立的 Book 都有 KINGSTONE Source、identifiers 與作者（每本書是一個 transaction）。目前 runner 不監看 tunnel，container 結束後才收尾，這點一併觀察。
+      2. **SIGTERM**：同樣用 `kingstone:canary`，在詳細頁抓取中對 runner 送 `kill -TERM <runner pid>`（或 Ctrl-C）。預期：exit 21、`SIGNAL_STOP`、`artifacts/runner/kingstone-last-run.json` 寫出、container 被 `docker stop` 後已停止、tunnel 關閉。crawler 自己的 `kingstone/last-run.json` 是否寫出取決於 container 收到 SIGTERM 時的處理，目前未定義，記錄實際結果；已 commit 的書保留，被中斷的那本不應半寫入（同上 SQL）。
+      3. **hard limit 與 kill 路徑（不連網、不碰 DB）**：建暫時 image `FROM kingstone:canary` 加 `ENTRYPOINT ["sh", "-c", "trap '' TERM; sleep 600"]`（忽略 SIGTERM 的假 writer），設定 `CRAWLER_RUN_HARD_LIMIT_SECONDS=60`、`CRAWLER_STOP_GRACE_SECONDS=10` 後執行 kingstone mode。預期：約 60 秒後 watchdog `docker stop`、10 秒後仍在跑而 `docker kill`，exit 20、`HARD_LIMIT`、`ALERT reasons=hard_limit`。此項同時驗證真 Docker 的 `stop`／`kill`／`ps --filter label=` 語意與 `--cidfile`。做完把兩個值與 image 改回。博客來模式的 3600 秒上限需要真站抓取博客來，不在目前授權內，另案。
     - Phase 7 實作報告。
 - Phase 6 M4 之後仍待辦：
   - **EC2 crawler cron 移除（另案）**：目前以 `CRAWLER_ENABLED=false` 停用，cron 仍安裝於 EC2；移除需另行決定與執行。
