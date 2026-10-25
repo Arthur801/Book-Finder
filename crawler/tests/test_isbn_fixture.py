@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from books_crawler.normalize import normalize_isbn, normalize_isbn_value
+from catalog_core.normalize import normalize_isbn, normalize_isbn_value
 
 FIXTURE = Path(__file__).resolve().parents[2] / "tests" / "Fixtures" / "isbn-normalization.json"
 VECTORS = json.loads(FIXTURE.read_text(encoding="utf-8"))["vectors"]

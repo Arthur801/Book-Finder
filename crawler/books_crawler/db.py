@@ -21,7 +21,6 @@ from uuid import UUID
 
 import psycopg
 
-from books_crawler.identity import SourceIdentity, decide_source_identity
 from books_crawler.models import (
     PROVIDER,
     BookDraft,
@@ -32,6 +31,7 @@ from books_crawler.models import (
     SourceRecord,
     SourceRef,
 )
+from catalog_core.identity import SourceIdentity, decide_source_identity
 
 
 class SnapshotValidationError(Exception):

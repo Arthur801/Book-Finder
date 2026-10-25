@@ -12,8 +12,8 @@ from pathlib import Path
 import pytest
 
 from books_crawler import cli
-from books_crawler.normalize import compose_compatibility, ensure_runtime_unicode_supported
-from books_crawler.unicode_15_1 import is_assigned
+from catalog_core.normalize import compose_compatibility, ensure_runtime_unicode_supported
+from catalog_core.unicode_15_1 import is_assigned
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 NFKC_PAIRS = REPO_ROOT / "tests" / "Fixtures" / "unicode-15.1" / "NormalizationTest-NFKC.txt"
@@ -64,7 +64,7 @@ def test_runtime_guard_rejects_an_older_runtime(monkeypatch):
     # An older runtime does not decompose U+1E030 to U+0430; simulate that by leaving the character unchanged.
     real = unicodedata.normalize
     monkeypatch.setattr(
-        "books_crawler.normalize.unicodedata.normalize",
+        "catalog_core.normalize.unicodedata.normalize",
         lambda form, text: text if text == "\U0001e030" else real(form, text),
     )
     with pytest.raises(RuntimeError, match="older than 15.0"):

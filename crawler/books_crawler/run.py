@@ -55,7 +55,6 @@ import psycopg
 
 from books_crawler import db
 from books_crawler.fetcher import Fetcher, FetchError
-from books_crawler.identity import IdentityKind
 from books_crawler.ledger import PagesLedger, RunLedger, RunReport
 from books_crawler.models import (
     BookDraft,
@@ -78,6 +77,7 @@ from books_crawler.parsers import (
 from books_crawler.ranking import validate_ranking
 from books_crawler.redact import redact
 from books_crawler.session import DatabaseSession
+from catalog_core.identity import IdentityKind
 
 log = logging.getLogger("books_crawler.run")
 

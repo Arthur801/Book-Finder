@@ -11,9 +11,9 @@ import logging
 from dataclasses import dataclass
 from enum import StrEnum
 
-from books_crawler.models import SourceRecord, SourceRef
+from catalog_core.models import SourceRecord, SourceRef
 
-log = logging.getLogger("books_crawler.identity")
+log = logging.getLogger("catalog_core.identity")
 
 
 class IdentityKind(StrEnum):

@@ -3,8 +3,8 @@
 import logging
 from uuid import uuid4
 
-from books_crawler.identity import IdentityKind, decide_source_identity
 from books_crawler.models import SourceRecord
+from catalog_core.identity import IdentityKind, decide_source_identity
 
 BOOK = uuid4()
 
@@ -61,7 +61,7 @@ def test_url_hit_with_null_external_id_is_existing_without_backfill():
 
 
 def test_null_external_id_on_the_url_hit_logs_no_backfill_at_info(caplog):
-    caplog.set_level(logging.INFO, logger="books_crawler")
+    caplog.set_level(logging.INFO, logger="catalog_core")
     found = record(external_id=None)
 
     result = decide_source_identity(None, found, external_id="E")
