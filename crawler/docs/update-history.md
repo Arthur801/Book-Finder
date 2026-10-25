@@ -1,14 +1,16 @@
 # Crawler Git 修改歷史
 
+本次整理基準 `a0decb6d817bbbb094efdbfc9a3eff590679c2b9`（2026-10-26）；開始時工作樹乾淨，只更新 crawler/docs 五份文件。下列保留的 `91333c3` 與 merge-target 表格為歷史快照，並非目前分支尚未合併的宣告。
+
 查核基準 `91333c3` 的 source history 如下；`crawler/docs` 明確排除，不將 PR #100 新增或後續修正的文件 commits 計入 source history。
 
-> 查核 2026-10-24；HEAD `91333c334148fa5bfe07055d0e799dc13bb0bb4e`。依基準版本靜態閱讀；本次未執行 build、測試、部署、外部服務或真實抓取。
+> 歷史查核 2026-10-24；當時 HEAD `91333c334148fa5bfe07055d0e799dc13bb0bb4e`。依基準版本靜態閱讀；本次未執行 build、測試、部署、外部服務或真實抓取。
 
-> 2026-10-25（金石堂 E0，CB-07）：實作前 HEAD `590a574`（docs 分支 `docs/kingstone-plan-v10-reconcile`）。使用者授權的有限真站抓取 31 次；新增 13 份金石堂 fixture、architecture 的 source contract 與 CR-K01。本次執行完整 crawler pytest（19684 passed、0 skip，含 DB integration）與 ruff；沒有金石堂程式、沒有部署。
+> 2026-10-25（金石堂 E0，CB-07）：實作前 HEAD `590a574`（docs 分支 `docs/kingstone-plan-v10-reconcile`）。使用者授權的有限真站抓取 31 次；新增 13 份金石堂 fixture、architecture 的 source contract 與 CR-K01。該次紀錄執行完整 crawler pytest（19684 passed、0 skip，含 DB integration）與 ruff；沒有金石堂程式、沒有部署。
 
-> 2026-10-25（PR4 M2：crawler 只查 `ISBN`，DB integration 在 011 schema 上執行）：實作前 HEAD `6c67e3e`；本次執行 crawler pytest（含 DB integration）、ruff check／format 與 `unicode_tables.py --check`，未執行部署或真實抓取。
+> 2026-10-25（PR4 M2：crawler 只查 `ISBN`，DB integration 在 011 schema 上執行）：實作前 HEAD `6c67e3e`；該次紀錄執行 crawler pytest（含 DB integration）、ruff check／format 與 `unicode_tables.py --check`，未執行部署或真實抓取。
 
-> 2026-10-25（#116 phase A、phase B、review 修正、Unicode 15.1 分段 NFKC 與 PR #119 連線重連）：實作前 HEAD `ee29e02`；各階段的 commits 列於文末「#116 phase A」「#116 phase B 與 review 修正」。本次有執行 pytest（DB integration 含）、C# DatabaseIntegration、ruff 與 deploy tests，未執行部署或真實抓取。
+> 2026-10-25（#116 phase A、phase B、review 修正、Unicode 15.1 分段 NFKC 與 PR #119 連線重連）：實作前 HEAD `ee29e02`；各階段的 commits 列於文末「#116 phase A」「#116 phase B 與 review 修正」。該次紀錄有執行 pytest（DB integration 含）、C# DatabaseIntegration、ruff 與 deploy tests，未執行部署或真實抓取。
 
 ## 範圍與方法
 
@@ -86,9 +88,9 @@ git show ce7b4f46c0889db6b10216294cac658136796ad7:crawler/tests/test_deploy.py
 | 2026-10-24／`bda4ebdd053063445000c1d0a8b866dbedac149d` | crawler/deploy/README 釐清 staging tag → attestation → release tag commit point → digest confirmation 的發布順序。 |
 | 2026-10-24／`3dd0c137d9a9b51318776a3347278409f5a064a3` | crawler.conf.example 改用 `ghcr.io/...@sha256:<digest>`，明示 image 由 CD 改寫；不是部署完成證據。 |
 | 2026-10-24／`4a7c06024c9e78356be886395a7461b7e8ce651b` | crawler/deploy/README 說明 `<digest>` 是待替換的 placeholder；該 commit subject 的 status exit0 是目標外 host 語意，不誤歸 crawler wrapper。 |
-| 2026-10-25 | `aa792bf` | fix(catalog): pin ISBN NFKC to Unicode 15.1 independent of the runtime | `books_crawler/unicode_15_1.py`（新增，由 `.github/scripts/unicode_tables.py` 產生；`ASSIGNED_RANGES` 與 `is_assigned`；PR3 才會使用） |
+| 2026-10-25／`aa792bf`（後續獨立補記，不計入上述 5 筆） | `fix(catalog): pin ISBN NFKC to Unicode 15.1 independent of the runtime`；新增 `books_crawler/unicode_15_1.py`，當時尚未由 PR3 使用，後移至 catalog_core。 |
 
-Workflow／architecture／CR-T12 的 host 現況引用 [target wrapper](https://github.com/Arthur801/Book-Finder/blob/ce7b4f46c0889db6b10216294cac658136796ad7/crawler/deploy/run-crawler.sh) 與 [target tests](https://github.com/Arthur801/Book-Finder/blob/ce7b4f46c0889db6b10216294cac658136796ad7/crawler/tests/test_deploy.py)；PR 分支未合併 target 程式，不以舊 wrapper 的相對連結冒稱 N3 已在該分支實作。合併後若 target 再演進，需重查這個固定 snapshot；以上兩段歷史都排除 PR #100 的文件 commits。
+歷史文件在此 snapshot 曾將 Workflow／architecture／CR-T12 的 host 現況引用 [target wrapper](https://github.com/Arthur801/Book-Finder/blob/ce7b4f46c0889db6b10216294cac658136796ad7/crawler/deploy/run-crawler.sh) 與 [target tests](https://github.com/Arthur801/Book-Finder/blob/ce7b4f46c0889db6b10216294cac658136796ad7/crawler/tests/test_deploy.py)；PR 分支未合併 target 程式，不以舊 wrapper 的相對連結冒稱 N3 已在該分支實作。合併後若 target 再演進，需重查這個固定 snapshot；以上兩段歷史都排除 PR #100 的文件 commits。
 
 ## 相關依賴與限制
 
@@ -175,3 +177,24 @@ Workflow／architecture／CR-T12 的 host 現況引用 [target wrapper](https://
 | 2026-10-25 | `339b54f` | Arthur801 | docs(crawler): the remaining P3 checks with steps and expected results | M `docs/backlog.md` CB-07「Phase 7 進度」：tunnel 中途斷線、SIGTERM、以忽略 SIGTERM 的假 writer 驗證 hard limit 與 kill 路徑 |
 
 行為轉折：ISBN 不再驗證 checksum，所有非空正規化值都以 `ISBN` 寫入；既有 Source 每次出現都更新 `last_seen_at`；`replace_bestsellers` 不再更新 `last_seen_at`；停用的 provider 以 exit 2 拒絕執行。新 DB 測試依 migration 010 的 trigger 驗證 `source_type = source_code`。
+
+## 2026-10-26 文件整併查核
+
+本節針對本次修正的語意讀取以下實際 source diff，並非宣稱重審前面全量歷史。日期採 `git show --format=fuller` 的 author date（以下均 +08:00）；canary 的執行日期與 commit 日期分開。既有歷史列的 2026-10-25 phase 日期保留為階段紀錄，其中 `17c497d` 的實際 author date 為 2026-10-26。
+
+```bash
+git log --no-merges --format='%h %aI %s' ce7b4f4..a0decb6d817bbbb094efdbfc9a3eff590679c2b9 -- crawler ':(exclude)crawler/docs'
+git show --format=fuller 3a106e9 -- crawler/deploy/local/run-local-crawler.sh crawler/tests/test_local_runner.py
+git show --format=fuller f8d0778 -- crawler/deploy/local/run-local-crawler.sh
+git show --format=fuller 17c497d -- crawler/kingstone/config.py crawler/tests/test_kingstone_config.py
+```
+
+| Author 日期／SHA | Subject 與已讀 source diff |
+|---|---|
+| 2026-10-25／`3a106e9` | `fix(crawler): a container that outlives its client is recorded as CLIENT_LOST, not HARD_LIMIT`；runner 新增 exit 22／CLIENT_LOST／orphan alert，與 hard limit 的 exit 20 分開；新增對應測試來源。 |
+| 2026-10-25／`f8d0778` | `fix(crawler): the local runner reads the EC2 deploy state with sudo -n`；SSH 讀 state 改為 `sudo -n cat --`，以處理 root 0600 的部署狀態檔；未改寫遠端檔案。 |
+| 2026-10-26／`17c497d` | `feat(kingstone): normal is the default write policy`；config 預設與空白值改為 NORMAL，測試斷言同步；明確設定 `new-books-only` 仍保留。 |
+
+本次文件變更：將本地 runner 之後四個 `text` 流程改為 Mermaid activity-style flowchart，另補 runner 總覽；修正已實作 lock／artifacts、政策預設、歷史測試與 canary 語意，以及 archived reference 的 authority。既有 phase／canary 紀錄保留；本次不執行應用測試、SSH、AWS、Docker、DB、migration 或真實抓取，亦不把歷史 passed 字樣當成本次結果。
+
+本次實際文件檢查：五份檔名與變更範圍、9 個 Mermaid 區塊的 fence／括號／節點引用結構、265 個本地相對連結，以及 history 中以反引號標示的 commit SHA 可解析性均通過；`git diff --check` 通過。環境沒有可直接使用的 Mermaid renderer，本次未做 Mermaid parser 或圖像渲染驗證。
