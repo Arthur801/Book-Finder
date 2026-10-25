@@ -1,16 +1,22 @@
-"""ISBN normalization of ``Docs/data/data-model.md`` §7.1: the provider-neutral part of the Catalog normalization rules.
+"""Provider-neutral normalization for the Catalog: ISBN rules of ``Docs/data/data-model.md`` §7.1 and the shared text
+helpers ``clean_text`` and ``normalize_role_label``.
 
 Every function returns ``None`` instead of guessing when a value cannot be interpreted reliably. Nothing here touches
-the network or the database. The Books-specific text rules (``clean_text``, ``map_language``, ``parse_published_date``
-and the role labels) stay in ``books_crawler.normalize``.
+the network or the database. The contributor role vocabulary (for example 博客來 "作者" / "譯者") is provider-specific
+and lives in each provider adapter (``books_crawler.normalize``), not here. Provider-specific rules such as
+``map_language`` and ``parse_published_date`` also stay with their adapter.
 """
 
 from __future__ import annotations
 
+import re
 import unicodedata
 
 from catalog_core.models import Identifier, IdentifierType
 from catalog_core.unicode_15_1 import is_assigned
+
+_WHITESPACE = re.compile(r"\s+")
+
 
 # data-model 7.1: NFKC is pinned to Unicode 15.1. Code points not assigned in 15.1 pass through unchanged and split
 # the input; NFKC runs only on each maximal run of assigned code points. Mirrors Application/Catalog/IsbnNormalizer.cs.
@@ -77,3 +83,17 @@ def normalize_isbn(raw: str | None) -> Identifier | None:
     if not value:
         return None
     return Identifier(IdentifierType.ISBN, value)
+
+
+def clean_text(raw: str | None) -> str | None:
+    """Collapse internal whitespace and strip. Empty → None."""
+    if raw is None:
+        return None
+    value = _WHITESPACE.sub(" ", raw).strip()
+    return value or None
+
+
+def normalize_role_label(raw: str) -> str:
+    """Strip whitespace and a trailing full-width or ASCII colon from a contributor label."""
+    value = clean_text(raw) or ""
+    return value.rstrip("：:").strip()

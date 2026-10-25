@@ -14,6 +14,7 @@ from books_crawler.models import (
     ContributorRole,
     PublishedDatePrecision,
 )
+from catalog_core.normalize import clean_text, normalize_role_label
 
 log = logging.getLogger("books_crawler.normalize")
 
@@ -35,17 +36,8 @@ ROLE_MAP: dict[str, ContributorRole] = {
     "繪者": ContributorRole.ILLUSTRATOR,
 }
 
-_WHITESPACE = re.compile(r"\s+")
 # 2026, 2026/10, 2026/10/11 (also accepts - and . as separators). Anything else is not parsed.
 _DATE = re.compile(r"^(\d{4})(?:[/.\-](\d{1,2})(?:[/.\-](\d{1,2}))?)?$")
-
-
-def clean_text(raw: str | None) -> str | None:
-    """Collapse internal whitespace and strip. Empty → None."""
-    if raw is None:
-        return None
-    value = _WHITESPACE.sub(" ", raw).strip()
-    return value or None
 
 
 def map_language(raw: str | None) -> str | None:
@@ -57,12 +49,6 @@ def map_language(raw: str | None) -> str | None:
     if code is None:
         log.warning("unmapped language label %r; storing NULL", value)
     return code
-
-
-def normalize_role_label(raw: str) -> str:
-    """Strip whitespace and a trailing full-width or ASCII colon from a contributor label."""
-    value = clean_text(raw) or ""
-    return value.rstrip("：:").strip()
 
 
 def map_contributor_role(raw: str) -> ContributorRole:
