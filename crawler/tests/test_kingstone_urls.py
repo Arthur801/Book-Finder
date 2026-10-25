@@ -26,8 +26,8 @@ def test_the_list_urls_used_by_the_e0_fixtures_are_accepted(raw):
     assert canonical_list_url(raw) == raw
 
 
-@pytest.mark.parametrize("sort", sorted(SORT_KEYS))
-def test_each_of_the_five_sort_keys_is_accepted(sort):
+@pytest.mark.parametrize("sort", sorted(SORT_KEYS - {"sa_desc"}))
+def test_each_non_default_sort_key_is_accepted_and_kept(sort):
     assert canonical_list_url(f"{BASE}&sort={sort}") == f"{BASE}&sort={sort}"
 
 
@@ -175,3 +175,31 @@ def test_every_card_href_in_the_jdc_list_fixture_resolves_to_its_data_prodno():
         assert links, card["data-prodno"]
         for href in links:
             assert km_code_from_href(href) == card["data-prodno"], href
+
+
+def test_sa_desc_is_the_default_sort_so_canonical_form_drops_it():
+    expected = "https://www.kingstone.com.tw/book/jdc/?dis=list&page=1"
+    assert canonical_list_url(f"{BASE}&sort=sa_desc") == expected
+    assert canonical_list_url(BASE) == expected
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "https://www.kingstone.com.tw/book/jdc/?sort=sa_desc&page=1&dis=list",
+        "https://www.kingstone.com.tw/book/jdc/?page=1&sort=sa_desc&dis=list",
+        "https://www.kingstone.com.tw/book/jdc/?dis=list&sort=sa_desc&page=1",
+    ],
+)
+def test_sa_desc_in_any_key_order_is_the_same_canonical_form_as_no_sort(raw):
+    assert canonical_list_url(raw) == "https://www.kingstone.com.tw/book/jdc/?dis=list&page=1"
+
+
+@pytest.mark.parametrize("sort", ["pu_desc", "pu_asc", "pr_desc", "pr_asc"])
+def test_non_default_sort_keys_are_kept_in_the_canonical_form(sort):
+    assert canonical_list_url(f"{BASE}&sort={sort}") == f"{BASE}&sort={sort}"
+
+
+def test_an_unknown_sort_key_is_still_rejected_after_the_default_change():
+    assert canonical_list_url(f"{BASE}&sort=sa_asc") is None
+    assert canonical_list_url(f"{BASE}&sort=") is None

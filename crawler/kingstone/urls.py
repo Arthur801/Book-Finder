@@ -11,6 +11,8 @@ from urllib.parse import urlsplit
 
 SITE_ORIGIN = "https://www.kingstone.com.tw"
 SORT_KEYS = frozenset({"sa_desc", "pu_desc", "pu_asc", "pr_desc", "pr_asc"})
+# The site default (by sales). A page with this sort and a page with no sort are the same page.
+DEFAULT_SORT = "sa_desc"
 
 _SITE_HOST = "www.kingstone.com.tw"
 _LIST_PATH = re.compile(r"/book/([A-Za-z]{2,4})/")
@@ -27,6 +29,9 @@ def canonical_list_url(raw: str) -> str | None:
     Accepted: ``https://www.kingstone.com.tw/book/<code>/?dis=list&page=<n>[&sort=<key>]`` where code is 2–4 ASCII
     letters (lowercased in the result), n is a positive integer without leading zeros, and the query has no other or
     repeated keys. Query keys in any order give the same canonical form.
+
+    ``sa_desc`` is the site's default sort, so it is the same page as an omitted sort: the canonical form drops it
+    (``&sort=sa_desc`` and no sort give one URL). The other keys are kept as written.
     """
     if not isinstance(raw, str) or not raw.startswith("https://") or "#" in raw:
         return None
@@ -52,7 +57,8 @@ def canonical_list_url(raw: str) -> str | None:
     if sort is not None:
         if sort not in SORT_KEYS:
             return None
-        canonical += f"&sort={sort}"
+        if sort != DEFAULT_SORT:
+            canonical += f"&sort={sort}"
     return canonical
 
 

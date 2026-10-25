@@ -1,29 +1,19 @@
-"""ISBN normalization of ``Docs/data/data-model.md`` §7.1: the provider-neutral part of the Catalog normalization rules.
+"""Provider-neutral normalization for the Catalog: ISBN rules of ``Docs/data/data-model.md`` §7.1 and the shared text
+helpers ``clean_text`` and ``normalize_role_label``.
 
 Every function returns ``None`` instead of guessing when a value cannot be interpreted reliably. Nothing here touches
-the network or the database. The Books-specific text rules (``clean_text``, ``map_language``, ``parse_published_date``
-and the role labels) stay in ``books_crawler.normalize``; ``clean_text`` and the contributor role rules are shared.
+the network or the database. The contributor role vocabulary (for example 博客來 "作者" / "譯者") is provider-specific
+and lives in each provider adapter (``books_crawler.normalize``), not here. Provider-specific rules such as
+``map_language`` and ``parse_published_date`` also stay with their adapter.
 """
 
 from __future__ import annotations
 
-import logging
 import re
 import unicodedata
 
-from catalog_core.models import ContributorRole, Identifier, IdentifierType
+from catalog_core.models import Identifier, IdentifierType
 from catalog_core.unicode_15_1 import is_assigned
-
-log = logging.getLogger("catalog_core.normalize")
-
-# crawler.md §11.1: 博客來 contributor label → role. Unknown labels → OTHER.
-ROLE_MAP: dict[str, ContributorRole] = {
-    "作者": ContributorRole.AUTHOR,
-    "原文作者": ContributorRole.ORIGINAL_AUTHOR,
-    "譯者": ContributorRole.TRANSLATOR,
-    "編者": ContributorRole.EDITOR,
-    "繪者": ContributorRole.ILLUSTRATOR,
-}
 
 _WHITESPACE = re.compile(r"\s+")
 
@@ -107,13 +97,3 @@ def normalize_role_label(raw: str) -> str:
     """Strip whitespace and a trailing full-width or ASCII colon from a contributor label."""
     value = clean_text(raw) or ""
     return value.rstrip("：:").strip()
-
-
-def map_contributor_role(raw: str) -> ContributorRole:
-    """Map a 博客來 contributor label (作者 / 譯者 / ...) to a contributor role."""
-    label = normalize_role_label(raw)
-    role = ROLE_MAP.get(label)
-    if role is None:
-        log.debug("contributor label %r has no role mapping; using OTHER", label)
-        return ContributorRole.OTHER
-    return role
