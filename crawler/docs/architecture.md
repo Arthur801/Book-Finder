@@ -25,6 +25,7 @@
 | [kingstone/urls](../kingstone/urls.py) | 金石堂 URL grammar（CB-07）：`canonical_list_url`（`/book/<2–4 字母>/?dis=list&page=<n>[&sort=<key>]`，代碼轉小寫；`sort=sa_desc`（預設）canonical 時移除，與省略 sort 相同，其他 key 保留）、`detail_url`、`km_code_from_href`、`km_code_from_detail_url`（只接受與 `detail_url` 完全相等的 canonical 詳細頁 URL）；相對與絕對 href 共用同一組 query 字元集；純函式，不連線 |
 | [kingstone/page_list](../kingstone/page_list.py) | 金石堂分類列表頁檔（`crawler/kingstone-pages.txt`，最多 200 個 URL）；檔案規則委派給 `catalog_core/page_list`；尚未接到任何入口 |
 | [kingstone/models](../kingstone/models.py) | 金石堂 adapter 的資料型別：`ListedItem`、`ListPage`，以及 `KingstoneParseError`、`ProductNotFound` |
+| [kingstone/parse_list](../kingstone/parse_list.py) | 金石堂分類列表頁 HTML → `ListPage`（純函式）；契約見下方「金石堂 adapter」 |
 | [kingstone/parse_detail](../kingstone/parse_detail.py) | 金石堂詳細頁 HTML → `BookDraft`（純函式）；soft 404 → `ProductNotFound`；契約見下方「金石堂 adapter」 |
 | [catalog_core/html_text](../catalog_core/html_text.py) | 共用 HTML 區段文字抽取 `text_with_line_breaks`（自 `books_crawler/parsers.py` 原樣搬出）：只有 `<br>` 與區塊元素邊界換行、inline 元素不切行、連續空行收為一行；博客來詳細頁與金石堂詳細頁共用；會就地修改傳入的 node |
 | [Dockerfile](../Dockerfile) | Python 3.14、UID 10001、runtime 依賴與清單 |
@@ -32,14 +33,27 @@
 
 ## 金石堂 adapter（kingstone/）— 已實作的解析契約
 
-現況：清單檔讀取、URL grammar 與詳細頁 parser，都是純函式；不連網、不寫 DB，沒有任何入口或流程串接。資料流：
+現況：清單檔讀取、URL grammar、列表頁與詳細頁 parser，都是純函式；不連網、不寫 DB，沒有任何入口或流程串接。資料流：
 
 ```text
+金石堂列表頁 HTML ──► kingstone.parse_list.parse_list_html ──► ListPage(items: ListedItem…)
+                                                              └─► （未實作）acquisition／run：New 的 ListedItem 抓詳細頁
 金石堂詳細頁 HTML ──► kingstone.parse_detail.parse_detail_html ──► BookDraft（external_id = km_code）
                                                                 └─► （未實作）catalog_core.service 的 fetch_draft callback
 ```
 
-尚未實作：acquisition（fetch／pacing）、run、ingestion、runner，以及 Dockerfile 納入 `kingstone/`（見 [backlog](backlog.md) CB-07）；列表頁 parser 在 #135。URL grammar、錯誤分類與 acquisition 原則仍以 backlog CB-07 為來源契約。
+尚未實作：acquisition（fetch／pacing）、run、ingestion、runner，以及 Dockerfile 納入 `kingstone/`（見 [backlog](backlog.md) CB-07）。URL grammar、錯誤分類與 acquisition 原則仍以 backlog CB-07 為來源契約。
+
+**列表頁**（`parse_list_html(html, url) -> ListPage`）
+
+- `url` 必須是 canonical 列表頁 URL，否則 `ValueError`（caller 錯誤，不是 parse error）。
+- 必要結構：`section#allProducts` 與其內的 `#displayCSS`；缺少即 `KingstoneParseError`。
+- 商品卡只取 `section#allProducts #displayCSS > .productGrid > .mod_prod_card[data-prodno]`；`#allProducts` 外的輪播卡、空頁巢狀 `section.prodSlider` 內的推薦卡不計。
+- 空頁：沒有 `.productGrid`，且 `#displayCSS > .emptyCategory` 清理空白後為「此分類沒有相關商品唷！」→ 成功的零列頁（`empty=True`）。沒有 grid 也沒有此提示 → parse error。
+- 每張卡：`data-prodno` 必須是 13 位數；`.coverbox a` 的 href 必須符合詳細頁 grammar（相對 `/basic/<km_code>/[?query]`，或同 origin 的絕對 URL）；連結的 km_code 必須等於 `data-prodno`。任一不符即 parse error。
+- 刻意採用的 fail-closed／實作決定（非 CB-07 逐字要求，變更時同步此處與測試）：每頁超過 48 張 → parse error；有 `.productGrid` 但 0 張卡 → parse error；同頁重複的 km_code 只保留首見（重複卡仍逐一驗證）。
+- 產出 `ListedItem`：`external_id` = km_code、`source_url` = `/basic/<km_code>/`（追蹤參數不進 URL）、`list_url` = 列表頁 URL。卡片的書名、作者、出版社、日期不讀；列表頁沒有 ISBN，所以 New Source 一律要抓詳細頁。
+- `input#totalPages` 與「共計<span>n</span>筆」是 best-effort 的 report metadata，只寫入 `ListPage.total_pages`、`total_count`，不影響 `items`，也不跟分頁：缺少 → None；合法 → int；存在但格式無法解析（totalPages 非正整數、共計非純數字）→ None，並在 `kingstone.parse_list` logger 記一筆 WARNING（不回顯 HTML），商品卡照常處理。
 
 **詳細頁**（`parse_detail_html(html, url) -> BookDraft`）
 
@@ -102,6 +116,6 @@ SSM 僅取 DB URL，log／JSON 遮罩；HTML 是原始頁面，PNG 可能含畫�
 
 確認字面差距（#113 前的規格）：舊 §16.9 說 pages 不寫任何來源 last_seen_at，但 `_insert_source` 對新建／附加來源 INSERT 初始化 now；既有來源確實不刷新。見 CB-01，未確認功能 bug。artifact 無清理政策實作，deployment 已明示另管，屬 CB-02 改善提案。EC2、SSM／IAM、GHCR／CD、cron 安裝、來源可抓性本次未驗證（CB-03），不能由設定存在推定已部署。
 
-金石堂（KINGSTONE）目前只有清單檔、URL grammar 與詳細頁 parser（見「金石堂 adapter」）；其餘尚未實作，來源契約與計畫見 [backlog](backlog.md) CB-07。
+金石堂（KINGSTONE）目前只有清單檔、URL grammar、列表頁與詳細頁 parser（見「金石堂 adapter」）；其餘尚未實作，來源契約與計畫見 [backlog](backlog.md) CB-07。
 
 相關：[流程](workflow-diagram.md)／[架構](architecture.md)／[待辦](backlog.md)／[歷史](update-history.md)／[案例](test-suite.md)。
