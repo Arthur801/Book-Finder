@@ -25,7 +25,7 @@
 
 ## CB-07 — 金石堂分類頁 crawler（v11）
 
-- P2；L3；狀態：E0 完成；Phase 1（共用 `catalog_core`：型別、identity、ISBN、provider 明確的 persistence、單調 touch、item 解析 service，博客來已改走 service）完成（2026-10-25，見 [實作報告](../../Docs/Implementation-Report/kingstone-phase1-core.md)）；Phase 2 進行中：清單檔、URL grammar（#134）與列表頁 parser（#135）已實作，詳細頁 parser 在 #136。
+- P2；L3；狀態：E0 完成；Phase 1（共用 `catalog_core`：型別、identity、ISBN、provider 明確的 persistence、單調 touch、item 解析 service，博客來已改走 service）完成（2026-10-25，見 [實作報告](../../Docs/Implementation-Report/kingstone-phase1-core.md)）；Phase 2 parser 完成：清單檔、URL grammar（#134）、列表頁 parser（#135）、詳細頁 parser（#136）；Phase 3 起未實作。
 - 決定（使用者 2026-10-25）：比照博客來分類榜，由使用者在 `crawler/kingstone-pages.txt` 提供金石堂分類列表頁；每個 URL 只抓那一頁、不跟分頁；不探索分類樹；沒有跨 run 進度狀態檔，靠 replay＋Source identity 推進；`HTTP_ONLY`；請求間隔 3～10 秒。來源契約見下方「CB-07 來源契約」。
 - 證據：[kingstone fixtures](../tests/fixtures/kingstone/README.md)（13 份）與 CR-K01。
 - 待做：Phase 1～7 依 [v11 計畫](../../Docs/plans/kingstone-category-crawler.md) §9：共用 core（含單調 touch，會改變博客來的 touch 行為）、清單與 parser、acquisition、逐頁 run 與 budget、ingestion、runner／fencing／alert、acceptance。
@@ -35,6 +35,14 @@
   - `ItemResolved`／`ItemFailed.identity_warning` 目前只有 service 測試讀取；博客來沒有 `external_id`，不會產生 URL 漂移 warning。金石堂（有 km_code）在 Phase 4／5 要從回傳值記錄這個 warning。
   - `books_crawler/models.py` 重新匯出 `catalog_core.models` 的型別，讓既有測試的 import 不用改；同一型別因此有兩個匯入入口，之後把測試改成直接從 `catalog_core` 匯入，再移除這層相容匯出。
   - Phase 5 在 `catalog_core.service` 加入 `new-books-only` 寫入政策（v11 計畫 §5）。
+- Phase 2 留下的待辦：
+  - `.productGrid` 內沒有 `data-prodno` 的 `.mod_prod_card` 目前被靜默略過（選擇器要求 `data-prodno`）；E0 fixture 沒有此情形，是否改為 parse error 待定。
+  - Dockerfile、`.dockerignore` 與 runner 納入 `kingstone/` 留到 Phase 6。
+  - 金石堂清單讀檔錯誤未經 `books_crawler.redact`（`catalog_core` 不依賴 `books_crawler`；清單讀檔錯誤不含 DSN），Phase 6 runner 整合時再確認 log redact 範圍。
+  - 只讀「作者：」「譯者：」兩種標籤；其他角色標籤（繪者等）出現時再定。
+  - 角色前綴一律 `OTHER`（E0 只見「審訂/」）；出現可對應 Catalog 角色的金石堂標籤時，依 fixture 加入金石堂自己的對應。
+  - 作者值含 `/` 一律視為角色前綴（`角色/姓名`）；真實作者名含 `/` 時會被拆錯。E0 沒有此情形，出現時再定規則。
+  - 規格表「分級」欄（限制級辨識）尚未讀取；E0 的 7 本都是「普通級」，待有限制級 fixture 再定。
 
 ### CB-07 來源契約（E0 凍結，尚未實作）
 
@@ -56,23 +64,7 @@
 
 已實作，現行契約見 [architecture](architecture.md)「金石堂 adapter」的列表頁段落。
 
-**詳細頁解析**：
-
-| 欄位 | 來源 | 規則 |
-|---|---|---|
-| external_id | JSON-LD `Product` 的 `sku` | 必須等於 URL 的 `km_code`，否則 parse error |
-| title | JSON-LD `name` | 必要；缺少即 parse error |
-| ISBN | JSON-LD `isbn`（缺少時 `gtin13`） | 依共用 ISBN 規則正規化；不驗證前綴（非書商品 `4711664071805` 也會寫入，範圍由使用者的清單控制） |
-| publisher | JSON-LD `publisher.name` | 去除前後空白（觀察到尾端空白） |
-| 出版日 | JSON-LD `datePublished`（`YYYY-MM-DD`） | 精度 `DAY` |
-| thumbnail | JSON-LD `image[0]` | |
-| 語言 | 規格表 `li.table_th`「語言」相鄰的 `li.table_td` | **不使用** JSON-LD `inLanguage`（簡體書也標 `zh-TW`）；中文繁體→`zh-TW`、中文簡體→`zh-CN`，其他值為 NULL |
-| contributors | `li.basicunit` 中 `.title_basic` 為「作者：」的連結，以及「譯者：」的純文字 | 不使用 JSON-LD `author`（只有第一個連結）。作者欄排除「追蹤」與「?」；整段被括號包住的連結是原文姓名（例如「(Gao Junqing)」），不建立 contributor；一個連結或譯者值可能用「、」串多人，要拆開；`角色/姓名` 前綴（例如「審訂/張素惠」）拆出角色，無法對應的角色歸 `OTHER` |
-| 頁數 | 規格表「頁數」 | 選填；正整數 |
-| 目錄、簡介 | `.catalog` 區塊、內容簡介 | 選填，只供 AI，不公開 |
-| subjects | `.basic-category-breadcrumb a` 的名稱 | 頁面上出現兩次，依順序去重後，去掉根節點「中文書」（例如 `童書/青少年`、`繪本`、`同儕相處`） |
-
-規格表另有「分級」欄（E0 的 7 本都是「普通級」），可作為之後辨識限制級的依據；E0 沒有觀察到限制級頁，規則待有 fixture 再定。
+**詳細頁解析**：已實作，現行契約見 [architecture](architecture.md)「金石堂 adapter」的詳細頁段落。
 
 **錯誤分類**（不跟隨 redirect）：
 

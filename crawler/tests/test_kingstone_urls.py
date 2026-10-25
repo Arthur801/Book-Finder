@@ -5,7 +5,14 @@ from pathlib import Path
 import pytest
 from bs4 import BeautifulSoup
 
-from kingstone.urls import SITE_ORIGIN, SORT_KEYS, canonical_list_url, detail_url, km_code_from_href
+from kingstone.urls import (
+    SITE_ORIGIN,
+    SORT_KEYS,
+    canonical_list_url,
+    detail_url,
+    km_code_from_detail_url,
+    km_code_from_href,
+)
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "kingstone"
 LIST_CARD_SELECTOR = "section#allProducts #displayCSS > .productGrid > .mod_prod_card[data-prodno]"
@@ -203,3 +210,62 @@ def test_non_default_sort_keys_are_kept_in_the_canonical_form(sort):
 def test_an_unknown_sort_key_is_still_rejected_after_the_default_change():
     assert canonical_list_url(f"{BASE}&sort=sa_asc") is None
     assert canonical_list_url(f"{BASE}&sort=") is None
+
+
+def test_km_code_from_detail_url_round_trips_detail_url():
+    assert km_code_from_detail_url(detail_url("2018630959191")) == "2018630959191"
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://www.kingstone.com.tw/basic/2018630959191/",
+        "https://www.kingstone.com.tw/basic/0000000000000/",
+    ],
+)
+def test_km_code_from_detail_url_accepts_only_the_canonical_detail_url(url):
+    km = km_code_from_detail_url(url)
+    assert km is not None
+    assert detail_url(km) == url
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "",
+        "2018630959191",
+        "/basic/2018630959191/",
+        "http://www.kingstone.com.tw/basic/2018630959191/",
+        "https://kingstone.com.tw/basic/2018630959191/",
+        "https://www.kingstone.com.tw/basic/2018630959191",
+        "https://www.kingstone.com.tw/basic/2018630959191/?lid=home",
+        "https://www.kingstone.com.tw/basic/2018630959191/#reviews",
+        "https://www.kingstone.com.tw/basic/2018630959191/extra/",
+        "https://www.kingstone.com.tw:443/basic/2018630959191/",
+        "https://user@www.kingstone.com.tw/basic/2018630959191/",
+        "https://www.kingstone.com.tw/basic/201863095919/",
+        "https://www.kingstone.com.tw/basic/20186309591910/",
+        "https://www.kingstone.com.tw/basic/２０１８６３０９５９１９/",
+        "https://www.kingstone.com.tw/book/jdc/?dis=list&page=1",
+        "https://www.books.com.tw/basic/2018630959191/",
+        "not a url",
+    ],
+)
+def test_km_code_from_detail_url_returns_none_for_anything_else(url):
+    assert km_code_from_detail_url(url) is None
+
+
+def test_km_code_from_detail_url_returns_none_for_non_string():
+    assert km_code_from_detail_url(None) is None  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("query", ["?", "?a=b_c.d%20e-f", "?x=1&y=2"])
+def test_relative_and_absolute_query_characters_share_one_definition(query):
+    assert km_code_from_href(f"/basic/2018630959191/{query}") == "2018630959191"
+    assert km_code_from_href(f"https://www.kingstone.com.tw/basic/2018630959191/{query}") == "2018630959191"
+
+
+@pytest.mark.parametrize("query", ["?a=<b>", "?a=b c", "?a=b+c", "?a=b;c", "?a=é"])
+def test_query_characters_outside_the_shared_set_are_rejected_in_both_forms(query):
+    assert km_code_from_href(f"/basic/2018630959191/{query}") is None
+    assert km_code_from_href(f"https://www.kingstone.com.tw/basic/2018630959191/{query}") is None

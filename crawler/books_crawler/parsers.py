@@ -43,6 +43,7 @@ from books_crawler.normalize import (
     parse_published_date,
 )
 from books_crawler.urls import InvalidProductUrl, canonicalize_product_url
+from catalog_core.html_text import text_with_line_breaks
 from catalog_core.normalize import normalize_isbn
 
 log = logging.getLogger("books_crawler.parsers")
@@ -58,9 +59,6 @@ _PRODUCT_CONTAINER = ".main_column"
 _PRODUCT_LINK = re.compile(r"/products/")
 _LABEL_SEPARATOR = re.compile(r"[：:]")
 _PAGE_COUNT = re.compile(r"(\d+)\s*頁")
-_WHITESPACE = re.compile(r"\s+")
-# Elements whose boundaries start/end a line of text. Inline elements (strong, a, span, em) do not.
-_BLOCK_TAGS = frozenset({"p", "div", "li", "ul", "ol", "h1", "h2", "h3", "h4", "h5", "h6", "table", "tr", "section", "blockquote"})
 
 
 class ParseError(ValueError):
@@ -158,36 +156,6 @@ def _first_value(rows: list[_Row], label: str) -> str | None:
     return None
 
 
-def _text_with_line_breaks(node: Tag) -> str | None:
-    """Text of a section with line breaks only at ``<br>`` and block boundaries.
-
-    Inline elements (strong, a, span, em) never split a line, so ``<strong>2026</strong><strong>國際
-    布克獎得主</strong>`` stays on one line. Runs of blank lines collapse to a single blank line.
-    """
-    # Source-file whitespace (including CRLF inside the HTML) is not a line break: collapse it first,
-    # then add the line breaks that the page structure defines.
-    for text in node.find_all(string=True):
-        collapsed = _WHITESPACE.sub(" ", str(text))
-        if collapsed != str(text):
-            text.replace_with(collapsed)
-    for tag in node.find_all(True):
-        if tag.name == "br":
-            tag.replace_with("\n")
-        elif tag.name in _BLOCK_TAGS:
-            tag.insert_before("\n")
-            tag.insert_after("\n")
-    lines: list[str] = []
-    for raw_line in node.get_text().split("\n"):
-        line = clean_text(raw_line) or ""
-        if line:
-            lines.append(line)
-        elif lines and lines[-1] != "":
-            lines.append("")
-    while lines and lines[-1] == "":
-        lines.pop()
-    return "\n".join(lines) or None
-
-
 def _section_text(container: Tag, heading: str) -> str | None:
     """Text of a detail section (內容簡介 / 目錄). None when the section is absent or empty."""
     header = next((h3 for h3 in container.find_all("h3") if clean_text(h3.get_text()) == heading), None)
@@ -198,7 +166,7 @@ def _section_text(container: Tag, heading: str) -> str | None:
     content = body.find("div", class_="content", recursive=False) if body is not None else None
     if content is None:
         return None
-    return _text_with_line_breaks(content)
+    return text_with_line_breaks(content)
 
 
 def _publisher(rows: list[_Row]) -> str | None:
