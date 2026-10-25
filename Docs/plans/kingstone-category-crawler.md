@@ -147,8 +147,14 @@ Commit 結果不確定時丟棄／重連 connection，**下次寫入前重新 re
 
 **與 migration 的互斥（跨 host）**：原本 crawler 在 EC2 以 `db-maintenance.lock`（host flock）與 deploy 互斥，本地 runner 拿不到這把鎖，改為：
 
-1. **DB advisory lock**：deploy 在執行 efbundle migration 前取 `pg_advisory_lock(<固定 key>)`（exclusive），完成後釋放；crawler 每個 DB session 建立後、任何寫入前取 `pg_try_advisory_lock_shared(<同一 key>)`，取不到 → 本次 run 以 config／maintenance busy 結束（不寫入）。tunnel 斷線重連後的新 session 必須重新取得 shared lock 才可寫入，取不到即停止寫入並讓 run FAILED。需要修改 deploy module 的 migration 步驟（`deploy/` 的 `machine.py`），屬 production deploy 行為變更，PR 須標明。
-2. **deploy 狀態閘門**：runner 啟動前經 SSH 唯讀讀取 EC2 的 deploy `state.json`（paused／dirty），與現行 `run-crawler.sh` 閘門同規則；讀不到或 paused／dirty → 不啟動。
+1. **DB advisory lock**（session-level advisory lock 在持有它的 DB session 結束時會被 PostgreSQL 自動釋放，所以契約是「lock holder 存活是 migration 執行的必要條件」）：
+   - **deploy 端**：在 efbundle 執行前，以專用的 lock session（connection A）取 `pg_advisory_lock(<固定 key>)`（exclusive）；A 必須覆蓋 migration（efbundle 的 connection B）的全生命週期，B 結束後才釋放。
+   - deploy 在 migration 期間持續確認 A 存活（例如定期 `SELECT 1`，加上 TCP keepalive）。**A 一旦中斷：立即中止 efbundle（SIGTERM→bounded grace→SIGKILL），把 deploy 標為 dirty／`FAILED_MIGRATION`，不得讓 migration 繼續**，也不自動重試；恢復走既有的人工流程。efbundle 的連線設定 `client_connection_check_interval`（PG 14+），讓 client 被中止後，server 端執行中的 statement 能盡快發現並 rollback。
+   - deploy 在取 lock **之前**先把 EC2 deploy 狀態標成 migration 進行中（paused），完成後才清除；即使 lock 意外釋放，本地 runner 的啟動閘門（下方第 2 點）仍會拒絕啟動。
+   - **crawler 端**：shared lock 綁在實際寫 Catalog 的 DB session 上。每次初次連線與每次 reconnect，都要先以 `pg_try_advisory_lock_shared(<同一 key>)` 取得 shared lock，才允許任何 mutation（含 touch）；取不到 → 不寫入，本次 run 停止（初次連線為 maintenance busy、run 中途為 FAILED），已 commit 的書保留、下次 replay。lock 的取得放在 `catalog_core.session` 的連線建立路徑，讓 Books 與金石堂共用。
+   - 需要修改 deploy module 的 migration 步驟（`deploy/` 的 `machine.py`），屬 production deploy 行為變更，PR 須標明。
+   - Phase 6 必測：crawler 持有 shared → migration 不可開始（deploy 等待或逾時失敗，不執行 efbundle）；migration 持有 exclusive → crawler 零 mutation；crawler reconnect → 重新取得 lock 才寫入、取不到即停止；deploy 的 lock holder 掉線 → efbundle 被中止、deploy 標 dirty、migration fail closed。
+2. **deploy 狀態閘門**：runner 啟動前經 SSH 唯讀讀取 EC2 的 deploy `state.json`（paused／dirty／migration 進行中），與現行 `run-crawler.sh` 閘門同規則；讀不到或 paused／dirty → 不啟動。
 3. **post-011 schema read-only preflight**：crawler 啟動時唯讀檢查必要欄位與 `source_providers`；失敗為 `SCHEMA_PREREQUISITE_MISSING`，零 HTTP、零 mutation。
 
 **Invocation order（本地）**：config→本地 run.lock→EC2 deploy state 唯讀檢查→orphan check→DB secret→開 tunnel→container 內：Unicode／DB URL→config→清單→provider enabled→advisory shared lock→schema preflight→逐頁處理→terminal report→container 終止確認→關 tunnel→放鎖。provider／schema／清單驗證前無 Catalog mutation、無 HTTP；provider 預設 disabled。
@@ -164,7 +170,14 @@ Commit 結果不確定時丟棄／重連 connection，**下次寫入前重新 re
 
 - 不設 `CRAWLER_ALERT_COMMAND`，不需要外部送達與 named owner 確認。`alert_reasons` 非空時，runner 另寫一行 `ALERT` 等級的 log（含 reasons 與 last-run.json 路徑）。
 - 觸發：FAILED、orphan、schema 問題、出現 challenge、成功解析的頁全部是 0 張卡、`pages_not_reached` **連續 3 次** run 大於 0。全部 Existing 的正常 run 不觸發。
-- 「連續 3 次」以 artifacts 內最近 3 份 last-run 摘要判斷（只供 alert，不是進度狀態檔，不影響 replay）。
+- **Bounded history**（只供 observability，不是進度狀態檔，不參與 replay）：
+
+  ```text
+  artifacts/kingstone/last-run.json          ← 最新一次結果（原子覆寫）
+  artifacts/kingstone/history/<run-id>.json  ← 每次 run 的摘要，最多保留 20 份（超過刪最舊）
+  ```
+
+  `pages_not_reached` streak：以本次與前兩次 KINGSTONE run（依 `finished_at` 排序，取 history 最新的兩份）判定；任一次 `pages_not_reached == 0` 即重設；連續第 1、2 次 > 0 不 alert，第 3 次（含之後持續 > 0）alert。history 缺漏或讀不到的檔不算入 streak（寧可少報也不誤報），並在 log 記一行 WARNING。Phase 6 必測：第 1／2／3 次、streak 被 0 重設、history 上限與刪舊、壞檔略過。
 - 診斷檔：parse error、無法分類的 200 頁、challenge 時存回應 HTML，單檔上限 `KINGSTONE_DIAGNOSTIC_MAX_BYTES`（2 MiB，超過截斷），存於 `artifacts/kingstone/diagnostics/`，只保留最近 20 份；不存 cookie 與 header 值。
 
 ## 9. 實作順序與驗證
@@ -177,7 +190,7 @@ Commit 結果不確定時丟棄／重連 connection，**下次寫入前重新 re
 | 3 Acquisition | HTTP bounds／pacing／URL security；failure suite PASS |
 | 4 Run | 逐頁流程、跳頁、budget 停止、replay、terminal status、report；run suite PASS |
 | 5 Ingestion | composition、雙policy、commit recovery；post-011真DB integration／atomicity／replay／Bestseller protection PASS |
-| 6 Operations | 本地 runner（kingstone mode、SSH tunnel、DB secret、EC2 state 唯讀閘門）、HTTP-only image、DB advisory lock（crawler 端＋deploy migration 端）、schema preflight、container identity／watchdog／orphan guard（所有 provider）、last-run JSON、log alert、診斷檔、清單上限 400；deploy／runner tests PASS |
+| 6 Operations | 本地 runner（kingstone mode、SSH tunnel、DB secret、EC2 state 唯讀閘門）、HTTP-only image、DB advisory lock（crawler 每次連線／重連取 shared；deploy 以存活的 lock session 覆蓋 migration，掉線即中止並標 dirty）、schema preflight、container identity／watchdog／orphan guard（所有 provider）、last-run JSON＋bounded history、log alert（含 `pages_not_reached` 3 次 streak）、診斷檔、清單上限 400；§8 列出的 advisory lock 與 streak 必測案例、deploy／runner tests PASS |
 | 7 Acceptance | 全金石堂、必要DB零skip、Books、Docker smoke與docs；本地 runner 經 tunnel 的 1 頁真站 canary（使用者已授權真站抓取）；標記IMPLEMENTATION_VERIFIED |
 
 自動測試不連真站；HTTP／clock／sleep可fake，DB用EF schema的disposable PostgreSQL。
@@ -246,7 +259,7 @@ Rollback：disable KINGSTONE→確認本地 writer 停止、tunnel 關閉→必�
 | 4 | Writer fencing／watchdog | 套用到所有 provider |
 | 5 | 部署與 alert | crawler 改在本地執行，SSH 轉發經 EC2 直連 RDS；alert 只寫 log |
 | 6 | 診斷檔 | parse error／無法分類 200／challenge 存 HTML，2 MiB，保留最近 20 份 |
-| 7 | `pages_not_reached` alert | 連續 3 次 |
+| 7 | `pages_not_reached` alert | 連續 3 次（bounded history，最多 20 份） |
 | 8 | 其他 alert 條件 | 照計畫 |
 | 9 | Canary 清單 | 1 頁 |
 | 10 | P2／P5 | P2 由使用者執行主 agent 提供的唯讀 SQL；P5 允許真站抓取 |
@@ -258,7 +271,7 @@ Rollback：disable KINGSTONE→確認本地 writer 停止、tunnel 關閉→必�
 | 項目 | v11 | v12 | 原因 |
 |---|---|---|---|
 | 執行位置 | EC2 cron＋`run-crawler.sh` | 本地 host 手動執行，SSH 轉發經 EC2 到 RDS | 使用者決定；EC2 IP 被博客來封鎖（CB-03），crawler 改由本地出網 |
-| 與 migration 互斥 | EC2 `db-maintenance.lock`（host flock） | DB advisory lock（deploy exclusive／crawler shared）＋SSH 唯讀讀 EC2 deploy 狀態 | 本地 runner 拿不到 EC2 的 host lock |
+| 與 migration 互斥 | EC2 `db-maintenance.lock`（host flock） | DB advisory lock（deploy 以存活的 lock session 覆蓋 migration、掉線即中止並標 dirty；crawler 每次連線／重連取 shared）＋SSH 唯讀讀 EC2 deploy 狀態（migration 期間為 paused） | 本地 runner 拿不到 EC2 的 host lock；session-level lock 會隨 session 結束自動釋放 |
 | DB secret | EC2 IAM role 讀 SSM | 本機 AWS profile 讀 SSM 或本機 600 檔 | 本地沒有 EC2 IAM role |
 | Alert | root-owned `CRAWLER_ALERT_COMMAND`、named owner 確認、P4 gate | 只寫 log（`ALERT` 行＋`alert_reasons`） | 使用者決定 |
 | 清單上限／budget | 200 頁、3300／3600 秒 | 400 頁、7200／9000 秒（kingstone mode） | 使用者清單 328 頁；本地執行不佔共用鎖 |
