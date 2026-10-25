@@ -12,7 +12,8 @@ Decisions, in order:
 - EXISTING touches the Source with retries and never fetches the detail page.
 - NEW fetches and parses the page (retryable failures refetch, the parsed draft is kept), then matches
   the draft's ISBN values and persists the Source. A failed persist may have committed, so the next
-  attempt re-resolves the identity before writing again.
+  attempt re-resolves the identity before writing again: EXISTING recovers the commit, CONFLICT fails
+  the item without another ISBN lookup or write, NEW retries the write.
 """
 
 from __future__ import annotations
@@ -188,7 +189,9 @@ def _resolve_new(
                     attempts=attempt,
                     recovered_commit=True,
                 )
-            maybe_committed = False
+            if committed.kind is IdentityKind.CONFLICT:
+                return ItemFailed(FailureReason.SOURCE_IDENTITY_CONFLICT, committed.reason or "", attempts=attempt)
+            maybe_committed = False  # NEW: the earlier attempt left no Source, so retry the write
 
         try:
             matches = store.find_books_by_isbn([identifier.identifier_value for identifier in draft.identifiers])

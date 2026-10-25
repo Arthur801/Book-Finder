@@ -457,6 +457,25 @@ def test_re_resolve_exception_counts_as_attempt_and_keeps_maybe_committed():
     assert fetch.attempts == [1]
 
 
+def test_conflict_found_on_re_resolve_after_uncertain_commit_fails_without_another_write():
+    failures = Failures()
+    store = FakeStore(
+        identities=[NEW, CONFLICT],
+        isbn_lookups=[[]],
+        persists=[DB_ERROR],
+    )
+    fetch = Fetch(draft(ISBN))
+
+    result = resolve(store, fetch, failures=failures)
+
+    assert result == ItemFailed(reason="source_identity_conflict", message=CONFLICT.reason, attempts=2)
+    assert store.names().count("persist_new_source") == 1
+    assert store.names().count("find_books_by_isbn") == 1
+    assert store.names().count("resolve_source_identity") == 2
+    assert failures.events == [(1, "database_error", "connection lost")]
+    assert fetch.attempts == [1]
+
+
 def test_all_attempts_exhausted_fails_with_last_reason_and_attempts_three():
     failures = Failures()
     store = FakeStore(
