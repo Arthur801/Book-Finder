@@ -19,7 +19,7 @@ __all__ = ["DEFAULT_PAGES_FILE", "MAX_PAGES", "PAGES_FILE_ENV", "PageListError",
 PAGES_FILE_ENV = "KINGSTONE_PAGES_FILE"
 # crawler/kingstone-pages.txt, located relative to the package, not the working directory.
 DEFAULT_PAGES_FILE = Path(__file__).resolve().parent.parent / "kingstone-pages.txt"
-MAX_PAGES = 200
+MAX_PAGES = 400
 log = logging.getLogger("kingstone.page_list")
 
 

@@ -177,6 +177,18 @@ jobs:
       # registry on 127.0.0.1 and is cheap, so it runs on every change.
       - run: bash deploy/integration/imagetools-roundtrip.sh
 
+      # The Kingstone image is HTTP-only: build its target, then run offline (no network) checks. The page list must load
+      # from the image, and Playwright must be missing for its own reason (ModuleNotFoundError), not for any other failure.
+      - run: docker build --target kingstone -t book-finder-kingstone:ci crawler
+      - name: Kingstone image offline smoke
+        run: |
+          docker run --rm --network none --entrypoint python book-finder-kingstone:ci -c "import kingstone.cli; from kingstone.page_list import load_page_urls, DEFAULT_PAGES_FILE; assert len(load_page_urls(DEFAULT_PAGES_FILE)) == 328"
+          if out=$(docker run --rm --network none --entrypoint python book-finder-kingstone:ci -c "import playwright" 2>&1); then
+            echo "::error::playwright is importable in the kingstone image"
+            exit 1
+          fi
+          grep -q "ModuleNotFoundError" <<<"$out"
+
       # Pushes to main have nothing to compare; PRs run the compat check when migrations or the code that checks them change.
       # Checker-only changes compare equal manifests (in-sync), which still rebuilds, seeds, checks data and schema, and smokes,
       # so a PR that breaks the checker cannot stay green. Dockerfile and .dockerignore change the images the check builds.

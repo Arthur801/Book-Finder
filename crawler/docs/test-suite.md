@@ -228,9 +228,9 @@ migration 011 的 schema 由 test_db_integration.py 在 011 上檢查（無 `sou
 ### CR-K02 — 金石堂清單與 URL grammar
 
 - **責任／規格**：[backlog](backlog.md)「CB-07 來源契約」與 Kingstone plan v11 §3–§4；風險 L2；狀態：已有測試（2026-10-25 新增並執行）。純函式與檔案讀取，不連線金石堂，也不碰資料庫。
-- **Given**：[fixtures README](../tests/fixtures/kingstone/README.md) 列出的五個列表頁網址、五種排序鍵（`sa_desc` 與省略 sort 視為同一頁，canonical 移除；`pu_desc`、`pu_asc`、`pr_desc`、`pr_asc` 保留）、以及不在 grammar 內的網址（http、其他主機、無 www、userinfo、port、fragment、`/normal/book/jd`、缺尾斜線、代碼 1 或 5 字母或含數字、缺 `dis` 或 `page`、`dis=pic`、page 為 0／-1／01／abc、未知 sort、多餘或重複參數）；`list_jdc_p1.html` 的每張卡片連結；一份含 BOM、註解、空行、大小寫不同代碼的清單檔；`kingstone-pages.txt`（目前沒有 URL）。
+- **Given**：[fixtures README](../tests/fixtures/kingstone/README.md) 列出的五個列表頁網址、五種排序鍵（`sa_desc` 與省略 sort 視為同一頁，canonical 移除；`pu_desc`、`pu_asc`、`pr_desc`、`pr_asc` 保留）、以及不在 grammar 內的網址（http、其他主機、無 www、userinfo、port、fragment、`/normal/book/jd`、缺尾斜線、代碼 1 或 5 字母或含數字、缺 `dis` 或 `page`、`dis=pic`、page 為 0／-1／01／abc、未知 sort、多餘或重複參數）；`list_jdc_p1.html` 的每張卡片連結；一份含 BOM、註解、空行、大小寫不同代碼的清單檔；`kingstone-pages.txt`（使用者提供的 328 筆）。
 - **When**：`canonical_list_url`、`detail_url`、`km_code_from_href` 與 `kingstone.page_list.load_page_urls` 處理上述輸入。
-- **Then**：合法網址得到固定順序（dis、page、sort）的 canonical 形式，代碼轉小寫，查詢參數順序不影響結果；不合法網址回 None；`detail_url` 只接受 13 位數字；每張卡片的 href 都解析為 `data-prodno`；清單檔以 canonical 值去重並保留首見順序（同一頁的 `sa_desc` 版本只保留一筆並記 INFO log），200 上限依 canonical 後的計數（200 個不同頁加上其中一頁的 `sa_desc` 版本仍接受；201 個不同頁失敗），非法行的錯誤含檔名與行號但不含網址文字，超過 200 個 URL 失敗，空清單與目前的預設檔都回 `PageListError`；讀檔錯誤訊息經 `catalog_core.redact`（路徑中的 `password=` 會被遮蔽）。
+- **Then**：合法網址得到固定順序（dis、page、sort）的 canonical 形式，代碼轉小寫，查詢參數順序不影響結果；不合法網址回 None；`detail_url` 只接受 13 位數字；每張卡片的 href 都解析為 `data-prodno`；清單檔以 canonical 值去重並保留首見順序（同一頁的 `sa_desc` 版本只保留一筆並記 INFO log），400 上限依 canonical 後的計數（400 個不同頁加上其中一頁的 `sa_desc` 版本仍接受；401 個不同頁失敗），非法行的錯誤含檔名與行號但不含網址文字，超過 400 個 URL 失敗，空清單回 `PageListError`；預設檔 `kingstone-pages.txt` 可載入且為 328 筆、彼此不重複、每筆都是 `?dis=list&page=1`（committed 檔案的 contract，改清單時必須同步改此測試）；讀檔錯誤訊息經 `catalog_core.redact`（路徑中的 `password=` 會被遮蔽）。
 - **來源與狀態**：[test_kingstone_urls.py](../tests/test_kingstone_urls.py)、[test_kingstone_page_list.py](../tests/test_kingstone_page_list.py)、[test_catalog_page_list.py](../tests/test_catalog_page_list.py)（核心 loader）；Books 的 [test_page_list.py](../tests/test_page_list.py) 不變。角色標籤表屬於 Books adapter，core 不再持有；[test_normalize.py](../tests/test_normalize.py) 檢查 `catalog_core.normalize` 不匯出 `ROLE_MAP`／`map_contributor_role`。
 
 ### CR-K03 — 金石堂列表頁 parser
@@ -260,10 +260,10 @@ migration 011 的 schema 由 test_db_integration.py 在 011 上檢查（無 `sou
 ### CR-K06 — 金石堂 run 設定
 
 - **責任／規格**：[architecture](architecture.md)「金石堂 adapter」的「設定」段落與計畫 §7 設定表；風險 L2（決定 budget 與回應上限）；狀態：已有測試（2026-10-25 新增並執行）。純函式：只讀傳入的 mapping，不讀環境、不讀 `.env`、不讀檔。
-- **Given**：空 mapping；`KINGSTONE_WRITE_POLICY` 的 `normal`、`new-books-only`、前後空白、空白與非法值（大小寫、底線、`all-books`、`all`、`0`）；每個鍵的合法值（含前後空白）；空字串與只含空白的值；非數字（`abc`、`3 300s`、`1,5`）；0 與負數；`nan`、`inf`、`-inf`、`Infinity`、`1e400`；次數與位元組數的小數、科學記號、正號與含空白；`soft` 等於或大於 `hard`（3600 對 3600，以及預設 hard 下的 3700）；調低 hard 後 soft 仍小於 hard。
+- **Given**：空 mapping；`KINGSTONE_WRITE_POLICY` 的 `normal`、`new-books-only`、前後空白、空白與非法值（大小寫、底線、`all-books`、`all`、`0`）；每個鍵的合法值（含前後空白）；空字串與只含空白的值；非數字（`abc`、`3 300s`、`1,5`）；0 與負數；`nan`、`inf`、`-inf`、`Infinity`、`1e400`；次數與位元組數的小數、科學記號、正號與含空白；`soft` 等於或大於 `hard`（9000 對 9000，以及預設 hard 下的 9001）；調低 hard 後 soft 仍小於 hard。
 - **When**：`kingstone.config.load_config`。
-- **Then**：未設定時為 3300／3600 秒、30 秒、3 次、5 MiB、預設清單檔與寫入政策 `new-books-only`；寫入政策只接受 `normal`／`new-books-only`，其他值 raise 且訊息點名 `KINGSTONE_WRITE_POLICY`、不回顯值；每個合法鍵都生效；空白值視為未設定；非法值 raise `KingstoneConfigError`（`ValueError` 子類），訊息點名 key，非數字的值不被回顯；`soft ≥ hard` 點名兩個 key。
-- **來源與狀態**：[test_kingstone_config.py](../tests/test_kingstone_config.py)（78 個測試）。
+- **Then**：未設定時為 7200／9000 秒、30 秒、3 次、5 MiB、預設清單檔與寫入政策 `new-books-only`（Phase 6 M1 由 3300／3600 調整）；寫入政策只接受 `normal`／`new-books-only`，其他值 raise 且訊息點名 `KINGSTONE_WRITE_POLICY`、不回顯值；每個合法鍵都生效；空白值視為未設定；非法值 raise `KingstoneConfigError`（`ValueError` 子類），訊息點名 key，非數字的值不被回顯；`soft ≥ hard` 點名兩個 key。
+- **來源與狀態**：[test_kingstone_config.py](../tests/test_kingstone_config.py)。預設值（7200／9000）由 `test_defaults_when_nothing_is_set` 固定；博客來不讀 `KINGSTONE_SOFT_RUN_BUDGET_SECONDS` 與 `CRAWLER_RUN_HARD_LIMIT_SECONDS`（全 crawler 原始碼搜尋只出現在 `kingstone/` 與其測試）。
 
 ### CR-K07 — 金石堂 run 帳本與 terminal status
 
@@ -285,7 +285,7 @@ migration 011 的 schema 由 test_db_integration.py 在 011 上檢查（無 `sou
 
 - **責任／規格**：[architecture](architecture.md)「入口與組裝」、Kingstone plan v11 §4（清單無效 → exit 2）、§6（不輸出 DB URL）、§7（設定與 exit code）、§9 Phase 5；風險 L3（決定是否發出請求、exit code，以及 DATABASE_URL 是否外洩）；狀態：已有測試（2026-10-25 新增並執行）。離線：fake fetcher、注入的 provider 查詢；DATABASE_URL 是不可連線的假 DSN（密碼 `hunter2`），所有路徑都在碰到資料庫之前結束。
 - **When**：`kingstone.cli.main` 的各種輸入。
-- **Then**：provider 停用或未註冊 → 2，不建 fetcher、不發請求；provider 查詢的 `psycopg.Error` → 1，訊息經 redact；清單為空、只有註解、非法 URL、缺檔、超過 200 筆 → 2，不建 fetcher、不查 provider；DATABASE_URL 未設或空白 → 2，不 log 值；非法設定（秒數非數字、soft ≥ hard、寫入政策非法、attempts 為 0）→ 2，不建 fetcher；不支援的 Unicode runtime → 2；所有頁跳過 → 1；致命錯誤 → 1 且 fetcher 仍被 close；建立 fetcher 之後的每條路徑（全頁跳過、致命錯誤、正常 run）都會 close fetcher；預設 fetcher 以設定值與 `budget.remaining` 建立並為 `KingstoneFetcher`；stdout 含 `kingstone.run` 的 INFO 行，不含 DATABASE_URL 或密碼。正常 run 的 exit 0 與寫入由 CR-K10 以真 DB 驗證。
+- **Then**：provider 停用或未註冊 → 2，不建 fetcher、不發請求；provider 查詢的 `psycopg.Error` → 1，訊息經 redact；清單為空、只有註解、非法 URL、缺檔、超過 400 筆 → 2，不建 fetcher、不查 provider；DATABASE_URL 未設或空白 → 2，不 log 值；非法設定（秒數非數字、soft ≥ hard、寫入政策非法、attempts 為 0）→ 2，不建 fetcher；不支援的 Unicode runtime → 2；所有頁跳過 → 1；致命錯誤 → 1 且 fetcher 仍被 close；建立 fetcher 之後的每條路徑（全頁跳過、致命錯誤、正常 run）都會 close fetcher；預設 fetcher 以設定值與 `budget.remaining` 建立並為 `KingstoneFetcher`；stdout 含 `kingstone.run` 的 INFO 行，不含 DATABASE_URL 或密碼。正常 run 的 exit 0 與寫入由 CR-K10 以真 DB 驗證。
 - **來源與狀態**：[test_kingstone_cli.py](../tests/test_kingstone_cli.py)（23 個測試，離線）。
 
 ### CR-K10 — 金石堂真 DB 整合（ingestion）
@@ -303,6 +303,14 @@ migration 011 的 schema 由 test_db_integration.py 在 011 上檢查（無 `sou
 - **必要 DB 測試不得 skip**：本次執行中 19 個 Kingstone DB 測試全部執行，`-rs` 沒有 skip。注意：既有 [conftest](../tests/conftest.py) 的 `ef_schema_sql` 在找不到 dotnet SDK 時會 `pytest.skip`（Books 既有行為，未改）；環境缺 dotnet 時這組測試會被 skip，必須在執行紀錄中註明。
 - **跨 provider 隔離**：同一 Book 的 BOOKS_COM_TW 與 KINGSTONE Source 互不影響，已由 [test_persistence_integration.py](../tests/test_persistence_integration.py) 的 provider isolation 測試覆蓋（`test_provider_isolation_*`），這裡不重複。
 - **來源與狀態**：[test_kingstone_db_integration.py](../tests/test_kingstone_db_integration.py)（19 個測試，其中 bestseller protection 為參數化 3 案）。
+
+### CR-K11 — 金石堂 HTTP-only image（Phase 6 M1）
+
+- **責任／規格**：[architecture](architecture.md)「Image」與 Kingstone plan v12 §7、§8「Image」「清單檔」；風險 L2（建置內容與 CI gate；不改 runtime 行為）；狀態：已有測試（2026-10-25 新增並執行）。靜態檢查，不執行 docker、不連網。
+- **Given**：`crawler/Dockerfile`、`crawler/.dockerignore`、`crawler/requirements-runtime.txt`、`.github/workflows/ci.yml`。
+- **When**：`tests/test_kingstone_image.py` 解析 Dockerfile 的 stage、`.dockerignore` 白名單與 CI docker job。
+- **Then**：存在名為 `kingstone` 的 target，且最後一階（`docker build` 的預設）仍是博客來；`kingstone` target 不含 playwright、chromium，也不安裝 `requirements.txt`（開發依賴，含 playwright）；`requirements-runtime.txt` 不含 playwright；`kingstone` target 複製 `catalog_core/`、`kingstone/`、`kingstone-pages.txt`，不含 `books_crawler`；UID 10001 與 `ENTRYPOINT ["python", "-m"]`、`CMD ["kingstone"]`；博客來預設 target 的 COPY、USER、CMD 不變；`.dockerignore` 允許 `kingstone/` 與 `kingstone-pages.txt`；CI 有 `docker build --target kingstone` 與 `--network none` 離線 smoke，smoke 斷言 `import playwright` 因 `ModuleNotFoundError` 失敗。
+- **來源與狀態**：[test_kingstone_image.py](../tests/test_kingstone_image.py)（7 個測試）。**已知驗證缺口**：本次未在本機 build image（`pip install` 需要網路）；build 與離線 smoke 的實際結果需由 CI docker job 驗證；CD 尚未推送此 image（backlog CB-07）。
 
 ### 連線中斷與重連（crawler.md §13.1、§6.1，#119）
 
