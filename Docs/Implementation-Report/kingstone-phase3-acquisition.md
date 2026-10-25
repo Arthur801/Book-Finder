@@ -58,7 +58,7 @@
 
 Phase 3 留下的待辦已記入 `crawler/docs/backlog.md` CB-07「Phase 3 留下的待辦」：
 
-- 診斷檔（限額）未實作：計畫 §6 要求有限額，需另定內容、數量與保留期限。
+- 診斷檔（限額）未實作：計畫 §6 要求「診斷有限額」，§7 設定表有 `KINGSTONE_DIAGNOSTIC_MAX_BYTES`（2 MiB）。因此本 phase 只算 **core acquisition 完成**，診斷留待 runner／production 整合（Phase 6）。
 - challenge／CAPTCHA 分類待 fixture：目前 200 照常回傳，由 parser fail closed。
 - `budget_remaining` 由 Phase 4 run 提供；Phase 3 預設 `math.inf`，run 接上前 budget 行為只有單元測試。
 - 本輪新增：
@@ -85,7 +85,8 @@ Phase 3 留下的待辦已記入 `crawler/docs/backlog.md` CB-07「Phase 3 留�
 | Spec | budget 在不需等待時沒檢查（計畫 §7「每次請求前檢查 soft budget：不足時不發請求」） | 每次請求前檢查 `remaining <= 0 or wait > remaining`；測試覆蓋 pacing 已過但 budget 為 0 與 −1 的兩個參數化案例，以及正值 budget 的正常路徑（`a9a4c20`） |
 | Spec | 錯誤訊息描述不精確（未說明只含 URL、狀態與 Location path） | architecture 精確化；程式行為本來已符合，測試既有（本次 commit） |
 | Spec | 5 MiB 記憶體上限：串流 queue 無上限，消費端計數擋不住 | 查證（見上表），加入 libcurl `MAXFILESIZE_LARGE` 與 63 映射；Content-Length 預檢與串流計量保留；libcurl 行為未以真實傳輸驗證，寫入 architecture 與 backlog（`a9a4c20`、本次 commit） |
-| Spec | 診斷檔有限額未實作 | 記入 backlog CB-07 Phase 3 待辦（已存在，本次確認） |
+| Spec | 診斷檔有限額未實作 | 記入 backlog CB-07 Phase 3 待辦 |
+| PR #138 review | backlog／報告寫「Phase 3 完成」，但計畫 §6 的有限額診斷（`KINGSTONE_DIAGNOSTIC_MAX_BYTES`）未實作，與原計畫不完全一致 | 狀態改為「Phase 3 core acquisition 完成，診斷留待 runner／production 整合（Phase 6）」；backlog、architecture、本報告同步 |
 | Spec | cookie 說明不精確 | 寫明：單次執行內記憶體保存 `Set-Cookie`，與博客來相同；不寫檔、不跨 run；沒有 cookie 子系統（本次 commit） |
 | Spec | 重試範圍說明不精確 | 依 curl_cffi `CODE2ERROR` 表寫明重試與不重試的類別；TLS 握手 reset 的分類已知限制寫入 backlog（本次 commit） |
 | Spec | 最後一次 Retry-After 的分類可能失真 | **保留**，寫明於 architecture 與 backlog；若要區分需另定錯誤類別，屬於待決策 |

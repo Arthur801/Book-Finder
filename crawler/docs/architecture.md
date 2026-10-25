@@ -100,7 +100,7 @@
   - 最後一次嘗試的 Retry-After 不讀，記為 `HTTP_STATUS`（分類可能失真，見 Retry-After）。
   - pacing 與 backoff、Retry-After 取較大者，不相加。
 - log：logger `kingstone.acquisition`；每次送出請求一行 INFO `GET <url> status=<n> bytes=<n> attempt=<n>`（連線層或其他 transport 例外為 `error=<例外型別>`）；每次重試一行 WARNING。
-- 不在本層：challenge、CAPTCHA、限制級頁的判斷（200 照常回傳，交給 parser fail closed）、cookie 持久化、Playwright、診斷檔（計畫 §6 要求限額，尚未實作，見 [backlog](backlog.md) CB-07）。
+- 不在本層：challenge、CAPTCHA、限制級頁的判斷（200 照常回傳，交給 parser fail closed）、cookie 持久化、Playwright、診斷檔（計畫 §6 要求限額、§7 有 `KINGSTONE_DIAGNOSTIC_MAX_BYTES`；尚未實作，留待 runner／production 整合，見 [backlog](backlog.md) CB-07）。
 
 
 ## 選型、替代與代價
