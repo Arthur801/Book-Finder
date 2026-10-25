@@ -278,6 +278,12 @@ git log --reverse --no-merges --format='@@%h' --numstat -- <同上路徑>
 
 本 M4 未修改 CI workflow，也未在 production 或 RDS 執行任何操作。
 
+### 3.15 backlog 整理（2026-10-25）
+
+| 日期 | SHA | 主旨 | 影響檔案（+/-） | diff 摘要 |
+|---|---|---|---|---|
+| 2026-10-25 | 本次 backlog 整理 commit | docs(backlog): tidy deploy backlog after v0.0.6 and v0.0.7 | `deploy/docs/backlog.md`、`deploy/docs/update-history.md` | DEP-B04、DEP-B18 移至 backlog §3「已處理」；DEP-B01 補記 production 仍停用；未改 deploy 程式或測試 |
+
 ## 4. 目前工作樹與未提交差異
 
 - `git status --porcelain`：只有既存的 `?? .venv`。

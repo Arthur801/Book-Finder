@@ -4,6 +4,7 @@
 > PR4 M3（#120）補記：2026-10-25 更新；程式變更以 `d249c07`、`6e70e93`、`b99b368` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR4 M4（#120）補記：2026-10-25 更新；gate 9 與 manual recovery smoke 的程式變更以 `89d983e`、`7c8899d` 記入 update-history §3.14。原查核基準保留，未重新審查其餘內容。
 
+> backlog 整理（2026-10-25）補記：DEP-B04、DEP-B18 已於 v0.0.6、v0.0.7 production 完成，移至 §3「已處理」；DEP-B01 補記 production 仍停用。原查核基準保留，未重新審查其餘內容。
 > 目標：`deploy/` 與分散的 CD 來源（見 [architecture.md §2](architecture.md)）。
 > 查核基準：2026-10-25，HEAD `5563d80`（#121 的程式 commit；前一基準 `01db2d7`，tag `v0.0.4`）。證據來自程式、測試、git 與 runbook；營運觀察以「營運觀察，非本次驗證」標示。
 > 本文件只列有證據、可判定結案的項目。已完成的歷史修復（pg_dump 假陽性、`sudo` 的 `env_keep`、urllib 預設 User-Agent 的程式修正）不列為未完成；其中 User-Agent 在 production 的生效仍列為 DEP-B02。
@@ -23,7 +24,6 @@
 | DEP-B01 | P1 | 實作 L2／營運 L4 | 已確認缺口（營運觀察）＋待決策 | EC2 IP 被博客來封鎖，crawler 停用 |
 | DEP-B02 | P1 | L4 | 待驗證 | 公開健康檢查的 User-Agent 在 edge 與 host 版本上未確認 |
 | DEP-B03 | P2 | L4（啟用）／L3（設計） | 已確認缺口（設計限制） | `DB_CA_BUNDLE` 啟用後，回滾下限為 v0.0.3 |
-| DEP-B04 | P1 | L4 | 待驗證 | forward migration、snapshot、dirty 路徑未在 production 執行 |
 | DEP-B05 | P3 | L4（刪除）／L2（設計） | 改善提案 | GHCR 的 `build-*` staging tag 只能手動清理 |
 | DEP-B06 | P2 | L4 | 待驗證 | release tag 的 digest 不變式只在本機 registry 驗證；發布前設定未記錄 |
 | DEP-B07 | P3 | L3 | 改善提案 | 沒有 drift 修復指令，只能人工程序 |
@@ -36,7 +36,6 @@
 | DEP-B14 | P2 | L3 | 已發生（營運觀察）＋待驗證 | SSM 連線字串的跳脫問題 |
 | DEP-B15 | P3 | L2 | 改善提案 | `/etc/book-finder` 目錄權限未由程式檢查 |
 | DEP-B17 | P3 | L3 | 改善提案 | exit 3 同時對應 history 的 `drift` 與 `rejected` |
-| DEP-B18 | P1 | L4（部署）／L3（seed 與測試） | 程式與測試已完成（#120）；011 部署待 gate | Multi-source migration 010／011 的 seed、gate 與恢復程序 |
 | DEP-B19 | P3 | L2 | 改善提案（#120 review） | compat contract allowance 與 gate 9 script 的結構整理 |
 
 ## 2. 項目
@@ -44,7 +43,7 @@
 ### DEP-B01 EC2 IP 被博客來封鎖，crawler 停用
 
 - **優先序／風險**：P1／實作 L2，營運啟用 L4。
-- **狀態**：已確認缺口（營運觀察，2026-10-24 手動試跑失敗）；待決策（替代資料管道）。
+- **狀態**：已確認缺口（營運觀察，2026-10-24 手動試跑失敗；2026-10-25 整理時 production 仍為 `CRAWLER_ENABLED=false`，v0.0.6、v0.0.7 發布後仍停用）；待決策（替代資料管道）。
 - **證據與影響**：runbook [§7.2 #19](../README.md) 記錄；[deployment.md §8](../../Docs/deployment/deployment.md) 要求「啟用排程前須在 EC2 實測」，被擋下時「不啟用排程，評估授權資料管道」；`run-crawler.sh` 在 `CRAWLER_ENABLED=false` 時於任何鎖之前 exit 0 並輸出 `skipped=disabled`（[run-crawler.sh](../../crawler/deploy/run-crawler.sh) 第 53 行起）。影響：每日榜單不更新，`bestseller` 資料停止新增。
 - **spec／source**：`Docs/deployment/deployment.md` §8；`Docs/modules/crawler.md` §12；[crawler/deploy/README.md §5.1](../../crawler/deploy/README.md)。
 - **調查方向**：(1) 在 EC2 上以唯讀方式執行一次 `run-crawler.sh daily`，記錄是否取得頁面（需授權）；(2) 若仍被擋，需要產品與授權層級的決策：替代資料來源、授權管道、或維持停用。AGENTS §1.3 Crawler 自 `3101dd1`（#108）起已允許 browser stealth、`navigator.webdriver` 修補、CAPTCHA 代解或代理 IP 輪替；是否採用、採用哪一種仍是本項的待決策事項，且真實抓取驗證須有當前任務授權。
@@ -73,17 +72,6 @@
 - **前置決策**：是否接受此下限（使用者）。
 - **驗收條件**：runbook 的 `DB_CA_BUNDLE` 列寫明最低回滾版本，並與 `test_configured_bundle_refuses_rollback_to_a_release_without_the_override` 的行為一致。
 - **測試入口**：DEP-ROLL-03（已有）、DEP-ROLL-04（已有）、DEP-REL-01（已有）。
-
-### DEP-B04 forward migration、snapshot、dirty 路徑未在 production 執行
-
-- **優先序／風險**：P1（在下一個含 migration 的 release 之前）／實作 L3，production 執行 L4。
-- **狀態**：待驗證。
-- **證據與影響**：production 目前只記錄 cutover（`in-sync`）與 crawler 停用。forward 路徑（pause、`create-db-snapshot`、`wait db-snapshot-available`、dirty、efbundle、`mark_migrated`）只在單元測試（fake world）與本機整合情境 a 到 d（需 `BOOKFINDER_IT=1`）中執行過；`adapters.RealAws` 的真實 AWS CLI 呼叫沒有在 production 驗證（runbook §5.7、§7.2 #4 的 psql 連線待確認）。
-- **spec／source**：`Docs/deployment/deployment.md` §6；ADR-006 I3、I5、N2、N3；runbook §1.4、§5.2、§5.6。
-- **調查方向**：(a) 在開發機以 `BOOKFINDER_IT=1 bash deploy/integration/run-local.sh` 驗證情境 a 到 d（需 Docker，不連 production）；(b) 首次含 migration 的 release 前，寫出 rollback 與 snapshot 的人工計畫，並確認 `rds:CreateDBSnapshot` 與 `rds:DescribeDBSnapshots` 的 IAM（runbook §2.2）已存在。
-- **前置決策**：首次 forward 的時間與授權（使用者）。
-- **驗收條件**：(a) 情境 a 到 d 在開發機通過並記錄結果（記錄於 PR 或 issue，不寫入 repository）；(b) 第一次 forward 的 `history` 含 `snapshot_id` 與 completed，且 runbook §5.2 的檢查清單完成。
-- **測試入口**：DEP-FWD-01 到 DEP-FWD-06（單元，已有）；DEP-INT-A 到 DEP-INT-D（整合，已有，本次未執行）。
 
 ### DEP-B05 GHCR 的 `build-*` staging tag 只能手動清理
 
@@ -210,17 +198,6 @@
 - **驗收條件**：若統一，所有 exit 3 路徑的 `result` 有斷言；runbook §1.5、architecture §5.1 同步更新。
 - **測試入口**：DEP-HIST-03（待補強）。
 
-### DEP-B18 Multi-source migration 010／011 的 seed、gate 與恢復程序
-
-- **優先序／風險**：P1／seed 與 compat 測試 L3，010 與 011 的 production 部署 L4。
-- **狀態**：程式、seed、preflight、contract allowance 與 gate 9 本機證據已於 #120（PR4 M1～M4）完成；剩下 011 在 production 的 gate 確認與部署（L4）。
-- **目標**：[data-model §11](../../Docs/data/data-model.md) 與 [deployment §6.1](../../Docs/deployment/deployment.md)：010（expand，含雙向 trigger）與 011（contract）分屬不同 release；每個成為已發布 schema head 的 migration 都有 `deploy/migration-test/seeds/<id>.sql`；011 只在 gate 全部通過、使用者明確關閉 v0.0.4 rollback window 後部署；011 之後若新 runtime 失敗，不還原 snapshot，手動 dispatch PR3 release 並 `resume-crawler`。
-- **目前差距**（010 seed 已於 `22bebf5` 補上；011 seed、contract allowance、gate 7 preflight 已於 M3 補上）：`deploy/migration-test/seeds/` 已有 010 與 011 的 seed；compat 的 runtime smoke 依 I5 只是 INFO，無法證明「PR3 runtime 在 011 上可運作」與 manual recovery compatibility；runbook 沒有 010／011 專屬的恢復步驟，也沒有「新版寫入 `ISBN` 後舊版 crawler 必須保持停用」的操作提示。
-- **方向**：PR2 新增 010 的 seed（含 v0.0.4 形式的 `source_type`-only 資料，驗證 trigger 回填）；PR4 新增 011 的 seed、ISBN conversion preflight（dry-run SELECT）與 manual recovery compatibility 測試（[test-plan §7](../../Docs/testing/test-plan.md) #13、#14、#20），並在 runbook 補 011 gate checklist 與恢復程序。
-- **前置決策**：011 的部署時間與 rollback window 的關閉由使用者決定（L4）。
-- **驗收條件**：010 與 011 的 compat 在 CI 通過；gate checklist 每項有可檢查的證據；PR3 Web／crawler 在 011 的 smoke 通過且不需 snapshot restore。
-- **測試入口**：010 seed 已建（`deploy/migration-test/seeds/20261024160045_MultiSourceCatalog.sql`）；011 seed、preflight（`deploy/migration-test/preflight/`）與 contract allowance（`deploy/migration-test/contract/`）已於 M3 建立。recovery compat 已由 PR4 M4 在本機建立（`prev-release-on-contract.sh`，test-plan §7 #13、#14），尚未納入 CI；是否納入 CI 待決策。
-
 ### DEP-B19 compat contract allowance 與 gate 9 script 的結構整理
 
 - **狀態**：改善提案（#120 兩軸 review 的判斷題，未在 PR4 處理）。
@@ -228,11 +205,13 @@
 - **方向**：在 `deploy/lib/contract_allowance.sh` 提供列出 rewrite 表、drop 欄位的 helper，三處共用；把 `check_data_preserved` 的 allowance 分支抽成函式；gate 9 的檢查數由 driver 回報，不在 script 寫死。
 - **驗收條件**：`deploy/tests` 的 allowance 測試與 gate 9 整合測試不變且通過；shellcheck 通過。
 
-## 3. 已處理（PR #107）
+## 3. 已處理
 
 | 項目 | 處理 |
 |---|---|
 | DEP-B16：runbook 與程式、營運狀態不同步（C1、C2、C5、C6） | 已於 PR #107 修正：C1 健康探測的次數、逾時與間隔；C2 exit 6 與 `run-crawler.sh` 退出碼；C5 營運觀察證據（標示為營運觀察，非自動化測試）；C6 版本指引（移除過時的「發布 v0.0.2」建議）。同次 PR 也對齊了 C3、C4、C7 的文件說明，新的程式問題分別列為 DEP-B17、DEP-B08、DEP-B15 |
+| DEP-B04：forward migration、snapshot、dirty 路徑未在 production 執行 | 已於 production 執行：v0.0.6（CD run `40130185971`，host run `40130185971-1` completed:success，前兩次 `failed-migration`：`40124573448-1`、`40129058594-1`）與 v0.0.7（CD run `40154631718`，host run `40154631718-1` completed:success，套用 `20261025120000_ContractMultiSourceCatalog`）。RDS snapshot、dirty flag、`reconcile-schema --mark-clean`（runbook §5.2）、`resume-crawler`（§5.3）與 efbundle 失敗輸出（#121，`cfb606e`）皆已實際執行。未於本次整理重新核對開發機情境 a 到 d 的結果。 |
+| DEP-B18：Multi-source migration 010／011 的 seed、gate 與恢復程序 | 010 於 v0.0.6、011 於 v0.0.7 部署完成（見上列）。seed、ISBN conversion preflight（gate 7：估計 2698 列，部署後 book_identifiers 與 ISBN 列皆為 2698）、contract allowance、gate 9 script 由 #120 PR4 M1～M4 完成（`22bebf5`、`d249c07`、`6e70e93`、`b99b368`、`7c8899d`、`89d983e`）。使用者確認 gate 1、6、8；gate 2 為本機 copy DB 證據。剩餘待決策：previous-release recovery compat（test-plan §7 #13、#14）是否納入 CI，目前僅本機執行。 |
 
 ## 4. 已列為歷史、不列為待辦的項目
 

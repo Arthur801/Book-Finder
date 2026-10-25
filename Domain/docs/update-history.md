@@ -35,6 +35,7 @@ git rev-parse --is-shallow-repository
 | 2026-10-25 | `2c662f5` | feat(db): add expand migration 010 for multi-source catalog | `Entities/SourceType.cs`（刪除）、`Entities/SourceCodes.cs`（新增）、`Entities/SourceProvider.cs`／`ProviderKind.cs`／`BookOffer.cs`／`OfferAvailability.cs`（新增）、`Entities/BookSource.cs`、`Entities/BookSubject.cs`（`SourceType` 改必填 `SourceCode` string）、`Entities/IdentifierType.cs`（新增 `Isbn`） |
 | 2026-10-25 | `bbe0a0a` | refactor(catalog): share ISBN-family types and display priority | `Entities/IsbnIdentifierTypes.cs`（新增）|
 | 2026-10-25 | `5052361` | feat(catalog): contract migration 011 and read only the ISBN type | `Entities/IdentifierType.cs`（刪除 `Isbn10`／`Isbn13`）、`Entities/IsbnIdentifierTypes.cs`（刪除）、`Persistence/Configurations/BookIdentifierConfiguration.cs`（移除 legacy partial unique）、`Persistence/Migrations/20261025120000_ContractMultiSourceCatalog.cs`（011）|
+| 2026-10-25 | 本次 backlog 整理 commit | docs(backlog): tidy domain backlog after #113 PR1–PR4 | `docs/backlog.md`：DOM-B01、DOM-B05、DOM-B06 移出表格至「已處理」；補記標頭；未改程式 |
 
 Git 不能證明已部署、migration 已套用或測試通過。實體建立後，多數行為演進在外層，Domain log 不等於全系統進度。
 

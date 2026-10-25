@@ -3,6 +3,8 @@
 > PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR4 M1（#120）補記：2026-10-25 更新；程式變更以 `5052361`、`d864acc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
+> backlog 整理（2026-10-25）補記：APP-B04 已完成，移至文末「已處理」；其餘狀態未變。
+
 > 查核日期：2026-10-24；Git 基準 `91333c3`。目標 `Application/`；本次僅靜態查核，未執行 build、測試、資料庫或外部服務。規格、實作與測試證據分開記錄。
 
 優先序：P1核心規格缺口；P2邊界補證據。風險L1～L4依[AGENTS](../../AGENTS.md)§4。本次未重現runtime bug，待辦與命令不是執行授權。
@@ -34,14 +36,6 @@
 - 方向：Bestseller 是否長期保留、移除或改由其他功能使用，需另案決定；未決前不得刪除，也不得讓 Bestseller rank 進入推薦排序（AGENTS.md §1.3）。
 - 驗收：決定後同步更新 [bestseller](../../Docs/modules/bestseller.md) 與本文件。
 
-## APP-B04 — Catalog 讀取 contract 改用 provider code（#113 PR2）
-
-- **P1 / L3 / 已處理（#115 PR2 phase A `2c662f5` 與 phase B `d9d8948`）**。
-- 目標：[book-catalog §4](../../Docs/modules/book-catalog.md)：`BookDetailSource` 改為 `{Id, SourceCode, ProviderDisplayName, Url, FirstSeenAt}`；identifier 只為 `ISBN`（011 後，`5052361`）；ISBN 搜尋判定（長度 10／13）不變，與寫入端正規化分開。
-- 目前差距（PR2 phase A，#115 `2c662f5` 已處理）：[BookDetail](../Catalog/BookDetail.cs) 的 `BookDetailSource` 已改為 `(Guid Id, string SourceCode, …)`，不再依賴 `SourceType`。phase B 已完成：`ProviderDisplayName`（JOIN `source_providers`，不以 `enabled` 過濾）、ISBN 讀取三種類型、Detail 去重（去重與標籤在 [BookDetailViewModel](../../Models/BookDetailViewModel.cs)）。
-- 驗收：Application 不再引用 `SourceType`（已達成）；`BookDetailContractTests` 仍守住不含 description／TOC；BookSearchServiceTests 確認 `ABC123` 不走 ISBN 模式。
-- phase A 新增：[IsbnNormalizer](../Catalog/IsbnNormalizer.cs) 實作寫入端 NFKC＋明確 White_Space 正規化，與一般搜尋的 `SearchQuery` 判定刻意分開；C# 與 crawler 共用 `tests/Fixtures/isbn-normalization.json`。crawler 端尚未接上（PR3）。
-
 ## APP-B05 — Google Books ingestion 改用新 identity resolution 與補 NULL（#14 前置）
 
 - **P2 / L3 / 規格更新，與 APP-B01 一起實作**。
@@ -51,6 +45,10 @@
 ## 已修與明確暫緩
 
 `13abf86`已共享dummy hash、`cd17224`已修difficulty讀失敗降級、`0fb9274`已修disabled仍排profile。它們是APP-T03/T12回歸項目，不列未完成。Auth MVP延後與browser E2E依架構文件的authority維持暫緩。效能未量測，不捏造向量/快取瓶頸或平行化收益。
+
+## 已處理
+
+- **APP-B04**（#113 PR2，PR #117、#123）：Catalog 讀取 contract 改用 provider code。`BookDetailSource` 改為 `SourceCode` 與 `ProviderDisplayName`；ISBN 讀取三種類型後於 PR4 只讀 `ISBN`；Application 不再引用 `SourceType`。證據：phase A `2c662f5`、phase B `d9d8948`、011 `5052361`。
 
 ## 導覽
 

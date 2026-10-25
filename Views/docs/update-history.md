@@ -72,3 +72,4 @@ git show 894883b -- Views
 | `a8a5077` | feat(web): show 書庫 on home and /books in place of the bestseller ranking | 新增 Books/Index 與 Shared/_BookList；Home、Search 改用 _BookList；導覽與 Library 空態連結改 `/books`；刪除 Bestsellers/Index 與 _BestsellerEntries |
 | `2642182` | test(web): cover 書庫 paging, home sample and the /bestsellers redirect | 無 View 行為變更；Web 測試改驗書庫與首頁 markup，刪除 BestsellerPageTests |
 | 本 M2 docs commit | docs(web): record 書庫 Web presentation in folder docs | 更新 Views 文件的路由表、流程與案例 |
+| 本次 backlog 整理 commit | docs(backlog): tidy views backlog after #113 PR2 | `docs/backlog.md`：VIEW-B05 移出表格至「已處理」；補記標頭；未改程式 |
