@@ -25,7 +25,7 @@
 | [catalog_core/store](../catalog_core/store.py) | `SessionCatalogStore`：以 `DatabaseSession` 與 `catalog_core/persistence` 實作 `CatalogStore`；每個方法在呼叫時取 `session.conn`（重連後仍有效）；`touch_source` 遇 `SourceTouchConflict` 回傳 `False`，其餘例外（含 `psycopg.Error`）原樣上拋給 service |
 | [page_list](../books_crawler/page_list.py) | books.com.tw 專屬：環境變數與預設檔路徑、books.com.tw 分類榜 URL 規則；檔案規則委派給 `catalog_core/page_list`（行為與訊息不變）；非法／空清單在請求前失敗 |
 | [kingstone/urls](../kingstone/urls.py) | 金石堂 URL grammar（CB-07）：`canonical_list_url`（`/book/<2–4 字母>/?dis=list&page=<n>[&sort=<key>]`，代碼轉小寫；`sort=sa_desc`（預設）canonical 時移除，與省略 sort 相同，其他 key 保留）、`detail_url`、`km_code_from_href`、`km_code_from_detail_url`（只接受與 `detail_url` 完全相等的 canonical 詳細頁 URL）；相對與絕對 href 共用同一組 query 字元集；純函式，不連線 |
-| [kingstone/page_list](../kingstone/page_list.py) | 金石堂分類列表頁檔（`crawler/kingstone-pages.txt`，最多 200 個 URL）；檔案規則委派給 `catalog_core/page_list`；重複行 INFO 記在 `kingstone.page_list` logger；由 `kingstone.cli` 讀取（Phase 5 M2） |
+| [kingstone/page_list](../kingstone/page_list.py) | 金石堂分類列表頁檔（`crawler/kingstone-pages.txt`，最多 400 個 URL，`MAX_PAGES`，Phase 6 M1）；檔案由使用者提供（328 筆，每行 `?dis=list&page=1`，只抓第 1 頁）；檔案規則委派給 `catalog_core/page_list`；重複行 INFO 記在 `kingstone.page_list` logger；由 `kingstone.cli` 讀取（Phase 5 M2） |
 | [kingstone/models](../kingstone/models.py) | 金石堂 adapter 的資料型別：`ListedItem`、`ListPage`，以及 `KingstoneParseError`、`ProductNotFound` |
 | [kingstone/parse_list](../kingstone/parse_list.py) | 金石堂分類列表頁 HTML → `ListPage`（純函式）；契約見下方「金石堂 adapter」 |
 | [kingstone/parse_detail](../kingstone/parse_detail.py) | 金石堂詳細頁 HTML → `BookDraft`（純函式）；soft 404 → `ProductNotFound`；契約見下方「金石堂 adapter」 |
@@ -37,7 +37,8 @@
 | [kingstone/__main__](../kingstone/__main__.py) | `python -m kingstone`：`raise SystemExit(main())` |
 | [catalog_core/html_text](../catalog_core/html_text.py) | 共用 HTML 區段文字抽取 `text_with_line_breaks`（自 `books_crawler/parsers.py` 原樣搬出）：只有 `<br>` 與區塊元素邊界換行、inline 元素不切行、連續空行收為一行；博客來詳細頁與金石堂詳細頁共用；會就地修改傳入的 node |
 | [catalog_core/redact](../catalog_core/redact.py) | 共用 secret redaction（DSN、`password=`）：`books_crawler/redact.py` 只重新匯出它；金石堂 run 的錯誤訊息、skipped 頁與失敗書訊息、金石堂清單讀檔錯誤都經此處理 |
-| [Dockerfile](../Dockerfile) | Python 3.14、UID 10001、runtime 依賴與清單 |
+| [Dockerfile](../Dockerfile) | Python 3.14、UID 10001。兩個 target：`kingstone`（HTTP-only，見「Image」）與最後一階的預設 target（博客來，內容不變，`docker build` 仍產生它） |
+| [.dockerignore](../.dockerignore) | build context 白名單：博客來與金石堂 target 所需檔案（含 `kingstone/`、`kingstone-pages.txt`） |
 | [target wrapper](https://github.com/Arthur801/Book-Finder/blob/ce7b4f46c0889db6b10216294cac658136796ad7/crawler/deploy/run-crawler.sh) | host scheduling、SSM secret retrieval、daily/pages serialization、DB maintenance coordination、deployment state gate、Docker execution 與 pages schedule state |
 
 ## 金石堂 adapter（kingstone/）— 已實作的解析契約
@@ -55,7 +56,7 @@
 
 設定（`kingstone/config.py`）與 run 帳本（`kingstone/ledger.py`）為純函式；逐頁 run（`kingstone/run.py`）已把兩者與 acquisition、catalog_core 接起來，由入口呼叫（見下方「入口與組裝」與「Run（逐頁流程）」）。
 
-尚未實作：runner（watchdog 強制 hard limit、fencing、Dockerfile 與 `deploy/` 納入 `kingstone/`，Phase 6）、alert 與診斷檔（Phase 6）、acceptance（Phase 7），見 [backlog](backlog.md) CB-07。URL grammar 與錯誤分類仍以 backlog CB-07 為來源契約。
+尚未實作：runner（watchdog 強制 hard limit、fencing、`deploy/` 與 CD 推送 `KINGSTONE_CRAWLER_IMAGE`，Phase 6）、alert 與診斷檔（Phase 6）、acceptance（Phase 7），見 [backlog](backlog.md) CB-07。URL grammar 與錯誤分類仍以 backlog CB-07 為來源契約。
 
 **入口與組裝**（`kingstone/cli.py`、`kingstone/__main__.py`，Phase 5 M2）
 
@@ -126,7 +127,7 @@
 **設定**（`kingstone/config.py`，Phase 4 M1）
 
 - `load_config(env: Mapping[str, str]) -> KingstoneConfig` 是純函式：只讀傳入的 mapping，不讀 `.env`、不讀檔、不連網。`KingstoneConfig`（frozen）欄位：`pages_file`、`write_policy: WritePolicy`、`soft_budget_seconds`、`hard_limit_seconds`、`http_timeout_seconds`、`http_max_attempts`、`max_response_bytes`。
-- 鍵與預設：`KINGSTONE_PAGES_FILE`（經 `kingstone.page_list.resolve_pages_file`，預設 `crawler/kingstone-pages.txt`）；`KINGSTONE_WRITE_POLICY`=`new-books-only`（只接受 `normal`／`new-books-only`；空白視為未設定；其他值 raise，訊息點名 key 且不回顯值）；`KINGSTONE_SOFT_RUN_BUDGET_SECONDS`=3300；`CRAWLER_RUN_HARD_LIMIT_SECONDS`=3600；`KINGSTONE_HTTP_TIMEOUT_SECONDS`=`REQUEST_TIMEOUT_SECONDS`；`KINGSTONE_HTTP_MAX_ATTEMPTS`=`MAX_ATTEMPTS`；`KINGSTONE_MAX_RESPONSE_BYTES`=`MAX_RESPONSE_BYTES`。
+- 鍵與預設：`KINGSTONE_PAGES_FILE`（經 `kingstone.page_list.resolve_pages_file`，預設 `crawler/kingstone-pages.txt`）；`KINGSTONE_WRITE_POLICY`=`new-books-only`（只接受 `normal`／`new-books-only`；空白視為未設定；其他值 raise，訊息點名 key 且不回顯值）；`KINGSTONE_SOFT_RUN_BUDGET_SECONDS`=7200；`CRAWLER_RUN_HARD_LIMIT_SECONDS`=9000（Phase 6 M1 由 3300／3600 調整；博客來不讀這兩個鍵）；`KINGSTONE_HTTP_TIMEOUT_SECONDS`=`REQUEST_TIMEOUT_SECONDS`；`KINGSTONE_HTTP_MAX_ATTEMPTS`=`MAX_ATTEMPTS`；`KINGSTONE_MAX_RESPONSE_BYTES`=`MAX_RESPONSE_BYTES`。
 - 驗證：秒數必須是有限的數字且 > 0；次數與位元組數必須是十進位整數且 ≥ 1（不接受小數、科學記號或正負號）；空白或只含空白的值視為未設定；`soft < hard`。非法值 raise `KingstoneConfigError`（`ValueError` 子類，caller 對應 exit 2），訊息點名 key。只有被範圍規則拒絕的有限數字會在訊息中回顯；非數字的值一律不回顯。
 - 不在本模組：診斷大小 `KINGSTONE_DIAGNOSTIC_MAX_BYTES`（Phase 6）、`CRAWLER_ALERT_COMMAND`（Phase 6）。
 
@@ -214,6 +215,14 @@ SSM 僅取 DB URL，log／JSON 遮罩；HTML 是原始頁面，PNG 可能含畫�
 
 確認字面差距（#113 前的規格）：舊 §16.9 說 pages 不寫任何來源 last_seen_at，但 `_insert_source` 對新建／附加來源 INSERT 初始化 now；既有來源確實不刷新。見 CB-01，未確認功能 bug。artifact 無清理政策實作，deployment 已明示另管，屬 CB-02 改善提案。EC2、SSM／IAM、GHCR／CD、cron 安裝、來源可抓性本次未驗證（CB-03），不能由設定存在推定已部署。
 
-金石堂（KINGSTONE）目前有清單檔、URL grammar、列表頁與詳細頁 parser、HTTP acquisition、設定、run 帳本與逐頁 run（見「金石堂 adapter」）；入口已組裝（Phase 5 M2），並已加入 crawler 端的 migration shared lock 與 schema preflight（Phase 6 M2）；deploy 端 exclusive lock（M3）、runner（Phase 6）與 acceptance（Phase 7）尚未實作，來源契約與計畫見 [backlog](backlog.md) CB-07。
+**Image**（Phase 6 M1，`crawler/Dockerfile` kingstone target）
+
+- 建置：`docker build --target kingstone -t <tag> crawler/`。這是多階段 Dockerfile 的第一階；最後一階仍是預設 target（博客來），所以未指定 target 的 `docker build`（CD 的 `docker build crawler/`）產生的仍是博客來 image。
+- 內容：`python:3.14-slim-bookworm`；`requirements-runtime.txt`（psycopg、curl_cffi、beautifulsoup4；不含 Playwright 與瀏覽器，未另拆 requirements 檔，版本未變）；`catalog_core/`、`kingstone/`、`kingstone-pages.txt`；UID 10001；`ENTRYPOINT ["python", "-m"]`、`CMD ["kingstone"]`。
+- `.dockerignore` 白名單納入 `kingstone/`、`kingstone-pages.txt`；不納入 `deploy/`、`tests/`。
+- 驗證：靜態測試 `tests/test_kingstone_image.py`（不含 playwright、USER 10001、預設 target 不變）；CI docker job 以 `--network none` 執行離線 smoke（清單可由 image 載入、`import playwright` 因 ModuleNotFoundError 失敗）。本次 M1 在本機未 build（pip 安裝需網路），build 與 smoke 待 CI 驗證。
+- 尚未：CD 推送 `KINGSTONE_CRAWLER_IMAGE` 與 release metadata（見 backlog CB-07）。
+
+金石堂（KINGSTONE）目前有清單檔、URL grammar、列表頁與詳細頁 parser、HTTP acquisition、設定、run 帳本與逐頁 run（見「金石堂 adapter」）；入口已組裝（Phase 5 M2）；HTTP-only image 已建立（Phase 6 M1）；crawler 端的 migration shared lock 與 schema preflight 已加入（Phase 6 M2）；deploy 端 exclusive lock（M3）、runner（Phase 6）與 acceptance（Phase 7）尚未實作，來源契約與計畫見 [backlog](backlog.md) CB-07。
 
 相關：[流程](workflow-diagram.md)／[架構](architecture.md)／[待辦](backlog.md)／[歷史](update-history.md)／[案例](test-suite.md)。

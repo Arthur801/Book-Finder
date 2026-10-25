@@ -18,6 +18,7 @@ from catalog_core.models import ProviderCode
 from kingstone import cli
 from kingstone.acquisition import AcquisitionError, AcquisitionFailure, KingstoneFetcher
 from kingstone.config import KingstoneConfigError
+from kingstone.page_list import MAX_PAGES
 from kingstone.run import SoftBudget
 
 DSN_SECRET = "postgresql://kingstone_user:hunter2@127.0.0.1:1/books"
@@ -147,7 +148,7 @@ def test_a_missing_page_list_exits_2_before_the_fetcher_or_provider(tmp_path):
 
 def test_an_oversized_page_list_exits_2_before_the_fetcher_or_provider(tmp_path):
     harness = Harness(tmp_path)
-    harness.pages.write_text("\n".join(f"https://www.kingstone.com.tw/book/jdc/?dis=list&page={n}" for n in range(1, 202)), encoding="utf-8")
+    harness.pages.write_text("\n".join(f"https://www.kingstone.com.tw/book/jdc/?dis=list&page={n}" for n in range(1, MAX_PAGES + 2)), encoding="utf-8")
 
     assert harness.run() == 2
 
@@ -173,7 +174,7 @@ def test_a_missing_database_url_exits_2_and_logs_no_value(tmp_path, capsys, envi
     "key, value",
     [
         ("KINGSTONE_SOFT_RUN_BUDGET_SECONDS", "abc"),
-        ("KINGSTONE_SOFT_RUN_BUDGET_SECONDS", "4000"),  # not below CRAWLER_RUN_HARD_LIMIT_SECONDS (3600)
+        ("KINGSTONE_SOFT_RUN_BUDGET_SECONDS", "9000"),  # not below CRAWLER_RUN_HARD_LIMIT_SECONDS (9000)
         ("KINGSTONE_WRITE_POLICY", "bogus"),
         ("KINGSTONE_HTTP_MAX_ATTEMPTS", "0"),
     ],

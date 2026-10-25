@@ -20,7 +20,7 @@ def test_the_env_var_name_and_the_default_file_are_the_kingstone_ones():
     assert PAGES_FILE_ENV == "KINGSTONE_PAGES_FILE"
     assert page_list.DEFAULT_PAGES_FILE.name == "kingstone-pages.txt"
     assert page_list.DEFAULT_PAGES_FILE.parent.name == "crawler"
-    assert MAX_PAGES == 200
+    assert MAX_PAGES == 400
 
 
 def test_resolve_pages_file_uses_the_default_for_a_blank_value_and_the_override_otherwise(tmp_path):
@@ -77,31 +77,35 @@ def test_a_file_with_only_comments_is_an_error_naming_the_file(tmp_path):
         load_page_urls(path)
 
 
-def test_exactly_200_distinct_urls_are_accepted(tmp_path):
+def test_exactly_max_pages_distinct_urls_are_accepted(tmp_path):
     lines = "".join(f"{BASE}jdc/?dis=list&page={n}\n" for n in range(1, MAX_PAGES + 1))
     path = write_list(tmp_path, lines.encode())
 
-    assert len(load_page_urls(path)) == 200
+    assert len(load_page_urls(path)) == MAX_PAGES
 
 
-def test_201_distinct_urls_are_an_error(tmp_path):
+def test_max_plus_one_distinct_urls_are_an_error(tmp_path):
     lines = "".join(f"{BASE}jdc/?dis=list&page={n}\n" for n in range(1, MAX_PAGES + 2))
     path = write_list(tmp_path, lines.encode())
 
-    with pytest.raises(PageListError, match=rf"{path!s}: more than 200 distinct Kingstone category list page URLs"):
+    with pytest.raises(PageListError, match=rf"{path!s}: more than {MAX_PAGES} distinct Kingstone category list page URLs"):
         load_page_urls(path)
 
 
-def test_201_lines_that_are_only_200_distinct_urls_after_dedupe_are_accepted(tmp_path):
+def test_max_plus_one_lines_that_are_only_max_distinct_urls_after_dedupe_are_accepted(tmp_path):
     lines = "".join(f"{BASE}jdc/?dis=list&page={n}\n" for n in range(1, MAX_PAGES + 1))
     path = write_list(tmp_path, (lines + f"{BASE}JDC/?dis=list&page=1\n").encode())
 
-    assert len(load_page_urls(path)) == 200
+    assert len(load_page_urls(path)) == MAX_PAGES
 
 
-def test_the_shipped_default_file_has_no_urls_yet_so_loading_it_is_an_error():
-    with pytest.raises(PageListError, match=r"no Kingstone category list page URLs"):
-        load_page_urls(page_list.DEFAULT_PAGES_FILE)
+def test_the_shipped_default_file_loads_within_the_cap_as_first_pages():
+    # The list is the user's and changes over time: pin the rules, not its length or content.
+    urls = load_page_urls(page_list.DEFAULT_PAGES_FILE)
+
+    assert 0 < len(urls) <= MAX_PAGES
+    assert len(set(urls)) == len(urls)
+    assert all(url.startswith(BASE) and url.endswith("/?dis=list&page=1") for url in urls)
 
 
 def test_a_missing_file_is_an_error_naming_the_file(tmp_path):
@@ -120,23 +124,23 @@ def test_sa_desc_and_the_omitted_sort_are_one_page_so_the_list_keeps_one_row(tmp
     assert sum("duplicate" in r.getMessage() for r in caplog.records) == 1
 
 
-def test_the_200_limit_counts_canonical_pages_so_an_sa_desc_twin_does_not_add_one(tmp_path):
+def test_the_limit_counts_canonical_pages_so_an_sa_desc_twin_does_not_add_one(tmp_path):
     lines = "".join(f"{BASE}jdc/?dis=list&page={n}\n" for n in range(1, MAX_PAGES + 1))
     lines += f"{BASE}jdc/?dis=list&page=1&sort=sa_desc\n"
     path = write_list(tmp_path, lines.encode())
 
     urls = load_page_urls(path)
 
-    assert len(urls) == 200
+    assert len(urls) == MAX_PAGES
     assert f"{BASE}jdc/?dis=list&page=1" in urls
 
 
-def test_201_distinct_pages_are_an_error_even_when_one_of_them_has_an_sa_desc_twin(tmp_path):
+def test_max_plus_one_distinct_pages_are_an_error_even_when_one_of_them_has_an_sa_desc_twin(tmp_path):
     lines = "".join(f"{BASE}jdc/?dis=list&page={n}\n" for n in range(1, MAX_PAGES + 2))
     lines += f"{BASE}jdc/?dis=list&page=1&sort=sa_desc\n"
     path = write_list(tmp_path, lines.encode())
 
-    with pytest.raises(PageListError, match=rf"{path!s}: more than 200 distinct"):
+    with pytest.raises(PageListError, match=rf"{path!s}: more than {MAX_PAGES} distinct"):
         load_page_urls(path)
 
 
