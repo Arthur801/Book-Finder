@@ -36,6 +36,20 @@ def ranking_rows(count: int = 100, *, offset: int = 0) -> list[RankingRow]:
     return [RankingRow(rank=rank, url=product_url(offset + rank)) for rank in range(1, count + 1)]
 
 
+class LockGrantingConnection:
+    """Stand-in connection for unit tests whose persistence functions are faked.
+
+    The only statement that reaches it is the shared migration lock (``catalog_core.session``), so every ``execute``
+    answers ``True``: the lock is granted. Real database tests never use this.
+    """
+
+    def execute(self, sql, params=()):
+        return self
+
+    def fetchone(self):
+        return (True,)
+
+
 class FakeSleep:
     """Records the requested backoff delays instead of waiting."""
 

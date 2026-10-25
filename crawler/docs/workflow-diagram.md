@@ -146,16 +146,37 @@ python -m kingstone（於 crawler/ 執行）→ kingstone.cli.main()
   4 load_config(env)：KingstoneConfigError → exit 2
   5 load_page_urls(config.pages_file)：PageListError → exit 2（建立 fetcher 之前）
   6 provider_enabled(DATABASE_URL, KINGSTONE)：psycopg.Error → exit 1；非 True（停用或未註冊）→ exit 2
-  7 budget = SoftBudget(soft)；fetcher = fetcher_factory(config, budget)（預設 KingstoneFetcher，budget_remaining = budget.remaining）
-  8 DatabaseSession（lazy 連線）→ SessionCatalogStore → KingstoneRunDependencies(write_policy = config)
+  7 budget = SoftBudget(soft)；DatabaseSession 第一次存取 conn（取得 shared migration lock，見下節）
+      MigrationLockBusy → exit 1（log「maintenance busy」）；其他 psycopg.Error → exit 1
+  8 missing_schema_prerequisites(conn)：非空 → exit 2（log SCHEMA_PREREQUISITE_MISSING: …）
+  9 fetcher = fetcher_factory(config, budget)（預設 KingstoneFetcher，budget_remaining = budget.remaining）
+      SessionCatalogStore → KingstoneRunDependencies(write_policy = config)
       run_pages(deps, page_urls) → report.exit_code（SUCCESS／PARTIAL_SUCCESS → 0，FAILED → 1）
-  9 finally：fetcher.close()
+  10 finally：fetcher.close()；with 結束時關閉 session
 ```
 
 - 「停用」與「未註冊」都是設定錯誤（exit 2），都不建立 fetcher、不發出請求。
-- Exit 1 只來自步驟 6 的查詢失敗與 run 的 FAILED（包括清單所有頁都被跳過）。
+- 步驟 7、8 失敗時 fetcher 尚未建立，沒有 HTTP、沒有寫入。
+- Exit 1 來自步驟 6、7 的查詢或 busy 失敗與 run 的 FAILED（包括清單所有頁都被跳過，以及 run 中途遇到 migration lock busy）。
 - `CRAWLER_RUN_HARD_LIMIT_SECONDS` 只被讀取與驗證；強制終止由 runner watchdog 執行（Phase 6），本入口不計時、不殺程序。
-- 來源：[cli](../kingstone/cli.py)、[run](../kingstone/run.py)、[config](../kingstone/config.py)、[page_list](../kingstone/page_list.py)、[persistence](../catalog_core/persistence.py)（只讀 `provider_enabled`，寫入由 run 經 store 呼叫）。
+- 來源：[cli](../kingstone/cli.py)、[run](../kingstone/run.py)、[config](../kingstone/config.py)、[page_list](../kingstone/page_list.py)、[persistence](../catalog_core/persistence.py)（`provider_enabled` 與 `missing_schema_prerequisites` 為讀取；寫入由 run 經 store 呼叫）。
+
+## DB session 與 migration lock（所有 provider，Phase 6 M2）
+
+```text
+DatabaseSession.conn（首次存取，或既有連線 closed／broken 時重連）
+  connect()（autocommit）
+  try_acquire_shared(conn)：SELECT pg_try_advisory_lock_shared(2026102501)
+    psycopg.Error → 關閉該連線 → 原樣拋出（service 依既有規則重試）
+    False         → 關閉該連線 → MigrationLockBusy（非 psycopg.Error，service 不重試）
+    True          → 交出連線；之後的 SELECT／INSERT／UPDATE 都在持有 shared lock 的連線上
+```
+
+- Lock 是 session-level：連線關閉即釋放；因此 migration（deploy 端的 exclusive holder）存在時，crawler 不能開始寫入，而寫入中的連線若被切斷，重連時必須重新取得。
+- Books：`run_once`、`run_first_book`、`run_pages` 的 `MigrationLockBusy` 落在各自的 `except Exception`，run 以 FAILED 結束，error 含 `migration lock busy`；已 commit 的 Book 保留，其他列不變。
+- 金石堂：首次連線 busy → 入口 exit 1；run 中途 busy → `run_pages` 的 fatal → FAILED，exit 1；已 commit 的 Book 保留，下次 replay。
+- 本節只描述 crawler 端。deploy 端的 exclusive 取得（`deploy/host/bookfinder_host/`）屬 M3，尚未實作。
+- 來源：[session](../catalog_core/session.py)、[migration_lock](../catalog_core/migration_lock.py)、[store](../catalog_core/store.py)；測試 CR-T19。
 
 ## 金石堂逐頁 run（Phase 4 M2）
 
