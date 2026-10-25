@@ -55,8 +55,6 @@ Phase 2 留下的待辦已記入 `crawler/docs/backlog.md` CB-07「Phase 2 留�
 - 作者值含 `/` 一律視為角色前綴（`角色/姓名`）；真實作者名含 `/` 時會被拆錯。E0 沒有此情形，出現時再定規則。
 - 規格表「分級」欄（限制級辨識）尚未讀取；E0 的 7 本都是「普通級」，待有限制級 fixture 再定。
 
-另外一項**不在 backlog 中**，需要使用者決定：草稿曾記為「`kingstone/page_list` 傳入 `kingstone.page_list` logger」已修正，但目前程式未落地。`kingstone/page_list.py` 呼叫 `load_url_list` 時沒有傳 `logger`，重複 URL 的 INFO 仍記在 `catalog_core.page_list`。此項未修，也未列入 CB-07；是否補進 backlog 或改程式待決定。
-
 review 修正後，文件與程式的差異已消除：TOC 改為「保留出版社原文內容，只做與簡介相同的換行與空白正規化」；totals 改為格式不合記 WARNING 並為 None，不是 parse error。
 
 Phase 3 以後未實作：acquisition（fetch／pacing）、run、ingestion、runner、Dockerfile 納入 `kingstone/`。
@@ -76,7 +74,7 @@ Phase 3 以後未實作：acquisition（fetch／pacing）、run、ingestion、ru
 | Standards | `km_code_from_href` 的 query regex 在函式內現場 compile | `55b5ee9`（改為模組層常數 `_QUERY_CHARS`） |
 | Standards | `parse_detail` soft-404 分支的區域變數 `title` 與書名同名 | `55b5ee9`（改名 `page_title`） |
 | Standards | `_contributors` 中 `label_tag is not None` 為冗餘條件 | `55b5ee9`（迴圈開頭 `if label_tag is None: continue`，行為不變） |
-| Standards | `kingstone/page_list` 未傳 logger，重複行 INFO 記在 `catalog_core.page_list` | **未落地**，見未解決事項；草稿原記為已修，已更正 |
+| Standards | `kingstone/page_list` 未傳 logger，重複行 INFO 記在 `catalog_core.page_list` | M4 補修（`kingstone/page_list` 傳入 `kingstone.page_list` logger）：原在舊 M4 修正 `ae0fdfa`，拆回各 PR 時漏搬，撰寫本報告時發現 |
 | Standards | `load_url_list` 的 label 參數過多（Data Clumps） | 保留：三個參數保留博客來原本的用語，包成型別沒有減少呼叫端資訊 |
 | Standards | `resolve_pages_file` 在兩個 provider 重複 | 保留：僅 3 行，各 provider 預設檔不同 |
 | Standards | `_KM_CODE`／`_DIGITS` 等小常數跨模組重複 | 保留：各為一行 regex，抽出只增加耦合 |
