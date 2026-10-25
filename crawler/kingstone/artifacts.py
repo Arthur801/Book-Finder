@@ -147,13 +147,21 @@ def read_history(history_dir: Path) -> list[dict[str, Any]]:
     An entry that is not a JSON object with a run_id, a tz-aware finished_at, a status and a count (or null) is skipped
     with a WARNING on ``kingstone.artifacts``. Never raises.
     """
+    return _read_history(history_dir)[0]
+
+
+def _read_history(history_dir: Path) -> tuple[list[dict[str, Any]], int]:
+    """``read_history`` plus the number of unreadable entries (their place in time is unknown)."""
     entries: list[tuple[datetime, dict[str, Any]]] = []
+    unreadable = 0
     for path in _history_files(history_dir):
         entry = _read_entry(path)
-        if entry is not None:
+        if entry is None:
+            unreadable += 1
+        else:
             entries.append((_finished(entry), entry))
     entries.sort(key=lambda pair: pair[0], reverse=True)
-    return [entry for _, entry in entries]
+    return [entry for _, entry in entries], unreadable
 
 
 class KingstoneArtifacts:
@@ -171,13 +179,20 @@ class KingstoneArtifacts:
 
         Returns the alert reasons (possibly empty). Write failures are logged at ERROR and do not raise.
         """
-        history = read_history(self.history_dir)
+        history, unreadable = _read_history(self.history_dir)
+        if unreadable:
+            # An unreadable entry may be one of the last runs, and its count is unknown: skipping it could join two
+            # older entries into a false streak. The streak is not evaluated at all (under-reporting over a false alarm).
+            log.warning("pages_not_reached streak not evaluated: %d unreadable history entr%s", unreadable, "y" if unreadable == 1 else "ies")
+            streak = False
+        else:
+            streak = pages_not_reached_streak(record["pages_not_reached"], history)
         reasons = alert_reasons(
             status=str(record["status"]),
             reason=record["reason"],
             pages_completed=int(record["pages_completed"]),
             zero_card_pages=int(record["zero_card_pages"]),
-            streak_reached=pages_not_reached_streak(record["pages_not_reached"], history),
+            streak_reached=streak,
         )
         final = _redact_tree({**record, "alert_reasons": reasons})
 

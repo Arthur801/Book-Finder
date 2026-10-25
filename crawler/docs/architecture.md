@@ -194,7 +194,7 @@
   - `zero_card_pages`：`pages_completed > 0` 且每一個完成的頁都是 0 張卡。
   - `pages_not_reached_streak`：見下。
   - `challenge`：**未實作**。acquisition 回 200 body，parser fail closed，沒有 challenge fixture 可以區分它與其他無法解析的頁；待 fixture 後再加（見 [backlog](backlog.md) CB-07）。不做猜測性的偵測。
-- streak（`pages_not_reached`）：視窗 = 本次 + history 中最新兩份可讀摘要（依 `finished_at`，新到舊）。本次或任一摘要的 count 為 0 即重設；本次 count 為 null（pre-run）或視窗中有 null、缺漏、無法讀取的項目，不成立，不 alert。連續第 1、2 次 > 0 不 alert，第 3 次起（含之後持續 > 0）alert。缺漏與壞檔不計入視窗（寧可少報）；但一個被略過的壞檔可能讓視窗跨過它而接上較舊的摘要，這個已知限制可能造成誤報，屬於「不算入」規則的直接結果。
+- streak（`pages_not_reached`）：視窗 = 本次 + history 中最新兩份可讀摘要（依 `finished_at`，新到舊）。本次或任一摘要的 count 為 0 即重設；本次 count 為 null（pre-run）或視窗中有 null、缺漏、無法讀取的項目，不成立，不 alert。連續第 1、2 次 > 0 不 alert，第 3 次起（含之後持續 > 0）alert。缺漏不計入視窗（寧可少報）。history 中只要有任何一份無法讀取，本次就不判定 streak（記一行 WARNING `streak not evaluated`）：壞檔的時間位置未知，略過它可能讓視窗接上較舊的摘要而誤報。
 - ALERT 行：`alert_reasons` 非空時，CLI 在寫入之後記一行 WARNING `ALERT reasons=<逗號分隔> last_run=<last-run.json 路徑>`（logger `kingstone.cli`）。沒有 `CRAWLER_ALERT_COMMAND`，沒有外部送達。
 - 診斷檔（`DiagnosticWriter`）：`save_html(kind=, code=, html=)` 把 UTF-8 body 寫到 `kingstone/diagnostics/`，檔名 `<%Y%m%dT%H%M%S%fZ>-<kind>-<code>.html`（code 只保留英數字；同一微秒內的第二份取下一個微秒，保證時間序）。不存 headers、cookies、URL 以外的 metadata。超過 `KINGSTONE_DIAGNOSTIC_MAX_BYTES` 的 body 在 UTF-8 字元邊界截斷，檔尾附一行 `<!-- diagnostic truncated … -->`，註記計入上限（檔案總大小 ≤ 上限；上限小於註記長度時只保留完整字元）。只保留最近 20 份（依檔名，即時間序）。寫檔失敗只記 WARNING，不影響 run。存檔的條件只有列表頁與詳細頁的 `KingstoneParseError`；soft 404 與 acquisition 失敗不存。
 

@@ -62,7 +62,7 @@
 - Phase 6 M5 留下的待辦：
   - challenge／CAPTCHA 偵測未實作：acquisition 回 200，parser fail closed，無法與其他無法解析的頁區分；待收錄 challenge fixture 後定義分類與 `challenge` alert reason（不做猜測性偵測）。
   - runner 端的 orphan alert（`ORPHAN_WRITER`）屬 Phase 6 M4；runner 也要把 artifacts 目錄掛入 container（目前程式只使用 `KINGSTONE_ARTIFACTS_DIR`）。
-  - `pages_not_reached` streak 的已知限制：被略過的壞 history 檔不參與視窗，視窗可能跨過它接上較舊的摘要，於是可能誤報；若要消除需另定 history 的完整性規則。
+  - `pages_not_reached` streak：history 有壞檔時不判定 streak（少報）；壞檔會留到被 20 份上限擠掉為止，期間 streak alert 不會觸發，需要人工刪除壞檔才恢復。
   - 「provider 停用或未註冊」的 pre-run 結果以 `failed` alert 表達（status FAILED，exit 2）。這是實作決定，若只想對執行失敗告警需另定。
   - `items_listed` 是解析去重後的卡片數（同頁重複的 km_code 只計一次），與計畫 §8「items listed」的字面定義一致，但不等於頁面上可見的卡片總數。
 - Phase 6 M1 留下的待辦：

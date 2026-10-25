@@ -17,8 +17,9 @@ An all-Existing run that completed its pages triggers nothing.
 Streak rule. The window is this run plus the two most recent readable history entries, newest first. Any entry whose
 ``pages_not_reached`` is 0 resets the streak. Entries that are missing, unreadable, or have no count (a pre-run
 result) are not in the window: the streak is then not established, so no alert is raised (under-reporting is
-preferred to a false alarm). An unreadable entry is skipped, not treated as a reset, so a corrupt file between two
-runs can in principle allow an alert that the missing run would have prevented.
+preferred to a false alarm). When any history entry is unreadable, ``KingstoneArtifacts.publish`` does not evaluate
+the streak at all: the unreadable entry could be one of the last runs, and skipping it could join older entries into a
+false streak.
 """
 
 from __future__ import annotations

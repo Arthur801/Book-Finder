@@ -312,6 +312,19 @@ def test_a_broken_history_entry_is_not_counted_in_the_streak(tmp_path, caplog):
     assert any("run-01.json" in r.getMessage() for r in caplog.records if r.levelno == logging.WARNING)
 
 
+def test_an_unreadable_entry_stops_the_streak_check_so_older_entries_cannot_bridge_a_reset(tmp_path, caplog):
+    store = KingstoneArtifacts(tmp_path)
+    run_sequence(store, [2, 0, 2])  # run-01 reset the streak
+    (store.history_dir / "run-01.json").write_text("garbage", encoding="utf-8")
+
+    with caplog.at_level(logging.WARNING, logger="kingstone.artifacts"):
+        reasons = store.publish(record_for(2, run_id="run-03", minutes=4))
+
+    # Skipping run-01 would leave run-03, run-02 and run-00 all above 0: a false streak. It is not evaluated.
+    assert reasons == []
+    assert any("streak not evaluated" in r.getMessage() for r in caplog.records if r.levelno == logging.WARNING)
+
+
 def test_a_pre_run_result_with_no_page_count_does_not_count_and_does_not_reset(tmp_path):
     store = KingstoneArtifacts(tmp_path)
     run_sequence(store, [2, 2])

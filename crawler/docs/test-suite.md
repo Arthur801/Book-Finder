@@ -355,7 +355,7 @@ migration 011 的 schema 由 test_db_integration.py 在 011 上檢查（無 `sou
 - **Given**：由真實 ledger 建立的 report（完成、跳過、interrupted、not reached 的頁；Existing、Imported、Failed 卡；HTTP 計數）；pre-run record；含 DSN 與密碼的訊息；history 檔（上限測試用 25 次 publish；壞檔為非 JSON、非物件、缺欄位、無時區、count 型別錯誤）；連續的 `pages_not_reached` 序列；`os.replace` 或目錄建立失敗。
 - **When**：`KingstoneArtifacts.publish`、`read_history`、`atomic_write_json`，以及 `record_from_report`、`record_pre_run`。
 - **Then**：last-run 含 v12 §8 的欄位（run、provider、status、exit、pages listed／completed／skipped（含原因）／interrupted／not reached、items listed、details fetched、existing、imported、isbn attached、ambiguous、policy skipped、recovered commit、failed items、HTTP attempts／failures、write policy、zero progress reason、alert reasons、started／finished ISO 8601）；所有字串經 redact，檔案中不出現密碼與 DSN；原子寫入失敗時舊檔保留、無殘留 temp 檔；寫入過程 fsync；history 最多 20 份，超過刪最舊，依 `finished_at` 排序（不依檔名）；壞檔略過並各記一行 WARNING，缺資料夾為空歷史；streak：第 1、2 次 `pages_not_reached > 0` 不 alert，第 3 次 alert，之後持續 alert；中間一次為 0 即重設；本次先於寫入計算，本次不被算兩次（history 寫入後正好多一份）；壞檔不計入 streak；pre-run（null）不計入也不重設；寫入失敗（`kingstone` 路徑是檔案）記 ERROR 一行並仍回傳 alert reasons。
-- **來源與狀態**：[test_kingstone_artifacts.py](../tests/test_kingstone_artifacts.py)（17 個測試）。已知驗證缺口：真實磁碟的斷電一致性未驗證（只驗證 fsync 呼叫與失敗路徑）；壞檔在視窗中間時的誤報限制（見 [backlog](backlog.md) CB-07 Phase 6 M5 待辦）未有測試，只以文件說明。
+- **來源與狀態**：[test_kingstone_artifacts.py](../tests/test_kingstone_artifacts.py)（18 個測試；含 history 有壞檔時不判定 streak、舊摘要無法跨過被重設的那次而誤報）。已知驗證缺口：真實磁碟的斷電一致性未驗證（只驗證 fsync 呼叫與失敗路徑）。
 
 ### CR-K14 — 金石堂 alert reasons（Phase 6 M5）
 
