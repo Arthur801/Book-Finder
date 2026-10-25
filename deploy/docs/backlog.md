@@ -46,7 +46,7 @@
 - **狀態**：已確認缺口（營運觀察，2026-10-24 手動試跑失敗；2026-10-25 整理時 production 仍為 `CRAWLER_ENABLED=false`，v0.0.6、v0.0.7 發布後仍停用）；待決策（替代資料管道）。
 - **證據與影響**：runbook [§7.2 #19](../README.md) 記錄；[deployment.md §8](../../Docs/deployment/deployment.md) 要求「啟用排程前須在 EC2 實測」，被擋下時「不啟用排程，評估授權資料管道」；`run-crawler.sh` 在 `CRAWLER_ENABLED=false` 時於任何鎖之前 exit 0 並輸出 `skipped=disabled`（[run-crawler.sh](../../crawler/deploy/run-crawler.sh) 第 53 行起）。影響：每日榜單不更新，`bestseller` 資料停止新增。
 - **spec／source**：`Docs/deployment/deployment.md` §8；`Docs/modules/crawler.md` §12；[crawler/deploy/README.md §5.1](../../crawler/deploy/README.md)。
-- **調查方向**：(1) 在 EC2 上以唯讀方式執行一次 `run-crawler.sh daily`，記錄是否取得頁面（需授權）；(2) 若仍被擋，需要產品與授權層級的決策：替代資料來源、授權管道、或維持停用。AGENTS §1.3 Crawler 自 `3101dd1`（#108）起已允許 browser stealth、`navigator.webdriver` 修補、CAPTCHA 代解或代理 IP 輪替；是否採用、採用哪一種仍是本項的待決策事項，且真實抓取驗證須有當前任務授權。
+- **調查方向**：(1) 在 EC2 上以唯讀方式執行一次 `run-crawler.sh daily`，記錄是否取得頁面（需授權）；(2) 若仍被擋，需要產品與授權層級的決策：替代資料來源、授權管道、或維持停用。抓取政策自 `3101dd1`（#108）起已允許（現由 [crawler 架構](../../crawler/docs/architecture.md)「核心不變條件」持有） browser stealth、`navigator.webdriver` 修補、CAPTCHA 代解或代理 IP 輪替；是否採用、採用哪一種仍是本項的待決策事項，且真實抓取驗證須有當前任務授權。
 - **前置決策**：是否接受停用期間的榜單缺口；替代資料來源是否需要獨立 ADR（AGENTS §2.4）。
 - **驗收條件**：(a) 在 EC2 手動執行成功並取得 `ranking_count=100`（依 crawler/deploy/README §6）；(b) 將 `CRAWLER_ENABLED` 改為 `true` 後，排程至少觀察一次成功；(c) 若選擇替代管道，有 ADR 與對應規格。
 - **測試入口**：DEP-CRW-GATE-07、DEP-CRW-GATE-08（`CRAWLER_ENABLED` 的 true、false 與非法值）；DEP-PROD-02（營運觀察）。真實抓取測試需當前任務授權。

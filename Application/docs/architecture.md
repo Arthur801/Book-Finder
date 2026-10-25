@@ -54,6 +54,24 @@ Application-level policy 包含 [LibraryService.AddPendingAsync](../Library/Libr
 
 [BookBrowseService](../Catalog/BookBrowseService.cs) 只做頁碼下限（`page < 1` 視為第 1 頁）與固定參數（每頁 20 筆、首頁樣本 10 筆），其餘交 [IBookBrowse](../Catalog/IBookBrowse.cs)。`ListAsync` 回傳全部書籍（依出版日新到舊、無日期居後、Id 決定順序）；`SampleAsync` 回傳隨機書籍，供首頁使用。兩者只查 Local Database，不使用 embedding、LLM 或 Google Books，也不讀 Bestseller rank。[BookBrowseItem](../Catalog/BookBrowsePage.cs) 與 BookSearchHit 刻意分開定義，書庫的 contract 不與搜尋共用。
 
+## 核心不變條件
+
+以下條件原列於 root `AGENTS.md` §1.3（`f6ac094` 以前），AGENTS.md 改為 router 後改由本模組持有；修改任一條件須先提出規格變更，不可靜默改行為。
+
+**AI 推薦**
+
+- 必須登入；每位使用者每日上限 20 次，達上限時不呼叫任何外部服務。
+- Local DB 為優先候選來源。硬條件過濾只來自使用者明確提到的條件，不確定就不加。LLM 只輸出結構化 filter，不產生或執行 SQL。
+- Candidate Set = 通過硬條件**且** similarity ≥ 門檻的書；不相關的書不得成為候選。
+- Candidate Set `< 5` 才允許 Google Books fallback。Google Books 結果必須 normalize 並寫入系統資料模型、產生 embedding、通過同樣的過濾與門檻後才能成為 Candidate（目前未實作，見 APP-B01）。
+- AI 只能推薦 Candidate Set 中存在的 Book；每次最多 10 本，可為 0 本。
+- Bestseller rank 不得直接作為 AI relevance ranking；排序不讀 Book AI Profile。
+- 只保存成功的 Recommendation Search。
+
+**一般搜尋**：只查 Local Database，不使用 embedding 或 LLM；結果為空也不自動呼叫 Google Books。
+
+**Book 內容顯示**：description 與 table of contents 不論來源都只供 AI 推薦讀取，不得顯示在任何頁面或出現在 API 回應中；完整介紹以外部連結導向來源網站（BOOK-05）。AI 推薦理由不得大段引用簡介或目錄原文。Web 邊界的對應規則見 [Controllers 架構 §5](../../Controllers/docs/architecture.md)。
+
 ## 安全、公開內容與一致性
 
 身份與CSRF由Web驗證；Library/history每次帶userId，但service不驗JWT，不能獨立視為authorization boundary。AccountService回User entity，caller不可直接序列化，以免PasswordHash外洩。
