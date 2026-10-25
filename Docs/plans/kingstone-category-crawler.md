@@ -17,7 +17,7 @@ Out of scope：分類樹 discovery、自動跟分頁、跨 run 進度狀態檔�
 
 ## 2. E0 — Source evidence（已完成）
 
-2026-10-25 使用者授權有限真站抓取（循序、上限約 60 次、不登入、不代解 CAPTCHA、不用 proxy），實際使用 31 次，沒有 429、challenge、Retry-After 或登入頁。凍結結果寫在 `crawler/docs/architecture.md`「金石堂 source contract」，重點：
+2026-10-25 使用者授權有限真站抓取（循序、上限約 60 次、不登入、不代解 CAPTCHA、不用 proxy），實際使用 31 次，沒有 429、challenge、Retry-After 或登入頁。凍結結果寫在 `crawler/docs/backlog.md`「CB-07 來源契約」（尚未實作，實作後依實際行為移入 architecture／workflow-diagram），重點：
 
 - Acquisition：`HTTP_ONLY`；origin 只有 `https://www.kingstone.com.tw`；循序請求，每次請求（含重試）前隨機等待 **3～10 秒**（使用者依 E0 證據決定）。
 - 列表頁：`/book/<code>/?dis=list&page=<n>[&sort=<key>]`；商品卡在 `section#allProducts` 內的 `.mod_prod_card[data-prodno]`，每頁最多 48 張；頁碼超過總頁數時是合法空頁（「此分類沒有相關商品唷！」）。卡片沒有 ISBN，New Source 一定要抓詳細頁。
