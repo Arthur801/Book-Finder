@@ -171,7 +171,7 @@ class KingstoneLedger:
         self._open = url
         self._open_items = 0
 
-    def record_item(self, url: str, result: ItemResolved | ItemFailed, *, source_url: str, external_id: str) -> None:
+    def record_item(self, url: str, result: ItemResolved | ItemFailed | ItemPolicySkipped, *, source_url: str, external_id: str) -> None:
         """One card of the open page reached its outcome."""
         if url != self._open:
             raise ValueError(f"items must be recorded for the open page, not {url}")

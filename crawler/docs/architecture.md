@@ -120,7 +120,7 @@
 
 **Run 帳本與 terminal status**（`kingstone/ledger.py`，Phase 4 M1）
 
-- `KingstoneLedger(page_urls, write_policy)` 依清單順序記帳，一次只允許一頁開啟；`write_policy` 只用於 `report`（寫入 `KingstoneReport.write_policy`），不影響計數或 status。呼叫順序：`page_started(url)`（頁已取得並解析）→ 每張卡一次 `record_item(url, result, source_url=, external_id=)`（`result` 為 `ItemResolved` 或 `ItemFailed`）→ `page_completed(url)`；頁無法取得或解析時改為 `record_page_skipped(SkippedPage)`；`stop_for_budget()` 之後不再開始或跳過任何頁。違反順序（未列出的 URL、重複處理、在開啟的頁之外記卡片、budget 之後開始頁）raise `ValueError`。
+- `KingstoneLedger(page_urls, write_policy)` 依清單順序記帳，一次只允許一頁開啟；`write_policy` 只用於 `report`（寫入 `KingstoneReport.write_policy`），不影響計數或 status。呼叫順序：`page_started(url)`（頁已取得並解析）→ 每張卡一次 `record_item(url, result, source_url=, external_id=)`（`result` 為 `ItemResolved`、`ItemFailed` 或 `ItemPolicySkipped`）→ `page_completed(url)`；頁無法取得或解析時改為 `record_page_skipped(SkippedPage)`；`stop_for_budget()` 之後不再開始或跳過任何頁。違反順序（未列出的 URL、重複處理、在開啟的頁之外記卡片、budget 之後開始頁）raise `ValueError`。
 - 頁的狀態：completed（每張卡都已有結果）、skipped（`SkippedPage`：url、reason、message、attempts；reason 由 run 提供，帳本不解讀）、interrupted（已開始、未完成；`stop_for_budget` 或致命錯誤時仍開啟的頁）、not reached（清單中既未開始也未跳過的頁，`pages_not_reached = 清單數 − completed − interrupted − skipped`）。
 - 卡片計數：`ItemResolved` 依 `CatalogResolution` 計入 `existing_source`、`imported`、`isbn_attached`、`ambiguous_created`；`ItemPolicySkipped`（`new-books-only` 的 ISBN 命中 1 本）計入 `policy_skipped_count`，是已處理的卡，不是失敗、不進 `failed_items`；`ItemFailed` 計入 `failed` 並保存 `FailedItem`（list_url、source_url、external_id、reason、message、attempts）。`KingstoneReport` 另含 `write_policy`。`recovered_commit_count` 計 `recovered_commit=True`；`identity_warning_count` 計任何帶 `identity_warning` 的結果。`items_seen` 為 `record_item` 次數。
 - `zero_card_pages`：完成、但 0 張卡的頁數（合法空頁，是成功頁）。
