@@ -299,7 +299,7 @@ git log --reverse --no-merges --format='@@%h' --numstat -- <同上路徑>
 
 | 日期 | SHA | 主旨 | 影響檔案（+/-） | diff 摘要 |
 |---|---|---|---|---|
-| 2026-10-25 | 本次 commit | test(deploy): compare the migration lock key with the crawler side | `host/bookfinder_host/locks.py`（註解）、`tests/host/test_locks.py`、`deploy/docs/*`、`crawler/docs/architecture.md` | 新增 `deploy/tests/host/test_locks.py::test_catalog_migration_lock_key_matches_the_crawler_side`，以 `ast` 讀取 crawler 端常數並比對；DEP-B22 移到已處理；test-suite 新增 DEP-MIGLOCK-38 |
+| 2026-10-25 | `18cc754` | test(deploy): compare the migration lock key with the crawler side | `host/bookfinder_host/locks.py`（註解）、`tests/host/test_locks.py`、`deploy/docs/*`、`crawler/docs/architecture.md` | 新增 `deploy/tests/host/test_locks.py::test_catalog_migration_lock_key_matches_the_crawler_side`，以 `ast` 讀取 crawler 端常數並比對；DEP-B22 移到已處理；test-suite 新增 DEP-MIGLOCK-38 |
 
 本段的命令與結果：`pytest deploy/tests .github/scripts/tests` 全過；ruff check 與 format check 通過。負向驗證：crawler 端改為 `2026102502` 時斷言失敗；移走檔案時 `FileNotFoundError`。
 
