@@ -7,10 +7,14 @@ Two layers, so the policy can be tested with a fake transport:
 - ``KingstoneFetcher``: the policy. It accepts only the URLs in ``kingstone.urls``, paces every request, retries the
   transient failures and turns every outcome into either a page body or an ``AcquisitionError``.
 
-Waiting rules. Pacing, retry backoff and Retry-After are all lower bounds on the time since the previous request
-ended, so the wait before a request is the largest of them, not their sum. Pacing is sampled for every request,
-retries included. A wait larger than the remaining budget fails with ``BUDGET_EXHAUSTED`` before anything sleeps or
-is sent.
+Waiting rules. Before each request (retries included) the wait is the larger of two bounds, not their sum:
+
+- pacing: the sampled delay, counted from the end of the previous request;
+- retry floor: the backoff, or Retry-After when the server sent one, counted from the moment the failed response
+  (or error) was received. It is not reduced by any time that passed afterwards.
+
+The budget is checked before every request, including one that needs no wait. A remaining budget of zero or less, or a
+wait larger than the remaining budget, fails with ``BUDGET_EXHAUSTED`` before anything sleeps or is sent.
 
 Deliberately absent: challenge or CAPTCHA detection (a 200 page is returned and the parser fails closed), cookie
 persistence, a browser and diagnostic files.
@@ -19,7 +23,6 @@ persistence, a browser and diagnostic files.
 from __future__ import annotations
 
 import email.utils
-import ipaddress
 import logging
 import math
 import random
@@ -32,13 +35,13 @@ from typing import Any, Protocol
 from urllib.parse import urlsplit
 
 from curl_cffi import requests as curl_requests
+from curl_cffi.const import CurlECode, CurlOpt
 from curl_cffi.requests import exceptions as curl_exceptions
 
-from kingstone.urls import canonical_list_url, km_code_from_detail_url
+from kingstone.urls import SITE_HOST, canonical_list_url, km_code_from_detail_url
 
 log = logging.getLogger("kingstone.acquisition")
 
-_HOST = "www.kingstone.com.tw"
 _ACCEPT_LANGUAGE = "zh-TW,zh;q=0.9"
 _LIST_REJECTED = "not an accepted Kingstone category list page URL"
 _DETAIL_REJECTED = "not an accepted Kingstone detail page URL"
@@ -48,6 +51,7 @@ REQUEST_TIMEOUT_SECONDS = 30
 MAX_BACKOFF_SECONDS = 60
 MAX_RETRY_AFTER_SECONDS = 120
 MAX_RESPONSE_BYTES = 5 * 1024 * 1024
+_LIBCURL_SIZE_CAP = {CurlOpt.MAXFILESIZE_LARGE: MAX_RESPONSE_BYTES}
 MIN_PAGE_DELAY_SECONDS = 3
 MAX_PAGE_DELAY_SECONDS = 10
 BACKOFF_BASE_SECONDS = 5
@@ -107,13 +111,16 @@ class Transport(Protocol):
 class CurlTransport:
     """The production transport: curl_cffi Chrome impersonation, redirects not followed, TLS verification on.
 
-    The body is streamed and counted, so a response is never read past ``max_bytes``. Timeouts and connection
-    failures map to the retryable transport exceptions. TLS failures are not retried: a certificate problem does
-    not go away on a second request, so they propagate unchanged and the fetcher reports them as ``TRANSPORT``.
+    Two bounds on the body. libcurl's ``MAXFILESIZE_LARGE`` is set on the session at construction to
+    ``MAX_RESPONSE_BYTES``; when libcurl aborts with ``FILESIZE_EXCEEDED`` (63) that becomes ``ResponseTooLarge``. The
+    body is also streamed and counted against the per-call ``max_bytes``, so a response is never buffered past it,
+    whatever libcurl does. Timeouts and connection failures map to the retryable transport exceptions. TLS failures are
+    not retried: a certificate problem does not go away on a second request, so they propagate unchanged and the
+    fetcher reports them as ``TRANSPORT``.
     """
 
     def __init__(self, *, session: Any | None = None) -> None:
-        self._session = session if session is not None else curl_requests.Session(impersonate="chrome")
+        self._session = session if session is not None else curl_requests.Session(impersonate="chrome", curl_options=_LIBCURL_SIZE_CAP)
 
     def get(self, url: str, *, timeout: float, max_bytes: int) -> RawResponse:
         try:
@@ -124,6 +131,10 @@ class CurlTransport:
             raise
         except curl_exceptions.ConnectionError as exc:
             raise TransportConnectionError(type(exc).__name__) from exc
+        except curl_exceptions.RequestException as exc:
+            if exc.code == CurlECode.FILESIZE_EXCEEDED:
+                raise ResponseTooLarge(f"libcurl stopped the body at {MAX_RESPONSE_BYTES} bytes") from exc
+            raise
 
     def _fetch(self, url: str, *, timeout: float, max_bytes: int) -> RawResponse:
         response = self._session.get(
@@ -171,14 +182,17 @@ class KingstoneFetcher:
     """Paced, bounded HTTP for Kingstone pages. Sequential: one request at a time, one pacing clock per instance.
 
     - Only the URL grammar in ``kingstone.urls`` is requested; anything else is ``ValueError`` before any request.
-    - Each request (retries included) waits until ``sample_delay()`` seconds have passed since the previous request
-      ended. The first request waits too.
+    - Each request (retries included) waits ``max(sample_delay() - seconds since the previous request ended, floor)``.
+      The first request has no previous request, so its pacing term is the full sampled delay. The floor is 0 except
+      on a retry.
     - Up to ``MAX_ATTEMPTS`` requests. Retried: timeouts, connection failures, and HTTP 429, 500, 502, 503, 504.
-      The backoff before retry N is ``backoff_seconds(N)``. A 429 or 503 Retry-After (seconds or HTTP-date, read
-      against ``wall_clock``) raises the floor to ``max(backoff, Retry-After)``. Retry-After above
-      ``MAX_RETRY_AFTER_SECONDS`` fails at once. A Retry-After on the last attempt has nothing to delay, so it is
-      ignored there and the request fails as plain retry exhaustion.
-    - Any wait above ``budget_remaining()`` fails with ``BUDGET_EXHAUSTED`` before sleeping or sending.
+      The floor for retry N is ``backoff_seconds(N)``; it is counted from the moment the failed response or error
+      was received. A 429 or 503 Retry-After (seconds or HTTP-date, read against ``wall_clock``) raises the floor to
+      ``max(backoff, Retry-After)``, counted from the same moment. Retry-After above ``MAX_RETRY_AFTER_SECONDS`` fails
+      at once. A Retry-After on the last attempt is not read: there is nothing to delay, so the request fails as plain
+      retry exhaustion.
+    - The budget is checked before every request. ``budget_remaining()`` at or below 0, or a wait above it, fails with
+      ``BUDGET_EXHAUSTED`` before sleeping or sending.
     - Redirects are never followed: a 3xx is ``REDIRECT``. Other 4xx are ``HTTP_STATUS`` and are not retried.
     - A 200 body must be strict UTF-8, otherwise ``DECODE_ERROR``. Page content (challenges, CAPTCHA, restricted
       pages) is not judged here; the parser fails closed on it.
@@ -231,7 +245,7 @@ class KingstoneFetcher:
                 continue
             except ResponseTooLarge as exc:
                 log.info("GET %s error=ResponseTooLarge attempt=%d", url, attempt)
-                raise AcquisitionError(AcquisitionFailure.OVERSIZE, f"GET {url} response exceeds {MAX_RESPONSE_BYTES} bytes", attempt) from exc
+                raise _oversize(url, attempt) from exc
             except Exception as exc:
                 log.info("GET %s error=%s attempt=%d", url, type(exc).__name__, attempt)
                 raise AcquisitionError(AcquisitionFailure.TRANSPORT, f"GET {url} failed: {type(exc).__name__}", attempt) from exc
@@ -239,7 +253,7 @@ class KingstoneFetcher:
             status = response.status
             log.info("GET %s status=%d bytes=%d attempt=%d", url, status, len(response.body), attempt)
             if len(response.body) > MAX_RESPONSE_BYTES:
-                raise AcquisitionError(AcquisitionFailure.OVERSIZE, f"GET {url} response exceeds {MAX_RESPONSE_BYTES} bytes", attempt, status)
+                raise _oversize(url, attempt, status)
             if status == 200:
                 return _decode(url, response.body, attempt)
             if 300 <= status < 400:
@@ -278,10 +292,11 @@ class KingstoneFetcher:
     def _wait_before_request(self, floor: float, *, url: str, sent: int) -> None:
         elapsed = 0.0 if self._last_finished is None else self._clock() - self._last_finished
         wait = max(self._sample_delay() - elapsed, floor)
+        remaining = self._budget_remaining()
+        if remaining <= 0 or wait > remaining:
+            raise AcquisitionError(AcquisitionFailure.BUDGET_EXHAUSTED, f"GET {url} needs a {wait:.1f}s wait, more than the remaining budget", sent)
         if wait <= 0:
             return
-        if wait > self._budget_remaining():
-            raise AcquisitionError(AcquisitionFailure.BUDGET_EXHAUSTED, f"GET {url} needs a {wait:.1f}s wait, more than the remaining budget", sent)
         self._sleep(wait)
 
     def _retry_after_seconds(self, headers: Mapping[str, str]) -> float | None:
@@ -290,10 +305,8 @@ class KingstoneFetcher:
         if raw is None:
             return None
         value = raw.strip()
-        if re.fullmatch(r"[0-9]{1,9}", value):
-            return float(value)
         if re.fullmatch(r"[0-9]+", value):
-            return float(MAX_RETRY_AFTER_SECONDS + 1)  # absurdly large: over the limit without parsing it
+            return float(value)
         try:
             when = email.utils.parsedate_to_datetime(value)
         except TypeError, ValueError, IndexError:
@@ -316,7 +329,10 @@ def _require_detail_url(url: str) -> None:
 
 
 def _require_site_origin(url: object, message: str) -> None:
-    """HTTPS, host exactly ``www.kingstone.com.tw``, no userinfo, no port, not an IP literal. Non-strings are rejected."""
+    """HTTPS, host exactly ``SITE_HOST``, no userinfo, no port. Non-strings are rejected.
+
+    The host is compared as an exact string, so an IP literal (which can never equal ``SITE_HOST``) is rejected too.
+    """
     try:
         parts = urlsplit(url) if isinstance(url, str) else None
         port = parts.port if parts is not None else None
@@ -325,20 +341,12 @@ def _require_site_origin(url: object, message: str) -> None:
     if parts is None:
         raise ValueError(message)
     host = parts.hostname
-    if parts.scheme != "https" or parts.username is not None or parts.password is not None or port is not None or host != _HOST:
-        raise ValueError(message)
-    if _is_ip_literal(host):
+    if parts.scheme != "https" or parts.username is not None or parts.password is not None or port is not None or host != SITE_HOST:
         raise ValueError(message)
 
 
-def _is_ip_literal(host: str | None) -> bool:
-    if host is None:
-        return False
-    try:
-        ipaddress.ip_address(host)
-    except ValueError:
-        return False
-    return True
+def _oversize(url: str, attempt: int, status: int | None = None) -> AcquisitionError:
+    return AcquisitionError(AcquisitionFailure.OVERSIZE, f"GET {url} response exceeds {MAX_RESPONSE_BYTES} bytes", attempt, status)
 
 
 def _decode(url: str, body: bytes, attempt: int) -> str:

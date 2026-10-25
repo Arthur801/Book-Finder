@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from email.utils import format_datetime
 
 import pytest
+from curl_cffi.const import CurlECode, CurlOpt
 from curl_cffi.requests import exceptions as curl_exceptions
 
 from kingstone import acquisition
@@ -592,7 +593,7 @@ def test_curl_transport_default_session_impersonates_chrome_and_verifies_tls(mon
 
     monkeypatch.setattr(acquisition.curl_requests, "Session", RecordingSession)
     transport = CurlTransport()
-    assert created == [{"impersonate": "chrome"}]
+    assert created == [{"impersonate": "chrome", "curl_options": {CurlOpt.MAXFILESIZE_LARGE: MAX_RESPONSE_BYTES}}]
     transport.close()
 
 
@@ -672,3 +673,103 @@ def test_non_string_urls_are_rejected_without_a_request(value):
     with pytest.raises(ValueError):
         fetcher.fetch_detail_page(value)
     assert transport.calls == []
+
+
+# --- review fixes: budget checked before every request, long Retry-After, libcurl size cap -----------------------------
+
+
+@pytest.mark.parametrize("budget", [0.0, -1.0])
+def test_budget_at_or_below_zero_stops_a_request_even_when_pacing_has_passed(budget):
+    world = World()
+    transport = FakeTransport(world, ok(), ok())
+    remaining = [math.inf]
+    fetcher = KingstoneFetcher(
+        transport=transport,
+        sleep=world.sleep,
+        clock=world.clock,
+        wall_clock=world.wall_clock,
+        sample_delay=lambda: 3.0,
+        budget_remaining=lambda: remaining[0],
+    )
+    fetcher.fetch_list_page(LIST_URL)
+    world.advance(10.0)  # more than the sampled delay has passed since the previous request ended
+    remaining[0] = budget
+    sleeps_before = list(world.sleeps)
+    error = expect_failure(fetcher.fetch_list_page, LIST_URL, AcquisitionFailure.BUDGET_EXHAUSTED)
+    assert error.attempts == 0
+    assert world.sleeps == sleeps_before
+    assert len(transport.calls) == 1
+
+
+def test_zero_wait_within_a_positive_budget_is_sent_without_sleeping():
+    world = World()
+    transport = FakeTransport(world, ok(), ok())
+    remaining = [math.inf]
+    fetcher = KingstoneFetcher(
+        transport=transport,
+        sleep=world.sleep,
+        clock=world.clock,
+        wall_clock=world.wall_clock,
+        sample_delay=lambda: 3.0,
+        budget_remaining=lambda: remaining[0],
+    )
+    fetcher.fetch_list_page(LIST_URL)
+    world.advance(10.0)
+    remaining[0] = 1.0
+    fetcher.fetch_list_page(LIST_URL)
+    assert world.sleeps == [3.0]
+    assert len(transport.calls) == 2
+
+
+def test_retry_after_with_a_very_long_number_is_too_long_not_a_parse_failure():
+    world = World()
+    transport = FakeTransport(world, status(429, {"Retry-After": "9" * 20}), ok())
+    error = expect_failure(make_fetcher(world, transport).fetch_list_page, LIST_URL, AcquisitionFailure.RETRY_AFTER_TOO_LONG)
+    assert error.attempts == 1
+    assert len(transport.calls) == 1
+
+
+def test_curl_session_is_built_with_the_libcurl_size_cap(monkeypatch):
+    created = []
+
+    class RecordingSession(FakeCurlSession):
+        def __init__(self, **kwargs):
+            super().__init__()
+            created.append(kwargs)
+
+    monkeypatch.setattr(acquisition.curl_requests, "Session", RecordingSession)
+    CurlTransport().close()
+    assert created == [{"impersonate": "chrome", "curl_options": {CurlOpt.MAXFILESIZE_LARGE: MAX_RESPONSE_BYTES}}]
+
+
+def test_libcurl_filesize_exceeded_maps_to_response_too_large_from_the_request():
+    error = curl_exceptions.RequestException("Filesize exceeded", CurlECode.FILESIZE_EXCEEDED)
+    transport = CurlTransport(session=FakeCurlSession(error=error))
+    with pytest.raises(ResponseTooLarge):
+        transport.get(LIST_URL, timeout=30, max_bytes=MAX_RESPONSE_BYTES)
+
+
+def test_libcurl_filesize_exceeded_while_streaming_maps_to_response_too_large():
+    response = FakeCurlResponse(chunks=[b"aa", b"bb"], error_after=1)
+    response._error_after_exc = curl_exceptions.RequestException("Filesize exceeded", CurlECode.FILESIZE_EXCEEDED)
+    transport = CurlTransport(session=FakeCurlSession(response=response))
+    with pytest.raises(ResponseTooLarge):
+        transport.get(LIST_URL, timeout=30, max_bytes=MAX_RESPONSE_BYTES)
+    assert response.closed
+
+
+def test_other_generic_curl_errors_propagate_unchanged():
+    error = curl_exceptions.RequestException("other", CurlECode.READ_ERROR)
+    transport = CurlTransport(session=FakeCurlSession(error=error))
+    with pytest.raises(curl_exceptions.RequestException) as info:
+        transport.get(LIST_URL, timeout=30, max_bytes=MAX_RESPONSE_BYTES)
+    assert info.value is error
+
+
+def test_libcurl_size_cap_is_reported_as_oversize_and_not_retried():
+    world = World()
+    error = curl_exceptions.RequestException("Filesize exceeded", CurlECode.FILESIZE_EXCEEDED)
+    transport = CurlTransport(session=FakeCurlSession(error=error))
+    fetch_error = expect_failure(make_fetcher(world, transport).fetch_list_page, LIST_URL, AcquisitionFailure.OVERSIZE)
+    assert fetch_error.attempts == 1
+    assert len(world.timeline) == 1  # one pacing wait, one attempt
