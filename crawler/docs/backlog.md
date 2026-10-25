@@ -25,7 +25,7 @@
 
 ## CB-07 — 金石堂分類頁 crawler（v11）
 
-- P2；L3；狀態：E0 完成；Phase 1（共用 `catalog_core`：型別、identity、ISBN、provider 明確的 persistence、單調 touch、item 解析 service，博客來已改走 service）完成（2026-10-25，見 [實作報告](../../Docs/Implementation-Report/kingstone-phase1-core.md)）；Phase 2 完成：清單檔、URL grammar（#134）、列表頁 parser（#135）、詳細頁 parser（#136），見 [實作報告](../../Docs/Implementation-Report/kingstone-phase2-adapter.md)；Phase 3 core acquisition 完成（URL 守門、pacing、retry、budget、回應分類，見 [architecture](architecture.md)「金石堂 adapter」）；計畫 §6 的有限額診斷檔（`KINGSTONE_DIAGNOSTIC_MAX_BYTES`，預設 2 MiB）尚未實作，留待 runner／production 整合（Phase 6）；Phase 4 完成（run 帳本與逐頁流程；尚無 CLI／DB composition）：設定與 run 帳本（M1：`kingstone/config.py`、`kingstone/ledger.py`，含 terminal status 規則），逐頁 run（M2：`kingstone/run.py`，budget 停止、replay、fatal 範圍與 redact，見 [architecture](architecture.md)「Run（逐頁流程）」）；Phase 5 起未實作。
+- P2；L3；狀態：E0 完成；Phase 1（共用 `catalog_core`：型別、identity、ISBN、provider 明確的 persistence、單調 touch、item 解析 service，博客來已改走 service）完成（2026-10-25，見 [實作報告](../../Docs/Implementation-Report/kingstone-phase1-core.md)）；Phase 2 完成：清單檔、URL grammar（#134）、列表頁 parser（#135）、詳細頁 parser（#136），見 [實作報告](../../Docs/Implementation-Report/kingstone-phase2-adapter.md)；Phase 3 core acquisition 完成（URL 守門、pacing、retry、budget、回應分類，見 [architecture](architecture.md)「金石堂 adapter」）；計畫 §6 的有限額診斷檔（`KINGSTONE_DIAGNOSTIC_MAX_BYTES`，預設 2 MiB）尚未實作，留待 runner／production 整合（Phase 6）；Phase 4 完成（run 帳本與逐頁流程；尚無 CLI／DB composition）：設定與 run 帳本（M1：`kingstone/config.py`、`kingstone/ledger.py`，含 terminal status 規則），逐頁 run（M2：`kingstone/run.py`，budget 停止、replay、fatal 範圍與 redact，見 [architecture](architecture.md)「Run（逐頁流程）」）；Phase 5 進行中（寫入政策完成；DB composition／CLI 未完成）：寫入政策（M1：`catalog_core` 的 `WritePolicy`、`resolve_item(write_policy=)` 與 `ItemPolicySkipped`；金石堂 `KINGSTONE_WRITE_POLICY`，預設 `new-books-only`；ledger 的 `policy_skipped`，見 [architecture](architecture.md)「Run 帳本與 terminal status」）。真 fetcher 與 DB store 的組裝、`budget.remaining` 接線、commit recovery 的真 DB 驗證仍未實作。
 - 決定（使用者 2026-10-25）：比照博客來分類榜，由使用者在 `crawler/kingstone-pages.txt` 提供金石堂分類列表頁；每個 URL 只抓那一頁、不跟分頁；不探索分類樹；沒有跨 run 進度狀態檔，靠 replay＋Source identity 推進；`HTTP_ONLY`；請求間隔 3～10 秒。來源契約見下方「CB-07 來源契約」。
 - 證據：[kingstone fixtures](../tests/fixtures/kingstone/README.md)（13 份）與 CR-K01。
 - 待做：Phase 5～7 依 [v11 計畫](../../Docs/plans/kingstone-category-crawler.md) §9：ingestion（含真 fetcher 與 DB store 的組裝、`budget.remaining` 接線）、runner／fencing／alert、acceptance。Phase 1～4 已完成（見上）。
@@ -34,7 +34,6 @@
 - Phase 1 留下的待辦：
   - `ItemResolved`／`ItemFailed.identity_warning` 目前只有 service 測試讀取；博客來沒有 `external_id`，不會產生 URL 漂移 warning。金石堂（有 km_code）的 warning 已由 Phase 4 run 記錄（`kingstone.run`，WARNING 一行並計入 `identity_warning_count`）。
   - `books_crawler/models.py` 重新匯出 `catalog_core.models` 的型別，讓既有測試的 import 不用改；同一型別因此有兩個匯入入口，之後把測試改成直接從 `catalog_core` 匯入，再移除這層相容匯出。
-  - Phase 5 在 `catalog_core.service` 加入 `new-books-only` 寫入政策（v11 計畫 §5）。
 - Phase 2 留下的待辦：
   - `.productGrid` 內沒有 `data-prodno` 的 `.mod_prod_card` 目前被靜默略過（選擇器要求 `data-prodno`）；E0 fixture 沒有此情形，是否改為 parse error 待定。
   - Dockerfile、`.dockerignore` 與 runner 納入 `kingstone/` 留到 Phase 6。
@@ -44,7 +43,7 @@
   - 規格表「分級」欄（限制級辨識）尚未讀取；E0 的 7 本都是「普通級」，待有限制級 fixture 再定。
 - Phase 4 留下的待辦（M1、M2）：
   - `zero_card_pages` 已計數，但 alert 條件與送出位置屬於 Phase 6。
-  - 寫入政策 `KINGSTONE_WRITE_POLICY`、診斷大小 `KINGSTONE_DIAGNOSTIC_MAX_BYTES` 與 `CRAWLER_ALERT_COMMAND` 不在 M1 config 內，留給 Phase 5／6。
+  - 診斷大小 `KINGSTONE_DIAGNOSTIC_MAX_BYTES` 與 `CRAWLER_ALERT_COMMAND` 不在 M1 config 內，留給 Phase 6。（寫入政策已於 Phase 5 M1 加入 config。）
   - `KingstoneConfig` 的 budget 與 HTTP 設定目前沒有 caller；組裝（Phase 5／6）要把 `KINGSTONE_SOFT_RUN_BUDGET_SECONDS` 轉成 `SoftBudget`，並把同一個 budget 交給真 fetcher。
   - 詳細頁在 budget 停止時被截斷的卡，以 `budget_exhausted` 記入 `failed_items`（統計上算失敗，下次 replay 會處理）；是否改為不計入失敗另定。
 - Phase 3 留下的待辦：

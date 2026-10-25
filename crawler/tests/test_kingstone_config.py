@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from catalog_core.models import WritePolicy
 from kingstone import acquisition
 from kingstone.config import (
     DEFAULT_HARD_LIMIT_SECONDS,
@@ -14,8 +15,11 @@ from kingstone.config import (
 )
 from kingstone.page_list import DEFAULT_PAGES_FILE, PAGES_FILE_ENV
 
+WRITE_POLICY_ENV = "KINGSTONE_WRITE_POLICY"
+
 _ENV_KEYS = [
     PAGES_FILE_ENV,
+    WRITE_POLICY_ENV,
     "KINGSTONE_SOFT_RUN_BUDGET_SECONDS",
     "CRAWLER_RUN_HARD_LIMIT_SECONDS",
     "KINGSTONE_HTTP_TIMEOUT_SECONDS",
@@ -28,6 +32,7 @@ def test_defaults_when_nothing_is_set():
     config = load_config({})
     assert config == KingstoneConfig(
         pages_file=DEFAULT_PAGES_FILE,
+        write_policy=WritePolicy.NEW_BOOKS_ONLY,
         soft_budget_seconds=3300.0,
         hard_limit_seconds=3600.0,
         http_timeout_seconds=float(acquisition.REQUEST_TIMEOUT_SECONDS),
@@ -48,6 +53,7 @@ def test_every_key_can_be_set():
     config = load_config(
         {
             PAGES_FILE_ENV: "/data/pages.txt",
+            WRITE_POLICY_ENV: "normal",
             "KINGSTONE_SOFT_RUN_BUDGET_SECONDS": "120.5",
             "CRAWLER_RUN_HARD_LIMIT_SECONDS": "600",
             "KINGSTONE_HTTP_TIMEOUT_SECONDS": "12",
@@ -57,6 +63,7 @@ def test_every_key_can_be_set():
     )
     assert config == KingstoneConfig(
         pages_file=Path("/data/pages.txt"),
+        write_policy=WritePolicy.NORMAL,
         soft_budget_seconds=120.5,
         hard_limit_seconds=600.0,
         http_timeout_seconds=12.0,
@@ -164,3 +171,32 @@ def test_error_messages_name_the_key_of_the_first_bad_value():
 
 def test_config_error_is_a_value_error():
     assert issubclass(KingstoneConfigError, ValueError)
+
+
+# --- write policy (CB-07 Phase 5): default new-books-only, two legal values -------------------------------------------
+
+
+def test_write_policy_defaults_to_new_books_only():
+    assert load_config({}).write_policy is WritePolicy.NEW_BOOKS_ONLY
+
+
+@pytest.mark.parametrize(("raw", "policy"), [("normal", WritePolicy.NORMAL), ("new-books-only", WritePolicy.NEW_BOOKS_ONLY)])
+def test_write_policy_accepts_the_two_legal_values(raw, policy):
+    assert load_config({WRITE_POLICY_ENV: raw}).write_policy is policy
+
+
+def test_write_policy_surrounding_whitespace_is_ignored():
+    assert load_config({WRITE_POLICY_ENV: "  normal  "}).write_policy is WritePolicy.NORMAL
+
+
+@pytest.mark.parametrize("blank", ["", "   "])
+def test_blank_write_policy_counts_as_unset_and_takes_the_default(blank):
+    assert load_config({WRITE_POLICY_ENV: blank}).write_policy is WritePolicy.NEW_BOOKS_ONLY
+
+
+@pytest.mark.parametrize("value", ["Normal", "new_books_only", "all-books", "all", "0"])
+def test_write_policy_rejects_any_other_value_and_names_the_key(value):
+    with pytest.raises(KingstoneConfigError) as info:
+        load_config({WRITE_POLICY_ENV: value})
+    assert WRITE_POLICY_ENV in str(info.value)
+    assert value not in str(info.value)

@@ -15,9 +15,10 @@ import psycopg
 import pytest
 
 from catalog_core.identity import IdentityKind, SourceIdentity
-from catalog_core.models import BookDraft, ProviderCode, SourceRef
+from catalog_core.models import BookDraft, ProviderCode, SourceRef, WritePolicy
 from kingstone.acquisition import AcquisitionError, AcquisitionFailure
 from kingstone.ledger import RunStatus
+from kingstone.parse_detail import parse_detail_html
 from kingstone.run import (
     MAX_ITEM_ATTEMPTS,
     KingstoneRunDependencies,
@@ -156,6 +157,7 @@ def make_deps(
     budget: SoftBudget | None = None,
     sleeps: list[float] | None = None,
     max_item_attempts: int = MAX_ITEM_ATTEMPTS,
+    write_policy: WritePolicy = WritePolicy.NORMAL,
 ) -> KingstoneRunDependencies:
     return KingstoneRunDependencies(
         fetcher=fetcher,
@@ -163,8 +165,16 @@ def make_deps(
         budget=budget if budget is not None else SoftBudget(10_000, FakeClock()),
         clock=lambda: NOW,
         sleep=(sleeps if sleeps is not None else []).append,
+        write_policy=write_policy,
         max_item_attempts=max_item_attempts,
     )
+
+
+def isbn_of(km_code: str) -> str:
+    """The ISBN the detail fixture carries: the value the ISBN lookup is scripted with."""
+    draft = parse_detail_html(detail_html(km_code), detail_url(km_code))
+    assert len(draft.identifiers) == 1
+    return draft.identifiers[0].identifier_value
 
 
 def db_error(message: str = "connection lost") -> psycopg.OperationalError:
@@ -609,3 +619,75 @@ def test_a_second_run_with_a_fresh_budget_replays_from_the_top_and_advances():
     assert second.existing_source == 1
     assert second.imported == 1
     assert second.status is RunStatus.SUCCESS
+
+
+# --- write policy (CB-07 Phase 5, spec §5 and §7) ----------------------------------------------------------------------
+
+
+def test_new_books_only_one_isbn_match_is_policy_skipped_with_no_write_and_no_touch():
+    book = uuid.uuid4()
+    fetcher = FakeFetcher({LIST_A: list_html([KM_1]), detail_url(KM_1): detail_html(KM_1)})
+    store = MemoryStore()
+    store.isbn_matches[isbn_of(KM_1)] = [book]
+
+    report = run_pages(make_deps(fetcher, store, write_policy=WritePolicy.NEW_BOOKS_ONLY), [LIST_A], run_id="run-1")
+
+    assert report.status is RunStatus.SUCCESS
+    assert report.zero_progress_reason is None
+    assert report.policy_skipped_count == 1
+    assert report.items_seen == 1
+    assert (report.imported, report.isbn_attached, report.ambiguous_created, report.existing_source, report.failed) == (0, 0, 0, 0, 0)
+    assert report.write_policy is WritePolicy.NEW_BOOKS_ONLY
+    assert store.persisted == []
+    assert store.touched == []
+    assert fetcher.detail_calls() == [detail_url(KM_1)]
+
+
+def test_normal_one_isbn_match_attaches_the_source_to_that_book():
+    book = uuid.uuid4()
+    fetcher = FakeFetcher({LIST_A: list_html([KM_1]), detail_url(KM_1): detail_html(KM_1)})
+    store = MemoryStore()
+    store.isbn_matches[isbn_of(KM_1)] = [book]
+
+    report = run_pages(make_deps(fetcher, store, write_policy=WritePolicy.NORMAL), [LIST_A], run_id="run-1")
+
+    assert report.status is RunStatus.SUCCESS
+    assert report.isbn_attached == 1
+    assert report.policy_skipped_count == 0
+    assert [draft.external_id for draft in store.persisted] == [KM_1]
+    assert store.refs[KM_1].book_id == book
+
+
+def test_new_books_only_no_isbn_match_still_imports_and_ambiguous_still_creates():
+    ambiguous_book = uuid.uuid4()
+    fetcher = FakeFetcher(
+        {
+            LIST_A: list_html([KM_1, KM_2]),
+            detail_url(KM_1): detail_html(KM_1),
+            detail_url(KM_2): detail_html(KM_2),
+        }
+    )
+    store = MemoryStore()
+    store.isbn_matches[isbn_of(KM_2)] = [ambiguous_book, uuid.uuid4()]
+
+    report = run_pages(make_deps(fetcher, store, write_policy=WritePolicy.NEW_BOOKS_ONLY), [LIST_A], run_id="run-1")
+
+    assert report.status is RunStatus.SUCCESS
+    assert report.imported == 1
+    assert report.ambiguous_created == 1
+    assert report.policy_skipped_count == 0
+    assert [draft.external_id for draft in store.persisted] == [KM_1, KM_2]
+
+
+def test_policy_skipped_book_stays_new_so_the_next_run_fetches_it_again():
+    fetcher = FakeFetcher({LIST_A: list_html([KM_1]), detail_url(KM_1): detail_html(KM_1)})
+    store = MemoryStore()
+    store.isbn_matches[isbn_of(KM_1)] = [uuid.uuid4()]
+    deps = make_deps(fetcher, store, write_policy=WritePolicy.NEW_BOOKS_ONLY)
+
+    first = run_pages(deps, [LIST_A], run_id="run-1")
+    second = run_pages(deps, [LIST_A], run_id="run-2")
+
+    assert first.policy_skipped_count == second.policy_skipped_count == 1
+    assert fetcher.detail_calls() == [detail_url(KM_1), detail_url(KM_1)]
+    assert store.persisted == []

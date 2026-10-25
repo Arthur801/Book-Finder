@@ -14,6 +14,10 @@ Decisions, in order:
   the draft's ISBN values and persists the Source. A failed persist may have committed, so the next
   attempt re-resolves the identity before writing again: EXISTING recovers the commit, CONFLICT fails
   the item without another ISBN lookup or write, NEW retries the write.
+- Write policy (``write_policy``, spec §5): with ``NORMAL`` the ISBN match is applied as above. With
+  ``NEW_BOOKS_ONLY`` an ISBN match of exactly one Book is a policy skip (``ItemPolicySkipped``): nothing is
+  persisted and nothing is enriched. Zero or two or more matches are written as with ``NORMAL``.
+  Existing Sources never reach this decision, so the policy does not affect the touch path.
 """
 
 from __future__ import annotations
@@ -33,6 +37,7 @@ from catalog_core.models import (
     CatalogResolution,
     ProviderCode,
     SourceRef,
+    WritePolicy,
 )
 
 
@@ -86,6 +91,22 @@ class ItemResolved:
 
 
 @dataclass(frozen=True)
+class ItemPolicySkipped:
+    """A new Source skipped by ``new-books-only`` because its ISBN matched exactly one existing Book.
+
+    Nothing was written: no Source, no gap filling, no identifiers. The item is handled, not failed.
+    """
+
+    matched_book_id: UUID
+    attempts: int  # the attempt whose ISBN lookup decided the skip
+    identity_warning: str | None = None
+
+    @property
+    def resolution(self) -> CatalogResolution:
+        return CatalogResolution.POLICY_SKIPPED_EXISTING_BOOK
+
+
+@dataclass(frozen=True)
 class ItemFailed:
     reason: str  # FailureReason value or the DraftFailure.reason
     message: str
@@ -105,14 +126,15 @@ def resolve_item(
     clock: Callable[[], datetime],
     attempts: Callable[[], Iterable[int]],
     on_attempt_failed: Callable[[int, str, str], None] = _no_failure_event,
-) -> ItemResolved | ItemFailed:
+    write_policy: WritePolicy = WritePolicy.NORMAL,
+) -> ItemResolved | ItemFailed | ItemPolicySkipped:
     identity = store.resolve_source_identity(item.provider, item.source_url, item.external_id)
     if identity.kind is IdentityKind.CONFLICT:
         return ItemFailed(FailureReason.SOURCE_IDENTITY_CONFLICT, identity.reason or "", attempts=0)
     if identity.kind is IdentityKind.EXISTING:
         assert identity.ref is not None
         return _touch_existing(store, item, identity, clock, attempts, on_attempt_failed)
-    return _resolve_new(store, item, fetch_draft, clock, attempts, on_attempt_failed)
+    return _resolve_new(store, item, fetch_draft, clock, attempts, on_attempt_failed, identity.warning, write_policy)
 
 
 def _touch_existing(
@@ -162,7 +184,9 @@ def _resolve_new(
     clock: Callable[[], datetime],
     attempts: Callable[[], Iterable[int]],
     on_attempt_failed: Callable[[int, str, str], None],
-) -> ItemResolved | ItemFailed:
+    identity_warning: str | None,
+    write_policy: WritePolicy,
+) -> ItemResolved | ItemFailed | ItemPolicySkipped:
     draft: BookDraft | None = None
     last_reason = ""
     last_message = ""
@@ -206,6 +230,9 @@ def _resolve_new(
             last_attempt, last_reason, last_message = attempt, FailureReason.DATABASE_ERROR, str(exc)
             on_attempt_failed(attempt, FailureReason.DATABASE_ERROR, last_message)
             continue
+
+        if len(matches) == 1 and write_policy is WritePolicy.NEW_BOOKS_ONLY:
+            return ItemPolicySkipped(matches[0], attempts=attempt, identity_warning=identity_warning)
 
         if len(matches) == 1:
             resolution = CatalogResolution.ISBN_ATTACHED

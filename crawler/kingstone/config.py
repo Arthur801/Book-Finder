@@ -5,7 +5,9 @@
 Error messages name the key. A value is echoed only when it is a finite number that was rejected for its range;
 anything that is not a number is never echoed.
 
-Write policy, diagnostic size and the alert command are not part of this module (Phase 5 and 6).
+``KINGSTONE_WRITE_POLICY`` (``normal`` or ``new-books-only``, default ``new-books-only``) is validated here. The
+error message never echoes the value, since it is not a number. Diagnostic size and the alert command are not part
+of this module (Phase 5 and 6).
 """
 
 from __future__ import annotations
@@ -16,9 +18,12 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
+from catalog_core.models import WritePolicy
 from kingstone import acquisition
 from kingstone.page_list import PAGES_FILE_ENV, resolve_pages_file
 
+WRITE_POLICY_ENV = "KINGSTONE_WRITE_POLICY"
+DEFAULT_WRITE_POLICY = WritePolicy.NEW_BOOKS_ONLY  # spec §7: the canary policy until promotion is decided
 SOFT_BUDGET_ENV = "KINGSTONE_SOFT_RUN_BUDGET_SECONDS"
 HARD_LIMIT_ENV = "CRAWLER_RUN_HARD_LIMIT_SECONDS"
 HTTP_TIMEOUT_ENV = "KINGSTONE_HTTP_TIMEOUT_SECONDS"
@@ -36,6 +41,7 @@ class KingstoneConfigError(ValueError):
 @dataclass(frozen=True)
 class KingstoneConfig:
     pages_file: Path
+    write_policy: WritePolicy
     soft_budget_seconds: float  # no new request starts once the run has less budget than its wait
     hard_limit_seconds: float  # the run limit the host enforces; the soft budget must stay below it
     http_timeout_seconds: float
@@ -51,6 +57,7 @@ def load_config(env: Mapping[str, str]) -> KingstoneConfig:
         raise KingstoneConfigError(f"{SOFT_BUDGET_ENV} must be less than {HARD_LIMIT_ENV}")
     return KingstoneConfig(
         pages_file=resolve_pages_file(env.get(PAGES_FILE_ENV) or ""),
+        write_policy=_write_policy(env),
         soft_budget_seconds=soft,
         hard_limit_seconds=hard,
         http_timeout_seconds=_seconds(env, HTTP_TIMEOUT_ENV, acquisition.REQUEST_TIMEOUT_SECONDS),
@@ -65,6 +72,17 @@ def _raw(env: Mapping[str, str], key: str) -> str | None:
     if value is None or not value.strip():
         return None
     return value.strip()
+
+
+def _write_policy(env: Mapping[str, str]) -> WritePolicy:
+    raw = _raw(env, WRITE_POLICY_ENV)
+    if raw is None:
+        return DEFAULT_WRITE_POLICY
+    try:
+        return WritePolicy(raw)
+    except ValueError:
+        legal = ", ".join(policy.value for policy in WritePolicy)
+        raise KingstoneConfigError(f"{WRITE_POLICY_ENV} must be one of: {legal}") from None
 
 
 def _seconds(env: Mapping[str, str], key: str, default: float) -> float:

@@ -47,6 +47,7 @@ from books_crawler.models import (
     SkipReason,
     SnapshotRow,
 )
+from catalog_core.models import RESOLVED_CATALOG_RESOLUTIONS
 
 MAX_CONSECUTIVE_ERRORS = 20  # crawler.md §14.3, CRAWL-05
 
@@ -89,6 +90,8 @@ def decide_ranking(resolution: CatalogResolution, *, already_ranked: bool) -> Ra
         return RankingDecision.RESTRICTED_SKIP
     if resolution is CatalogResolution.FAILED:
         return RankingDecision.ERROR_SKIP
+    if resolution not in RESOLVED_CATALOG_RESOLUTIONS:
+        raise ValueError(f"{resolution} cannot occur in Books (only new-books-only produces it)")
     return RankingDecision.DUPLICATE_BOOK if already_ranked else RankingDecision.ADMITTED
 
 

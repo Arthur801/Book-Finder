@@ -80,7 +80,7 @@ from books_crawler.ranking import validate_ranking
 from books_crawler.redact import redact
 from catalog_core.identity import SourceIdentity
 from catalog_core.models import ProviderCode
-from catalog_core.service import CatalogItem, DraftFailure, FailureReason, ItemFailed, resolve_item
+from catalog_core.service import CatalogItem, DraftFailure, FailureReason, ItemFailed, ItemResolved, resolve_item
 from catalog_core.session import DatabaseSession
 from catalog_core.store import SessionCatalogStore
 
@@ -312,6 +312,8 @@ def _resolve_row(
         if result.reason == FailureReason.SOURCE_IDENTITY_CONFLICT:
             log.warning("rank %d source identity conflict, not written: %s: %s", row.rank, row.url, result.message)
         return _skipped(row, _failure(SkipReason(result.reason), result.message, result.attempts))
+    # Books never passes a write policy (NORMAL), so the service cannot return a policy skip here.
+    assert isinstance(result, ItemResolved)
 
     isbn_text = "" if draft is None else ",".join(item.identifier_value for item in draft.identifiers)
     if result.recovered_commit:
