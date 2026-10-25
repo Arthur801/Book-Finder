@@ -47,6 +47,9 @@
   - 診斷檔（限額）未實作：金石堂 acquisition 不寫 failure diagnostics；計畫 §6 要求有限額，需另定內容、數量與保留期限後再實作。
   - challenge／CAPTCHA 分類待 fixture：目前 200 照常回傳，由 parser fail closed；收錄 fixture 後再定分類。
   - `budget_remaining` 由 Phase 4 run 提供；Phase 3 預設 `math.inf`（不限制），run 接上前 budget 行為只有單元測試，未經整體流程驗證。
+  - libcurl 傳輸中的大小上限（`MAXFILESIZE_LARGE`）未以真實傳輸驗證：開發環境禁止連網，單元測試只驗證選項有傳入與 `FILESIZE_EXCEEDED`（63）的對應。目前保證 5 MiB 記憶體上限的是 per-call 串流計量（第二道）；第一道是額外保護。
+  - TLS 握手中被 reset 若以 curl `RECV_ERROR` 回報，會歸為 `ConnectionError` 並被重試；計畫把 TLS 失敗列為不重試，此分支沒有測試，也未經真站確認。
+  - 最後一次嘗試的 Retry-After 不讀，失敗記為 `HTTP_STATUS`；原因分類可能失真（伺服器的意圖是要求等待），目前保留，之後若要區分需另定錯誤類別。
 
 ### CB-07 來源契約（E0 凍結）
 
