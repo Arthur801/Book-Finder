@@ -10,6 +10,10 @@
 #   15 DB secret unavailable or invalid                      16 SSH tunnel did not forward
 #   17 database URL rewrite failed                           18 docker unavailable
 #   20 watchdog stopped the writer at the hard limit         21 interrupted by a signal (writer stopped first)
+#
+# Lifecycle failures outside the container (13, 14, 20, 21) also print one "ALERT reasons=... mode=... last_run=..." line
+# on stderr and write this runner's terminal record to $CRAWLER_LOCAL_ARTIFACTS_DIR/runner/<mode>-last-run.json. The
+# container's own results (0, 1, 2, and Docker's other codes) belong to the crawler and get no runner record.
 set -uo pipefail
 umask 077
 
@@ -35,6 +39,8 @@ tunnel_pid=
 run_pid=
 env_file=
 cidfile=
+run_id=
+started_at=
 
 info() { printf '%s mode=%s %s\n' "$(date -u +%FT%TZ)" "$mode" "$*"; }
 fail() {
@@ -56,6 +62,38 @@ case $mode in
         exit 10
         ;;
 esac
+IFS= read -r run_id </proc/sys/kernel/random/uuid || run_id=
+started_at=$(date -u +%FT%TZ)
+
+# Lifecycle failure outside the container: the ALERT line, this runner's terminal record, and the same record as one
+# JSON line on stdout. The record is best effort: a failed write is reported, and the exit code does not change.
+# Arguments: exit code, reason, alert reasons, container name (may be empty), container id (may be empty).
+record_terminal() {
+    local code=$1 reason=$2 alerts=$3 c_name=${4-} c_id=${5-}
+    local artifacts=${CRAWLER_LOCAL_ARTIFACTS_DIR-} last_run=none
+    local args
+    if [[ -n $artifacts ]]; then last_run="$artifacts/runner/$mode-last-run.json"; fi
+    printf 'ALERT reasons=%s mode=%s last_run=%s\n' "$alerts" "$mode" "$last_run" >&2
+    if [[ $last_run == none ]]; then
+        printf 'WARNING: runner record was not written (no artifacts directory is configured)\n' >&2
+        return 0
+    fi
+    args=(write-runner-record --path "$last_run" --run-id "$run_id" --mode "$mode" --exit-code "$code"
+        --reason "$reason" --alert-reasons "$alerts" --started-at "$started_at")
+    if [[ -n $c_name ]]; then args+=(--container-name "$c_name"); fi
+    if [[ -n $c_id ]]; then args+=(--container-id "$c_id"); fi
+    mkdir -p -- "$(dirname -- "$last_run")" 2>/dev/null || true
+    if ! python3 -I "$helper" "${args[@]}"; then
+        printf 'WARNING: runner record was not written to %s (the runner directory must exist and be writable by this user)\n' "$last_run" >&2
+    fi
+}
+
+# The container id from --cidfile, or nothing when the container never reported one.
+read_cid() {
+    local cid=
+    if [[ -n $cidfile && -s $cidfile ]]; then IFS= read -r cid <"$cidfile" || cid=; fi
+    if [[ $cid =~ ^[0-9a-f]{12,64}$ ]]; then printf '%s' "$cid"; fi
+}
 
 # Runs from the EXIT trap, so shellcheck cannot see the call.
 # shellcheck disable=SC2329
@@ -76,6 +114,7 @@ on_signal() {
         return
     fi
     info 'interrupted before the container started'
+    record_terminal 21 SIGNAL_STOP signal_stop
     exit 21
 }
 trap on_signal INT TERM
@@ -195,7 +234,12 @@ while IFS=$'\t' read -r w_name w_state; do
             docker rm "$w_name" >/dev/null || fail 18 "could not remove stopped container=$w_name"
             info "removed stopped container=$w_name state=$w_state"
             ;;
-        *) fail 13 "ORPHAN_WRITER container=$w_name state=$w_state: refusing to start" ;;
+        *)
+            printf '%s mode=%s ORPHAN_WRITER container=%s state=%s: refusing to start\n' \
+                "$(date -u +%FT%TZ)" "$mode" "$w_name" "$w_state" >&2
+            record_terminal 13 ORPHAN_WRITER orphan "$w_name"
+            exit 13
+            ;;
     esac
 done <<<"$writers"
 
@@ -320,6 +364,7 @@ run_pid=$!
 
 deadline=$(( $(date +%s) + hard_limit ))
 reason=
+alerts=
 while kill -0 "$run_pid" 2>/dev/null; do
     if (( interrupted )); then
         reason=interrupted
@@ -338,9 +383,17 @@ if kill -0 "$run_pid" 2>/dev/null || [[ $state == unknown ]] || is_running_state
     info "watchdog reason=$reason"
     if ! stop_writer; then
         info "ORPHAN_WRITER container=$name could not be confirmed stopped; the next run is refused until it is gone"
+        if [[ $reason == hard_limit ]]; then alerts=orphan,hard_limit; else alerts=orphan; fi
+        record_terminal 14 ORPHAN_WRITER "$alerts" "$name" "$(read_cid)"
         exit 14
     fi
-    if [[ $reason == interrupted ]]; then result=21; else result=20; fi
+    if [[ $reason == interrupted ]]; then
+        result=21
+        record_terminal 21 SIGNAL_STOP signal_stop "$name" "$(read_cid)"
+    else
+        result=20
+        record_terminal 20 HARD_LIMIT hard_limit "$name" "$(read_cid)"
+    fi
 else
     wait "$run_pid"
     result=$?

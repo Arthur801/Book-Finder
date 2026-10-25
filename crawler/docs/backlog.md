@@ -37,7 +37,8 @@
   - **與 migration 的互斥由 crawler 程式與 deploy 負責，不在 runner**：container 內的 crawler 在每次 DB 連線與重連時取 shared advisory lock（`catalog_core.session`，PR #145），deploy 在 migration 期間以存活的 lock session 持有 exclusive lock（PR #146）；runner 本身不取 lock。兩個 PR 合併且 deploy 端上線之前，本地執行須自行避開 CD 部署窗口（[deploy README](../deploy/README.md) §9.5）。
   - **`deploy/docs` 同步（不在本 PR 改 `deploy/`）**：`deploy/docs/architecture.md`、`workflow-diagram.md` 若仍描述 crawler 在 EC2 執行，需同步 runtime ownership；`deploy/` 的 migration 與 advisory lock 變更屬 deploy 的 M2／M3。
   - **博客來 hard limit 3600 秒未量測**：`BOOKS_RUN_HARD_LIMIT_SECONDS` 預設值取自計畫表的「原 3600」；博客來 daily 與 pages 的實際耗時未驗證，P3 時應確認不會被 watchdog 誤殺。
-  - **container 輸出未持久化**：`docker run` 輸出只顯示在終端；`ALERT` 行未轉寫到 runner log（計畫 §8 為可選）。
+  - ~~runner 端 orphan alert，以及 hard limit、signal 的 `ALERT` 與 terminal record~~：已於 #148 完成（容器外 lifecycle failure；見 [deploy README](../deploy/README.md) §9.4.1）。容器內結果仍由 crawler 的 last-run JSON 與 ALERT 負責（#147）。
+  - **container 輸出未持久化**：`docker run` 輸出只顯示在終端；container 自身的 `ALERT` 行未轉寫到 runner log（計畫 §8 為可選），仍待辦。
   - **secret 檔 owner 檢查無測試**：程式有檢查，但需要另一個 owner 的檔案才能測。
 - 未覆蓋：E0 沒有觀察到 challenge、CAPTCHA、限制級頁、429／5xx、無 ISBN 的書；出現時先收錄 fixture。
 - Phase 1 留下的待辦：

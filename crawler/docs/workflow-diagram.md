@@ -154,6 +154,21 @@ Invocation order（本地）：
 10. 正常結束：確認 container 已非運作後 `docker rm`，回傳 container 的 exit code（0、1、2，或 Docker 自身的其他值原樣傳回）。
 11. 清理（EXIT trap，所有路徑含錯誤與 signal）：關閉 tunnel（kill 後 wait）、刪除 env file 與 cidfile；fd 9 關閉即放鎖。子程序以 `9>&-` 不繼承鎖。
 
+失敗路徑的告警與紀錄（runner 端）：
+
+| 路徑 | stderr | record `reason`（exit） |
+|---|---|---|
+| 步驟 4，startup orphan | `ALERT reasons=orphan` | `ORPHAN_WRITER`（13） |
+| 步驟 9，watchdog 因 hard limit 停止成功 | `ALERT reasons=hard_limit` | `HARD_LIMIT`（20） |
+| 步驟 9，hard limit 觸發且無法確認停止 | `ALERT reasons=orphan,hard_limit` | `ORPHAN_WRITER`（14） |
+| 步驟 9，signal 或客戶端結束時無法確認停止 | `ALERT reasons=orphan` | `ORPHAN_WRITER`（14） |
+| 步驟 9，signal 停止成功 | `ALERT reasons=signal_stop` | `SIGNAL_STOP`（21） |
+| signal 於 container 啟動前 | `ALERT reasons=signal_stop` | `SIGNAL_STOP`（21） |
+| 客戶端結束但 container 仍在運作，且已停止 | `ALERT reasons=hard_limit` | `HARD_LIMIT`（20），沿用既有 exit code，見 test-suite 缺口 |
+| container 正常結束（0、1、2） | 無 | 無（由 container 的結果負責） |
+
+record 寫入 `artifacts/runner/<mode>-last-run.json`（原子寫入，UTC 時間，不含 secret），同一份 JSON 印在 stdout。寫入失敗只印 `WARNING`，exit code 不變。
+
 Writer fencing 只依 container 名稱與 label 判定：同一時間最多一個 `book-finder-crawler-active`；provider 與 mode 只作為 label，不分別建立鎖。
 
 來源：[run-local-crawler.sh](../deploy/local/run-local-crawler.sh)、[runner_support.py](../deploy/local/runner_support.py)。測試：[test_local_runner.py](../tests/test_local_runner.py)（CR-T20）。

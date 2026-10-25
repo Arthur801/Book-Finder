@@ -39,7 +39,7 @@
 | [Dockerfile](../Dockerfile) | Python 3.14、UID 10001。兩個 target：`kingstone`（HTTP-only，見「Image」）與最後一階的預設 target（博客來，內容不變，`docker build` 仍產生它） |
 | [.dockerignore](../.dockerignore) | build context 白名單：博客來與金石堂 target 所需檔案（含 `kingstone/`、`kingstone-pages.txt`） |
 | [target wrapper](https://github.com/Arthur801/Book-Finder/blob/ce7b4f46c0889db6b10216294cac658136796ad7/crawler/deploy/run-crawler.sh) | host scheduling、SSM secret retrieval、daily/pages serialization、DB maintenance coordination、deployment state gate、Docker execution 與 pages schedule state |
-| [deploy/local/run-local-crawler.sh](../deploy/local/run-local-crawler.sh)、[runner_support](../deploy/local/runner_support.py) | 本地 runner（Phase 6 M4，v12 §8）：在使用者本機以 `daily`、`pages`、`first_book`、`kingstone` 啟動一個 crawler container；經 EC2 唯讀讀取 deploy state；經 SSH 本地轉發連 RDS（`host` 為 RDS endpoint、`hostaddr=127.0.0.1`、`sslmode=verify-full`）；DB secret 來自 SSM 或 600 檔；本地 `run.lock`；orphan check；writer watchdog（hard limit → stop → kill → inspect，無法確認則 `ORPHAN_WRITER`）；exit code 表見 [deploy README](../deploy/README.md) §9。`runner_support.py` 為標準函式庫的 state 判定、URL 改寫與埠檢查，以 `python3 -I` 呼叫 |
+| [deploy/local/run-local-crawler.sh](../deploy/local/run-local-crawler.sh)、[runner_support](../deploy/local/runner_support.py) | 本地 runner（Phase 6 M4，v12 §8）：在使用者本機以 `daily`、`pages`、`first_book`、`kingstone` 啟動一個 crawler container；經 EC2 唯讀讀取 deploy state；經 SSH 本地轉發連 RDS（`host` 為 RDS endpoint、`hostaddr=127.0.0.1`、`sslmode=verify-full`）；DB secret 來自 SSM 或 600 檔；本地 `run.lock`；orphan check；writer watchdog（hard limit → stop → kill → inspect，無法確認則 `ORPHAN_WRITER`）；exit code 表、ALERT 與 terminal record 見 [deploy README](../deploy/README.md) §9.4.1。`runner_support.py` 為標準函式庫的 state 判定、URL 改寫、埠檢查，以及 terminal record 的建立與原子寫入，以 `python3 -I` 呼叫 |
 
 ## 金石堂 adapter（kingstone/）— 已實作的解析契約
 
@@ -208,6 +208,8 @@
 本里程碑（Kingstone P1 M2）對 Books 的唯一行為變更：existing Source 的 touch 改為 `last_seen_at = GREATEST(last_seen_at, now)`，時鐘倒退時不再把 `last_seen_at` 往回拉；touch 限定 BOOKS_COM_TW，Source 已不存在時視為 `source_identity_conflict` 跳過（不重試、不抓詳細頁）。其餘 Books 寫入內容不變（`external_id` 對 Books 草稿仍為 NULL）。
 
 **Runtime ownership（Phase 6 M4，v12 §8）**：crawler（博客來與金石堂）改在使用者本機執行，由 `deploy/local/run-local-crawler.sh` 啟動；資料經 EC2 的 SSH 本地轉發到 RDS，EC2 只作跳板、不存資料。EC2 的 `run-crawler.sh` 與 cron 保留為既有路徑，正式環境以 `CRAWLER_ENABLED=false` 停用（operator 設定，程式不強制）；EC2 crawler cron 的移除另案（backlog CB-07）。本地 runner 與 EC2 runner 各自 host 的 `run.lock` 不互斥；與 migration 的互斥依 v12 §8 的 DB advisory lock，該 lock 的 crawler 端與 deploy 端尚未實作（backlog CB-07），在此之前只有 deploy state 閘門與人工避開部署窗口。
+
+**告警責任劃分（#148）**：container 內的結果（exit 0、1、2 與 Docker 的其他值）由 crawler 負責（`artifacts/kingstone/last-run.json`、stdout JSON、`ALERT` 行；#147 合併後才存在）。容器外的 lifecycle failure（runner exit 13、14、20、21）由 runner 負責：stderr 印一行 `ALERT`，並寫入 runner 自己的 terminal record `artifacts/runner/<mode>-last-run.json`（原子寫入，不含 secret，不寫入 kingstone history，不影響 streak）。runner 不寫 `artifacts/kingstone/`，container（UID 10001）也不寫 `artifacts/runner/`。「最新結果」＝`artifacts/kingstone/last-run.json` 與 `artifacts/runner/kingstone-last-run.json` 中 `finished_at` 較新的一份（解析 ISO8601 後比較）。
 
 EC2 路徑（target wrapper）的 coordination：先取 shared maintenance lock 才讀 state，與 deploy 的 exclusive migration lock 形成 concurrency boundary。`crawler.paused != null` 或 `schema.dirty is True` 在 SSM／Docker 前跳過；state 缺少只省略 state gate，maintenance lock 仍生效。Deployment state.json 與 pages-last-success 是不同 contract：前者保護部署／schema，後者只決定 pages 是否到期。鎖順序、exit 語意與既有測試見 [流程](workflow-diagram.md) 及 CR-T12-B。
 

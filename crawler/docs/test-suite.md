@@ -326,18 +326,22 @@ migration 011 的 schema 由 test_db_integration.py 在 011 上檢查（無 `sou
   - tunnel：forward 失敗或埠不通（逾時）→ exit 16、不啟動 container、ssh 已終止；正常時 ssh 參數含 `ExitOnForwardFailure=yes`、`BatchMode=yes` 與正確的 `-L`；結束後 ssh 程序已不存在。
   - container 參數：name、labels（role、mode、provider）、`--cidfile`、`--env-file`、`--network host`、`--rm=false`、artifacts 與 CA（唯讀）bind mount；kingstone 使用 `KINGSTONE_CRAWLER_IMAGE`、預設 CMD，並傳入 `CRAWLER_RUN_HARD_LIMIT_SECONDS`；博客來 daily／pages／first_book 使用 `CRAWLER_IMAGE` 與對應 module。
   - watchdog：hard limit → `stop` → 狀態 exited → `rm`，exit 20；stop 無效 → `kill`，exit 20；stop 與 kill 皆無效 → `ORPHAN_WRITER`、exit 14、不 `rm`，下一次啟動 exit 13。博客來使用 `BOOKS_RUN_HARD_LIMIT_SECONDS`。
+  - runner 的告警與紀錄（#148）：startup orphan（13）、watchdog 停止成功（20）、無法確認停止（14，hard limit 與 signal 兩種 reason）、signal 停止（21）各自印一行 `ALERT`（stderr），寫入 `artifacts/runner/<mode>-last-run.json`（可 `json.loads`；欄位、`reason`、`alert_reasons`、`provider`、`container`、`counts` 為 null、`source=runner`），且同一份 JSON 印在 stdout；record 不含 secret 標記；`runner` 子目錄無法建立時印 `WARNING`，exit code 不變；正常結束（0、1、2）不寫 record、不印 `ALERT`。`build_runner_record` 拒絕不一致的 reason、exit code、alert 組合與非法 mode、run_id、container name；`write_runner_record` 原子寫入且無暫存檔殘留；CLI `write-runner-record` 的 stdout 與檔案一致。
   - signal：SIGTERM → 先 `stop` container，exit 21，tunnel 與 env file 清理。
   - exit code：container 的 0、1、2 原樣回傳。
   - run.lock：第一個 run 持有時，任何 mode 的第二個 run exit 11。
   - artifacts 目錄 owner 不是 10001 且非 world-writable → exit 10。
   - 設定檔範例可被 `bash -n` 解析，且不含 `postgresql://` 或 secret 標記。
-- **來源與狀態**：[test_local_runner.py](../tests/test_local_runner.py)（95 個測試，約 40 秒，含數個 1 至 6 秒的 watchdog 與 lock 等待）。執行：`cd crawler && ../.venv/bin/python -m pytest -q tests/test_local_runner.py`。`shellcheck -x deploy/local/run-local-crawler.sh` 無 warning。
+- **來源與狀態**：[test_local_runner.py](../tests/test_local_runner.py)（105 個測試，約 60 秒，含數個 1 至 6 秒的 watchdog 與 lock 等待）。執行：`cd crawler && ../.venv/bin/python -m pytest -q tests/test_local_runner.py`。`shellcheck -x deploy/local/run-local-crawler.sh` 無 warning。
 - **已知驗證缺口**：
   - 全部為假指令。真實 `ssh`（ExitOnForwardFailure、host key）、AWS SSM 權限、Docker（`--cidfile`、bind mount 讓 UID 10001 可寫、`stop`／`kill`／`ps --filter label=` 的真實輸出與 paused 容器行為）與 RDS 的 `verify-full` 連線都未驗證；列為 P3（backlog CB-07），需使用者本機執行。
   - secret 檔 owner 不是自己的分支只有程式檢查，沒有測試（需要另一個 owner 的檔案）。
   - watchdog 以 1 秒 hard limit 與假 docker 模擬，不驗證真實 `docker stop` 的 grace 期間行為。
   - run 中途 tunnel 斷線的 DB 行為由既有的 reconnect 與 CR-K10 負責，本測試不模擬。
-  - container 的 `ALERT` 行目前只顯示在終端，沒有轉寫到 runner log（backlog CB-07）。
+  - container 的 `ALERT` 行目前只顯示在終端，沒有轉寫到 runner log（backlog CB-07）。runner 自己的 `ALERT` 與 record 已覆蓋（見上）。
+  - 信號在 container 啟動前（SSH 或 state 讀取階段）的 `SIGNAL_STOP` record 路徑未測試（需要可控阻塞的假指令）。
+  - 客戶端結束但 container 仍在運作、被 watchdog 停止時，仍回報 exit 20／`HARD_LIMIT`（沿用既有行為），未測試。
+  - runner record 的 `runner` 子目錄由使用者預先建立；測試以「`runner` 為檔案」覆蓋寫入失敗，未驗證 UID 10001 的真實權限。
 
 ### 連線中斷與重連（crawler.md §13.1、§6.1，#119）
 

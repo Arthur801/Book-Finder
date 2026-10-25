@@ -8,11 +8,13 @@ port check can pass without reaching RDS.
 import importlib.util
 import json
 import os
+import re
 import shlex
 import signal
 import socket
 import subprocess
 import time
+import uuid
 from pathlib import Path
 
 import pytest
@@ -256,6 +258,60 @@ def value_after(argv, flag):
 def assert_no_docker_or_secret_work(local):
     assert not (local.fake / "docker-calls").exists()
     assert not (local.fake / "aws-argv").exists()
+
+
+RECORD_KEYS = {
+    "run_id",
+    "provider",
+    "mode",
+    "status",
+    "exit_code",
+    "reason",
+    "alert_reasons",
+    "started_at",
+    "finished_at",
+    "container",
+    "counts",
+    "source",
+}
+ISO_UTC = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
+
+
+def runner_record_path(local, mode):
+    return local.artifacts / "runner" / f"{mode}-last-run.json"
+
+
+def alert_lines(text):
+    return [line for line in text.splitlines() if line.startswith("ALERT ")]
+
+
+def stdout_json_records(text):
+    return [json.loads(line) for line in text.splitlines() if line.startswith("{")]
+
+
+def assert_terminal_record(local, stdout, stderr, *, mode, provider, exit_code, reason, alerts, container):
+    """The runner's own record and ALERT line for a lifecycle failure outside the container."""
+    path = runner_record_path(local, mode)
+    text = path.read_text(encoding="utf-8")
+    record = json.loads(text)
+    assert set(record) == RECORD_KEYS
+    assert record["status"] == "FAILED"
+    assert record["source"] == "runner"
+    assert record["mode"] == mode
+    assert record["provider"] == provider
+    assert record["exit_code"] == exit_code
+    assert record["reason"] == reason
+    assert record["alert_reasons"] == alerts
+    assert record["container"] == container
+    assert record["counts"] is None  # the crawler's counts are unknown to the runner
+    uuid.UUID(record["run_id"])
+    assert ISO_UTC.fullmatch(record["started_at"]) and ISO_UTC.fullmatch(record["finished_at"])
+    assert record["started_at"] <= record["finished_at"]
+    assert stdout_json_records(stdout) == [record]  # the same record, once, on stdout
+    assert alert_lines(stderr) == [f"ALERT reasons={','.join(alerts)} mode={mode} last_run={path}"]
+    assert SECRET not in text and "postgresql" not in text
+    assert SECRET not in stdout and SECRET not in stderr
+    return record
 
 
 # --- disabled switch, usage and configuration -------------------------------------------------------------------
@@ -693,6 +749,10 @@ def test_container_exit_code_is_returned(local, code):
     assert f"container=end exit_code={code}" in result.stdout
     assert local.runtime_leftovers() == []
     assert local.container_state() is None  # the finished container was removed
+    # The container owns its own results: a normal end writes no runner record and prints no runner ALERT.
+    assert not (local.artifacts / "runner").exists()
+    assert alert_lines(result.stderr) == []
+    assert stdout_json_records(result.stdout) == []
 
 
 @pytest.mark.parametrize("scenario", ["success", "container-failed", "forward-failed", "paused"])
@@ -777,6 +837,218 @@ def test_second_run_is_refused_while_the_first_holds_run_lock(local):
     assert first.returncode == 0
     # After the first run finished the lock is free again.
     assert local.run("first_book").returncode == 0
+
+
+# --- runner ALERT and terminal record (lifecycle failures outside the container) -------------------------------
+
+
+def test_startup_orphan_writes_alert_and_runner_record(local):
+    local.set_container("running")
+    result = local.run("daily")
+    assert result.returncode == 13, result.stderr
+    assert_terminal_record(
+        local,
+        result.stdout,
+        result.stderr,
+        mode="daily",
+        provider="BOOKS_COM_TW",
+        exit_code=13,
+        reason="ORPHAN_WRITER",
+        alerts=["orphan"],
+        container={"name": CONTAINER, "cid": None},
+    )
+    assert "run" not in local.calls()
+    assert not (local.fake / "aws-argv").exists()
+
+
+@pytest.mark.parametrize(
+    ("mode", "key", "provider"),
+    [
+        ("kingstone", "CRAWLER_RUN_HARD_LIMIT_SECONDS", "KINGSTONE"),
+        ("daily", "BOOKS_RUN_HARD_LIMIT_SECONDS", "BOOKS_COM_TW"),
+    ],
+)
+def test_watchdog_stop_at_hard_limit_writes_alert_and_runner_record(local, mode, key, provider):
+    local.write_conf(**{key: "1"})
+    result = local.run(mode, DOCKER_HANG="1")
+    assert result.returncode == 20, result.stderr
+    assert_terminal_record(
+        local,
+        result.stdout,
+        result.stderr,
+        mode=mode,
+        provider=provider,
+        exit_code=20,
+        reason="HARD_LIMIT",
+        alerts=["hard_limit"],
+        container={"name": CONTAINER, "cid": None},
+    )
+
+
+def test_unconfirmed_writer_after_hard_limit_alerts_orphan_and_hard_limit(local):
+    local.write_conf(CRAWLER_RUN_HARD_LIMIT_SECONDS="1")
+    result = local.run("kingstone", DOCKER_HANG="1", DOCKER_STOP_WORKS="0", DOCKER_KILL_WORKS="0")
+    assert result.returncode == 14, result.stderr
+    assert local.container_state() == "running"
+    assert_terminal_record(
+        local,
+        result.stdout,
+        result.stderr,
+        mode="kingstone",
+        provider="KINGSTONE",
+        exit_code=14,
+        reason="ORPHAN_WRITER",
+        alerts=["orphan", "hard_limit"],
+        container={"name": CONTAINER, "cid": None},
+    )
+
+
+def test_unconfirmed_writer_after_sigterm_alerts_orphan_only(local):
+    proc = local.popen("kingstone", DOCKER_HANG="1", DOCKER_STOP_WORKS="0", DOCKER_KILL_WORKS="0")
+    deadline = time.monotonic() + 30
+    while not (local.fake / "docker-calls").exists() and time.monotonic() < deadline:
+        time.sleep(0.05)
+    proc.send_signal(signal.SIGTERM)
+    stdout, stderr = proc.communicate(timeout=60)
+    assert proc.returncode == 14, stderr
+    assert local.container_state() == "running"
+    assert_terminal_record(
+        local,
+        stdout,
+        stderr,
+        mode="kingstone",
+        provider="KINGSTONE",
+        exit_code=14,
+        reason="ORPHAN_WRITER",
+        alerts=["orphan"],
+        container={"name": CONTAINER, "cid": None},
+    )
+
+
+def test_sigterm_writes_signal_stop_alert_and_runner_record(local):
+    proc = local.popen("kingstone", DOCKER_HANG="1")
+    deadline = time.monotonic() + 30
+    while not (local.fake / "docker-calls").exists() and time.monotonic() < deadline:
+        time.sleep(0.05)
+    proc.send_signal(signal.SIGTERM)
+    stdout, stderr = proc.communicate(timeout=60)
+    assert proc.returncode == 21, stderr
+    assert local.container_state() is None
+    assert_terminal_record(
+        local,
+        stdout,
+        stderr,
+        mode="kingstone",
+        provider="KINGSTONE",
+        exit_code=21,
+        reason="SIGNAL_STOP",
+        alerts=["signal_stop"],
+        container={"name": CONTAINER, "cid": None},
+    )
+
+
+def test_runner_record_that_cannot_be_written_keeps_the_exit_code(local):
+    (local.artifacts / "runner").write_text("not a directory", encoding="utf-8")
+    local.set_container("running")
+    result = local.run("daily")
+    assert result.returncode == 13, result.stderr
+    assert "WARNING: runner record was not written" in result.stderr
+    assert alert_lines(result.stderr) == [f"ALERT reasons=orphan mode=daily last_run={runner_record_path(local, 'daily')}"]
+    assert len(stdout_json_records(result.stdout)) == 1
+    assert SECRET not in result.stdout + result.stderr
+
+
+@pytest.fixture
+def support_module():
+    return load_support()
+
+
+def test_build_runner_record_accepts_only_the_known_reason_exit_and_alert_combinations(support_module):
+    base = {
+        "run_id": str(uuid.uuid4()),
+        "mode": "kingstone",
+        "started_at": "2026-10-25T01:00:00Z",
+        "container_name": CONTAINER,
+    }
+    record = support_module.build_runner_record(**base, exit_code=20, reason="HARD_LIMIT", alert_reasons=["hard_limit"], container_id=None)
+    assert record["provider"] == "KINGSTONE" and record["container"] == {"name": CONTAINER, "cid": None}
+    bad = [
+        {"exit_code": 20, "reason": "WHATEVER", "alert_reasons": ["hard_limit"]},
+        {"exit_code": 13, "reason": "HARD_LIMIT", "alert_reasons": ["hard_limit"]},
+        {"exit_code": 14, "reason": "ORPHAN_WRITER", "alert_reasons": ["hard_limit"]},
+        {"exit_code": 21, "reason": "SIGNAL_STOP", "alert_reasons": []},
+    ]
+    for fields in bad:
+        with pytest.raises(support_module.RunnerSupportError):
+            support_module.build_runner_record(**base, container_id=None, **fields)
+    with pytest.raises(support_module.RunnerSupportError):
+        support_module.build_runner_record(**{**base, "mode": "weekly"}, exit_code=20, reason="HARD_LIMIT", alert_reasons=["hard_limit"], container_id=None)
+    with pytest.raises(support_module.RunnerSupportError):
+        support_module.build_runner_record(
+            **{**base, "container_name": "name with space"},
+            exit_code=20,
+            reason="HARD_LIMIT",
+            alert_reasons=["hard_limit"],
+            container_id=None,
+        )
+
+
+def test_write_runner_record_is_atomic_owner_readable_and_leaves_no_temporary_file(tmp_path, support_module):
+    record = support_module.build_runner_record(
+        run_id=str(uuid.uuid4()),
+        mode="pages",
+        exit_code=21,
+        reason="SIGNAL_STOP",
+        alert_reasons=["signal_stop"],
+        started_at="2026-10-25T01:00:00Z",
+        container_name=None,
+        container_id=None,
+    )
+    target = tmp_path / "pages-last-run.json"
+    target.write_text("previous", encoding="utf-8")
+    support_module.write_runner_record(str(target), record)
+    assert json.loads(target.read_text(encoding="utf-8")) == record
+    assert target.stat().st_mode & 0o777 == 0o644
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["pages-last-run.json"]
+
+
+def test_write_runner_record_cli_prints_the_record_and_writes_it(local):
+    run_id = str(uuid.uuid4())
+    target = local.root / "cli" / "daily-last-run.json"
+    target.parent.mkdir()
+    result = subprocess.run(
+        [
+            "python3",
+            "-I",
+            str(SUPPORT),
+            "write-runner-record",
+            "--path",
+            str(target),
+            "--run-id",
+            run_id,
+            "--mode",
+            "daily",
+            "--exit-code",
+            "14",
+            "--reason",
+            "ORPHAN_WRITER",
+            "--alert-reasons",
+            "orphan,hard_limit",
+            "--started-at",
+            "2026-10-25T01:00:00Z",
+            "--container-name",
+            CONTAINER,
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stderr
+    printed = json.loads(result.stdout)
+    assert printed == json.loads(target.read_text(encoding="utf-8"))
+    assert printed["alert_reasons"] == ["orphan", "hard_limit"]
+    assert printed["provider"] == "BOOKS_COM_TW" and printed["source"] == "runner"
 
 
 def test_example_configuration_parses_and_holds_no_secret():

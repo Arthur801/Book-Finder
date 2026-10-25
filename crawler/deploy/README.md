@@ -205,7 +205,7 @@ v12 計畫（`Docs/plans/kingstone-category-crawler.md` §8）改由使用者的
   - `DB_SECRET_SOURCE=file`：`DB_SECRET_FILE` 指向本機的檔案，權限必須是 `600` 且 owner 是自己；內容是 psycopg 的 PostgreSQL URL（與 SSM 參數相同格式）。
 - **CA bundle**：RDS CA bundle 放在本機（`DB_CA_BUNDLE`），權限 `0644`。runner 以唯讀方式掛到容器內 `/etc/book-finder/rds-ca-bundle.pem`，`sslrootcert` 指向這個路徑。
 - **Docker**：daemon 正常執行；image 需已存在於本機（runner 使用 `--pull=never`）。
-- **Artifacts 目錄**：`CRAWLER_LOCAL_ARTIFACTS_DIR` 掛到容器內 `/app/crawler/artifacts`。容器以 UID 10001 執行，因此目錄須屬於 `10001`（`sudo chown 10001:10001 <dir>`）或為 world-writable；否則 runner 以 exit 10 拒絕。
+- **Artifacts 目錄**：`CRAWLER_LOCAL_ARTIFACTS_DIR` 掛到容器內 `/app/crawler/artifacts`。容器以 UID 10001 執行，因此目錄須屬於 `10001`（`sudo chown 10001:10001 <dir>`）或為 world-writable；否則 runner 以 exit 10 拒絕。runner 另寫自己的 terminal record 到 `artifacts/runner/`（§9.4.1），該子目錄須由本機使用者可寫（容器不需要寫入）；若尚未建立，請以 `sudo install -d -o "$(id -u)" -m 755 <CRAWLER_LOCAL_ARTIFACTS_DIR>/runner` 建立。缺少時 runner 仍會 ALERT 與印出 JSON，但 record 寫入失敗並印 `WARNING`。
 
 ### 9.2 設定檔
 
@@ -279,6 +279,24 @@ crawler/deploy/local/run-local-crawler.sh daily
 
 其他值（例如 container 內部的 125）為 Docker 或 container 自身的 exit code，原樣傳回。
 
+### 9.4.1 告警與 runner record（補充）
+
+責任劃分：container 內的結果（exit 0、1、2 與 Docker 回傳的其他值）由 crawler 負責，寫入 `artifacts/kingstone/last-run.json`、stdout JSON 與 `ALERT` 行（#147 合併後才存在）。container 外的 lifecycle failure 由 runner 負責。下表的 exit 會在 stderr 印一行 `ALERT reasons=<reasons> mode=<mode> last_run=<path>`，並寫入 runner 的 terminal record；同一份 record 也印成一行 JSON 在 stdout：
+
+| Exit | ALERT reasons | record `reason` |
+|---|---|---|
+| 13 | `orphan` | `ORPHAN_WRITER`（啟動前發現 writer，未啟動 container） |
+| 14 | `orphan`（signal 或客戶端結束時）；`orphan,hard_limit`（hard limit 觸發時） | `ORPHAN_WRITER` |
+| 20 | `hard_limit` | `HARD_LIMIT` |
+| 21 | `signal_stop` | `SIGNAL_STOP`（運維的 SIGINT／SIGTERM 也留下紀錄，因為這次 run 被中止） |
+
+正常結束（exit 0、1、2）不寫 runner record，也不印 runner 的 `ALERT`。
+
+**Runner record 位置與欄位**：`$CRAWLER_LOCAL_ARTIFACTS_DIR/runner/<mode>-last-run.json`（例如 `artifacts/runner/kingstone-last-run.json`），以暫存檔、fsync、rename 原子寫入。欄位：`run_id`（runner 產生的 UUID）、`provider`（`KINGSTONE` 或 `BOOKS_COM_TW`）、`mode`、`status`（固定 `FAILED`）、`exit_code`、`reason`、`alert_reasons`（陣列）、`started_at`、`finished_at`（ISO8601 UTC，結尾 `Z`）、`container`（`name`、`cid`；未知為 null）、`counts`（null，crawler 計數由 container 的結果負責）、`source`（固定 `runner`）。不含 secret，不寫入 kingstone history，不影響 streak。runner 不寫 `artifacts/kingstone/`。
+
+**最新結果**（僅 kingstone）：`artifacts/kingstone/last-run.json` 與 `artifacts/runner/kingstone-last-run.json` 中 `finished_at` 較新的一份。兩者的時間格式可能不同，比較時請解析 ISO8601 後比時間，不要直接比字串。runner record 只在 lifecycle failure 時產生，因此它可能比 container 的結果舊。
+
+
 ### 9.5 手動 canary（金石堂）
 
 金石堂第一次真站驗證只在使用者本機執行，且不得與 CD 部署重疊：
@@ -290,3 +308,25 @@ crawler/deploy/local/run-local-crawler.sh daily
 5. 成功後還原清單與 image tag，再視需要以 `normal` 進行下一步（另案）。
 
 金石堂若封鎖本地 IP，依 rollback 停用（`CRAWLER_ENABLED=false`），不採取規避技術。
+
+### 9.6 停止與 rollback
+
+依計畫 v12 §10：先停止 writer、確認 tunnel 已關閉，最後才停用。順序不可對調：`CRAWLER_ENABLED=false` 只影響**下一次** invocation，不會停止正在執行的 writer。
+
+1. **停止 runner**：對目前的 runner 送 SIGTERM（或在終端按 Ctrl-C）。runner 的 signal handler 會執行 `docker stop -t <CRAWLER_STOP_GRACE_SECONDS>`，仍在運作則 `docker kill`，確認後以 exit 21 結束，並寫入 `SIGNAL_STOP` record（見 §9.4.1）。
+2. **等待 runner 結束**：超過 `CRAWLER_STOP_GRACE_SECONDS` 加數十秒仍未結束時，人工執行 `docker kill book-finder-crawler-active`，再等 runner 結束。
+3. **確認沒有 writer**：
+   ```bash
+   docker ps -a --filter label=com.bookfinder.role=catalog-crawler --format '{{.Names}}\t{{.State}}'
+   ```
+   不得有 `running`、`restarting`、`paused`、`removing` 的 container。`exited`、`dead`、`created` 可以接受，下一次 run 會 `docker rm`。
+4. **確認 SSH tunnel 已關閉**（把 `<port>` 換成 `LOCAL_DB_PORT` 的值；輸出不要貼出實際主機名）：
+   ```bash
+   pgrep -af 'ssh -N .* -L 127.0.0.1:<port>:'
+   ```
+   沒有輸出即已關閉。
+5. **停用**：在 `crawler-local.conf` 設定 `CRAWLER_ENABLED=false`。之後的 invocation 會印 `skipped=disabled` 並 exit 0。這個 flag 只影響下一次 invocation，不會停止正在跑的 writer，所以必須先完成步驟 1 至 4。
+6. **無法確認時**：若步驟 2 或 3 無法確認 writer 已停止（runner 回報 exit 14，或 container 仍為 running、paused），視為 `ORPHAN_WRITER`：不得重新啟動 runner。先以 `docker inspect --format '{{.State.Status}}' book-finder-crawler-active` 等方式人工確認實際狀態，確認已停止後才 `docker rm book-finder-crawler-active`。之後 runner 的 orphan check 才會放行。
+7. **回復 runner 或 image**：需要時把 `KINGSTONE_CRAWLER_IMAGE` 改回前一個 digest（image 由 CD 發布，指定 digest 即可），或把 `deploy/local/` 還原到前一個 commit。在 DB 停用 KINGSTONE provider 屬 production 操作，需另行授權，不在本 runner 的 rollback 範圍內。
+
+停止與 rollback 留下的紀錄：stderr 的 `ALERT` 行與 `artifacts/runner/<mode>-last-run.json`（說明見 §9.4.1）。
