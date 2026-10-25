@@ -207,8 +207,9 @@ flock -n 9 || fail 11 'run.lock is held by another local crawler run'
 # --- EC2 deploy state gate (read-only, over SSH) -----------------------------------------------------------------
 
 # Children must not inherit fd 9, or the lock would outlive this runner. stdin is /dev/null so ssh cannot wait on a tty.
-if ! ec2_state=$(ssh -o BatchMode=yes -o ConnectTimeout=20 "$EC2_SSH_HOST" cat "$EC2_STATE_FILE" </dev/null 9>&-); then
-    fail 12 'state=unreadable (ssh or cat failed; the EC2 deploy state is required)'
+# The deploy host rewrites state.json as root with mode 0600, so the SSH user reads it with non-interactive sudo.
+if ! ec2_state=$(ssh -o BatchMode=yes -o ConnectTimeout=20 "$EC2_SSH_HOST" sudo -n cat -- "$EC2_STATE_FILE" </dev/null 9>&-); then
+    fail 12 'state=unreadable (ssh or sudo -n cat failed; the EC2 deploy state is required)'
 fi
 if ! gate=$(printf '%s' "$ec2_state" | python3 -I "$helper" state-gate); then
     fail 12 'state=unreadable'

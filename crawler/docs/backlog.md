@@ -35,6 +35,7 @@
 - Phase 6 M4 完成（2026-10-25）：本地 runner `deploy/local/run-local-crawler.sh`（kingstone 與博客來四個 mode 共用 `run.lock`、EC2 deploy state 唯讀閘門、orphan check、DB secret、SSH 本地轉發與 `verify-full` 連線字串改寫、watchdog 與 writer fencing、exit code 表）；架構見 [architecture](architecture.md)「Runtime ownership」與 [流程](workflow-diagram.md)「本地 runner」；測試 CR-T20（假指令，未連外部）。使用說明與 exit code 見 [deploy README](../deploy/README.md) §9。
 - Phase 6 M4 之後仍待辦：
   - **EC2 crawler cron 移除（另案）**：目前以 `CRAWLER_ENABLED=false` 停用，cron 仍安裝於 EC2；移除需另行決定與執行。
+  - **P3 第一次實測發現（2026-10-25，已修正）**：runner 原本以 `ssh <host> cat <state.json>` 讀取，但 deploy host 每次寫入都把 `state.json` 設為 root 0600，SSH 使用者讀不到而 exit 12；假指令測試沒有涵蓋檔案權限。改為 `sudo -n cat --`，EC2 的 SSH 使用者需要免密碼 sudo（README §9.1 有限定單一指令的 sudoers 寫法）。
   - **P3 真實驗證（待使用者本機執行）**：真實 SSH 轉發與 `ExitOnForwardFailure`、SSM 權限、Docker 的 `--cidfile`、UID 10001 對 artifacts 與 CA mount 的讀寫、`docker stop`／`kill`／`ps` 語意、tunnel 斷線、以及 deploy migration 與 crawler 的互斥（見 v12 §10 P3）。本次只有假指令測試。
   - **與 migration 的互斥由 crawler 程式與 deploy 負責，不在 runner**：container 內的 crawler 在每次 DB 連線與重連時取 shared advisory lock（`catalog_core.session`，PR #145），deploy 在 migration 期間以存活的 lock session 持有 exclusive lock（PR #146）；runner 本身不取 lock。#145、#146 已合併；deploy 端在下一次 production deploy 後才生效，在此之前本地執行仍須自行避開 CD 部署窗口（[deploy README](../deploy/README.md) §9.5）。
   - **`deploy/docs` 同步（不在本 PR 改 `deploy/`）**：`deploy/docs/architecture.md`、`workflow-diagram.md` 若仍描述 crawler 在 EC2 執行，需同步 runtime ownership；`deploy/` 的 migration 與 advisory lock 變更屬 deploy 的 M2／M3。

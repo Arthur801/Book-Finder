@@ -144,7 +144,7 @@ Invocation order（本地）：
 
 1. 讀 `CRAWLER_LOCAL_CONF`。`CRAWLER_ENABLED` 先於其他驗證：`false` → `skipped=disabled`、exit 0、無任何外部工作；其他值非法 → exit 10。必要值與格式、CA bundle（`0644`、非 symlink）、artifacts 目錄（owner 10001 或 world-writable）驗證失敗 → exit 10。
 2. 本地 `run.lock`，非阻塞，所有 mode 共用；已被持有 → exit 11。
-3. SSH 唯讀讀取 EC2 `state.json`（`BatchMode=yes`，`python3 -I` 判定，與 `run-crawler.sh` 同規則）：paused／dirty → `skipped=…`、exit 6；讀不到或檔案不存在 → exit 12（fail closed）。
+3. SSH 唯讀讀取 EC2 `state.json`（`BatchMode=yes`，遠端以 `sudo -n cat --` 讀取，因為 deploy host 把檔案寫成 root 0600；`python3 -I` 判定，與 `run-crawler.sh` 同規則）：paused／dirty → `skipped=…`、exit 6；讀不到或檔案不存在 → exit 12（fail closed）。
 4. Orphan check：`docker ps -a --filter label=com.bookfinder.role=catalog-crawler`。running／restarting／paused／removing → `ORPHAN_WRITER`、exit 13，不取 secret；exited／dead／created → `docker rm` 後繼續；docker 不可用 → exit 18。
 5. DB secret：`DB_SECRET_SOURCE=ssm`（`aws ssm get-parameter --with-decryption --profile`）或 `file`（600、owner 為自己、非 symlink）；空值 → exit 15。secret 只經 stdin 與 bash 變數傳遞，不進 argv、log 或 env。
 6. 改寫連線字串（`runner_support.py rewrite-url`）：保留 userinfo 與 path（不解碼），host 必須等於 `RDS_ENDPOINT`（否則 exit 17），port 換成 `LOCAL_DB_PORT`，加上 `hostaddr=127.0.0.1`、`sslmode=verify-full`、`sslrootcert=/etc/book-finder/rds-ca-bundle.pem`；寫入 600 的 env file（只含 `DATABASE_URL`，mktemp 建立）。
