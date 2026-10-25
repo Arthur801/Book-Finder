@@ -22,7 +22,18 @@ from collections.abc import Mapping, Sequence
 from bookfinder_host import config as cfg
 from bookfinder_host import runtime as rt
 from bookfinder_host.manifest import CONTAINER_RELEASE_DIR
-from bookfinder_host.ports import Child, EffectFailed, Effects, Runner, child_environment
+from bookfinder_host.ports import (
+    EFBUNDLE_ROLE,
+    LOCK_HOLDER_ROLE,
+    ROLE_LABEL,
+    Child,
+    EffectFailed,
+    Effects,
+    MigrationConnectionActive,
+    ResidualContainer,
+    Runner,
+    child_environment,
+)
 from bookfinder_host.release_content import COMPOSE_CA_BUNDLE
 from bookfinder_host.safefile import read_regular_file
 
@@ -42,6 +53,12 @@ LOCK_START_GRACE_S = 60.0
 LOCK_RELEASE_TIMEOUT_S = 10.0
 SESSION_CLOSE_TIMEOUT_S = 10.0
 _PASSWORD_IN_TEXT = re.compile(r"(?i)password\s*=\s*\S+")
+# The name prefix each host role's containers get; the residual check accepts only containers with both the label and this prefix.
+_ROLE_NAME_PREFIX = {EFBUNDLE_ROLE: "bookfinder-migration-", LOCK_HOLDER_ROLE: "bookfinder-deploy-lock-"}
+_APPLICATION_NAME_RE = re.compile(r"[A-Za-z0-9_.-]{1,63}")
+# How often the lock session asks the server whether the migration connection is still there, and the bound of one ask.
+MIGRATION_CONNECTION_POLL_S = 2.0
+CONNECTION_QUERY_TIMEOUT_S = 10.0
 
 
 def _checked(result, what: str) -> None:
@@ -227,6 +244,7 @@ class RealDocker:
         # The env file carries the secrets; docker copies it into the container config at create time. The name lets
         # the host stop the container itself (docker kill) when the lock is lost, instead of trusting the docker client.
         name = f"bookfinder-migration-{secrets.token_hex(6)}"
+        # The label lets the next deploy find a container that a crashed run left behind (see residual_containers).
         return self._launcher.spawn(
             [
                 "docker",
@@ -235,6 +253,8 @@ class RealDocker:
                 "--pull=never",
                 "--name",
                 name,
+                "--label",
+                f"{ROLE_LABEL}={EFBUNDLE_ROLE}",
                 *cfg.ca_bundle_mount_args(self._ca_bundle),
                 "--env-file",
                 env_file,
@@ -274,6 +294,27 @@ class RealDocker:
         result = self._runner.run(["docker", "logs", "--tail", str(tail), container])
         _checked(result, "docker logs")
         return result.stdout + result.stderr
+
+    def residual_containers(self, role: str) -> list[ResidualContainer]:
+        prefix = _ROLE_NAME_PREFIX.get(role)
+        if prefix is None:
+            raise EffectFailed("unknown container role")
+        listed = self._runner.run(["docker", "ps", "-a", "--filter", f"label={ROLE_LABEL}={role}", "--format", "{{.ID}}\t{{.State}}\t{{.Names}}"])
+        _checked(listed, "docker ps")
+        found: list[ResidualContainer] = []
+        for line in listed.stdout.split("\n"):
+            if not line:
+                continue
+            parts = line.split("\t")
+            if len(parts) != 3 or _CONTAINER_ID_RE.fullmatch(parts[0]) is None or not parts[2].startswith(prefix):
+                raise EffectFailed("docker ps returned an unexpected container listing")
+            found.append(ResidualContainer(container_id=parts[0], name=parts[2], state=parts[1]))
+        return found
+
+    def remove_container(self, container: str) -> None:
+        if _CONTAINER_ID_RE.fullmatch(container) is None:
+            raise EffectFailed("refusing to remove a container without a plain id")
+        _checked(self._runner.run(["docker", "rm", container]), "docker rm")
 
 
 class RealLockHolder:
@@ -321,6 +362,8 @@ class RealLockHolder:
             "--pull=never",
             "--name",
             self._name,
+            "--label",
+            f"{ROLE_LABEL}={LOCK_HOLDER_ROLE}",
             *cfg.ca_bundle_mount_args(self._ca_bundle),
             "-e",
             "DATABASE_URL",
@@ -351,6 +394,28 @@ class RealLockHolder:
         lines = session.read_until(marker, timeout_s)
         if "1" not in lines:
             raise EffectFailed("lock session answered a heartbeat without the expected result")
+
+    def wait_migration_connections_gone(self, application_name: str, timeout_s: float) -> None:
+        session = self._require()
+        if _APPLICATION_NAME_RE.fullmatch(application_name) is None:
+            raise EffectFailed("application name is malformed")
+        if not (timeout_s > 0 and timeout_s < 3600):
+            raise EffectFailed("connection wait must be between 0 and 3600 seconds")
+        # The name is checked against a plain pattern above, so it can be quoted into the SQL text safely.
+        query = f"SELECT count(*) FROM pg_stat_activity WHERE application_name = '{application_name}';\n"
+        deadline = time.monotonic() + timeout_s
+        while True:
+            marker = self._marker("connections")
+            session.send(f"{query}\\echo {marker}\n")
+            lines = session.read_until(marker, CONNECTION_QUERY_TIMEOUT_S)
+            counts = [line.strip() for line in lines if line.strip().isdigit()]
+            if not counts:
+                raise EffectFailed("lock session did not report the migration connections")
+            if int(counts[-1]) == 0:
+                return
+            if time.monotonic() >= deadline:
+                raise MigrationConnectionActive(f"migration connection still active after {timeout_s:g} s")
+            time.sleep(MIGRATION_CONNECTION_POLL_S)
 
     def alive(self) -> bool:
         return self._session is not None and self._session.alive()

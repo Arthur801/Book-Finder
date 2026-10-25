@@ -12,7 +12,7 @@ from pathlib import Path
 
 from bookfinder_host.adapters import RealFiles
 from bookfinder_host.manifest import Migration
-from bookfinder_host.ports import CommandResult, EffectFailed, Effects
+from bookfinder_host.ports import CommandResult, EffectFailed, Effects, MigrationConnectionActive, ResidualContainer
 
 Handler = Callable[[Sequence[str]], CommandResult]
 
@@ -251,6 +251,25 @@ class FakeDocker:
         self.logs_text = ""
         self.logs_error: str | None = None
         self.logs_calls: list[tuple[str, int]] = []
+        # Containers of earlier runs the residual check finds, by role; remove_container takes them out again.
+        self.residual: dict[str, list[ResidualContainer]] = {}
+        self.residual_error: str | None = None
+        self.remove_error: str | None = None
+        self.removed: list[str] = []
+
+    def residual_containers(self, role: str) -> list[ResidualContainer]:
+        self.fx.trace.append(f"docker.residual {role}")
+        if self.residual_error is not None:
+            raise EffectFailed(self.residual_error)
+        return list(self.residual.get(role, []))
+
+    def remove_container(self, container: str) -> None:
+        self.fx.trace.append(f"docker.rm {container}")
+        if self.remove_error is not None:
+            raise EffectFailed(self.remove_error)
+        self.removed.append(container)
+        for role, found in self.residual.items():
+            self.residual[role] = [c for c in found if c.container_id != container]
 
     def pull(self, reference: str) -> None:
         self.fx.trace.append(f"docker.pull {reference}")
@@ -339,7 +358,8 @@ class FakeLockHolder:
     snapshot and released last.
 
     Knobs: acquire_error (the lock is not taken), heartbeats_ok (how many heartbeats answer before the session is lost;
-    None means always), release_error (release raises, the result must not change).
+    None means always), release_error (release raises, the result must not change), connection_active (the migration
+    connection is still on the server when the host waits for it), connection_error (the holder cannot answer the wait).
     """
 
     def __init__(self, fx: "FakeEffects") -> None:
@@ -352,6 +372,9 @@ class FakeLockHolder:
         self.acquired: list[tuple[int, float]] = []
         self.heartbeat_calls = 0
         self.release_calls = 0
+        self.connection_active = False
+        self.connection_error: str | None = None
+        self.connection_waits: list[tuple[str, float]] = []
 
     def acquire(self, key: int, timeout_s: float) -> None:
         self.fx.trace.append("lock.acquire")
@@ -371,6 +394,16 @@ class FakeLockHolder:
 
     def alive(self) -> bool:
         return self.held and not self.lost
+
+    def wait_migration_connections_gone(self, application_name: str, timeout_s: float) -> None:
+        self.fx.trace.append("lock.connections")
+        self.connection_waits.append((application_name, timeout_s))
+        if not self.held or self.lost:
+            raise EffectFailed("no migration lock session")
+        if self.connection_error is not None:
+            raise EffectFailed(self.connection_error)
+        if self.connection_active:
+            raise MigrationConnectionActive(f"migration connection still active after {timeout_s:g} s")
 
     def release(self) -> None:
         self.fx.trace.append("lock.release")

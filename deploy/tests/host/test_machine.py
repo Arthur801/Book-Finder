@@ -20,7 +20,7 @@ from bookfinder_host import machine
 from bookfinder_host import state as st
 from bookfinder_host.exit_codes import BAD_INPUT, DRIFT, FAILED_DOWN, FAILED_MIGRATION, OK, PARTIAL_CRAWLER, ROLLED_BACK
 from bookfinder_host.manifest import Migration
-from bookfinder_host.ports import EffectFailed
+from bookfinder_host.ports import EFBUNDLE_ROLE, LOCK_HOLDER_ROLE, EffectFailed, ResidualContainer
 from bookfinder_host.release_content import COMPOSE_FILE
 from bookfinder_host.testing import CONTAINER_ID, FAKE_COMPOSE, sample_state, write_release
 from worlds import (
@@ -1170,7 +1170,9 @@ MIGRATION_PARAMETER = "/book-finder/prod/migration-connection"
 MIGRATION_VALUE = "Host=db.internal;Database=book_finder;Username=owner;Password=pw-MIG-1"
 MIGRATE_LINE = "ConnectionStrings__DefaultConnection=" + MIGRATION_VALUE + "\n"
 # efbundle's file: the same connection string plus the check-interval option (plan v12 §8: a killed efbundle must not leave a server statement running).
-MIGRATE_LINE_WITH_OPTION = "ConnectionStrings__DefaultConnection=" + MIGRATION_VALUE + ";Options=-c client_connection_check_interval=10000\n"
+MIGRATE_LINE_WITH_OPTION = (
+    "ConnectionStrings__DefaultConnection=" + MIGRATION_VALUE + ";Application Name=bookfinder-efbundle;Options=-c client_connection_check_interval=10000\n"
+)
 
 
 def migrate_env_path(world, run_id=RUN_ID) -> Path:
@@ -1324,7 +1326,7 @@ def test_masking_still_covers_the_migration_secret_after_a_rollback(tmp_path):
 
 # Migration lock (plan v12 §8, item 1): the DB advisory lock is held for the whole forward migration.
 
-LOCK_OPTION = ";Options=-c client_connection_check_interval=10000"
+LOCK_OPTION = ";Application Name=bookfinder-efbundle;Options=-c client_connection_check_interval=10000"
 
 
 def lock_events(world) -> list[str]:
@@ -1464,3 +1466,154 @@ def test_an_in_sync_deploy_writes_no_efbundle_file_and_takes_no_lock(tmp_path):
     assert world.run(deploy_text(world)) == OK
     assert lock_events(world) == []
     assert not any("migrate-" in t for t in world.fx.trace)
+
+
+# DEP-B21 (a): the migration connection must be gone before the lock is released or the result is written.
+
+EFBUNDLE_CONTAINER = ResidualContainer(container_id="0123456789ab", name="bookfinder-migration-old1", state="running")
+LOCK_CONTAINER = ResidualContainer(container_id="fedcba987654", name="bookfinder-deploy-lock-old2", state="running")
+
+
+def test_success_waits_for_the_migration_connection_while_the_lock_is_held(tmp_path):
+    world = forward_world(tmp_path)
+    code, _out, err = world.run_unit(deploy_text(world, chain="forward", tag=TAG2))
+    assert code == OK, err
+    trace = world.fx.trace
+    assert index_of(trace, "docker.efbundle") < index_of(trace, "lock.connections") < index_of(trace, "lock.release")
+    assert world.fx.lock_holder.connection_waits == [("bookfinder-efbundle", 120.0)]
+
+
+def test_a_migration_connection_still_active_after_a_successful_efbundle_keeps_the_lock_and_the_dirty_state(tmp_path):
+    world = forward_world(tmp_path)
+    world.fx.lock_holder.connection_active = True
+    code, _out, err = world.run_unit(deploy_text(world, chain="forward", tag=TAG2))
+    assert code == FAILED_MIGRATION, err
+    assert "migration connection still active after 120 s" in err
+    assert "migration lock kept" in err
+    assert "lock.release" not in world.fx.trace
+    assert not any(t.startswith(("compose.", "docker.rm")) for t in world.fx.trace)  # no switch, no removal
+    state = world.load_state()
+    assert state.schema.dirty is True and state.crawler.paused is not None
+    assert [e["result"] for e in completed_records(world)] == ["failed-migration"]
+
+
+def test_a_migration_connection_still_active_after_a_failed_efbundle_is_reported_with_the_exit_code(tmp_path):
+    world = forward_world(tmp_path)
+    world.fx.docker.efbundle_rc = 1
+    world.fx.lock_holder.connection_active = True
+    code, _out, err = world.run_unit(deploy_text(world, chain="forward", tag=TAG2))
+    assert code == FAILED_MIGRATION, err
+    assert "efbundle exit 1; migration connection still active" in err
+    assert "lock.release" not in world.fx.trace
+
+
+def test_a_stopped_efbundle_past_the_time_bound_waits_and_keeps_the_lock_while_the_connection_is_active(tmp_path):
+    world = forward_world(tmp_path)
+    world.fx.docker.efbundle_polls = 10**9
+    world.fx.lock_holder.connection_active = True
+    code, _out, err = world.run_unit(deploy_text(world, chain="forward", tag=TAG2))
+    assert code == FAILED_MIGRATION, err
+    assert "efbundle did not finish within 3600 s" in err
+    assert "migration connection still active" in err
+    assert "lock.release" not in world.fx.trace
+
+
+def test_a_lock_session_lost_mid_migration_cannot_be_checked_so_the_original_result_stands_and_the_lock_is_released(tmp_path):
+    world = forward_world(tmp_path)
+    world.fx.docker.efbundle_polls = 50
+    world.fx.lock_holder.heartbeats_ok = 1
+    code, _out, err = world.run_unit(deploy_text(world, chain="forward", tag=TAG2))
+    assert code == FAILED_MIGRATION, err
+    assert "lock session lost" in err and "migration connection still active" not in err
+    assert "cannot confirm that the migration connection is gone" in err
+    assert lock_events(world)[-1] == "lock.release"
+
+
+def test_a_lock_holder_that_cannot_answer_the_connection_check_keeps_a_success_and_still_releases(tmp_path):
+    world = forward_world(tmp_path)
+    world.fx.lock_holder.connection_error = "no reply within 10 s"
+    code, _out, err = world.run_unit(deploy_text(world, chain="forward", tag=TAG2))
+    assert code == OK, err
+    assert "cannot confirm that the migration connection is gone" in err
+    assert lock_events(world)[-1] == "lock.release"
+
+
+def test_a_connection_string_that_sets_application_name_is_refused_before_any_change(tmp_path):
+    world = forward_world(tmp_path)
+    world.fx.ssm.values[world.settings.ssm_db_connection] = "Host=db.internal;Application Name=other;Password=pw-APP-9"
+    code, _out, err = world.run_unit(deploy_text(world, chain="forward", tag=TAG2))
+    assert code == BAD_INPUT, err
+    assert "already sets Options or Application Name" in err
+    assert "pw-APP-9" not in err
+    assert not any(t.startswith(("lock.", "aws.", "docker.efbundle")) for t in world.fx.trace)
+    state = world.load_state()
+    assert state.crawler.paused is None and state.schema.dirty is False
+
+
+# DEP-B21 (b): a container a crashed earlier run left behind is found before the pause, and nothing changes first.
+
+
+def test_a_running_migration_container_from_an_earlier_run_refuses_the_deploy_before_any_change(tmp_path):
+    world = forward_world(tmp_path)
+    world.fx.docker.residual[EFBUNDLE_ROLE] = [EFBUNDLE_CONTAINER]
+    code, _out, err = world.run_unit(deploy_text(world, chain="forward", tag=TAG2))
+    assert code == DRIFT, err
+    assert "a migration container from an earlier run is still active (bookfinder-migration-old1)" in err
+    assert "deploy refused before any change" in err
+    assert not any(t.startswith(("lock.", "aws.", "docker.efbundle", "docker.rm", "compose.")) for t in world.fx.trace)
+    state = world.load_state()
+    assert state.crawler.paused is None and state.schema.dirty is False
+    assert [e["result"] for e in completed_records(world)] == ["drift"]
+
+
+def test_a_stopped_migration_container_is_journaled_removed_and_the_deploy_continues(tmp_path):
+    world = forward_world(tmp_path)
+    stopped = ResidualContainer(container_id="0123456789ab", name="bookfinder-migration-old1", state="exited")
+    world.fx.docker.residual[EFBUNDLE_ROLE] = [stopped]
+    world.fx.docker.logs_text = "applying step 7\n"
+    code, _out, err = world.run_unit(deploy_text(world, chain="forward", tag=TAG2))
+    assert code == OK, err
+    assert "removing the residual migration container bookfinder-migration-old1 (state exited)" in err
+    assert "applying step 7" in err
+    assert world.fx.docker.removed == [stopped.container_id]
+    trace = world.fx.trace
+    assert index_of(trace, "docker.rm") < index_of(trace, "lock.acquire")
+
+
+def test_a_running_lock_holder_container_from_an_earlier_run_refuses_the_deploy(tmp_path):
+    world = forward_world(tmp_path)
+    world.fx.docker.residual[LOCK_HOLDER_ROLE] = [LOCK_CONTAINER]
+    code, _out, err = world.run_unit(deploy_text(world, chain="forward", tag=TAG2))
+    assert code == DRIFT, err
+    assert "a migration lock container from an earlier run is still active (bookfinder-deploy-lock-old2)" in err
+    assert not any(t.startswith(("lock.", "docker.efbundle")) for t in world.fx.trace)
+    assert world.load_state().crawler.paused is None
+
+
+def test_a_stopped_lock_holder_container_is_removed_and_the_deploy_continues(tmp_path):
+    world = forward_world(tmp_path)
+    world.fx.docker.residual[LOCK_HOLDER_ROLE] = [ResidualContainer(container_id="fedcba987654", name="bookfinder-deploy-lock-old2", state="exited")]
+    code, _out, err = world.run_unit(deploy_text(world, chain="forward", tag=TAG2))
+    assert code == OK, err
+    assert world.fx.docker.removed == ["fedcba987654"]
+
+
+def test_a_failed_residual_listing_is_drift_before_any_change(tmp_path):
+    world = forward_world(tmp_path)
+    world.fx.docker.residual_error = "docker ps failed: cannot connect"
+    code, _out, err = world.run_unit(deploy_text(world, chain="forward", tag=TAG2))
+    assert code == DRIFT, err
+    assert "cannot check for a residual migration container" in err
+    assert not any(t.startswith(("lock.", "aws.", "docker.efbundle")) for t in world.fx.trace)
+    assert world.load_state().crawler.paused is None
+
+
+def test_a_residual_container_that_cannot_be_removed_is_drift_before_any_change(tmp_path):
+    world = forward_world(tmp_path)
+    world.fx.docker.residual[EFBUNDLE_ROLE] = [ResidualContainer(container_id="0123456789ab", name="bookfinder-migration-old1", state="dead")]
+    world.fx.docker.remove_error = "docker rm failed: busy"
+    code, _out, err = world.run_unit(deploy_text(world, chain="forward", tag=TAG2))
+    assert code == DRIFT, err
+    assert "cannot remove the residual migration container bookfinder-migration-old1" in err
+    assert not any(t.startswith(("lock.", "aws.", "docker.efbundle")) for t in world.fx.trace)
+    assert world.load_state().crawler.paused is None

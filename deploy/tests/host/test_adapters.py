@@ -13,7 +13,7 @@ from typing import ClassVar
 
 import pytest
 from bookfinder_host import adapters, config
-from bookfinder_host.ports import CommandResult, EffectFailed
+from bookfinder_host.ports import CommandResult, EffectFailed, MigrationConnectionActive, ResidualContainer
 
 
 class Recorder:
@@ -40,6 +40,8 @@ def test_efbundle_starts_the_pinned_image_with_the_env_file_and_no_pull_and_a_na
         "--pull=never",
         "--name",
         name,
+        "--label",
+        "com.bookfinder.role=efbundle",
         "--env-file",
         "/run/book-finder/migrate-1.env",
         "--entrypoint",
@@ -284,19 +286,21 @@ def test_efbundle_mounts_the_ca_bundle_read_only_only_when_configured():
     launcher = FakeLauncher()
     adapters.RealDocker(Recorder(), ca_bundle=CA, launcher=launcher).start_efbundle("ghcr.io/x/web@sha256:" + "1" * 64, "/run/book-finder/migrate-1.env")
     argv, _, name = launcher.spawned[0]
-    assert argv[:10] == [
+    assert argv[:12] == [
         "docker",
         "run",
         "--rm",
         "--pull=never",
         "--name",
         name,
+        "--label",
+        "com.bookfinder.role=efbundle",
         "--mount",
         f"type=bind,src={CA},dst={CA},readonly",
         "--env-file",
         "/run/book-finder/migrate-1.env",
     ]
-    assert argv[10:] == ["--entrypoint", "/app/efbundle", "ghcr.io/x/web@sha256:" + "1" * 64]
+    assert argv[12:] == ["--entrypoint", "/app/efbundle", "ghcr.io/x/web@sha256:" + "1" * 64]
 
 
 def test_efbundle_without_ca_bundle_has_no_mount():
@@ -485,6 +489,8 @@ def test_lock_session_runs_psql_from_the_pinned_image_with_the_url_only_in_the_e
         "--pull=never",
         "--name",
         name,
+        "--label",
+        "com.bookfinder.role=deploy-lock",
         "-e",
         "DATABASE_URL",
         "--entrypoint",
@@ -609,3 +615,128 @@ def test_lock_failure_message_keeps_the_stderr_tail_with_the_password_masked(mon
         lock_holder(launcher).acquire(2026102501, 60.0)
     assert "pw-SECRET-7" not in str(info.value)
     assert "password=***" in str(info.value)
+
+
+# DEP-B21: the residual listing, the removal by id, and the server-side check that the migration connection is gone.
+
+CONTAINER_A = "0123456789ab"
+CONTAINER_B = "fedcba987654"
+
+
+def test_residual_containers_are_listed_by_role_label_with_state_and_name():
+    runner = Recorder(stdout=f"{CONTAINER_A}\texited\tbookfinder-migration-old1\n{CONTAINER_B}\trunning\tbookfinder-migration-old2\n")
+    found = adapters.RealDocker(runner).residual_containers("efbundle")
+    assert found == [
+        ResidualContainer(container_id=CONTAINER_A, name="bookfinder-migration-old1", state="exited"),
+        ResidualContainer(container_id=CONTAINER_B, name="bookfinder-migration-old2", state="running"),
+    ]
+    argv = runner.calls[0][0]
+    assert argv[:3] == ["docker", "ps", "-a"] and "label=com.bookfinder.role=efbundle" in argv
+
+
+def test_residual_listing_with_no_containers_is_empty_and_a_failed_listing_is_an_effect_failure():
+    assert adapters.RealDocker(Recorder(stdout="")).residual_containers("deploy-lock") == []
+    with pytest.raises(EffectFailed, match="docker ps failed"):
+        adapters.RealDocker(Recorder(returncode=1, stderr="cannot connect")).residual_containers("efbundle")
+
+
+def test_residual_listing_refuses_an_unknown_role_a_foreign_name_or_a_bad_id():
+    with pytest.raises(EffectFailed, match="unknown container role"):
+        adapters.RealDocker(Recorder()).residual_containers("web")
+    with pytest.raises(EffectFailed, match="unexpected container listing"):
+        adapters.RealDocker(Recorder(stdout=f"{CONTAINER_A}\texited\tsomeone-else\n")).residual_containers("efbundle")
+    with pytest.raises(EffectFailed, match="unexpected container listing"):
+        adapters.RealDocker(Recorder(stdout="not-an-id\texited\tbookfinder-migration-x\n")).residual_containers("efbundle")
+
+
+def test_remove_container_takes_a_plain_id_only():
+    runner = Recorder()
+    adapters.RealDocker(runner).remove_container(CONTAINER_A)
+    assert runner.calls[0][0] == ["docker", "rm", CONTAINER_A]
+    with pytest.raises(EffectFailed):
+        adapters.RealDocker(Recorder()).remove_container("bookfinder-migration-x")
+    with pytest.raises(EffectFailed, match="docker rm failed"):
+        adapters.RealDocker(Recorder(returncode=1, stderr="busy")).remove_container(CONTAINER_A)
+
+
+def test_the_lock_holder_and_efbundle_carry_their_role_labels_so_a_later_run_can_find_them():
+    launcher = FakeLauncher()
+    launcher.script = {"pg_advisory_lock": ["acquired|"]}
+    lock_holder(launcher).acquire(2026102501, 60.0)
+    argv = launcher.spawned[0][0]
+    assert argv[argv.index("--label") + 1] == "com.bookfinder.role=deploy-lock"
+
+
+class CountSession:
+    """Answers each pg_stat_activity query with the next count from a list; the other commands are answered as usual."""
+
+    def __init__(self, counts) -> None:
+        self.counts = list(counts)
+        self.pending: list[str] | None = None
+        self.queries = 0
+        self.closed = False
+
+    def send(self, text: str) -> None:
+        self.pending = None
+        if "pg_stat_activity" in text:
+            self.queries += 1
+            if self.counts:
+                self.pending = [str(self.counts.pop(0))]
+        else:
+            self.pending = []
+
+    def read_until(self, marker: str, timeout_s: float) -> list[str]:
+        if self.pending is None:
+            raise EffectFailed("lock session ended")
+        return list(self.pending)
+
+    def alive(self) -> bool:
+        return True
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def held_holder_with(session, monkeypatch):
+    holder = lock_holder(FakeLauncher())
+    holder._session = session  # the session is only inspected here, not started
+    holder._name = "bookfinder-deploy-lock-test"
+    monkeypatch.setattr(adapters, "MIGRATION_CONNECTION_POLL_S", 0.0)
+    return holder
+
+
+def test_connection_wait_returns_once_the_server_counts_no_migration_session(monkeypatch):
+    session = CountSession([2, 1, 0])
+    holder = held_holder_with(session, monkeypatch)
+    holder.wait_migration_connections_gone("bookfinder-efbundle", 60.0)
+    assert session.queries == 3
+
+
+def test_connection_wait_sends_the_exact_application_name_query(monkeypatch):
+    session = CountSession([0])
+    sent = []
+    original = session.send
+    monkeypatch.setattr(session, "send", lambda text: (sent.append(text), original(text)))
+    holder = held_holder_with(session, monkeypatch)
+    holder.wait_migration_connections_gone("bookfinder-efbundle", 60.0)
+    assert sent[0].startswith("SELECT count(*) FROM pg_stat_activity WHERE application_name = 'bookfinder-efbundle';\n")
+
+
+def test_connection_wait_raises_active_at_the_deadline_while_the_session_is_still_there(monkeypatch):
+    session = CountSession([1] * 100000)
+    holder = held_holder_with(session, monkeypatch)
+    with pytest.raises(MigrationConnectionActive, match="still active after 0.05 s"):
+        holder.wait_migration_connections_gone("bookfinder-efbundle", 0.05)
+    assert holder.alive() is True  # the lock session is not ended by the check; the holder keeps the lock
+
+
+def test_connection_wait_refuses_a_malformed_name_and_a_dead_session(monkeypatch):
+    holder = held_holder_with(CountSession([0]), monkeypatch)
+    with pytest.raises(EffectFailed, match="malformed"):
+        holder.wait_migration_connections_gone("bookfinder'; DROP", 60.0)
+    dead = held_holder_with(CountSession([]), monkeypatch)
+    with pytest.raises(EffectFailed, match="lock session ended"):
+        dead.wait_migration_connections_gone("bookfinder-efbundle", 60.0)
+    unheld = lock_holder(FakeLauncher())
+    with pytest.raises(EffectFailed, match="no migration lock session"):
+        unheld.wait_migration_connections_gone("bookfinder-efbundle", 60.0)

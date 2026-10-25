@@ -28,6 +28,23 @@ class EffectFailed(Exception):
     """An external effect reported failure. Messages never carry secret values."""
 
 
+class MigrationConnectionActive(EffectFailed):
+    """A server session of the migration (application_name = efbundle) is still there at the deadline."""
+
+
+# Container labels the host uses to find its own containers again after a crash (the deploy-start residual check).
+ROLE_LABEL = "com.bookfinder.role"
+EFBUNDLE_ROLE = "efbundle"
+LOCK_HOLDER_ROLE = "deploy-lock"
+
+
+@dataclass(frozen=True)
+class ResidualContainer:
+    container_id: str
+    name: str
+    state: str  # docker's State column: running, paused, restarting, created, exited, dead, ...
+
+
 class Runner(Protocol):
     def run(self, argv: Sequence[str], *, env: Mapping[str, str] | None = None) -> CommandResult: ...
 
@@ -59,6 +76,12 @@ class Docker(Protocol):
 
     def logs(self, container: str, tail: int) -> str:
         """The last tail lines of a container's logs, stdout and stderr together; raises EffectFailed."""
+
+    def residual_containers(self, role: str) -> list[ResidualContainer]:
+        """The containers (stopped ones included) labelled with this host role; raises EffectFailed."""
+
+    def remove_container(self, container: str) -> None:
+        """Removes a stopped container by id; raises EffectFailed."""
 
 
 class Child(Protocol):
@@ -92,6 +115,13 @@ class LockHolder(Protocol):
 
     def alive(self) -> bool:
         """True while the holder's process is still running."""
+
+    def wait_migration_connections_gone(self, application_name: str, timeout_s: float) -> None:
+        """Waits, while the lock is held, until no server session named application_name is left.
+
+        Raises MigrationConnectionActive when one is still there at the deadline, and EffectFailed when the holder
+        cannot answer (the caller then keeps its own result).
+        """
 
     def release(self) -> None:
         """Releases the lock and ends the holder session; raises EffectFailed when the holder cannot be stopped cleanly."""

@@ -26,7 +26,7 @@ from bookfinder_host import runtime as rt
 from bookfinder_host import state as st
 from bookfinder_host.exit_codes import BAD_INPUT, DRIFT, FAILED_DOWN, FAILED_MIGRATION, OK, PARTIAL_CRAWLER, ROLLED_BACK
 from bookfinder_host.images import is_digest_ref
-from bookfinder_host.ports import EffectFailed, Effects
+from bookfinder_host.ports import EFBUNDLE_ROLE, LOCK_HOLDER_ROLE, EffectFailed, Effects, MigrationConnectionActive
 from bookfinder_host.release_content import COMPOSE_CA_BUNDLE, COMPOSE_FILE, ReleaseRejected, compose_sha256_of, validate_tree
 from bookfinder_host.safefile import UnsafeFileError, read_regular_file
 
@@ -67,7 +67,15 @@ EFBUNDLE_TIMEOUT_S = 3600.0
 # Without it a killed efbundle leaves its statement running on the server until the statement writes to the socket.
 CHECK_INTERVAL_MS = 10000
 CONNECTION_OPTIONS = f"-c client_connection_check_interval={CHECK_INTERVAL_MS}"
-_OPTIONS_KEY = re.compile(r"(?i)(?:^|;)\s*options\s*=")
+# The application name that marks the migration's own server session (plan v12 §8, DEP-B21): the lock is released only
+# after no session with this name is left. The name is set only on efbundle's connection string, never on the web's.
+EFBUNDLE_APPLICATION_NAME = "bookfinder-efbundle"
+# Upper bound of the wait for that session to end, while the lock is still held (DEP-B21 (a)).
+MIGRATION_CONNECTION_WAIT_S = 120.0
+# Keys the host sets itself on efbundle's connection string; a string that already sets one is refused before any change.
+_HOST_OWNED_KEYS = re.compile(r"(?i)(?:^|;)\s*(?:options|application\s*name|applicationname)\s*=")
+# Containers a crashed earlier run may have left, by host role (DEP-B21 (b)); the note names what each one is.
+RESIDUAL_ROLES = ((EFBUNDLE_ROLE, "migration container"), (LOCK_HOLDER_ROLE, "migration lock container"))
 
 
 class _Stop(Exception):
@@ -130,8 +138,11 @@ class _Run:
     migrate_env_path: str = ""
     snapshot_id: str | None = None
     crawler_substeps: dict[str, str] | str | None = None
-    # True when the connection string efbundle would read already sets Options; the forward migration then refuses to run.
+    # True when the connection string efbundle would read already sets Options or Application Name; the forward migration
+    # then refuses to run.
     efbundle_options_conflict: bool = False
+    # Set when the migration connection was still active after the wait: the lock is then kept, not released.
+    lock_kept: bool = False
     # Every secret string rendered into this run's env file, longest first; diagnostics mask them before anything is written.
     secrets: tuple[str, ...] = ()
 
@@ -437,10 +448,10 @@ def _read_secret(r: _Run, env_name: str, parameter: str) -> str:
     return value
 
 
-def with_check_interval(connection: str) -> str:
-    """The connection string efbundle gets: the same string with client_connection_check_interval added as an Npgsql Options value."""
+def with_efbundle_options(connection: str) -> str:
+    """The connection string efbundle gets: the same string with its application name and client_connection_check_interval (an Npgsql Options value)."""
     base = connection if connection.endswith(";") else connection + ";"
-    return f"{base}Options={CONNECTION_OPTIONS}"
+    return f"{base}Application Name={EFBUNDLE_APPLICATION_NAME};Options={CONNECTION_OPTIONS}"
 
 
 def _render_env(r: _Run, *, include_migration: bool = True) -> None:
@@ -464,11 +475,11 @@ def _render_env(r: _Run, *, include_migration: bool = True) -> None:
         r.effects.files.write_atomic(r.env_path, "".join(f"{name}={value}\n" for name, value in web).encode("utf-8"), 0o600)
         if include_migration and r.command.chain == "forward":
             # efbundle always gets its own file, even without SSM_MIGRATION_CONNECTION (then it carries the web value):
-            # only this file gets the check-interval option, so the web container's connection is unchanged.
+            # only this file gets the application name and the check-interval option, so the web container's connection is unchanged.
             # The migration connection never reaches the web container's environment.
             source = migration if migration is not None else web[0][1]
-            r.efbundle_options_conflict = _OPTIONS_KEY.search(source) is not None
-            line = source if r.efbundle_options_conflict else with_check_interval(source)
+            r.efbundle_options_conflict = _HOST_OWNED_KEYS.search(source) is not None
+            line = source if r.efbundle_options_conflict else with_efbundle_options(source)
             r.migrate_env_path = os.path.join(r.settings.run_dir, f"migrate-{r.run_id}.env")
             r.effects.files.write_atomic(r.migrate_env_path, f"{MIGRATION_ENV_NAME}={line}\n".encode(), 0o600)
     except (EffectFailed, OSError) as exc:
@@ -487,7 +498,11 @@ def _discard_env(r: _Run) -> None:
 def _forward_migration(r: _Run) -> None:
     # Refused before any change: the host cannot add its check-interval option to a connection string that sets Options.
     if r.efbundle_options_conflict:
-        raise _Stop(BAD_INPUT, "rejected", "the database connection string already sets Options; no migration was started")
+        raise _Stop(
+            BAD_INPUT,
+            "rejected",
+            "the database connection string already sets Options or Application Name; no migration was started",
+        )
     # 4a: exclusive, so no crawler (which takes the same lock shared) can run while the schema changes (N3).
     try:
         with locks.exclusive(r.settings.db_maintenance_lock, r.deps.maintenance_timeout_s, r.deps.clock):
@@ -497,6 +512,9 @@ def _forward_migration(r: _Run) -> None:
 
 
 def _migrate_locked(r: _Run) -> None:
+    # (b) Before the pause and before any other change: a container a crashed run left behind stops the deploy here,
+    # so the crawler is not paused for a migration that cannot run.
+    _check_residual_containers(r)
     # 4b: pause before anything else, so the crawler cannot start between the snapshot and the migration (N3). The
     # database lock is taken after the pause (plan v12 §8: a lock that is lost must never leave the crawler resumable).
     r.save(st.pause_crawler(r.state, release=r.tag, reason=f"forward migration to {r.tag}", now=r.deps.clock.now()))
@@ -517,9 +535,64 @@ def _migrate_locked(r: _Run) -> None:
         _release_lock(r)
 
 
+def _check_residual_containers(r: _Run) -> None:
+    """(b) Refuses the deploy while a migration container or lock holder of an earlier run is running.
+
+    A stopped one has ended (docker removes a --rm container itself, so this only happens after a crash): its last log
+    lines are journaled and it is removed, then the deploy continues.
+    """
+    for role, what in RESIDUAL_ROLES:
+        try:
+            found = r.effects.docker.residual_containers(role)
+        except EffectFailed as exc:
+            raise _Stop(DRIFT, "drift", f"cannot check for a residual {what}: {_mask(str(exc), r.secrets)}") from exc
+        running = [c.name for c in found if c.state not in ("exited", "dead")]
+        if running:
+            raise _Stop(
+                DRIFT,
+                "drift",
+                f"a {what} from an earlier run is still active ({', '.join(running)}); deploy refused before any change; "
+                "check it with docker ps and stop or remove it by hand",
+            )
+        for container in found:
+            _journal_residual(r, what, container)
+            try:
+                r.effects.docker.remove_container(container.container_id)
+            except EffectFailed as exc:
+                raise _Stop(DRIFT, "drift", f"cannot remove the residual {what} {container.name}: {_mask(str(exc), r.secrets)}") from exc
+
+
+def _journal_residual(r: _Run, what: str, container) -> None:
+    try:
+        text = _mask(r.effects.docker.logs(container.container_id, LOG_TAIL_LINES), r.secrets).rstrip()
+    except EffectFailed as exc:
+        text = f"(logs unavailable: {_mask(str(exc), r.secrets)})"
+    r.err.write(f"removing the residual {what} {container.name} (state {container.state}); its last lines:\n{text}\n")
+
+
+def _await_migration_connection(r: _Run) -> str | None:
+    """(a) With the lock still held, waits until no migration connection is left on the server.
+
+    Returns None when the connection is gone, and also when the lock holder cannot answer: the caller then keeps its own
+    result and the release is attempted as before. Returns a note for the result when the connection is still active; the
+    lock is then kept (r.lock_kept), because releasing it could let the crawler run beside a statement that still executes.
+    """
+    try:
+        r.effects.lock_holder.wait_migration_connections_gone(EFBUNDLE_APPLICATION_NAME, MIGRATION_CONNECTION_WAIT_S)
+    except MigrationConnectionActive:
+        r.lock_kept = True
+        return f"migration connection still active after {MIGRATION_CONNECTION_WAIT_S:g} s (the migration lock is kept)"
+    except EffectFailed as exc:
+        r.err.write(f"cannot confirm that the migration connection is gone: {_mask(str(exc), r.secrets)}\n")
+    return None
+
+
 def _release_lock(r: _Run) -> None:
     # Runs on every path after the lock was taken. A failure here is recorded and never replaces the run's result:
     # the lock session ends with its process anyway, and the server drops the lock when the session is gone.
+    if r.lock_kept:
+        r.err.write("migration lock kept: the migration connection is still active; the lock ends when that connection ends or this deploy process exits\n")
+        return
     try:
         r.effects.lock_holder.release()
     except (EffectFailed, OSError) as exc:
@@ -542,6 +615,15 @@ def _migrate_under_lock(r: _Run) -> None:
     # 4e: efbundle runs while the lock holder is heartbeated. Success requires both the exit code and the database ids,
     # and the ids are read while the lock is still held.
     exit_code, output = _run_efbundle_under_lock(r)
+    # (a) The lock is still held here; the ids are read only once no migration statement can still be running.
+    note = _await_migration_connection(r)
+    if note is not None:
+        _journal_efbundle_output(r, output)
+        raise _Stop(
+            FAILED_MIGRATION,
+            "failed-migration",
+            f"efbundle exit {exit_code}; {note}; schema stays dirty, crawler stays paused; no automatic retry",
+        )
     applied = _applied_ids_or_none(r)
     if exit_code == 0 and applied == [m.id for m in r.target.migrations]:
         r.save(st.mark_migrated(r.state, r.tag, r.command.web_digest, r.target.migrations))
@@ -594,10 +676,13 @@ def _stop_efbundle(r: _Run, child, why: str) -> None:
     stopped = "killed after the grace period" if killed else "stopped after SIGTERM"
     if child.poll() is None:
         stopped = "not confirmed stopped"
+    # (a) A stopped efbundle can leave a server statement running until the server notices its client is gone.
+    note = _await_migration_connection(r)
+    suffix = f"; {note}" if note is not None else ""
     raise _Stop(
         FAILED_MIGRATION,
         "failed-migration",
-        f"{why}; efbundle {stopped}; the database may be partly migrated; schema stays dirty, crawler stays paused; no automatic retry",
+        f"{why}; efbundle {stopped}; the database may be partly migrated; schema stays dirty, crawler stays paused; no automatic retry{suffix}",
     )
 
 
