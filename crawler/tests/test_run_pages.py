@@ -23,6 +23,7 @@ from books_crawler.models import BookDraft, Identifier, IdentifierType, RankingR
 from books_crawler.page_list import PAGES_FILE_ENV
 from books_crawler.parsers import RANKING_PAGE_URL, ParseError, RestrictedBookError
 from books_crawler.run import RunDependencies, run_once, run_pages
+from catalog_core import persistence
 from catalog_core.identity import IdentityKind, SourceIdentity
 from tests.fakes import (
     RANKING_HTML,
@@ -46,7 +47,7 @@ DATABASE = {"DATABASE_URL": "postgresql://unused"}
 @pytest.fixture(autouse=True)
 def _provider_enabled(monkeypatch):
     """The CLI reads source_providers before the run; these tests have no database, so the provider is enabled."""
-    monkeypatch.setattr(db, "provider_enabled", lambda url, code: True)
+    monkeypatch.setattr(persistence, "provider_enabled", lambda url, code: True)
 
 
 class FakeStore:
@@ -58,17 +59,17 @@ class FakeStore:
         self.persisted: list[tuple] = []  # (draft, attach_to_book_id)
         self.touched: list = []
 
-    def resolve_source_identity(self, conn, source_url, external_id=None):
+    def resolve_source_identity(self, conn, provider, source_url, external_id=None):
         ref = self.sources.get(source_url)
         return SourceIdentity(IdentityKind.EXISTING, ref=ref) if ref is not None else SourceIdentity(IdentityKind.NEW)
 
     def find_books_by_isbn(self, conn, values):
         return sorted({self.isbn_owners[value] for value in values if value in self.isbn_owners})
 
-    def touch(self, conn, source_id, now):
+    def touch(self, conn, provider, source_id, now):
         self.touched.append(source_id)
 
-    def persist(self, conn, draft, now, attach_to_book_id=None):
+    def persist(self, conn, provider, draft, now, attach_to_book_id=None):
         self.persisted.append((draft, attach_to_book_id))
         book_id = attach_to_book_id if attach_to_book_id is not None else uuid4()
         ref = SourceRef(source_id=uuid4(), book_id=book_id)
@@ -82,10 +83,10 @@ class FakeStore:
 @pytest.fixture
 def store(monkeypatch) -> FakeStore:
     fake = FakeStore()
-    monkeypatch.setattr(db, "resolve_source_identity", fake.resolve_source_identity)
-    monkeypatch.setattr(db, "find_books_by_isbn", fake.find_books_by_isbn)
-    monkeypatch.setattr(db, "touch_source", fake.touch)
-    monkeypatch.setattr(db, "persist_new_source", fake.persist)
+    monkeypatch.setattr(persistence, "resolve_source_identity", fake.resolve_source_identity)
+    monkeypatch.setattr(persistence, "find_books_by_isbn", fake.find_books_by_isbn)
+    monkeypatch.setattr(persistence, "touch_source", fake.touch)
+    monkeypatch.setattr(persistence, "persist_new_source", fake.persist)
     # The Catalog import must never touch the bestseller list; an attempt fails the test outright.
     monkeypatch.setattr(db, "replace_bestsellers", lambda *args, **kwargs: pytest.fail("run_pages must not write bestsellers"))
     return fake
@@ -366,10 +367,10 @@ def test_browser_unavailable_on_a_detail_page_fails_the_run_without_retry(store,
 def test_database_failure_on_the_source_lookup_stops_the_run(store, monkeypatch):
     rows = {CATEGORY_1: ranking_rows(1), CATEGORY_2: ranking_rows(1, offset=1)}
 
-    def broken_lookup(conn, source_url, external_id=None):
+    def broken_lookup(conn, provider, source_url, external_id=None):
         raise psycopg.OperationalError("database is down")
 
-    monkeypatch.setattr(db, "resolve_source_identity", broken_lookup)
+    monkeypatch.setattr(persistence, "resolve_source_identity", broken_lookup)
 
     report, deps = crawl(monkeypatch, rows)
 
@@ -383,13 +384,13 @@ def test_database_write_is_retried_with_the_parsed_draft_without_refetching_the_
     attempts: list[BookDraft] = []
     real_persist = store.persist
 
-    def flaky_persist(conn, draft, now, attach_to_book_id=None):
+    def flaky_persist(conn, provider, draft, now, attach_to_book_id=None):
         attempts.append(draft)
         if len(attempts) < 3:
             raise psycopg.OperationalError("temporary write failure")
-        return real_persist(conn, draft, now, attach_to_book_id=attach_to_book_id)
+        return real_persist(conn, provider, draft, now, attach_to_book_id=attach_to_book_id)
 
-    monkeypatch.setattr(db, "persist_new_source", flaky_persist)
+    monkeypatch.setattr(persistence, "persist_new_source", flaky_persist)
 
     report, deps = crawl(monkeypatch, rows)
 
@@ -419,10 +420,10 @@ def test_duplicate_page_url_in_the_list_is_fetched_twice_and_its_products_writte
 
 
 def test_database_error_text_with_a_connection_string_is_redacted_in_the_report(store, monkeypatch):
-    def failing_persist(conn, draft, now, attach_to_book_id=None):
+    def failing_persist(conn, provider, draft, now, attach_to_book_id=None):
         raise psycopg.OperationalError("connect failed: postgresql://crawler:s3cret@db.internal/books")
 
-    monkeypatch.setattr(db, "persist_new_source", failing_persist)
+    monkeypatch.setattr(persistence, "persist_new_source", failing_persist)
 
     report, _ = crawl(monkeypatch, {CATEGORY_1: ranking_rows(1)})
 
@@ -536,7 +537,7 @@ def seed_bestsellers(db_url: str) -> None:
         fetcher=fetcher,
         parse_ranking=fake_ranking_parser(rows),
         parse_detail=fake_detail_parser(drafts),
-        connect=lambda: db.connect(db_url),
+        connect=lambda: persistence.connect(db_url),
         clock=lambda: NOW,
         sleep=FakeSleep(),
     )
@@ -553,7 +554,7 @@ def test_category_import_adds_new_books_and_leaves_bestsellers_and_known_sources
         CATEGORY_2: [RankingRow(rank=1, url=product_url(1)), RankingRow(rank=2, url=product_url(102))],
     }
 
-    report, deps = crawl(monkeypatch, rows, connect=lambda: db.connect(db_url))
+    report, deps = crawl(monkeypatch, rows, connect=lambda: persistence.connect(db_url))
 
     assert report.error is None
     assert deps.fetcher.detail_calls() == [product_url(101), product_url(102)]
@@ -568,11 +569,11 @@ def test_category_import_adds_new_books_and_leaves_bestsellers_and_known_sources
 def test_isbn_match_attaches_a_second_source_to_the_existing_book_and_keeps_its_metadata(db_url, monkeypatch):
     isbn = (Identifier(IdentifierType.ISBN, "9789570000001"),)
     first = {product_url(201): make_draft(product_url(201), title="Original title", identifiers=isbn)}
-    crawl(monkeypatch, {CATEGORY_1: [RankingRow(rank=1, url=product_url(201))]}, parse_detail=fake_detail_parser(first), connect=lambda: db.connect(db_url))
+    crawl(monkeypatch, {CATEGORY_1: [RankingRow(rank=1, url=product_url(201))]}, parse_detail=fake_detail_parser(first), connect=lambda: persistence.connect(db_url))
     second = {product_url(202): make_draft(product_url(202), title="Reprint listing", identifiers=isbn)}
 
     report, deps = crawl(
-        monkeypatch, {CATEGORY_2: [RankingRow(rank=1, url=product_url(202))]}, parse_detail=fake_detail_parser(second), connect=lambda: db.connect(db_url)
+        monkeypatch, {CATEGORY_2: [RankingRow(rank=1, url=product_url(202))]}, parse_detail=fake_detail_parser(second), connect=lambda: persistence.connect(db_url)
     )
 
     assert report.error is None
@@ -587,7 +588,7 @@ def test_isbn_match_attaches_a_second_source_to_the_existing_book_and_keeps_its_
 def test_books_are_kept_when_a_later_page_is_skipped_and_the_run_completes(db_url, monkeypatch):
     rows = {CATEGORY_1: ranking_rows(2), CATEGORY_2: ranking_rows(1, offset=2), CATEGORY_3: ranking_rows(1, offset=3)}
 
-    report, _ = crawl(monkeypatch, rows, failures={CATEGORY_2: FetchError("HTTP 403")}, connect=lambda: db.connect(db_url))
+    report, _ = crawl(monkeypatch, rows, failures={CATEGORY_2: FetchError("HTTP 403")}, connect=lambda: persistence.connect(db_url))
 
     assert report.exit_code == 0
     assert report.status is RunStatus.PARTIAL_SUCCESS
@@ -797,12 +798,12 @@ def test_pages_row_whose_touch_keeps_failing_is_skipped_and_the_run_goes_on(stor
     target = ranking_rows(3)[1].url
     real_touch = store.touch
 
-    def touch_down_for_target(conn, source_id, now):
+    def touch_down_for_target(conn, provider, source_id, now):
         if source_id == store.sources[target].source_id:
             raise psycopg.OperationalError("touch down")
-        return real_touch(conn, source_id, now)
+        return real_touch(conn, provider, source_id, now)
 
-    monkeypatch.setattr(db, "touch_source", touch_down_for_target)
+    monkeypatch.setattr(persistence, "touch_source", touch_down_for_target)
 
     report, _ = crawl(monkeypatch, rows)
 

@@ -33,7 +33,6 @@ from enum import StrEnum
 
 import psycopg
 
-from books_crawler import db
 from books_crawler.fetcher import (
     DEFAULT_NAVIGATION_TIMEOUT_MS,
     MAX_NAVIGATION_TIMEOUT_MS,
@@ -50,6 +49,7 @@ from books_crawler.page_list import (
 from books_crawler.parsers import parse_detail_html, parse_ranking_html
 from books_crawler.redact import redact
 from books_crawler.run import RunDependencies, run_first_book, run_once, run_pages
+from catalog_core import persistence
 from catalog_core.normalize import ensure_runtime_unicode_supported
 
 EXIT_FAILED = 1
@@ -139,7 +139,7 @@ def main(
 
     # A disabled (or unregistered) provider is a configuration error: nothing is fetched (crawler.md §3.1, §14.5).
     try:
-        check = provider_enabled or db.provider_enabled  # resolved per call so tests can replace it
+        check = provider_enabled or persistence.provider_enabled  # resolved per call so tests can replace it
         enabled = check(database_url, PROVIDER)
     except psycopg.Error as exc:
         log.error("could not read source_providers: %s", redact(str(exc)))
@@ -155,7 +155,7 @@ def main(
         fetcher=fetcher,
         parse_ranking=parse_ranking_html,
         parse_detail=parse_detail_html,
-        connect=lambda: db.connect(database_url),
+        connect=lambda: persistence.connect(database_url),
     )
     # The fetcher must be closed however the run ends: normal result, FAILED, or an exception.
     try:

@@ -155,6 +155,14 @@ python -m pytest tests/test_fetcher.py tests/test_curl_fetcher.py tests/test_pla
 - Then：僅第一次匯入 rank1，新來源再跑重用；榜與既有來源時間不變；rank1 一般失敗 exit1，限制級 exit0 partial，設定錯誤 exit2；fetcher 關閉。
 - 現有測試或擴充入口：[test_first_book.py](../tests/test_first_book.py)、[test_first_book_integration.py](../tests/test_first_book_integration.py)。
 
+### CR-T16 — 單調 touch 與 provider 隔離
+
+- 責任／規格：catalog_core persistence（Kingstone plan §3、§5，P1 M2）；風險 L3（touch 寫入與 provider 邊界）；狀態：已有測試（2026-10-25 新增並執行）。
+- Given：一筆 BOOKS_COM_TW Source，`last_seen_at` 為 NOW；一筆 KINGSTONE 草稿（帶 `external_id`）；與 BOOKS_COM_TW 同 URL 的既有 Source。
+- When：以較晚時間 touch；以較早時間（時鐘倒退）touch；同一時間重複 touch；以 KINGSTONE touch BOOKS_COM_TW 的 Source；touch 不存在的 Source id；以 KINGSTONE 寫入新 Source；以 KINGSTONE 與 BOOKS_COM_TW 分別做身分查詢；run 中 touch 匹配不到列。
+- Then：`last_seen_at` 變成較晚時間，較早時間不改它，重複 touch 結果不變；錯誤 provider 與不存在的 Source 都拋 `SourceTouchConflict` 且列不變；KINGSTONE 寫入同時存 `source_code` 與 `external_id`；同 URL 對 KINGSTONE 為 NEW、對 BOOKS_COM_TW 為 EXISTING；external_id 查詢只看自己的 provider；run 中 touch 衝突的列記為 `source_identity_conflict`（attempts 1），不重試、不抓詳細頁、不 sleep，榜單不含該列。
+- 來源與狀態：[test_persistence_integration.py](../tests/test_persistence_integration.py)、[test_db_integration.py](../tests/test_db_integration.py)（`test_a_touch_conflict_skips_the_row_as_source_identity_conflict_without_a_retry`）。
+
 ## 狀態限制
 
 沒有明確暫緩的 crawler 核心功能；embedding 是明確不屬此模組，不建立待實作案例。artifact cleanup 是未實作改善提案；產品時間語意需決策。沒有程序取消狀態與取消測試，不推定 finally 可處理 SIGKILL。本次僅靜態文件檢查，所有命令均是日後測試入口。
