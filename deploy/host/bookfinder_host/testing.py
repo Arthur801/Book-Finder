@@ -12,7 +12,7 @@ from pathlib import Path
 
 from bookfinder_host.adapters import RealFiles
 from bookfinder_host.manifest import Migration
-from bookfinder_host.ports import CommandResult, EffectFailed, Effects
+from bookfinder_host.ports import CommandResult, EffectFailed, Effects, MigrationConnectionActive, ResidualContainer
 
 Handler = Callable[[Sequence[str]], CommandResult]
 
@@ -210,6 +210,7 @@ class FakeEffects:
         self.systemd = FakeSystemd(self)
         self.http = FakeHttp(self)
         self.files = TracingFiles(self)
+        self.lock_holder = FakeLockHolder(self)
 
     def as_effects(self) -> Effects:
         return Effects(
@@ -220,6 +221,7 @@ class FakeEffects:
             systemd=self.systemd,
             http=self.http,
             files=self.files,
+            lock_holder=self.lock_holder,
         )
 
 
@@ -237,6 +239,15 @@ class FakeDocker:
         # Database ids that the database reports after efbundle runs; None leaves them unchanged.
         self.efbundle_db_ids: list[str] | None = None
         self.efbundle_hook: Callable[[str, str], None] | None = None
+        # How many polls the migration container stays running before it exits with efbundle_rc.
+        self.efbundle_polls = 1
+        # When set, the migration container ignores SIGTERM, so the host must kill it after the grace period.
+        self.efbundle_ignores_term = False
+        # When set, the lock session drops at the moment efbundle exits, before the host polls it again (DEP-B21 review).
+        self.efbundle_drop_lock_on_exit = False
+        # Runs once when the migration container exits, before the host sees the exit code (a test hook).
+        self.efbundle_on_exit: Callable[[], None] | None = None
+        self.children: list[FakeChild] = []
         self.smoke_rc = 0
         self.env_files_seen: list[str] = []
         # What the health diagnostics find: the web container ids, and the output docker logs returns for them.
@@ -244,6 +255,25 @@ class FakeDocker:
         self.logs_text = ""
         self.logs_error: str | None = None
         self.logs_calls: list[tuple[str, int]] = []
+        # Containers of earlier runs the residual check finds, by role; remove_container takes them out again.
+        self.residual: dict[str, list[ResidualContainer]] = {}
+        self.residual_error: str | None = None
+        self.remove_error: str | None = None
+        self.removed: list[str] = []
+
+    def residual_containers(self, role: str) -> list[ResidualContainer]:
+        self.fx.trace.append(f"docker.residual {role}")
+        if self.residual_error is not None:
+            raise EffectFailed(self.residual_error)
+        return list(self.residual.get(role, []))
+
+    def remove_container(self, container: str) -> None:
+        self.fx.trace.append(f"docker.rm {container}")
+        if self.remove_error is not None:
+            raise EffectFailed(self.remove_error)
+        self.removed.append(container)
+        for role, found in self.residual.items():
+            self.residual[role] = [c for c in found if c.container_id != container]
 
     def pull(self, reference: str) -> None:
         self.fx.trace.append(f"docker.pull {reference}")
@@ -259,7 +289,7 @@ class FakeDocker:
         # copytree with symlinks=True mirrors docker cp without -L: links are copied as links.
         shutil.copytree(self.release_tree, dest, symlinks=True)
 
-    def run_efbundle(self, reference: str, env_file: str) -> tuple[int, str]:
+    def start_efbundle(self, reference: str, env_file: str) -> "FakeChild":
         self.fx.trace.append(f"docker.efbundle {reference}")
         self.env_files_seen.append(env_file)
         if self.efbundle_hook is not None:
@@ -268,7 +298,14 @@ class FakeDocker:
             raise self.efbundle_raises
         if self.efbundle_db_ids is not None:
             self.host.db_ids = list(self.efbundle_db_ids)
-        return self.efbundle_rc, self.efbundle_output
+        child = FakeChild(self.efbundle_rc, self.efbundle_output, polls_until_exit=self.efbundle_polls)
+        child.ignores_term = self.efbundle_ignores_term
+        if self.efbundle_drop_lock_on_exit:
+            child.on_exit = lambda: setattr(self.fx.lock_holder, "lost", True)
+        elif self.efbundle_on_exit is not None:
+            child.on_exit = self.efbundle_on_exit
+        self.children.append(child)
+        return child
 
     def smoke_crawler(self, reference: str) -> int:
         self.fx.trace.append(f"docker.smoke {reference}")
@@ -283,6 +320,111 @@ class FakeDocker:
         if self.logs_error is not None:
             raise EffectFailed(self.logs_error)
         return self.logs_text
+
+
+class FakeChild:
+    """A started migration container. It runs for polls_until_exit polls, then exits with its code.
+
+    Why the knobs: terminate() and kill() model a container that ignores SIGTERM (ignores_term) or dies only on
+    SIGKILL, so the grace path and the kill path can both be tested without a real process.
+    """
+
+    def __init__(self, returncode: int, output: str, *, polls_until_exit: int = 1) -> None:
+        self._returncode = returncode
+        self._output = output
+        self._polls_left = polls_until_exit
+        self.ignores_term = False
+        self.terminated = False
+        self.killed = False
+        self._exit: int | None = None
+        # Runs once, when the process exits, before the host sees the exit code (a test hook).
+        self.on_exit: Callable[[], None] | None = None
+
+    def poll(self) -> int | None:
+        if self._exit is not None:
+            return self._exit
+        if self._polls_left > 0:
+            self._polls_left -= 1
+            return None
+        if self.on_exit is not None:
+            self.on_exit()
+        self._exit = self._returncode
+        return self._exit
+
+    def terminate(self) -> None:
+        self.terminated = True
+        if not self.ignores_term and self._exit is None:
+            self._exit = 143
+
+    def kill(self) -> None:
+        self.killed = True
+        if self._exit is None:
+            self._exit = 137
+
+    def output(self) -> str:
+        return self._output
+
+
+class FakeLockHolder:
+    """Scripted lock holder. Every call is traced as lock.<name>, so tests can assert the lock is taken before the
+    snapshot and released last.
+
+    Knobs: acquire_error (the lock is not taken), heartbeats_ok (how many heartbeats answer before the session is lost;
+    None means always), release_error (release raises, the result must not change), connection_active (the migration
+    connection is still on the server when the host waits for it), connection_error (the holder cannot answer the wait).
+    """
+
+    def __init__(self, fx: "FakeEffects") -> None:
+        self.fx = fx
+        self.acquire_error: str | None = None
+        self.heartbeats_ok: int | None = None
+        self.release_error: str | None = None
+        self.held = False
+        self.lost = False
+        self.acquired: list[tuple[int, float]] = []
+        self.heartbeat_calls = 0
+        self.release_calls = 0
+        self.connection_active = False
+        self.connection_error: str | None = None
+        self.connection_waits: list[tuple[str, float]] = []
+
+    def acquire(self, key: int, timeout_s: float) -> None:
+        self.fx.trace.append("lock.acquire")
+        self.acquired.append((key, timeout_s))
+        if self.acquire_error is not None:
+            raise EffectFailed(self.acquire_error)
+        self.held = True
+
+    def heartbeat(self, timeout_s: float) -> None:
+        self.fx.trace.append("lock.heartbeat")
+        self.heartbeat_calls += 1
+        if self.lost:
+            raise EffectFailed("no reply within 10 s")
+        if self.heartbeats_ok is not None:
+            if self.heartbeats_ok <= 0:
+                self.lost = True
+                raise EffectFailed("no reply within 10 s")
+            self.heartbeats_ok -= 1
+
+    def alive(self) -> bool:
+        return self.held and not self.lost
+
+    def wait_migration_connections_gone(self, application_name: str, timeout_s: float) -> None:
+        self.fx.trace.append("lock.connections")
+        self.connection_waits.append((application_name, timeout_s))
+        if not self.held or self.lost:
+            raise EffectFailed("no migration lock session")
+        if self.connection_error is not None:
+            raise EffectFailed(self.connection_error)
+        if self.connection_active:
+            raise MigrationConnectionActive(f"migration connection still active after {timeout_s:g} s")
+
+    def release(self) -> None:
+        self.fx.trace.append("lock.release")
+        self.release_calls += 1
+        self.held = False
+        if self.release_error is not None:
+            raise EffectFailed(self.release_error)
 
 
 class FakeCompose:

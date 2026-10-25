@@ -60,7 +60,7 @@ flowchart LR
 | 分類 | 條件 | 部署時 |
 |---|---|---|
 | `in-sync` | 兩者完全相同 | 不跑 migration；可用於首次 cutover |
-| `forward` | applied 是目標的嚴格前綴 | 先 pause crawler、建 snapshot、跑 efbundle，再切換 web |
+| `forward` | applied 是目標的嚴格前綴 | 先 pause crawler、取得 DB migration lock、建 snapshot、跑 efbundle（期間 heartbeat lock session），釋放 lock，再切換 web |
 | `schema-ahead` | 目標是 applied 的嚴格前綴（DB 比目標新） | 不跑 migration，web 換成目標版本；**crawler 不變**（S7） |
 | `divergent` | 其他情況（含同 id 但 source_hash 不同） | 拒絕，exit 2 |
 
@@ -73,8 +73,8 @@ flowchart LR
 | 0 | OK | plan 可以部署；或 deploy 成功：web 已切換到目標 release；crawler 符合該 chain 的預期狀態（in-sync / forward 更新至目標 crawler，schema-ahead 維持目前的 crawler） | `success` | 無 |
 | 1 | ROLLED_BACK | in-sync 或 schema-ahead 的 web 切換失敗，已回到舊 runtime | `rolled-back` | 看 journal 的健康檢查失敗原因，修正後再 dispatch。不需要 reconcile |
 | 2 | BAD_INPUT | 參數或 SSH 指令格式錯誤；release metadata 或內容不合格；`divergent`；`release_api` 超出 host 支援範圍；schema-ahead 的 `crawler_digest` 不是目前的；cutover 條件不符；compose 不支援 `format: raw`；設定檔錯誤；人工指令的確認值不符 | `rejected` | 不要重試同一組參數；依 stderr 的原因修正 |
-| 3 | DRIFT | state 不存在（需 bootstrap）；runtime 或 schema 與 state 不符；CAS 失敗（revision 過期）；deploy 或 db-maintenance lock 逾時；目前 runtime 健康檢查失敗（未改動）；snapshot 失敗（未 migrate，crawler 已恢復）；run id 已使用；unit 已存在；crawler 仍 paused；互動式 deploy 的跟隨逾時（回報 `running`；CD 使用 `--detach`，不會遇到此項）；operator 指令遇到損壞的 history 尾端（§5.1）。`result` 依發生點而異，見下方「exit 3 的 history 對照」 | `drift` 或 `rejected`（依發生點） | 依原因處理。未改動時修正後重新 plan，再 dispatch |
-| 4 | FAILED_MIGRATION | efbundle 結束碼非 0，或 DB 的 migration id 與目標不符 | `failed-migration` | schema 保持 dirty、crawler 保持 paused。走 §5.2 與 §5.3 |
+| 3 | DRIFT | state 不存在（需 bootstrap）；runtime 或 schema 與 state 不符；CAS 失敗（revision 過期）；deploy 或 db-maintenance lock 逾時；forward 的 DB migration lock 逾時（crawler 持有 shared；未 migrate，crawler 已恢復）；目前 runtime 健康檢查失敗（未改動）；snapshot 失敗（未 migrate，crawler 已恢復）；run id 已使用；unit 已存在；crawler 仍 paused；互動式 deploy 的跟隨逾時（回報 `running`；CD 使用 `--detach`，不會遇到此項）；operator 指令遇到損壞的 history 尾端（§5.1）。`result` 依發生點而異，見下方「exit 3 的 history 對照」 | `drift` 或 `rejected`（依發生點） | 依原因處理。未改動時修正後重新 plan，再 dispatch |
+| 4 | FAILED_MIGRATION | efbundle 結束碼非 0，或 DB 的 migration id 與目標不符；或 DB migration lock session 掉線（efbundle 已被停止，不重試）；或 efbundle 結束後 migration 連線仍存在（lock 保留，不 unlock）；或 lock session 在接受 efbundle 結果前的 final heartbeat 失敗 | `failed-migration` | schema 保持 dirty、crawler 保持 paused。走 §5.2 與 §5.3 |
 | 5 | FAILED_DOWN | forward 之後 web 失敗（I5：不自動回滾）；或回滾本身失敗 | `failed-down` | 人工恢復（L4）。crawler 保持 paused |
 | 6 | DIRTY | schema 為 dirty，plan 與 deploy 都拒絕。`run-crawler.sh` 以 exit 6 跳過：`skipped=paused`（crawler 已暫停）或 `skipped=dirty`（schema dirty），兩者都不啟動容器 | `rejected`（deploy）；crawler 不寫 history | dirty：走 §5.2 `reconcile-schema --mark-clean`；paused：走 §5.3 `resume-crawler` |
 | 7 | PARTIAL_CRAWLER | web 已是目標版本，但 crawler 更新失敗；crawler 保持（或變成）paused | `partial-crawler` | 查 history 的 `crawler_substeps` 與 journal，再走 §5.3 `resume-crawler` |
@@ -92,7 +92,7 @@ flowchart LR
 | 狀態機 step 0：crawler 仍 paused | completed | `drift` |
 | 狀態機 step 1：目前 runtime 健康檢查失敗（未改動） | completed | `drift` |
 | 狀態機 step 2 至 3：release 目錄不可用或內容取出失敗、同 digest 的 compose 不同、SSM 讀取或 env 檔寫入失敗 | completed | `drift` |
-| forward：db-maintenance lock 逾時；snapshot 失敗（未 migrate，crawler 已恢復） | completed | `drift` |
+| forward：db-maintenance lock 逾時；DB migration lock 逾時；snapshot 失敗（未 migrate，crawler 已恢復） | completed | `drift` |
 | `resolve-run --result drift`（operator 記錄） | completed | `drift` |
 | operator 指令：驗證為「未改變」的失敗（指令仍 exit 3） | operator-completed | `failed` |
 | 不寫 history：unit 本體的 run id 已使用（在 started 之前拒絕） | 無 | — |
@@ -180,7 +180,7 @@ CD 的 `build` job 對每個 image（web、crawler）依序執行。`<TAG>` 是 
 | host.conf 鍵 | 用途 | 值的格式 | 限制（程式檢查） |
 |---|---|---|---|
 | `SSM_DB_CONNECTION` | web 與 efbundle 的 `ConnectionStrings__DefaultConnection` | .NET 連線字串：`Host=<host>;Port=5432;Database=<db>;Username=<user>;Password=<password>`。採用 `DB_CA_BUNDLE`（§2.4）時，必須與 systemd web 的 `/etc/book-finder/web.env` 使用同一個 verify-full 字串：`Host=<host>;Port=5432;Database=<db>;Username=<user>;Password=<password>;SSL Mode=VerifyFull;Root Certificate=<DB_CA_BUNDLE>` | 非空、單行、無控制字元。程式不記錄值。不得為了連線而改成 `Require`（不驗證憑證） |
-| `SSM_MIGRATION_CONNECTION`（選填，§2.4） | 只給 efbundle 的 `ConnectionStrings__DefaultConnection`（寫入獨立的 `migrate-<run_id>.env`，web 的 env file 不含它） | 與 `SSM_DB_CONNECTION` 相同格式的 .NET 連線字串，但使用**擁有 schema 物件的 migration 角色**（能在 schema public 建立物件、ALTER 既有 table）。採用 `DB_CA_BUNDLE` 時同樣使用 `SSL Mode=VerifyFull;Root Certificate=<DB_CA_BUNDLE>`。web 應保留權限最小的角色（`SSM_DB_CONNECTION`） | 非空、單行、無控制字元。程式不記錄值。未設定時 efbundle 使用 `SSM_DB_CONNECTION`（行為與之前相同） |
+| `SSM_MIGRATION_CONNECTION`（選填，§2.4） | 只給 efbundle 的 `ConnectionStrings__DefaultConnection`（寫入獨立的 `migrate-<run_id>.env`，web 的 env file 不含它；forward 時 efbundle 一律讀這個檔，未設定時內容為 `SSM_DB_CONNECTION` 的值，兩者都附加 `Options=-c client_connection_check_interval=10000`。若連線字串已含 `Options=`，forward 在任何變更前以 exit 2 拒絕） | 與 `SSM_DB_CONNECTION` 相同格式的 .NET 連線字串，但使用**擁有 schema 物件的 migration 角色**（能在 schema public 建立物件、ALTER 既有 table）。採用 `DB_CA_BUNDLE` 時同樣使用 `SSL Mode=VerifyFull;Root Certificate=<DB_CA_BUNDLE>`。web 應保留權限最小的角色（`SSM_DB_CONNECTION`） | 非空、單行、無控制字元。程式不記錄值。未設定時 efbundle 使用 `SSM_DB_CONNECTION`（行為與之前相同） |
 | `SSM_OPENAI_KEY` | web 的 `OPENAIAPI_KEY` | OpenAI API key 原文 | 非空、單行 |
 | `SSM_JWT_KEY` | web 的 `Jwt__SigningKey` | 隨機字串，**至少 32 bytes**（web 啟動時驗證，`JwtOptions.MinimumSigningKeyBytes = 32`） | 非空、單行；長度由 web 檢查 |
 | `DATABASE_URL_PARAMETER` | host 的 psql 讀取 `__EFMigrationsHistory`（唯讀查詢） | `postgresql://<user>:<URL 編碼的密碼>@<RDS 端點>:5432/<db>?sslmode=require`；設定 `DB_CA_BUNDLE` 後為 `postgresql://<user>:<URL 編碼的密碼>@<RDS 端點>:5432/<db>?sslmode=verify-full&sslrootcert=<DB_CA_BUNDLE>` | 必須以 `postgres://` 或 `postgresql://` 開頭，且不含空白 |
@@ -758,6 +758,21 @@ sudo /opt/book-finder/host/book-finder-admin resume-crawler --crawler-digest sha
 - 刪除前確認沒有進行中的 migration，且沒有 state 或 history 還需要它。
 
 ---
+
+### 5.8 DB migration lock：逾時或掉線（L4）
+
+forward 部署在 efbundle 執行前取得資料庫的 advisory lock（`pg_advisory_lock(2026102501)`，exclusive），執行中由專用 psql session 持有，每 5 秒 heartbeat。
+
+- **逾時（exit 3，`drift`）**：表示 crawler 正持有 shared lock。migration 未開始，crawler 已恢復，state 未變（不 dirty、不 paused）。等爬蟲結束後重新 dispatch（§4.2）；不需要 §5.2、§5.3。
+- **掉線（exit 4，`failed-migration`）**：host 已停止 efbundle（SIGTERM，30 秒後 SIGKILL），不會自動重試。schema 保持 dirty，crawler 保持 paused。處理方式與 efbundle 失敗相同（§5.2、§5.3）。efbundle 結束或被停止後，host 會等待 migration 連線結束（`application_name = bookfinder-efbundle`，最多 120 秒）；仍存在時 lock 不會被 unlock，訊息寫明 `migration connection still active`。這時請在 DB 上確認該連線（`SELECT pid, state, left(query, 80) FROM pg_stat_activity WHERE application_name = 'bookfinder-efbundle';`），必要時以 `pg_terminate_backend(pid)` 結束，之後 lock 才會釋放（或 deploy 程序結束時釋放）。efbundle 被停止後，server 端的 statement 可能仍會執行，直到 `client_connection_check_interval`（10 秒）偵測到 client 離開為止。
+
+**殘留容器被拒絕（exit 3，`drift`，journal 寫明 `still active`）**：上一次 deploy 留下仍在執行的 migration 容器（`com.bookfinder.role=efbundle`）或 lock holder 容器（`com.bookfinder.role=deploy-lock`）。deploy 在改動任何狀態之前就拒絕，crawler 未被 pause。處理方式：
+
+```bash
+sudo docker ps -a --filter label=com.bookfinder.role=efbundle --filter label=com.bookfinder.role=deploy-lock
+```
+
+確認該容器的 log 與 DB 的連線（上一段的查詢）後，若 migration 已停止，以 `sudo docker stop <id>` 與 `sudo docker rm -f <id>` 處理，再重新 dispatch。若 migration 仍在執行，等它結束，不要移除容器。已結束（exited）的殘留容器不會阻擋 deploy：deploy 會把名稱與 log 尾端寫入 journal 後自動移除。
 
 ## 6. 查看 journal 與 unit
 

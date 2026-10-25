@@ -4,19 +4,36 @@ Why: each adapter is a thin argv builder, so the exact docker, aws and systemctl
 can be checked by tests without running them. No adapter passes a secret in argv.
 """
 
+import contextlib
 import http.client
 import os
+import queue
 import re
+import secrets
 import stat
+import subprocess
 import tempfile
+import threading
+import time
 import urllib.error
 import urllib.request
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 
 from bookfinder_host import config as cfg
 from bookfinder_host import runtime as rt
 from bookfinder_host.manifest import CONTAINER_RELEASE_DIR
-from bookfinder_host.ports import EffectFailed, Effects, Runner
+from bookfinder_host.ports import (
+    EFBUNDLE_ROLE,
+    LOCK_HOLDER_ROLE,
+    ROLE_LABEL,
+    Child,
+    EffectFailed,
+    Effects,
+    MigrationConnectionActive,
+    ResidualContainer,
+    Runner,
+    child_environment,
+)
 from bookfinder_host.release_content import COMPOSE_CA_BUNDLE
 from bookfinder_host.safefile import read_regular_file
 
@@ -24,6 +41,24 @@ _CONTAINER_ID_RE = re.compile(r"[0-9a-f]{12,64}")
 # Runs inside the crawler image with no network: it proves the image can import its stack and read its page list.
 CRAWLER_SMOKE_SCRIPT = "import psycopg, curl_cffi, bs4; from books_crawler.page_list import load_page_urls, DEFAULT_PAGES_FILE; load_page_urls(DEFAULT_PAGES_FILE)"
 MAX_CONFIG_BYTES = 65536
+# The migration container's output kept for the journal: the last part only, so a chatty migration cannot fill the disk.
+MAX_CHILD_OUTPUT_BYTES = 1 << 16
+# Connection options for the lock session. Keepalives let a silently dropped network show up as a dead session within
+# about a minute (idle 30 s, then 3 probes 10 s apart), so the holder cannot keep the lock across a broken link.
+LOCK_SESSION_OPTIONS = "connect_timeout=10&keepalives=1&keepalives_idle=30&keepalives_interval=10&keepalives_count=3&application_name=bookfinder-deploy-lock"
+# psql inside the holder container: no -c, so it reads its commands from stdin and stays connected for the whole run.
+PSQL_SESSION_SCRIPT = 'exec psql -X -At -v ON_ERROR_STOP=1 "$DATABASE_URL"'
+# Time for docker to start the container and psql to connect, on top of the lock wait itself.
+LOCK_START_GRACE_S = 60.0
+LOCK_RELEASE_TIMEOUT_S = 10.0
+SESSION_CLOSE_TIMEOUT_S = 10.0
+_PASSWORD_IN_TEXT = re.compile(r"(?i)password\s*=\s*\S+")
+# The name prefix each host role's containers get; the residual check accepts only containers with both the label and this prefix.
+_ROLE_NAME_PREFIX = {EFBUNDLE_ROLE: "bookfinder-migration-", LOCK_HOLDER_ROLE: "bookfinder-deploy-lock-"}
+_APPLICATION_NAME_RE = re.compile(r"[A-Za-z0-9_.-]{1,63}")
+# How often the lock session asks the server whether the migration connection is still there, and the bound of one ask.
+MIGRATION_CONNECTION_POLL_S = 2.0
+CONNECTION_QUERY_TIMEOUT_S = 10.0
 
 
 def _checked(result, what: str) -> None:
@@ -31,10 +66,162 @@ def _checked(result, what: str) -> None:
         raise EffectFailed(f"{what} failed: {result.stderr.strip()[:500]}")
 
 
+def _read_tail(fd: int, limit: int) -> str:
+    """The last limit bytes of a file that a child process may still be writing to.
+
+    Why pread: a seek on the shared file description would move the child's write offset.
+    """
+    size = os.fstat(fd).st_size
+    data = os.pread(fd, min(size, limit), max(0, size - limit))
+    return data.decode("utf-8", errors="replace")
+
+
+class _Child:
+    """A started container (efbundle). Its output goes to an unlinked file, so it can be read while the process runs."""
+
+    def __init__(self, process: subprocess.Popen, output, name: str, runner: Runner) -> None:
+        self._process = process
+        self._output = output
+        self._name = name
+        self._runner = runner
+
+    def poll(self) -> int | None:
+        return self._process.poll()
+
+    def terminate(self) -> None:
+        # docker kill names the container, so the stop reaches it even when the docker client is already gone.
+        self._runner.run(["docker", "kill", "--signal", "TERM", self._name])
+        if self._process.poll() is None:
+            self._process.terminate()
+
+    def kill(self) -> None:
+        self._runner.run(["docker", "kill", "--signal", "KILL", self._name])
+        if self._process.poll() is None:
+            self._process.kill()
+
+    def output(self) -> str:
+        return _read_tail(self._output.fileno(), MAX_CHILD_OUTPUT_BYTES)
+
+
+class _Session:
+    """A long-lived psql process: commands go in on stdin, and a reader thread queues stdout lines for expect().
+
+    Why a thread: a blocked read on the pipe could never time out, and a heartbeat must answer within a deadline.
+    """
+
+    def __init__(self, process: subprocess.Popen, stderr) -> None:
+        self._process = process
+        self._stderr = stderr
+        self._lines: queue.Queue[str | None] = queue.Queue()
+        self._reader = threading.Thread(target=self._read, daemon=True)
+        self._reader.start()
+
+    def _read(self) -> None:
+        try:
+            for line in self._process.stdout:
+                self._lines.put(line.rstrip("\n"))
+        except (OSError, ValueError):
+            pass
+        finally:
+            self._lines.put(None)
+
+    def send(self, text: str) -> None:
+        try:
+            self._process.stdin.write(text)
+            self._process.stdin.flush()
+        except (OSError, ValueError) as exc:
+            raise EffectFailed("lock session is not accepting commands") from exc
+
+    def read_until(self, marker: str, timeout_s: float) -> list[str]:
+        """The lines printed before marker. Raises EffectFailed on timeout or when the process ends first."""
+        deadline = time.monotonic() + timeout_s
+        lines: list[str] = []
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise EffectFailed(f"lock session gave no reply within {timeout_s:g} s")
+            try:
+                line = self._lines.get(timeout=remaining)
+            except queue.Empty:
+                raise EffectFailed(f"lock session gave no reply within {timeout_s:g} s") from None
+            if line is None:
+                raise EffectFailed("lock session ended")
+            if line == marker:
+                return lines
+            lines.append(line)
+
+    def stderr_tail(self) -> str:
+        return _read_tail(self._stderr.fileno(), 2048)
+
+    def alive(self) -> bool:
+        return self._process.poll() is None
+
+    def kill(self) -> None:
+        if self._process.poll() is None:
+            self._process.kill()
+        self._process.wait()
+
+    def close(self) -> None:
+        """Ends the session by closing stdin (psql then exits, and the server ends the session); kills it when it lingers."""
+        try:
+            self._process.stdin.close()
+        except (OSError, ValueError):
+            pass
+        try:
+            self._process.wait(timeout=SESSION_CLOSE_TIMEOUT_S)
+        except subprocess.TimeoutExpired:
+            self.kill()
+
+
+class ProcessLauncher:
+    """Starts the host's long-lived children. Every child gets the fixed environment, never a shell."""
+
+    def __init__(self, runner: Runner) -> None:
+        self._runner = runner
+
+    def spawn(self, argv: Sequence[str], *, name: str, env: Mapping[str, str] | None = None) -> _Child:
+        # Closed by the handle (_Child), which outlives this call; a with-block would close it too early.
+        output = tempfile.TemporaryFile()  # noqa: SIM115
+        try:
+            process = subprocess.Popen(
+                list(argv),
+                stdin=subprocess.DEVNULL,
+                stdout=output,
+                stderr=subprocess.STDOUT,
+                env=child_environment(env),
+                close_fds=True,
+            )
+        except OSError as exc:
+            output.close()
+            raise EffectFailed(f"cannot start {argv[0]}: {exc.strerror or exc}") from None
+        return _Child(process, output, name, self._runner)
+
+    def open_session(self, argv: Sequence[str], *, env: Mapping[str, str] | None = None) -> _Session:
+        # Closed by the session (_Session), which outlives this call.
+        stderr = tempfile.TemporaryFile()  # noqa: SIM115
+        try:
+            process = subprocess.Popen(
+                list(argv),
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=stderr,
+                env=child_environment(env),
+                close_fds=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+        except OSError as exc:
+            stderr.close()
+            raise EffectFailed(f"cannot start {argv[0]}: {exc.strerror or exc}") from None
+        return _Session(process, stderr)
+
+
 class RealDocker:
-    def __init__(self, runner: Runner, ca_bundle: str | None = None) -> None:
+    def __init__(self, runner: Runner, ca_bundle: str | None = None, launcher: ProcessLauncher | None = None) -> None:
         self._runner = runner
         self._ca_bundle = ca_bundle
+        self._launcher = launcher if launcher is not None else ProcessLauncher(runner)
 
     def pull(self, reference: str) -> None:
         _checked(self._runner.run(["docker", "pull", reference]), "docker pull")
@@ -53,24 +240,30 @@ class RealDocker:
         finally:
             self._runner.run(["docker", "rm", container])
 
-    def run_efbundle(self, reference: str, env_file: str) -> tuple[int, str]:
-        # The env file carries the secrets; docker copies it into the container config at create time.
-        result = self._runner.run(
+    def start_efbundle(self, reference: str, env_file: str) -> Child:
+        # The env file carries the secrets; docker copies it into the container config at create time. The name lets
+        # the host stop the container itself (docker kill) when the lock is lost, instead of trusting the docker client.
+        name = f"bookfinder-migration-{secrets.token_hex(6)}"
+        # The label lets the next deploy find a container that a crashed run left behind (see residual_containers).
+        return self._launcher.spawn(
             [
                 "docker",
                 "run",
                 "--rm",
                 "--pull=never",
+                "--name",
+                name,
+                "--label",
+                f"{ROLE_LABEL}={EFBUNDLE_ROLE}",
                 *cfg.ca_bundle_mount_args(self._ca_bundle),
                 "--env-file",
                 env_file,
                 "--entrypoint",
                 "/app/efbundle",
                 reference,
-            ]
+            ],
+            name=name,
         )
-        # Why: a failed migration is diagnosed from this output, so the host journals it (machine.py _journal_efbundle_output).
-        return result.returncode, result.stdout + result.stderr
 
     def smoke_crawler(self, reference: str) -> int:
         result = self._runner.run(
@@ -101,6 +294,181 @@ class RealDocker:
         result = self._runner.run(["docker", "logs", "--tail", str(tail), container])
         _checked(result, "docker logs")
         return result.stdout + result.stderr
+
+    def residual_containers(self, role: str) -> list[ResidualContainer]:
+        prefix = _ROLE_NAME_PREFIX.get(role)
+        if prefix is None:
+            raise EffectFailed("unknown container role")
+        listed = self._runner.run(["docker", "ps", "-a", "--filter", f"label={ROLE_LABEL}={role}", "--format", "{{.ID}}\t{{.State}}\t{{.Names}}"])
+        _checked(listed, "docker ps")
+        found: list[ResidualContainer] = []
+        for line in listed.stdout.split("\n"):
+            if not line:
+                continue
+            parts = line.split("\t")
+            if len(parts) != 3 or _CONTAINER_ID_RE.fullmatch(parts[0]) is None or not parts[2].startswith(prefix):
+                raise EffectFailed("docker ps returned an unexpected container listing")
+            found.append(ResidualContainer(container_id=parts[0], name=parts[2], state=parts[1]))
+        return found
+
+    def remove_container(self, container: str) -> None:
+        if _CONTAINER_ID_RE.fullmatch(container) is None:
+            raise EffectFailed("refusing to remove a container without a plain id")
+        _checked(self._runner.run(["docker", "rm", container]), "docker rm")
+
+
+class RealLockHolder:
+    """Holds the database advisory lock in a psql session run from the pinned psql image (the same image db_query uses).
+
+    The URL is read from SSM here and passed only through the environment, never in argv. The session runs
+    `pg_advisory_lock` with a server-side lock_timeout, so a busy lock (a crawler holding it shared) ends the session by
+    itself; the host-side deadline is a backstop that removes the container by name.
+    """
+
+    def __init__(
+        self,
+        runner: Runner,
+        launcher: ProcessLauncher,
+        ssm,
+        parameter: str,
+        psql_image: str,
+        ca_bundle: str | None = None,
+    ) -> None:
+        self._runner = runner
+        self._launcher = launcher
+        self._ssm = ssm
+        self._parameter = parameter
+        self._psql_image = psql_image
+        self._ca_bundle = ca_bundle
+        self._session: _Session | None = None
+        self._name = ""
+        self._url = ""
+        self._seq = 0
+
+    def acquire(self, key: int, timeout_s: float) -> None:
+        if self._session is not None:
+            raise EffectFailed("this host run already holds the migration lock")
+        if not isinstance(key, int) or not (0 <= key < 2**63):
+            raise EffectFailed("lock key must be a non-negative bigint")
+        if not (timeout_s > 0 and timeout_s < 3600):
+            raise EffectFailed("lock timeout must be between 0 and 3600 seconds")
+        self._url = self._database_url()
+        self._name = f"bookfinder-deploy-lock-{secrets.token_hex(6)}"
+        argv = [
+            "docker",
+            "run",
+            "-i",
+            "--rm",
+            "--pull=never",
+            "--name",
+            self._name,
+            "--label",
+            f"{ROLE_LABEL}={LOCK_HOLDER_ROLE}",
+            *cfg.ca_bundle_mount_args(self._ca_bundle),
+            "-e",
+            "DATABASE_URL",
+            "--entrypoint",
+            "/bin/sh",
+            self._psql_image,
+            "-c",
+            PSQL_SESSION_SCRIPT,
+        ]
+        session = self._launcher.open_session(argv, env={"DATABASE_URL": self._url})
+        self._session = session
+        try:
+            session.send(f"SET lock_timeout = '{int(timeout_s * 1000)}ms';\n")
+            marker = self._marker("acquire")
+            session.send(f"SELECT 'acquired', pg_advisory_lock({key});\n\\echo {marker}\n")
+            lines = session.read_until(marker, timeout_s + LOCK_START_GRACE_S)
+            if not any(line.startswith("acquired") for line in lines):
+                raise EffectFailed("lock session did not confirm the lock")
+        except EffectFailed as exc:
+            message = self._describe(f"migration lock not acquired: {exc}", session)
+            self._discard()
+            raise EffectFailed(message) from None
+
+    def heartbeat(self, timeout_s: float) -> None:
+        session = self._require()
+        marker = self._marker("heartbeat")
+        session.send(f"SELECT 1;\n\\echo {marker}\n")
+        lines = session.read_until(marker, timeout_s)
+        if "1" not in lines:
+            raise EffectFailed("lock session answered a heartbeat without the expected result")
+
+    def wait_migration_connections_gone(self, application_name: str, timeout_s: float) -> None:
+        session = self._require()
+        if _APPLICATION_NAME_RE.fullmatch(application_name) is None:
+            raise EffectFailed("application name is malformed")
+        if not (timeout_s > 0 and timeout_s < 3600):
+            raise EffectFailed("connection wait must be between 0 and 3600 seconds")
+        # The name is checked against a plain pattern above, so it can be quoted into the SQL text safely.
+        query = f"SELECT count(*) FROM pg_stat_activity WHERE application_name = '{application_name}';\n"
+        deadline = time.monotonic() + timeout_s
+        while True:
+            marker = self._marker("connections")
+            session.send(f"{query}\\echo {marker}\n")
+            lines = session.read_until(marker, CONNECTION_QUERY_TIMEOUT_S)
+            counts = [line.strip() for line in lines if line.strip().isdigit()]
+            if not counts:
+                raise EffectFailed("lock session did not report the migration connections")
+            if int(counts[-1]) == 0:
+                return
+            if time.monotonic() >= deadline:
+                raise MigrationConnectionActive(f"migration connection still active after {timeout_s:g} s")
+            time.sleep(MIGRATION_CONNECTION_POLL_S)
+
+    def alive(self) -> bool:
+        return self._session is not None and self._session.alive()
+
+    def release(self) -> None:
+        session = self._session
+        if session is None:
+            return
+        try:
+            if session.alive():
+                marker = self._marker("release")
+                session.send(f"SELECT pg_advisory_unlock_all();\n\\echo {marker}\n")
+                session.read_until(marker, LOCK_RELEASE_TIMEOUT_S)
+        finally:
+            self._discard()
+
+    def _require(self) -> _Session:
+        if self._session is None:
+            raise EffectFailed("no migration lock session")
+        return self._session
+
+    def _marker(self, purpose: str) -> str:
+        self._seq += 1
+        return f"__bookfinder_{purpose}_{self._seq}_{secrets.token_hex(4)}__"
+
+    def _database_url(self) -> str:
+        raw = self._ssm.get_parameter(self._parameter).strip()
+        if not raw.startswith(("postgres://", "postgresql://")) or any(c.isspace() for c in raw):
+            raise EffectFailed("database URL parameter is empty or malformed")
+        separator = "&" if "?" in raw else "?"
+        return raw + separator + LOCK_SESSION_OPTIONS
+
+    def _describe(self, message: str, session: _Session) -> str:
+        """The message with the session's stderr tail, with the URL and any password masked; the URL never appears."""
+        tail = session.stderr_tail().strip()[-300:]
+        tail = _PASSWORD_IN_TEXT.sub("password=***", tail)
+        if self._url:
+            tail = tail.replace(self._url, "***")
+        text = " ".join(message.split())
+        if tail:
+            text += "; psql: " + " ".join(tail.split())
+        return text
+
+    def _discard(self) -> None:
+        """Ends the session and removes its container by name; never raises, so release failures cannot hide a result."""
+        session = self._session
+        self._session = None
+        if session is not None:
+            # Best effort: the server drops the session when the process is gone.
+            with contextlib.suppress(OSError):
+                session.close()
+        if self._name:
+            self._runner.run(["docker", "rm", "-f", self._name])
 
 
 class RealCompose:
@@ -288,12 +656,15 @@ class RealFiles:
 
 
 def build_effects(runner: Runner, settings: cfg.Settings) -> Effects:
+    launcher = ProcessLauncher(runner)
+    ssm = RealSsm(runner, settings.aws_region, settings.aws_cli)
     return Effects(
-        docker=RealDocker(runner, settings.db_ca_bundle),
+        docker=RealDocker(runner, settings.db_ca_bundle, launcher),
         compose=RealCompose(runner, settings.db_ca_bundle),
         aws=RealAws(runner, settings.aws_region, settings.aws_cli),
-        ssm=RealSsm(runner, settings.aws_region, settings.aws_cli),
+        ssm=ssm,
         systemd=RealSystemd(runner),
         http=RealHttp(),
         files=RealFiles(),
+        lock_holder=RealLockHolder(runner, launcher, ssm, settings.database_url_parameter, settings.psql_image, settings.db_ca_bundle),
     )

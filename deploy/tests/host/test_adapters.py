@@ -13,7 +13,7 @@ from typing import ClassVar
 
 import pytest
 from bookfinder_host import adapters, config
-from bookfinder_host.ports import CommandResult, EffectFailed
+from bookfinder_host.ports import CommandResult, EffectFailed, MigrationConnectionActive, ResidualContainer
 
 
 class Recorder:
@@ -28,18 +28,22 @@ class Recorder:
         return CommandResult(self.returncode, self.stdout, self.stderr)
 
 
-def test_efbundle_runs_the_pinned_image_with_the_env_file_and_no_pull():
-    runner = Recorder()
-    code, _output = adapters.RealDocker(runner).run_efbundle("ghcr.io/x/web@sha256:" + "1" * 64, "/run/book-finder/web-1.env")
-    assert code == 0
-    argv, env = runner.calls[0]
+def test_efbundle_starts_the_pinned_image_with_the_env_file_and_no_pull_and_a_name():
+    launcher = FakeLauncher()
+    adapters.RealDocker(Recorder(), launcher=launcher).start_efbundle("ghcr.io/x/web@sha256:" + "1" * 64, "/run/book-finder/migrate-1.env")
+    argv, env, name = launcher.spawned[0]
+    assert name.startswith("bookfinder-migration-")
     assert argv == [
         "docker",
         "run",
         "--rm",
         "--pull=never",
+        "--name",
+        name,
+        "--label",
+        "com.bookfinder.role=efbundle",
         "--env-file",
-        "/run/book-finder/web-1.env",
+        "/run/book-finder/migrate-1.env",
         "--entrypoint",
         "/app/efbundle",
         "ghcr.io/x/web@sha256:" + "1" * 64,
@@ -279,23 +283,30 @@ RELEASE = "/opt/book-finder/releases/abc/compose.prod.yaml"
 
 
 def test_efbundle_mounts_the_ca_bundle_read_only_only_when_configured():
-    runner = Recorder()
-    adapters.RealDocker(runner, ca_bundle=CA).run_efbundle("ghcr.io/x/web@sha256:" + "1" * 64, "/run/book-finder/web-1.env")
-    argv, _ = runner.calls[0]
-    assert argv[:6] == ["docker", "run", "--rm", "--pull=never", "--mount", f"type=bind,src={CA},dst={CA},readonly"]
-    assert argv[6:] == [
+    launcher = FakeLauncher()
+    adapters.RealDocker(Recorder(), ca_bundle=CA, launcher=launcher).start_efbundle("ghcr.io/x/web@sha256:" + "1" * 64, "/run/book-finder/migrate-1.env")
+    argv, _, name = launcher.spawned[0]
+    assert argv[:12] == [
+        "docker",
+        "run",
+        "--rm",
+        "--pull=never",
+        "--name",
+        name,
+        "--label",
+        "com.bookfinder.role=efbundle",
+        "--mount",
+        f"type=bind,src={CA},dst={CA},readonly",
         "--env-file",
-        "/run/book-finder/web-1.env",
-        "--entrypoint",
-        "/app/efbundle",
-        "ghcr.io/x/web@sha256:" + "1" * 64,
+        "/run/book-finder/migrate-1.env",
     ]
+    assert argv[12:] == ["--entrypoint", "/app/efbundle", "ghcr.io/x/web@sha256:" + "1" * 64]
 
 
 def test_efbundle_without_ca_bundle_has_no_mount():
-    runner = Recorder()
-    adapters.RealDocker(runner, ca_bundle=None).run_efbundle("ghcr.io/x/web@sha256:" + "1" * 64, "/run/book-finder/web-1.env")
-    assert "--mount" not in runner.calls[0][0]
+    launcher = FakeLauncher()
+    adapters.RealDocker(Recorder(), ca_bundle=None, launcher=launcher).start_efbundle("ghcr.io/x/web@sha256:" + "1" * 64, "/run/book-finder/migrate-1.env")
+    assert "--mount" not in launcher.spawned[0][0]
 
 
 def test_compose_up_without_ca_bundle_uses_only_the_release_compose_file():
@@ -352,8 +363,380 @@ def test_compose_config_probe_renders_only_the_file_it_is_given():
     assert runner.calls[0][0] == ["docker", "compose", "-f", "/run/book-finder/.probe-x/compose.yaml", "config", "--format", "json"]
 
 
-def test_efbundle_returns_the_exit_code_and_its_output_for_the_journal():
-    runner = Recorder(returncode=3, stdout="applying 1\n", stderr="permission denied for schema public\n")
-    code, output = adapters.RealDocker(runner).run_efbundle("ghcr.io/x/web@sha256:" + "1" * 64, "/run/book-finder/web-1.env")
-    assert code == 3
-    assert output == "applying 1\npermission denied for schema public\n"
+def test_efbundle_child_reports_exit_code_and_output_and_is_stopped_by_name():
+    import sys
+    import time
+
+    runner = Recorder()
+    child = adapters.ProcessLauncher(runner).spawn(
+        [sys.executable, "-c", "import sys; print('applying 1', flush=True); sys.stderr.write('permission denied\\n'); sys.stderr.flush(); sys.exit(3)"],
+        name="bookfinder-migration-test",
+    )
+    for _ in range(500):
+        if child.poll() is not None:
+            break
+        time.sleep(0.01)
+    assert child.poll() == 3
+    assert child.output() == "applying 1\npermission denied\n"
+    child.kill()
+    assert runner.calls[-1][0] == ["docker", "kill", "--signal", "KILL", "bookfinder-migration-test"]
+
+
+def test_efbundle_output_keeps_only_the_tail_of_a_chatty_migration():
+    import sys
+
+    child = adapters.ProcessLauncher(Recorder()).spawn([sys.executable, "-c", "print('x' * 200000)"], name="bookfinder-migration-tail")
+    while child.poll() is None:
+        pass
+    assert len(child.output()) <= adapters.MAX_CHILD_OUTPUT_BYTES
+
+
+# Lock holder: the psql session that keeps the migration lock (plan v12 §8, item 1).
+
+
+class FakeLauncher:
+    """Records what the host would start, without starting anything (no docker, no psql)."""
+
+    def __init__(self) -> None:
+        self.spawned: list[tuple[list[str], dict | None, str]] = []
+        self.sessions: list[FakeSession] = []
+        self.script: dict = {}
+
+    def spawn(self, argv, *, name, env=None):
+        self.spawned.append((list(argv), env, name))
+        return FakeChild()
+
+    def open_session(self, argv, *, env=None):
+        session = FakeSession(self.script)
+        self.sessions.append(session)
+        self.spawned.append((list(argv), env, ""))
+        return session
+
+
+class FakeChild:
+    def poll(self):
+        return 0
+
+
+class FakeSession:
+    """A psql session stand-in: a sent command is answered from script by a key it contains.
+
+    A script value of None means the session ends (no reply, the process is gone). A list is the reply lines.
+    """
+
+    def __init__(self, script: dict) -> None:
+        self.script = script
+        self.sent: list[str] = []
+        self.pending: list[str] | None = None
+        self.closed = False
+        self.dead = False
+
+    def send(self, text: str) -> None:
+        self.sent.append(text)
+        self.pending = None
+        for key, lines in self.script.items():
+            if key in text:
+                self.pending = lines
+                if lines is None:
+                    self.dead = True
+                break
+
+    def read_until(self, marker: str, timeout_s: float) -> list[str]:
+        if self.pending is None:
+            raise EffectFailed("lock session ended")
+        return list(self.pending)
+
+    def stderr_tail(self) -> str:
+        return ""
+
+    def alive(self) -> bool:
+        return not self.dead and not self.closed
+
+    def kill(self) -> None:
+        self.dead = True
+
+    def close(self) -> None:
+        self.closed = True
+
+
+PSQL_IMAGE = "docker.io/pgvector/pgvector@sha256:" + "a" * 64
+DB_URL = "postgresql://owner:pw-SECRET-7@db.internal:5432/book_finder?sslmode=verify-full"
+
+
+class FakeSsm:
+    def __init__(self, value: str) -> None:
+        self.value = value
+
+    def get_parameter(self, name: str) -> str:
+        return self.value
+
+
+def lock_holder(launcher, ssm_value=DB_URL, runner=None):
+    return adapters.RealLockHolder(runner or Recorder(), launcher, FakeSsm(ssm_value), "/book-finder/prod/db-url", PSQL_IMAGE)
+
+
+def test_lock_session_runs_psql_from_the_pinned_image_with_the_url_only_in_the_environment():
+    launcher = FakeLauncher()
+    launcher.script = {"pg_advisory_lock": ["acquired|"]}
+    lock_holder(launcher).acquire(2026102501, 60.0)
+    argv, env, _ = launcher.spawned[0]
+    name = argv[argv.index("--name") + 1]
+    assert argv == [
+        "docker",
+        "run",
+        "-i",
+        "--rm",
+        "--pull=never",
+        "--name",
+        name,
+        "--label",
+        "com.bookfinder.role=deploy-lock",
+        "-e",
+        "DATABASE_URL",
+        "--entrypoint",
+        "/bin/sh",
+        PSQL_IMAGE,
+        "-c",
+        adapters.PSQL_SESSION_SCRIPT,
+    ]
+    assert adapters.PSQL_SESSION_SCRIPT == 'exec psql -X -At -v ON_ERROR_STOP=1 "$DATABASE_URL"'
+    assert all("pw-SECRET-7" not in part and "postgresql://" not in part for part in argv)
+    assert env["DATABASE_URL"].startswith(DB_URL + "&")
+    assert "keepalives=1&keepalives_idle=30&keepalives_interval=10&keepalives_count=3" in env["DATABASE_URL"]
+
+
+def test_lock_session_sends_a_server_side_lock_timeout_and_the_exclusive_advisory_lock():
+    launcher = FakeLauncher()
+    launcher.script = {"pg_advisory_lock": ["acquired|"]}
+    lock_holder(launcher).acquire(2026102501, 60.0)
+    session = launcher.sessions[0]
+    assert session.sent[0] == "SET lock_timeout = '60000ms';\n"
+    assert "SELECT 'acquired', pg_advisory_lock(2026102501);" in session.sent[1]
+
+
+def test_lock_url_gets_keepalive_options_after_an_existing_query_string_with_ampersand():
+    launcher = FakeLauncher()
+    launcher.script = {"pg_advisory_lock": ["acquired|"]}
+    lock_holder(launcher, ssm_value="postgres://owner@db.internal/book_finder").acquire(2026102501, 60.0)
+    assert launcher.spawned[0][1]["DATABASE_URL"].startswith("postgres://owner@db.internal/book_finder?connect_timeout=10")
+
+
+def test_lock_refuses_a_malformed_url_without_echoing_it():
+    launcher = FakeLauncher()
+    with pytest.raises(EffectFailed) as info:
+        lock_holder(launcher, ssm_value="mysql://owner:pw-SECRET-7@x/y").acquire(2026102501, 60.0)
+    assert "pw-SECRET-7" not in str(info.value)
+    assert launcher.spawned == []
+
+
+def test_lock_not_taken_within_the_timeout_removes_the_session_and_its_container():
+    launcher = FakeLauncher()
+    launcher.script = {"pg_advisory_lock": None}  # psql ended before confirming: the server's lock timeout ended it
+    runner = Recorder()
+    holder = lock_holder(launcher, runner=runner)
+    with pytest.raises(EffectFailed) as info:
+        holder.acquire(2026102501, 60.0)
+    assert "migration lock not acquired" in str(info.value)
+    assert "pw-SECRET-7" not in str(info.value)
+    assert launcher.sessions[0].closed
+    name = launcher.spawned[0][0][launcher.spawned[0][0].index("--name") + 1]
+    assert ["docker", "rm", "-f", name] in [argv for argv, _ in runner.calls]
+    assert holder.alive() is False
+
+
+def test_lock_refuses_a_second_acquire_in_the_same_run():
+    launcher = FakeLauncher()
+    launcher.script = {"pg_advisory_lock": ["acquired|"]}
+    holder = lock_holder(launcher)
+    holder.acquire(2026102501, 60.0)
+    with pytest.raises(EffectFailed):
+        holder.acquire(2026102501, 60.0)
+
+
+def test_heartbeat_sends_select_one_and_accepts_the_reply():
+    launcher = FakeLauncher()
+    launcher.script = {"pg_advisory_lock": ["acquired|"], "SELECT 1;": ["1"]}
+    holder = lock_holder(launcher)
+    holder.acquire(2026102501, 60.0)
+    holder.heartbeat(10.0)
+    assert any("SELECT 1;" in text for text in launcher.sessions[0].sent)
+
+
+def test_heartbeat_without_the_expected_result_is_a_lost_session():
+    launcher = FakeLauncher()
+    launcher.script = {"pg_advisory_lock": ["acquired|"], "SELECT 1;": ["0"]}
+    holder = lock_holder(launcher)
+    holder.acquire(2026102501, 60.0)
+    with pytest.raises(EffectFailed):
+        holder.heartbeat(10.0)
+
+
+def test_heartbeat_with_no_reply_is_a_lost_session():
+    launcher = FakeLauncher()
+    launcher.script = {"pg_advisory_lock": ["acquired|"], "SELECT 1;": None}
+    holder = lock_holder(launcher)
+    holder.acquire(2026102501, 60.0)
+    with pytest.raises(EffectFailed):
+        holder.heartbeat(10.0)
+    assert holder.alive() is False
+
+
+def test_release_unlocks_all_closes_the_session_and_removes_the_container():
+    launcher = FakeLauncher()
+    launcher.script = {"pg_advisory_lock": ["acquired|"], "pg_advisory_unlock_all": []}
+    runner = Recorder()
+    holder = lock_holder(launcher, runner=runner)
+    holder.acquire(2026102501, 60.0)
+    holder.release()
+    session = launcher.sessions[0]
+    assert any("pg_advisory_unlock_all()" in text for text in session.sent)
+    assert session.closed
+    assert runner.calls[-1][0][:3] == ["docker", "rm", "-f"]
+    holder.release()  # a second release is a no-op
+    assert len(launcher.sessions) == 1
+
+
+def test_release_after_the_session_died_still_clears_the_holder():
+    launcher = FakeLauncher()
+    launcher.script = {"pg_advisory_lock": ["acquired|"], "SELECT 1;": None}
+    holder = lock_holder(launcher)
+    holder.acquire(2026102501, 60.0)
+    with pytest.raises(EffectFailed):
+        holder.heartbeat(1.0)
+    holder.release()
+    assert holder.alive() is False
+
+
+def test_lock_failure_message_keeps_the_stderr_tail_with_the_password_masked(monkeypatch):
+    launcher = FakeLauncher()
+    launcher.script = {"pg_advisory_lock": None}
+    monkeypatch.setattr(FakeSession, "stderr_tail", lambda self: "FATAL: password authentication failed; password=pw-SECRET-7\n")
+    with pytest.raises(EffectFailed) as info:
+        lock_holder(launcher).acquire(2026102501, 60.0)
+    assert "pw-SECRET-7" not in str(info.value)
+    assert "password=***" in str(info.value)
+
+
+# DEP-B21: the residual listing, the removal by id, and the server-side check that the migration connection is gone.
+
+CONTAINER_A = "0123456789ab"
+CONTAINER_B = "fedcba987654"
+
+
+def test_residual_containers_are_listed_by_role_label_with_state_and_name():
+    runner = Recorder(stdout=f"{CONTAINER_A}\texited\tbookfinder-migration-old1\n{CONTAINER_B}\trunning\tbookfinder-migration-old2\n")
+    found = adapters.RealDocker(runner).residual_containers("efbundle")
+    assert found == [
+        ResidualContainer(container_id=CONTAINER_A, name="bookfinder-migration-old1", state="exited"),
+        ResidualContainer(container_id=CONTAINER_B, name="bookfinder-migration-old2", state="running"),
+    ]
+    argv = runner.calls[0][0]
+    assert argv[:3] == ["docker", "ps", "-a"] and "label=com.bookfinder.role=efbundle" in argv
+
+
+def test_residual_listing_with_no_containers_is_empty_and_a_failed_listing_is_an_effect_failure():
+    assert adapters.RealDocker(Recorder(stdout="")).residual_containers("deploy-lock") == []
+    with pytest.raises(EffectFailed, match="docker ps failed"):
+        adapters.RealDocker(Recorder(returncode=1, stderr="cannot connect")).residual_containers("efbundle")
+
+
+def test_residual_listing_refuses_an_unknown_role_a_foreign_name_or_a_bad_id():
+    with pytest.raises(EffectFailed, match="unknown container role"):
+        adapters.RealDocker(Recorder()).residual_containers("web")
+    with pytest.raises(EffectFailed, match="unexpected container listing"):
+        adapters.RealDocker(Recorder(stdout=f"{CONTAINER_A}\texited\tsomeone-else\n")).residual_containers("efbundle")
+    with pytest.raises(EffectFailed, match="unexpected container listing"):
+        adapters.RealDocker(Recorder(stdout="not-an-id\texited\tbookfinder-migration-x\n")).residual_containers("efbundle")
+
+
+def test_remove_container_takes_a_plain_id_only():
+    runner = Recorder()
+    adapters.RealDocker(runner).remove_container(CONTAINER_A)
+    assert runner.calls[0][0] == ["docker", "rm", CONTAINER_A]
+    with pytest.raises(EffectFailed):
+        adapters.RealDocker(Recorder()).remove_container("bookfinder-migration-x")
+    with pytest.raises(EffectFailed, match="docker rm failed"):
+        adapters.RealDocker(Recorder(returncode=1, stderr="busy")).remove_container(CONTAINER_A)
+
+
+def test_the_lock_holder_and_efbundle_carry_their_role_labels_so_a_later_run_can_find_them():
+    launcher = FakeLauncher()
+    launcher.script = {"pg_advisory_lock": ["acquired|"]}
+    lock_holder(launcher).acquire(2026102501, 60.0)
+    argv = launcher.spawned[0][0]
+    assert argv[argv.index("--label") + 1] == "com.bookfinder.role=deploy-lock"
+
+
+class CountSession:
+    """Answers each pg_stat_activity query with the next count from a list; the other commands are answered as usual."""
+
+    def __init__(self, counts) -> None:
+        self.counts = list(counts)
+        self.pending: list[str] | None = None
+        self.queries = 0
+        self.closed = False
+
+    def send(self, text: str) -> None:
+        self.pending = None
+        if "pg_stat_activity" in text:
+            self.queries += 1
+            if self.counts:
+                self.pending = [str(self.counts.pop(0))]
+        else:
+            self.pending = []
+
+    def read_until(self, marker: str, timeout_s: float) -> list[str]:
+        if self.pending is None:
+            raise EffectFailed("lock session ended")
+        return list(self.pending)
+
+    def alive(self) -> bool:
+        return True
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def held_holder_with(session, monkeypatch):
+    holder = lock_holder(FakeLauncher())
+    holder._session = session  # the session is only inspected here, not started
+    holder._name = "bookfinder-deploy-lock-test"
+    monkeypatch.setattr(adapters, "MIGRATION_CONNECTION_POLL_S", 0.0)
+    return holder
+
+
+def test_connection_wait_returns_once_the_server_counts_no_migration_session(monkeypatch):
+    session = CountSession([2, 1, 0])
+    holder = held_holder_with(session, monkeypatch)
+    holder.wait_migration_connections_gone("bookfinder-efbundle", 60.0)
+    assert session.queries == 3
+
+
+def test_connection_wait_sends_the_exact_application_name_query(monkeypatch):
+    session = CountSession([0])
+    sent = []
+    original = session.send
+    monkeypatch.setattr(session, "send", lambda text: (sent.append(text), original(text)))
+    holder = held_holder_with(session, monkeypatch)
+    holder.wait_migration_connections_gone("bookfinder-efbundle", 60.0)
+    assert sent[0].startswith("SELECT count(*) FROM pg_stat_activity WHERE application_name = 'bookfinder-efbundle';\n")
+
+
+def test_connection_wait_raises_active_at_the_deadline_while_the_session_is_still_there(monkeypatch):
+    session = CountSession([1] * 100000)
+    holder = held_holder_with(session, monkeypatch)
+    with pytest.raises(MigrationConnectionActive, match="still active after 0.05 s"):
+        holder.wait_migration_connections_gone("bookfinder-efbundle", 0.05)
+    assert holder.alive() is True  # the lock session is not ended by the check; the holder keeps the lock
+
+
+def test_connection_wait_refuses_a_malformed_name_and_a_dead_session(monkeypatch):
+    holder = held_holder_with(CountSession([0]), monkeypatch)
+    with pytest.raises(EffectFailed, match="malformed"):
+        holder.wait_migration_connections_gone("bookfinder'; DROP", 60.0)
+    dead = held_holder_with(CountSession([]), monkeypatch)
+    with pytest.raises(EffectFailed, match="lock session ended"):
+        dead.wait_migration_connections_gone("bookfinder-efbundle", 60.0)
+    unheld = lock_holder(FakeLauncher())
+    with pytest.raises(EffectFailed, match="no migration lock session"):
+        unheld.wait_migration_connections_gone("bookfinder-efbundle", 60.0)
