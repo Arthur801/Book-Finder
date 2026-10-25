@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import pytest
@@ -298,9 +299,57 @@ def test_missing_display_css_is_rejected() -> None:
 
 
 @pytest.mark.parametrize("value", ["abc", "0", "-1", "1.5", "", " 2 ", "01"])
-def test_total_pages_that_is_not_a_positive_integer_is_rejected(value: str) -> None:
-    with pytest.raises(KingstoneParseError):
-        _parse(_page(_card(KM_A), total_pages=value))
+def test_total_pages_that_is_not_a_positive_integer_is_none_with_a_warning(value: str, caplog) -> None:
+    caplog.set_level(logging.WARNING, logger="kingstone.parse_list")
+
+    page = _parse(_page(_card(KM_A), total_pages=value))
+
+    assert page.total_pages is None
+    assert [item.external_id for item in page.items] == [KM_A]
+    assert [r.name for r in caplog.records if r.levelno == logging.WARNING] == ["kingstone.parse_list"]
+
+
+@pytest.mark.parametrize("value", ["12,345", "1 2", "十二", "", "-3", "1.5"])
+def test_count_that_is_not_plain_digits_is_none_with_a_warning(value: str, caplog) -> None:
+    caplog.set_level(logging.WARNING, logger="kingstone.parse_list")
+
+    page = _parse(_page(_card(KM_A), count=value))
+
+    assert page.total_count is None
+    assert [item.external_id for item in page.items] == [KM_A]
+    assert [r.name for r in caplog.records if r.levelno == logging.WARNING] == ["kingstone.parse_list"]
+
+
+def test_both_totals_malformed_still_parse_every_card_with_one_warning_each(caplog) -> None:
+    # Totals are report metadata: their drift must not drop the page's product cards.
+    caplog.set_level(logging.WARNING, logger="kingstone.parse_list")
+
+    page = _parse(_page(_card(KM_A) + _card(KM_B) + _card(KM_C), total_pages="n/a", count="約三千"))
+
+    assert (page.total_pages, page.total_count, page.empty) == (None, None, False)
+    assert [item.external_id for item in page.items] == [KM_A, KM_B, KM_C]
+    assert len([r for r in caplog.records if r.name == "kingstone.parse_list" and r.levelno == logging.WARNING]) == 2
+
+
+def test_warning_does_not_echo_the_page_html() -> None:
+    marker = "SECRET-MARKER-XYZ"
+    html = _page(_card(KM_A), total_pages=f"{marker}<b>")
+    records: list[logging.LogRecord] = []
+
+    class _Capture(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            records.append(record)
+
+    handler = _Capture(level=logging.WARNING)
+    logger = logging.getLogger("kingstone.parse_list")
+    logger.addHandler(handler)
+    try:
+        _parse(html)
+    finally:
+        logger.removeHandler(handler)
+
+    assert records
+    assert all(marker not in r.getMessage() and "<b>" not in r.getMessage() for r in records)
 
 
 @pytest.mark.parametrize(

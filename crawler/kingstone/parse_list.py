@@ -1,17 +1,23 @@
 """Kingstone category list page parser (CB-07 列表頁解析).
 
 Reads only the product cards of ``section#allProducts #displayCSS > .productGrid``. Card fields other than the km_code
-(title, author, publisher, date) are not read; the detail page is the source of truth. Nothing here touches the network.
+(title, author, publisher, date) are not read; the detail page is the source of truth. ``total_pages`` and
+``total_count`` are report-only (CB-07): a malformed value is logged as a warning and read as None, never an error.
+Nothing here touches the network.
 """
 
 from __future__ import annotations
 
+import logging
 import re
 
 from bs4 import BeautifulSoup, NavigableString, Tag
 
+from catalog_core.normalize import clean_text
 from kingstone.models import KingstoneParseError, ListedItem, ListPage
 from kingstone.urls import canonical_list_url, detail_url, km_code_from_href
+
+log = logging.getLogger("kingstone.parse_list")
 
 MAX_CARDS_PER_PAGE = 48
 EMPTY_CATEGORY_TEXT = "此分類沒有相關商品唷！"
@@ -80,7 +86,7 @@ def _card_km_code(card: Tag, index: int) -> str:
 
 def _has_empty_category(soup: BeautifulSoup) -> bool:
     notices = soup.select(_EMPTY_CATEGORY)
-    return any(_clean(notice.get_text()) == EMPTY_CATEGORY_TEXT for notice in notices)
+    return any(clean_text(notice.get_text()) == EMPTY_CATEGORY_TEXT for notice in notices)
 
 
 def _total_pages(soup: BeautifulSoup) -> int | None:
@@ -89,7 +95,8 @@ def _total_pages(soup: BeautifulSoup) -> int | None:
         return None
     value = field.get("value")
     if not isinstance(value, str) or _POSITIVE_INT.fullmatch(value) is None:
-        raise KingstoneParseError("list page input#totalPages is not a positive integer")
+        log.warning("Kingstone list page input#totalPages is not a positive integer; reading it as None")
+        return None
     return int(value)
 
 
@@ -101,12 +108,9 @@ def _total_count(soup: BeautifulSoup) -> int | None:
     for span in title.find_all("span"):
         previous = span.previous_sibling
         if isinstance(previous, NavigableString) and previous.strip().endswith("共計"):
-            text = _clean(span.get_text())
-            if _DIGITS.fullmatch(text) is None:
-                raise KingstoneParseError("list page 共計 count is not a plain number")
+            text = clean_text(span.get_text())
+            if text is None or _DIGITS.fullmatch(text) is None:
+                log.warning("Kingstone list page 共計 count is not a plain number; reading it as None")
+                return None
             return int(text)
     return None
-
-
-def _clean(text: str) -> str:
-    return " ".join(text.split())
