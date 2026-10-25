@@ -35,7 +35,7 @@
 - `ruff check`、`ruff format --check`、`.github/scripts/unicode_tables.py --check`（3 個檔案）每次都通過。
 - 新測試：
   - CR-T16：較晚時間前進、較早時間不倒退、重複 touch 冪等、provider 不符與 Source 不存在丟出衝突且不改資料、KINGSTONE 的 `external_id` 寫入、同 URL 的 provider 隔離、博客來 run 層級時鐘倒退、touch commit 後確認遺失的重試冪等、touch 衝突以 `source_identity_conflict` 跳過且不重試。
-  - CR-T17：service 單元測試 26 個，涵蓋每個分支。
+  - CR-T17：service 單元測試 27 個，涵蓋每個分支（含 PR review 後新增的 CONFLICT 停止）。
 - 未執行：`dotnet build`／`dotnet test`（本次未改 .NET 或 schema）、Docker image build、真站抓取、部署。
 
 ## 未解決事項
@@ -58,3 +58,4 @@
 | Spec | touch 缺少「commit 後確認遺失」測試（計畫 §5） | 新增 `test_a_touch_commit_whose_acknowledgement_is_lost_is_idempotent_on_retry` |
 | Spec | 博客來 run 層級缺少時鐘倒退測試 | 新增 `test_a_clock_moved_back_keeps_a_later_last_seen_and_the_source_is_still_existing` |
 | Spec | `catalog_core/session.py`、`store.py` 不在 §3 列表 | 接受：是 port 的 adapter，不含 provider HTML，已寫入 architecture |
+| PR #131 review（P2） | commit 不確定後重新解析得到 CONFLICT 仍繼續查 ISBN 並寫入，違反 v11 §5「Conflict／查詢不可用：不再寫該 item」 | `3979bcd`：CONFLICT 以 `source_identity_conflict` 結束，不再查 ISBN 或寫入；重新解析本身的 DB 錯誤維持下一次再確認。新增 `test_conflict_found_on_re_resolve_after_uncertain_commit_fails_without_another_write`。博客來沒有 `external_id`，走不到這條路 |
