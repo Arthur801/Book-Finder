@@ -276,6 +276,7 @@ crawler/deploy/local/run-local-crawler.sh daily
 | 18 | Docker 無法使用（orphan check 時） |
 | 20 | watchdog 因 hard limit 停止 writer（已確認停止） |
 | 21 | 被 SIGINT／SIGTERM 中斷；已先停止 writer（若尚未啟動 container 則直接退出） |
+| 22 | docker client 已結束但 container 仍在運作（沒有人監看的 writer），watchdog 已將它停止 |
 
 其他值（例如 container 內部的 125）為 Docker 或 container 自身的 exit code，原樣傳回。
 
@@ -289,6 +290,7 @@ crawler/deploy/local/run-local-crawler.sh daily
 | 14 | `orphan`（signal 或客戶端結束時）；`orphan,hard_limit`（hard limit 觸發時） | `ORPHAN_WRITER` |
 | 20 | `hard_limit` | `HARD_LIMIT` |
 | 21 | `signal_stop` | `SIGNAL_STOP`（運維的 SIGINT／SIGTERM 也留下紀錄，因為這次 run 被中止） |
+| 22 | `orphan` | `CLIENT_LOST`（writer 曾在沒有 client 監看的狀態下運作） |
 
 正常結束（exit 0、1、2）不寫 runner record，也不印 runner 的 `ALERT`。
 

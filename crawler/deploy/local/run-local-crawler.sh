@@ -10,8 +10,9 @@
 #   15 DB secret unavailable or invalid                      16 SSH tunnel did not forward
 #   17 database URL rewrite failed                           18 docker unavailable
 #   20 watchdog stopped the writer at the hard limit         21 interrupted by a signal (writer stopped first)
+#   22 the docker client ended while the container still ran; the watchdog stopped it (CLIENT_LOST)
 #
-# Lifecycle failures outside the container (13, 14, 20, 21) also print one "ALERT reasons=... mode=... last_run=..." line
+# Lifecycle failures outside the container (13, 14, 20, 21, 22) also print one "ALERT reasons=... mode=... last_run=..." line
 # on stderr and write this runner's terminal record to $CRAWLER_LOCAL_ARTIFACTS_DIR/runner/<mode>-last-run.json. The
 # container's own results (0, 1, 2, and Docker's other codes) belong to the crawler and get no runner record.
 set -uo pipefail
@@ -390,9 +391,13 @@ if kill -0 "$run_pid" 2>/dev/null || [[ $state == unknown ]] || is_running_state
     if [[ $reason == interrupted ]]; then
         result=21
         record_terminal 21 SIGNAL_STOP signal_stop "$name" "$(read_cid)"
-    else
+    elif [[ $reason == hard_limit ]]; then
         result=20
         record_terminal 20 HARD_LIMIT hard_limit "$name" "$(read_cid)"
+    else
+        # The writer ran with no client watching it: an orphan that the watchdog caught, not a hard-limit stop.
+        result=22
+        record_terminal 22 CLIENT_LOST orphan "$name" "$(read_cid)"
     fi
 else
     wait "$run_pid"

@@ -164,7 +164,7 @@ Invocation order（本地）：
 | 步驟 9，signal 或客戶端結束時無法確認停止 | `ALERT reasons=orphan` | `ORPHAN_WRITER`（14） |
 | 步驟 9，signal 停止成功 | `ALERT reasons=signal_stop` | `SIGNAL_STOP`（21） |
 | signal 於 container 啟動前 | `ALERT reasons=signal_stop` | `SIGNAL_STOP`（21） |
-| 客戶端結束但 container 仍在運作，且已停止 | `ALERT reasons=hard_limit` | `HARD_LIMIT`（20），沿用既有 exit code，見 test-suite 缺口 |
+| 客戶端結束但 container 仍在運作，且已停止 | `ALERT reasons=orphan` | `CLIENT_LOST`（22） |
 | container 正常結束（0、1、2） | 無 | 無（由 container 的結果負責） |
 
 record 寫入 `artifacts/runner/<mode>-last-run.json`（原子寫入，UTC 時間，不含 secret），同一份 JSON 印在 stdout。寫入失敗只印 `WARNING`，exit code 不變。

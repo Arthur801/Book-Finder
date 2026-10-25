@@ -56,6 +56,7 @@ case $cmd in
         [[ $(stat -c %a "$env_file") == 600 ]] || exit 8
         cp "$env_file" "$dir/env-seen"
         echo running > "$containers/{container}"
+        if [[ -n ${DOCKER_CLIENT_LOST:-} ]]; then exit 1; fi  # the client dies, the container keeps running
         if [[ -n ${DOCKER_HANG:-} ]]; then
             while [[ $(cat "$containers/{container}") == running ]]; do sleep 0.1; done
             exit 137
@@ -793,6 +794,16 @@ def test_watchdog_kills_when_stop_does_not_work(local):
     calls = local.calls()
     assert any(call.startswith("kill ") for call in calls)
     assert calls.index(f"rm {CONTAINER}") > max(i for i, call in enumerate(calls) if call.startswith("kill "))
+
+
+def test_a_container_that_outlives_its_client_is_stopped_and_recorded_as_client_lost(local):
+    result = local.run("kingstone", DOCKER_CLIENT_LOST="1")
+    assert result.returncode == 22, result.stderr
+    assert "ALERT reasons=orphan" in result.stderr
+    assert any(call.startswith("stop ") for call in local.calls())
+    assert local.container_state() is None or local.container_state() != "running"
+    record = json.loads((local.artifacts / "runner" / "kingstone-last-run.json").read_text(encoding="utf-8"))
+    assert (record["reason"], record["exit_code"], record["alert_reasons"]) == ("CLIENT_LOST", 22, ["orphan"])
 
 
 def test_writer_that_cannot_be_confirmed_stopped_is_an_orphan_and_blocks_the_next_start(local):

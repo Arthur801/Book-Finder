@@ -36,6 +36,7 @@ RUNNER_RULES = {
     "ORPHAN_WRITER": ({13, 14}, {("orphan",), ("orphan", "hard_limit")}),
     "HARD_LIMIT": ({20}, {("hard_limit",)}),
     "SIGNAL_STOP": ({21}, {("signal_stop",)}),
+    "CLIENT_LOST": ({22}, {("orphan",)}),
 }
 UTC_RE = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
 CONTAINER_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}")
