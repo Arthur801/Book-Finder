@@ -62,58 +62,6 @@ SSM 僅取 DB URL，log／JSON 遮罩；HTML 是原始頁面，PNG 可能含畫�
 
 確認字面差距（#113 前的規格）：舊 §16.9 說 pages 不寫任何來源 last_seen_at，但 `_insert_source` 對新建／附加來源 INSERT 初始化 now；既有來源確實不刷新。見 CB-01，未確認功能 bug。artifact 無清理政策實作，deployment 已明示另管，屬 CB-02 改善提案。EC2、SSM／IAM、GHCR／CD、cron 安裝、來源可抓性本次未驗證（CB-03），不能由設定存在推定已部署。
 
-## 金石堂（KINGSTONE）source contract — E0 凍結，尚未實作
-
-> 2026-10-25 E0 凍結。**尚無金石堂程式**；以下是之後實作必須遵守的來源契約，不是現有行為。實作計畫見 [kingstone-category-crawler.md](../../Docs/plans/kingstone-category-crawler.md)（v11），待辦見 [CB-07](backlog.md)。
-> 證據：使用者授權的有限真站抓取，2026-10-25 03:39–03:55 UTC，31 次循序請求（curl_cffi Chrome、不跟隨 redirect、3～30 秒隨機等待），沒有 429、challenge、Retry-After 或登入頁。原始回應在 `crawler/artifacts/kingstone-e0/`（不 commit）；fixture 見 [kingstone fixtures](../tests/fixtures/kingstone/README.md)。
-
-**範圍**（使用者 2026-10-25 決定）：比照博客來分類榜。使用者在清單提供金石堂分類列表頁，crawler 只抓清單上每一頁列出的書；不探索分類樹、不跟分頁、沒有跨 run 進度狀態檔。
-
-**Acquisition**：`HTTP_ONLY`。需要的頁面都是 server-rendered HTML（200），不需要 browser，不新增 Playwright production dependency。只允許 origin `https://www.kingstone.com.tw`；robots.txt 禁止的 `/api/`、`/bms/`、`/dks/`、`/cart/`、`/Refund/`、`/einvoice/`、`/wp-admin/` 都不使用。循序請求，每次請求（含重試）前隨機等待 **3～10 秒**（使用者 2026-10-25 依 E0 證據決定）。不跟隨 redirect。
-
-**URL grammar**（其他 URL 一律拒絕）：
-
-| 用途 | Canonical URL | 規則 |
-|---|---|---|
-| 列表頁（清單項目） | `/book/<code>/?dis=list&page=<n>[&sort=<key>]` | `code` 為 ASCII 字母 2～4 個，canonical 轉小寫（伺服器也接受大寫，`<link rel="canonical">` 指向小寫；`/normal/book/<code>` 是同內容別名，不接受）。`n` 為正整數。`key` 只能是頁面提供的 `sa_desc`（預設，依銷售）、`pu_desc`、`pu_asc`、`pr_desc`、`pr_asc` |
-| 詳細頁 | `/basic/<km_code>/` | `km_code` 為 13 位數字；列表連結的 `?lid=`、`&actid=` 追蹤參數不進 canonical source URL |
-
-**列表頁解析**：
-
-- 商品卡只取 `section#allProducts #displayCSS > .productGrid > .mod_prod_card[data-prodno]`（每頁最多 48 張）。`#allProducts` 外的輪播卡、空頁巢狀 `section.prodSlider` 內的推薦卡都不是列表商品。
-- 每張卡的 external_id 是 `data-prodno`，必須等於卡片 `.coverbox a` 連結的 `km_code`。
-- 總頁數在 `input#totalPages` 的 `value`，總筆數在「共計<span>n</span>筆」；只作 report，不跟分頁。
-- **合法空頁**：沒有 `.productGrid`，且 `#displayCSS > .emptyCategory` 顯示「此分類沒有相關商品唷！」（例如頁碼超過總頁數）。這是成功的零列頁。
-- 既沒有 `.productGrid` 也沒有 `.emptyCategory` → parse error，不是空頁。
-- 卡片有書名、作者、出版社、出版日，**沒有 ISBN**，所以 New Source 一定要抓詳細頁。
-
-**詳細頁解析**：
-
-| 欄位 | 來源 | 規則 |
-|---|---|---|
-| external_id | JSON-LD `Product` 的 `sku` | 必須等於 URL 的 `km_code`，否則 parse error |
-| title | JSON-LD `name` | 必要；缺少即 parse error |
-| ISBN | JSON-LD `isbn`（缺少時 `gtin13`） | 依共用 ISBN 規則正規化；不驗證前綴（非書商品 `4711664071805` 也會寫入，範圍由使用者的清單控制） |
-| publisher | JSON-LD `publisher.name` | 去除前後空白（觀察到尾端空白） |
-| 出版日 | JSON-LD `datePublished`（`YYYY-MM-DD`） | 精度 `DAY` |
-| thumbnail | JSON-LD `image[0]` | |
-| 語言 | 規格表 `li.table_th`「語言」相鄰的 `li.table_td` | **不使用** JSON-LD `inLanguage`（簡體書也標 `zh-TW`）；中文繁體→`zh-TW`、中文簡體→`zh-CN`，其他值為 NULL |
-| contributors | `li.basicunit` 中 `.title_basic` 為「作者：」的連結，以及「譯者：」的純文字 | 不使用 JSON-LD `author`（只有第一個連結）。作者欄排除「追蹤」與「?」；整段被括號包住的連結是原文姓名（例如「(Gao Junqing)」），不建立 contributor；一個連結或譯者值可能用「、」串多人，要拆開；`角色/姓名` 前綴（例如「審訂/張素惠」）拆出角色，無法對應的角色歸 `OTHER` |
-| 頁數 | 規格表「頁數」 | 選填；正整數 |
-| 目錄、簡介 | `.catalog` 區塊、內容簡介 | 選填，只供 AI，不公開 |
-| subjects | `.basic-category-breadcrumb a` 的名稱 | 頁面上出現兩次，依順序去重後，去掉根節點「中文書」（例如 `童書/青少年`、`繪本`、`同儕相處`） |
-
-規格表另有「分級」欄（E0 的 7 本都是「普通級」），可作為之後辨識限制級的依據；E0 沒有觀察到限制級頁，規則待有 fixture 再定。
-
-**錯誤分類**（不跟隨 redirect）：
-
-| 觀察到的回應 | 分類 | 處理 |
-|---|---|---|
-| 列表頁的分類不存在：302，`Location: /book/` | page failure | 跳過該頁、不重試 |
-| 商品不存在：200 soft 404，`<title>` 只有「金石堂」、沒有 Product JSON-LD | product not found | 跳過、不重試、不寫入 |
-| 200 但缺少預期結構 | parse error | 不猜測、不寫入 |
-| challenge、CAPTCHA、限制級頁 | E0 未觀察到 | 出現時以 parse error fail closed，收錄新的 fixture 再定分類 |
-
-**背景（不實作）**：E0 也觀察了分類樹：`/book/` 下有 21 個第一層分類，分類頁的 `nav.nav1b_classlevel` 列出直接子分類，代碼長度不代表層級（`nkl` 是 `ssss` 的第二層），子分類的筆數剛好切分父分類。v11 改由使用者提供清單，這些觀察只供使用者挑選網址時參考，不是 crawler 的行為。
+金石堂（KINGSTONE）crawler 尚未實作；已決定的來源契約與計畫見 [backlog](backlog.md) CB-07。
 
 相關：[流程](workflow-diagram.md)／[架構](architecture.md)／[待辦](backlog.md)／[歷史](update-history.md)／[案例](test-suite.md)。

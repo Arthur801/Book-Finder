@@ -1,7 +1,7 @@
 """Offline contract checks for the Kingstone (金石堂) fixtures (E0; see tests/fixtures/kingstone/README.md).
 
-Expected values were read from the fixtures themselves and frozen in crawler/docs/architecture.md
-("金石堂（KINGSTONE）source contract"). There is no Kingstone parser yet, so these tests parse the
+Expected values were read from the fixtures themselves and frozen in crawler/docs/backlog.md
+("CB-07 來源契約"). There is no Kingstone parser yet, so these tests parse the
 fixtures directly with BeautifulSoup and json; they document what the future parser must follow.
 """
 

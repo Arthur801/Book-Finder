@@ -1,6 +1,6 @@
 # 金石堂 HTML fixtures
 
-測試不會連線金石堂。這個資料夾存放金石堂的真實頁面，金石堂 parser 與 contract 測試都以此為準；來源契約見 [crawler architecture](../../../docs/architecture.md)「金石堂 source contract」。
+測試不會連線金石堂。這個資料夾存放金石堂的真實頁面，金石堂 parser 與 contract 測試都以此為準；來源契約見 [crawler backlog](../../../docs/backlog.md)「CB-07 來源契約」。
 
 ## 擷取方式
 
