@@ -3,8 +3,9 @@
 import psycopg
 import pytest
 
-from books_crawler import cli, db
+from books_crawler import cli
 from books_crawler.fetcher import DEFAULT_NAVIGATION_TIMEOUT_MS, FetcherKind
+from catalog_core import persistence
 
 DATABASE = {"DATABASE_URL": "postgresql://unused"}
 
@@ -12,7 +13,7 @@ DATABASE = {"DATABASE_URL": "postgresql://unused"}
 @pytest.fixture(autouse=True)
 def _provider_enabled(monkeypatch):
     """The CLI reads source_providers before the run; these tests have no database, so the provider is enabled."""
-    monkeypatch.setattr(db, "provider_enabled", lambda url, code: True)
+    monkeypatch.setattr(persistence, "provider_enabled", lambda url, code: True)
 
 
 class FakeRunResult:

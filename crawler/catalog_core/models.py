@@ -87,6 +87,7 @@ class BookDraft:
 
     source_url: str
     title: str
+    external_id: str | None = None  # the provider's own item ID (Sources.external_id); None for Books.com.tw
     publisher: str | None = None
     published_date: date | None = None
     published_date_precision: PublishedDatePrecision | None = None

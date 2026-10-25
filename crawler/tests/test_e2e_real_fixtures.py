@@ -12,10 +12,10 @@ from datetime import UTC, date, datetime
 import psycopg
 import pytest
 
-from books_crawler import db
-from books_crawler.models import RunStatus
+from books_crawler.models import PROVIDER, RunStatus
 from books_crawler.parsers import RANKING_PAGE_URL, parse_detail_html, parse_ranking_html
 from books_crawler.run import RunDependencies, run_once
+from catalog_core import persistence
 from tests.fakes import (
     RANKING_FIXTURE,
     RESTRICTED_GATE_FIXTURE,
@@ -59,9 +59,9 @@ def count(url: str, table: str) -> int:
 
 
 def seed_existing_sources(url: str, source_urls: list[str]) -> None:
-    with db.connect(url) as conn:
+    with persistence.connect(url) as conn:
         for source_url in source_urls:
-            db.persist_new_source(conn, make_draft(source_url), NOW)
+            persistence.persist_new_source(conn, PROVIDER, make_draft(source_url), NOW)
 
 
 def run_with(db_url: str, ranking_html: str, detail_pages: dict[str, str], sleep: FakeSleep | None = None):
@@ -71,7 +71,7 @@ def run_with(db_url: str, ranking_html: str, detail_pages: dict[str, str], sleep
         fetcher=fetcher,
         parse_ranking=parse_ranking_html,
         parse_detail=parse_detail_html,
-        connect=lambda: db.connect(db_url),
+        connect=lambda: persistence.connect(db_url),
         clock=lambda: NOW,
         sleep=sleep if sleep is not None else FakeSleep(),
     )

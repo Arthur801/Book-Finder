@@ -37,14 +37,15 @@ flowchart TD
  J --> K
 ```
 
-來源：[run](../books_crawler/run.py)、[ranking](../books_crawler/ranking.py)、[ledger](../books_crawler/ledger.py)、[db](../books_crawler/db.py)，規格 §5～§6、§13～§14、§16。總榜 fetch 失敗才重試；parse／完整性錯誤不重試且在開 DB 前失敗。輸入須 100 列，輸出可缺號甚至空 snapshot；空榜仍替換是已定規則。first-book 仍驗證 100 列，只 resolve rank 1，不替換榜單；一般失敗 FAILED，限制級 PARTIAL_SUCCESS。榜內重複（DUPLICATE_BOOK）在 Catalog 寫入之後由 RunLedger 決定，記為跳過與一般錯誤，不重試。
+來源：[run](../books_crawler/run.py)、[ranking](../books_crawler/ranking.py)、[ledger](../books_crawler/ledger.py)、[catalog_core/persistence](../catalog_core/persistence.py)、[db](../books_crawler/db.py)，規格 §5～§6、§13～§14、§16。總榜 fetch 失敗才重試；parse／完整性錯誤不重試且在開 DB 前失敗。輸入須 100 列，輸出可缺號甚至空 snapshot；空榜仍替換是已定規則。first-book 仍驗證 100 列，只 resolve rank 1，不替換榜單；一般失敗 FAILED，限制級 PARTIAL_SUCCESS。榜內重複（DUPLICATE_BOOK）在 Catalog 寫入之後由 RunLedger 決定，記為跳過與一般錯誤，不重試。
 
 ## 共用單列管線
 
 ```mermaid
 flowchart TD
  A[查詢 BOOKS_COM_TW 商品 URL] --> B{存在}
- B -->|是| C[重用 不抓 detail 不改 metadata]
+ B -->|是| C[重用 不抓 detail 不改 metadata；touch 單調前進]
+ C -->|touch 無匹配列：Source 不存在或非本 provider| N[source_identity_conflict 跳過 不重試]
  B -->|否| D[fetch detail 並 parse]
  D -->|明確限制級會員頁| E[直接 skip 不重試 歸零錯誤]
  D -->|fetch 或 parse 錯誤| F{共用 attempt 小於三}
@@ -62,6 +63,8 @@ flowchart TD
  M --> I
  L -->|三次耗盡| H
 ```
+
+已存在的 Source 以 `touch_source(provider, source_id, now)` 更新 `last_seen_at`：寫成 `GREATEST(last_seen_at, now)`，且只作用於本 provider（BOOKS_COM_TW）的該 Source。時鐘倒退不會把時間往回拉；touch 匹配不到列時拋 `SourceTouchConflict`，本列記為 `source_identity_conflict` 跳過，不重試、不抓詳細頁；資料庫錯誤仍照三次重試。
 
 fetch／parse／write 共用最多三次嘗試。ISBN lookup 失敗也沿用 draft；已知 URL 的 `find_source` DB 例外在 retry 外，整次失敗。重複 Book 確定性 skip，不重試，已知 URL attempts=0、ISBN 重複記實際次數。限制級、重用、附加、成功都重設 streak；20 本仍繼續，第 21 本終局一般錯誤才中止，累計錯誤無上限。每書已 commit Catalog 保留；替換交易保護舊榜與既有來源時間。
 
