@@ -37,11 +37,13 @@ from bs4 import BeautifulSoup, Tag
 
 from books_crawler.models import BookDraft, Contributor, Identifier, RankingRow
 from books_crawler.normalize import (
+    clean_text,
+    map_contributor_role,
     map_language,
     parse_published_date,
 )
 from books_crawler.urls import InvalidProductUrl, canonicalize_product_url
-from catalog_core.normalize import clean_text, map_contributor_role, normalize_isbn
+from catalog_core.normalize import normalize_isbn
 
 log = logging.getLogger("books_crawler.parsers")
 

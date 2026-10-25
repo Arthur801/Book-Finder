@@ -5,10 +5,11 @@ import pytest
 
 from books_crawler.models import Identifier, IdentifierType
 from books_crawler.normalize import (
+    map_contributor_role,
     map_language,
     parse_published_date,
 )
-from catalog_core.normalize import map_contributor_role, normalize_isbn
+from catalog_core.normalize import normalize_isbn
 
 # ISBN normalization (data-model §7.1): no checksum, no length check; stored type ISBN
 
@@ -113,3 +114,11 @@ def test_parse_published_date_never_guesses(raw):
 def test_identifier_type_vocabulary_after_migration_011_has_only_isbn():
     # data-model 6.5 / 11.3: ISBN_10 and ISBN_13 are legacy values removed by migration 011; the crawler writes and reads ISBN only.
     assert [item.value for item in IdentifierType] == ["ISBN"]
+
+
+def test_the_provider_neutral_core_does_not_own_the_books_role_vocabulary():
+    import catalog_core.normalize as core
+
+    assert not hasattr(core, "ROLE_MAP")
+    assert not hasattr(core, "map_contributor_role")
+    assert core.normalize_role_label("作者：") == "作者"
