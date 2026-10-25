@@ -40,6 +40,11 @@
   - **`deploy/docs` 同步（不在本 PR 改 `deploy/`）**：`deploy/docs/architecture.md`、`workflow-diagram.md` 若仍描述 crawler 在 EC2 執行，需同步 runtime ownership；`deploy/` 的 migration 與 advisory lock 變更屬 deploy 的 M2／M3。
   - **博客來 hard limit 3600 秒未量測**：`BOOKS_RUN_HARD_LIMIT_SECONDS` 預設值取自計畫表的「原 3600」；博客來 daily 與 pages 的實際耗時未驗證，P3 時應確認不會被 watchdog 誤殺。
   - ~~runner 端 orphan alert，以及 hard limit、signal 的 `ALERT` 與 terminal record~~：已於 #148 完成（容器外 lifecycle failure；見 [deploy README](../deploy/README.md) §9.4.1）。容器內結果仍由 crawler 的 last-run JSON 與 ALERT 負責（#147）。
+  - **runner 的一般 operational failure 沒有 ALERT 與 terminal record（待修正，PR #148 review）**：目前只有容器 lifecycle failure（13、14、20、21、22）會經 `record_terminal`；下列 exit 只走 `fail`（stderr 後直接 exit），沒有 `ALERT` 行、stdout terminal JSON，也沒有 `artifacts/runner/<mode>-last-run.json`，不符 v12 observability contract「每次 run 有 terminal JSON；FAILED 觸發 ALERT」。AWS profile 過期、SSH 主機暫時連不上、Docker daemon 未啟動都是本地 runner 的常見情況。
+    - 對應：12 `STATE_UNREADABLE`、15 `SECRET_UNAVAILABLE`、16 `TUNNEL_UNAVAILABLE`、17 `DATABASE_URL_INVALID`、18 `DOCKER_UNAVAILABLE`；一律 `status=FAILED`、`alert_reasons=["failed"]`、`exit_code` 維持原值。
+    - 做法：在 artifacts 路徑驗證之後，新增類似 `fail_recorded(code, reason, message)` 的函式（stderr 訊息 → `record_terminal` → 以原 code exit），`runner_support.RUNNER_RULES` 加入上述 reason。不需改架構。
+    - 不納入：exit 6（paused／dirty，屬 skip）、exit 11（`run.lock` busy，屬並行閘門）、exit 10（設定與用法；artifacts 路徑尚未可信時維持現行）。
+    - 驗收測試（`test_local_runner.py`）：state unreadable、SSM failure、tunnel failure、URL rewrite failure、Docker unavailable 各一案，皆驗證 exit code 不變、stdout 恰好一份 JSON、stderr 恰好一個 `ALERT`、terminal record 內容正確、secret 不出現在任何輸出。
   - **container 輸出未持久化**：`docker run` 輸出只顯示在終端；container 自身的 `ALERT` 行未轉寫到 runner log（計畫 §8 為可選），仍待辦。
   - **secret 檔 owner 檢查無測試**：程式有檢查，但需要另一個 owner 的檔案才能測。
 - 未覆蓋：E0 沒有觀察到 challenge、CAPTCHA、限制級頁、429／5xx、無 ISBN 的書；出現時先收錄 fixture。
