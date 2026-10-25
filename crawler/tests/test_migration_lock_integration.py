@@ -9,6 +9,8 @@ takes the lock again. Schema changes are made inside a transaction and rolled ba
 
 from __future__ import annotations
 
+import json
+
 import psycopg
 import pytest
 
@@ -335,7 +337,7 @@ def test_the_cli_exits_2_on_a_missing_prerequisite_and_builds_no_fetcher(db_url,
         conn.execute("ALTER TABLE book_sources RENAME COLUMN last_seen_at TO last_seen_at_old")
     try:
         code = cli.main(
-            {"DATABASE_URL": db_url, "KINGSTONE_PAGES_FILE": _page_file(tmp_path, LIST_A)},
+            {"DATABASE_URL": db_url, "KINGSTONE_PAGES_FILE": _page_file(tmp_path, LIST_A), "KINGSTONE_ARTIFACTS_DIR": str(tmp_path / "artifacts")},
             fetcher_factory=lambda config, budget: built.append(config) or FakeFetcher(site(LIST_A, [KM_1])),
             monotonic=lambda: 0.0,
         )
@@ -347,6 +349,9 @@ def test_the_cli_exits_2_on_a_missing_prerequisite_and_builds_no_fetcher(db_url,
     assert built == []
     assert "SCHEMA_PREREQUISITE_MISSING: book_sources.last_seen_at" in capsys.readouterr().out
     assert book_count(db_url) == 0
+    record = json.loads((tmp_path / "artifacts" / "kingstone" / "last-run.json").read_text(encoding="utf-8"))
+    assert record["reason"] == "SCHEMA_PREREQUISITE_MISSING"
+    assert record["alert_reasons"] == ["failed", "schema_prerequisite_missing"]
 
 
 def test_the_cli_exits_1_with_maintenance_busy_when_the_first_connection_is_busy(db_url, tmp_path, migration, kingstone_enabled, capsys):
@@ -354,7 +359,7 @@ def test_the_cli_exits_1_with_maintenance_busy_when_the_first_connection_is_busy
     built = []
 
     code = cli.main(
-        {"DATABASE_URL": db_url, "KINGSTONE_PAGES_FILE": _page_file(tmp_path, LIST_A)},
+        {"DATABASE_URL": db_url, "KINGSTONE_PAGES_FILE": _page_file(tmp_path, LIST_A), "KINGSTONE_ARTIFACTS_DIR": str(tmp_path / "artifacts")},
         fetcher_factory=lambda config, budget: built.append(config) or FakeFetcher(site(LIST_A, [KM_1])),
         monotonic=lambda: 0.0,
     )
@@ -363,4 +368,7 @@ def test_the_cli_exits_1_with_maintenance_busy_when_the_first_connection_is_busy
     assert built == []
     assert "maintenance busy" in capsys.readouterr().out
     assert book_count(db_url) == 0
+    record = json.loads((tmp_path / "artifacts" / "kingstone" / "last-run.json").read_text(encoding="utf-8"))
+    assert record["reason"] == "MAINTENANCE_BUSY"
+    assert record["alert_reasons"] == ["failed", "maintenance_busy"]
     migration.release()

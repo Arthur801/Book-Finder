@@ -7,6 +7,8 @@ import pytest
 from catalog_core.models import WritePolicy
 from kingstone import acquisition
 from kingstone.config import (
+    DEFAULT_ARTIFACTS_DIR,
+    DEFAULT_DIAGNOSTIC_MAX_BYTES,
     DEFAULT_HARD_LIMIT_SECONDS,
     DEFAULT_SOFT_BUDGET_SECONDS,
     KingstoneConfig,
@@ -25,6 +27,8 @@ _ENV_KEYS = [
     "KINGSTONE_HTTP_TIMEOUT_SECONDS",
     "KINGSTONE_HTTP_MAX_ATTEMPTS",
     "KINGSTONE_MAX_RESPONSE_BYTES",
+    "KINGSTONE_ARTIFACTS_DIR",
+    "KINGSTONE_DIAGNOSTIC_MAX_BYTES",
 ]
 
 
@@ -38,6 +42,8 @@ def test_defaults_when_nothing_is_set():
         http_timeout_seconds=float(acquisition.REQUEST_TIMEOUT_SECONDS),
         http_max_attempts=acquisition.MAX_ATTEMPTS,
         max_response_bytes=acquisition.MAX_RESPONSE_BYTES,
+        artifacts_dir=DEFAULT_ARTIFACTS_DIR,
+        diagnostic_max_bytes=2 * 1024 * 1024,
     )
     assert DEFAULT_SOFT_BUDGET_SECONDS == 7200
     assert DEFAULT_HARD_LIMIT_SECONDS == 9000
@@ -59,6 +65,8 @@ def test_every_key_can_be_set():
             "KINGSTONE_HTTP_TIMEOUT_SECONDS": "12",
             "KINGSTONE_HTTP_MAX_ATTEMPTS": "1",
             "KINGSTONE_MAX_RESPONSE_BYTES": "2048",
+            "KINGSTONE_ARTIFACTS_DIR": "/var/kingstone-artifacts",
+            "KINGSTONE_DIAGNOSTIC_MAX_BYTES": "4096",
         }
     )
     assert config == KingstoneConfig(
@@ -69,7 +77,21 @@ def test_every_key_can_be_set():
         http_timeout_seconds=12.0,
         http_max_attempts=1,
         max_response_bytes=2048,
+        artifacts_dir=Path("/var/kingstone-artifacts"),
+        diagnostic_max_bytes=4096,
     )
+
+
+def test_the_default_artifacts_dir_is_crawler_artifacts_next_to_the_package():
+    assert DEFAULT_ARTIFACTS_DIR == Path(__file__).resolve().parents[1] / "artifacts"
+    assert DEFAULT_DIAGNOSTIC_MAX_BYTES == 2 * 1024 * 1024
+    assert load_config({"KINGSTONE_ARTIFACTS_DIR": "   "}).artifacts_dir == DEFAULT_ARTIFACTS_DIR
+
+
+@pytest.mark.parametrize("value", ["0", "-5", "1.5", "abc", "1e6"])
+def test_a_diagnostic_cap_must_be_a_positive_whole_number(value):
+    with pytest.raises(KingstoneConfigError, match="KINGSTONE_DIAGNOSTIC_MAX_BYTES"):
+        load_config({"KINGSTONE_DIAGNOSTIC_MAX_BYTES": value})
 
 
 def test_surrounding_whitespace_is_ignored_in_values():

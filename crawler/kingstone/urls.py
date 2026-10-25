@@ -27,6 +27,12 @@ _CANONICAL_DETAIL = re.compile(rf"{re.escape(SITE_ORIGIN)}/basic/([0-9]{{13}})/"
 _LIST_QUERY_KEYS = frozenset({"dis", "page", "sort"})
 
 
+def category_code_from_list_url(url: str) -> str | None:
+    """The category code (the letters after ``/book/``, lowercase) of a canonical list page URL, or None."""
+    match = _LIST_PATH.search(urlsplit(url).path)
+    return None if match is None else match.group(1).lower()
+
+
 def canonical_list_url(raw: str) -> str | None:
     """The canonical form of a category list page URL, or None when it is outside the accepted grammar.
 

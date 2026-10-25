@@ -128,6 +128,10 @@ class KingstoneReport:
     zero_progress_reason: str | None = None
     error: str | None = None
     provider_code: ProviderCode = ProviderCode.KINGSTONE
+    items_listed: int = 0  # product cards parsed from the list pages that were read (before any outcome)
+    details_fetched: int = 0  # detail page fetches the run asked for (a failed fetch counts too)
+    http_attempts: int = 0  # requests the fetcher actually sent, retries included
+    http_failures: int = 0  # sent requests that gave no usable 200 body
 
     @property
     def exit_code(self) -> int:
@@ -152,14 +156,19 @@ class KingstoneLedger:
         self._zero_card_pages = 0
         self._budget_exhausted = False
         self._items_seen = 0
+        self._items_listed = 0
+        self._details_fetched = 0
         self._counts: dict[CatalogResolution, int] = {resolution: 0 for resolution in CatalogResolution}
         self._policy_skipped = 0
         self._recovered = 0
         self._identity_warnings = 0
         self._failed_items: list[FailedItem] = []
 
-    def page_started(self, url: str) -> None:
-        """The page was fetched and parsed; its cards are recorded next. One page is open at a time."""
+    def page_started(self, url: str, *, items_listed: int = 0) -> None:
+        """The page was fetched and parsed; its cards are recorded next. One page is open at a time.
+
+        ``items_listed`` is the number of cards the list parser returned for the page (counted for the report).
+        """
         self._require_listed(url)
         if self._budget_exhausted:
             raise ValueError(f"the run budget is exhausted; {url} cannot start")
@@ -170,6 +179,11 @@ class KingstoneLedger:
         self._started.add(url)
         self._open = url
         self._open_items = 0
+        self._items_listed += items_listed
+
+    def record_detail_fetch(self) -> None:
+        """The run asked the fetcher for one detail page (counted whether or not the fetch succeeded)."""
+        self._details_fetched += 1
 
     def record_item(self, url: str, result: ItemResolved | ItemFailed | ItemPolicySkipped, *, source_url: str, external_id: str) -> None:
         """One card of the open page reached its outcome."""
@@ -241,8 +255,13 @@ class KingstoneLedger:
         started_at: datetime,
         finished_at: datetime,
         error: str | None = None,
+        http_attempts: int = 0,
+        http_failures: int = 0,
     ) -> KingstoneReport:
-        """The run result. ``error`` is a failure that stops the run (database, unexpected)."""
+        """The run result. ``error`` is a failure that stops the run (database, unexpected).
+
+        ``http_attempts`` and ``http_failures`` come from the fetcher, which the ledger does not own.
+        """
         interrupted = 0 if self._open is None else 1
         not_reached = len(self._listed) - (self._completed + interrupted) - len(self._skipped)
         status, reason = decide_status(
@@ -281,6 +300,10 @@ class KingstoneLedger:
             write_policy=self._write_policy,
             zero_progress_reason=reason,
             error=error,
+            items_listed=self._items_listed,
+            details_fetched=self._details_fetched,
+            http_attempts=http_attempts,
+            http_failures=http_failures,
         )
 
     def _require_listed(self, url: str) -> None:
@@ -290,7 +313,8 @@ class KingstoneLedger:
 
 def format_report(report: KingstoneReport) -> str:
     """One line of ``key=value`` pairs, in the fixed order of the list below (``write_policy`` follows ``provider_code``;
-    ``policy_skipped`` follows ``ambiguous_created``).
+    ``policy_skipped`` follows ``ambiguous_created``; ``items_listed``, ``details_fetched``, ``http_attempts`` and
+    ``http_failures`` follow ``items_seen``).
 
     Counts are plain integers, ``budget_exhausted`` is ``true`` or ``false``. ``zero_progress_reason`` and ``error`` are
     JSON strings or ``null``; ``skipped_pages`` and ``failed_items`` are JSON lists (``ensure_ascii=False``). The
@@ -311,6 +335,10 @@ def format_report(report: KingstoneReport) -> str:
         ("zero_card_pages", report.zero_card_pages),
         ("budget_exhausted", "true" if report.budget_exhausted else "false"),
         ("items_seen", report.items_seen),
+        ("items_listed", report.items_listed),
+        ("details_fetched", report.details_fetched),
+        ("http_attempts", report.http_attempts),
+        ("http_failures", report.http_failures),
         ("existing_source", report.existing_source),
         ("imported", report.imported),
         ("isbn_attached", report.isbn_attached),

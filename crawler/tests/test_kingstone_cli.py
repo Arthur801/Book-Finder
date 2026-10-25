@@ -8,6 +8,7 @@ paths against PostgreSQL are in ``test_kingstone_db_integration.py`` and ``test_
 
 from __future__ import annotations
 
+import json
 import logging
 
 import psycopg
@@ -32,6 +33,14 @@ class FakeFetcher:
         self.error = error or AcquisitionError(AcquisitionFailure.REDIRECT, "302 to /book/", attempts=1, status=302)
         self.calls: list[str] = []
         self.closed = 0
+
+    @property
+    def http_attempts(self) -> int:
+        return len(self.calls)
+
+    @property
+    def http_failures(self) -> int:
+        return len(self.calls)
 
     def fetch_list_page(self, url: str) -> str:
         self.calls.append(url)
@@ -85,7 +94,7 @@ class Harness:
         self.factory_calls: list[tuple] = []
         self.provider_calls: list[tuple] = []
         self.enabled = enabled
-        self.environ = {"DATABASE_URL": DSN_SECRET, "KINGSTONE_PAGES_FILE": str(self.pages)}
+        self.environ = {"DATABASE_URL": DSN_SECRET, "KINGSTONE_PAGES_FILE": str(self.pages), "KINGSTONE_ARTIFACTS_DIR": str(tmp_path / "artifacts")}
         if environ is not None:
             self.environ = environ
 
@@ -294,6 +303,7 @@ def test_the_default_fetcher_is_built_from_the_config_and_the_budget(tmp_path, m
         environ={
             "DATABASE_URL": DSN_SECRET,
             "KINGSTONE_PAGES_FILE": str(tmp_path / "pages.txt"),
+            "KINGSTONE_ARTIFACTS_DIR": str(tmp_path / "artifacts"),
             "KINGSTONE_HTTP_TIMEOUT_SECONDS": "7",
             "KINGSTONE_HTTP_MAX_ATTEMPTS": "2",
             "KINGSTONE_MAX_RESPONSE_BYTES": "1234",
@@ -320,3 +330,148 @@ def test_the_default_fetcher_is_a_kingstone_fetcher(tmp_path):
 
 def test_config_error_type_is_a_value_error():
     assert issubclass(KingstoneConfigError, ValueError)
+
+
+# ---------------------------------------------------------------------------
+# Terminal artifacts (plan v12 §8): last-run.json on every terminal result after the config, and the ALERT line
+# ---------------------------------------------------------------------------
+
+EMPTY_PAGE = '<html><body><section id="allProducts"><div id="displayCSS"><div class="emptyCategory">此分類沒有相關商品唷！</div></div></section></body></html>'
+
+
+class ScriptedFetcher(FakeFetcher):
+    """Serves one list page body for any request."""
+
+    def __init__(self, body: str) -> None:
+        super().__init__()
+        self.body = body
+
+    def fetch_list_page(self, url: str) -> str:
+        self.calls.append(url)
+        return self.body
+
+    @property
+    def http_failures(self) -> int:
+        return 0
+
+
+def last_run(tmp_path) -> dict:
+    return json.loads((tmp_path / "artifacts" / "kingstone" / "last-run.json").read_text(encoding="utf-8"))
+
+
+def test_a_failed_run_writes_last_run_and_logs_one_alert_line(tmp_path, capsys):
+    harness = Harness(tmp_path)
+
+    assert harness.run() == 1
+
+    data = last_run(tmp_path)
+    assert data["status"] == "FAILED"
+    assert data["exit_code"] == 1
+    assert data["alert_reasons"] == ["failed"]
+    assert data["pages_listed"] == 1
+    assert data["pages_skipped"][0]["reason"] == "redirect"
+    out = capsys.readouterr().out
+    assert f"ALERT reasons=failed last_run={tmp_path / 'artifacts' / 'kingstone' / 'last-run.json'}" in out
+    assert (tmp_path / "artifacts" / "kingstone" / "history").is_dir()
+
+
+def test_a_run_whose_only_page_is_empty_succeeds_and_alerts_zero_card_pages(tmp_path, capsys):
+    harness = Harness(tmp_path, fetcher=ScriptedFetcher(EMPTY_PAGE))
+
+    assert harness.run() == 0
+
+    data = last_run(tmp_path)
+    assert data["status"] == "SUCCESS"
+    assert data["exit_code"] == 0
+    assert data["pages_completed"] == 1
+    assert data["zero_card_pages"] == 1
+    assert data["alert_reasons"] == ["zero_card_pages"]
+    assert data["http_attempts"] == 1
+    assert data["http_failures"] == 0
+    assert "ALERT reasons=zero_card_pages" in capsys.readouterr().out
+
+
+def test_a_schema_prerequisite_missing_writes_the_pre_run_record_and_alerts(tmp_path, capsys, stub_database):
+    stub_database["missing"] = ["book_sources.last_seen_at"]
+    harness = Harness(tmp_path)
+
+    assert harness.run() == 2
+
+    data = last_run(tmp_path)
+    assert data["status"] == "FAILED"
+    assert data["exit_code"] == 2
+    assert data["reason"] == "SCHEMA_PREREQUISITE_MISSING"
+    assert data["pages_not_reached"] is None
+    assert data["alert_reasons"] == ["failed", "schema_prerequisite_missing"]
+    assert "ALERT reasons=failed,schema_prerequisite_missing" in capsys.readouterr().out
+
+
+def test_a_busy_first_connection_writes_the_pre_run_record_and_alerts(tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr(StubSession, "busy", True)
+    harness = Harness(tmp_path)
+
+    assert harness.run() == 1
+
+    data = last_run(tmp_path)
+    assert data["exit_code"] == 1
+    assert data["reason"] == "MAINTENANCE_BUSY"
+    assert data["alert_reasons"] == ["failed", "maintenance_busy"]
+    assert "ALERT reasons=failed,maintenance_busy" in capsys.readouterr().out
+
+
+def test_a_disabled_provider_writes_the_pre_run_record_with_exit_2(tmp_path):
+    harness = Harness(tmp_path, enabled=False)
+
+    assert harness.run() == 2
+
+    data = last_run(tmp_path)
+    assert data["status"] == "FAILED"
+    assert data["exit_code"] == 2
+    assert data["alert_reasons"] == ["failed"]
+
+
+def test_an_invalid_page_list_after_the_config_writes_a_record(tmp_path):
+    harness = Harness(tmp_path)
+    harness.pages.write_text("", encoding="utf-8")
+
+    assert harness.run() == 2
+
+    assert last_run(tmp_path)["exit_code"] == 2
+
+
+def test_an_invalid_config_writes_nothing_because_the_artifacts_folder_is_unknown(tmp_path, capsys):
+    harness = Harness(tmp_path)
+    harness.environ["KINGSTONE_SOFT_RUN_BUDGET_SECONDS"] = "abc"
+
+    assert harness.run() == 2
+
+    assert not (tmp_path / "artifacts").exists()
+    assert "KINGSTONE_SOFT_RUN_BUDGET_SECONDS" in capsys.readouterr().out
+
+
+def test_a_missing_database_url_writes_nothing(tmp_path):
+    harness = Harness(tmp_path)
+    harness.environ.pop("DATABASE_URL")
+
+    assert harness.run() == 2
+
+    assert not (tmp_path / "artifacts").exists()
+
+
+def test_an_artifact_write_failure_is_logged_and_never_changes_the_exit_code(tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr(StubSession, "busy", True)
+    harness = Harness(tmp_path)
+    (tmp_path / "artifacts").write_text("a file, not a folder", encoding="utf-8")  # the kingstone folder cannot be created
+
+    assert harness.run() == 1
+
+    out = capsys.readouterr().out
+    assert "ERROR kingstone.artifacts could not write" in out
+    assert "maintenance busy" in out
+
+
+def test_an_all_skipped_run_with_a_failing_artifact_write_still_returns_its_own_code(tmp_path, monkeypatch):
+    harness = Harness(tmp_path)
+    (tmp_path / "artifacts").write_text("a file, not a folder", encoding="utf-8")
+
+    assert harness.run() == 1

@@ -873,3 +873,71 @@ def test_fetcher_builds_its_curl_transport_with_the_configured_size_cap(monkeypa
     monkeypatch.setattr(acquisition.curl_requests, "Session", RecordingSession)
     KingstoneFetcher(max_response_bytes=4096).close()
     assert created == [{"impersonate": "chrome", "curl_options": {CurlOpt.MAXFILESIZE_LARGE: 4096}}]
+
+
+# --- request counters (plan v12 §8: HTTP attempts and failures in the run report) -------------------------------------
+
+
+def test_a_usable_first_response_is_one_attempt_and_no_failure():
+    world = World()
+    fetcher = make_fetcher(world, FakeTransport(world, ok()))
+
+    fetcher.fetch_list_page(LIST_URL)
+
+    assert (fetcher.http_attempts, fetcher.http_failures) == (1, 0)
+
+
+def test_a_retry_counts_every_sent_request_and_every_failed_one():
+    world = World()
+    fetcher = make_fetcher(world, FakeTransport(world, TransportTimeout("slow"), status(503), ok()))
+
+    fetcher.fetch_list_page(LIST_URL)
+
+    assert (fetcher.http_attempts, fetcher.http_failures) == (3, 2)
+
+
+def test_exhausted_retries_count_each_attempt_as_a_failure():
+    world = World()
+    fetcher = make_fetcher(world, FakeTransport(world, status(500), status(500), status(500)))
+
+    expect_failure(fetcher.fetch_list_page, LIST_URL, AcquisitionFailure.HTTP_STATUS)
+
+    assert (fetcher.http_attempts, fetcher.http_failures) == (3, 3)
+
+
+def test_a_redirect_and_a_client_error_are_sent_failures():
+    world = World()
+    fetcher = make_fetcher(world, FakeTransport(world, status(302, {"Location": "/book/x/"}), status(404)))
+
+    expect_failure(fetcher.fetch_list_page, LIST_URL, AcquisitionFailure.REDIRECT)
+    expect_failure(fetcher.fetch_detail_page, DETAIL_URL, AcquisitionFailure.HTTP_STATUS)
+
+    assert (fetcher.http_attempts, fetcher.http_failures) == (2, 2)
+
+
+def test_a_body_that_is_not_utf8_is_a_sent_failure():
+    world = World()
+    fetcher = make_fetcher(world, FakeTransport(world, RawResponse(200, {}, b"\xff\xfe")))
+
+    expect_failure(fetcher.fetch_list_page, LIST_URL, AcquisitionFailure.DECODE_ERROR)
+
+    assert (fetcher.http_attempts, fetcher.http_failures) == (1, 1)
+
+
+def test_a_request_refused_by_the_budget_is_neither_an_attempt_nor_a_failure():
+    world = World()
+    fetcher = make_fetcher(world, FakeTransport(world, ok()), budget=0.0)
+
+    expect_failure(fetcher.fetch_list_page, LIST_URL, AcquisitionFailure.BUDGET_EXHAUSTED)
+
+    assert (fetcher.http_attempts, fetcher.http_failures) == (0, 0)
+
+
+def test_a_url_rejected_by_the_grammar_is_not_counted():
+    world = World()
+    fetcher = make_fetcher(world, FakeTransport(world))
+
+    with pytest.raises(ValueError):
+        fetcher.fetch_list_page("https://evil.example/book/jdc/?dis=list&page=1")
+
+    assert (fetcher.http_attempts, fetcher.http_failures) == (0, 0)

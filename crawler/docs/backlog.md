@@ -25,11 +25,12 @@
 
 ## CB-07 — 金石堂分類頁 crawler（v11）
 
-- P2；L3；狀態：E0 完成；Phase 1（共用 `catalog_core`：型別、identity、ISBN、provider 明確的 persistence、單調 touch、item 解析 service，博客來已改走 service）完成（2026-10-25，見 [實作報告](../../Docs/Implementation-Report/kingstone-phase1-core.md)）；Phase 2 完成：清單檔、URL grammar（#134）、列表頁 parser（#135）、詳細頁 parser（#136），見 [實作報告](../../Docs/Implementation-Report/kingstone-phase2-adapter.md)；Phase 3 core acquisition 完成（URL 守門、pacing、retry、budget、回應分類，見 [architecture](architecture.md)「金石堂 adapter」）；計畫 §6 的有限額診斷檔（`KINGSTONE_DIAGNOSTIC_MAX_BYTES`，預設 2 MiB）尚未實作，留待 runner／production 整合（Phase 6）；Phase 4 完成（run 帳本與逐頁流程；尚無 CLI／DB composition）：設定與 run 帳本（M1：`kingstone/config.py`、`kingstone/ledger.py`，含 terminal status 規則），逐頁 run（M2：`kingstone/run.py`，budget 停止、replay、fatal 範圍與 redact，見 [architecture](architecture.md)「Run（逐頁流程）」）；Phase 5 完成（寫入政策、組裝與 CLI、真 DB 整合）：寫入政策（M1：`catalog_core` 的 `WritePolicy`、`resolve_item(write_policy=)` 與 `ItemPolicySkipped`；金石堂 `KINGSTONE_WRITE_POLICY`，預設 `new-books-only`；ledger 的 `policy_skipped`，見 [architecture](architecture.md)「Run 帳本與 terminal status」）；組裝與入口（M2：`kingstone/cli.py`、`kingstone/__main__.py`，真 fetcher 與 DB store 的組裝、`budget.remaining` 接線、exit code，見 [architecture](architecture.md)「入口與組裝」）；真 DB 整合（M2：全流程、replay、政策、atomicity、uncertain commit、Bestseller protection，CR-K09、CR-K10）。Phase 6 進行中（M1：清單、上限、image；見 [architecture](architecture.md)「Image」；M2：每個 DB session 的新連線（首次與 reconnect）先取 shared migration lock，取不到不寫入（CR-T19），以及金石堂 schema preflight `SCHEMA_PREREQUISITE_MISSING`（CR-K12，入口 exit 2）；M3 deploy 端 exclusive lock 未完成）；Phase 6 其餘 runner 等仍未實作。
+- P2；L3；狀態：E0 完成；Phase 1（共用 `catalog_core`：型別、identity、ISBN、provider 明確的 persistence、單調 touch、item 解析 service，博客來已改走 service）完成（2026-10-25，見 [實作報告](../../Docs/Implementation-Report/kingstone-phase1-core.md)）；Phase 2 完成：清單檔、URL grammar（#134）、列表頁 parser（#135）、詳細頁 parser（#136），見 [實作報告](../../Docs/Implementation-Report/kingstone-phase2-adapter.md)；Phase 3 core acquisition 完成（URL 守門、pacing、retry、budget、回應分類，見 [architecture](architecture.md)「金石堂 adapter」）；計畫 §6 的有限額診斷檔（`KINGSTONE_DIAGNOSTIC_MAX_BYTES`，預設 2 MiB）已於 Phase 6 M5 實作（列表頁與詳細頁的 parse error，見 [architecture](architecture.md)「報告、alert 與診斷」）；Phase 4 完成（run 帳本與逐頁流程；尚無 CLI／DB composition）：設定與 run 帳本（M1：`kingstone/config.py`、`kingstone/ledger.py`，含 terminal status 規則），逐頁 run（M2：`kingstone/run.py`，budget 停止、replay、fatal 範圍與 redact，見 [architecture](architecture.md)「Run（逐頁流程）」）；Phase 5 完成（寫入政策、組裝與 CLI、真 DB 整合）：寫入政策（M1：`catalog_core` 的 `WritePolicy`、`resolve_item(write_policy=)` 與 `ItemPolicySkipped`；金石堂 `KINGSTONE_WRITE_POLICY`，預設 `new-books-only`；ledger 的 `policy_skipped`，見 [architecture](architecture.md)「Run 帳本與 terminal status」）；組裝與入口（M2：`kingstone/cli.py`、`kingstone/__main__.py`，真 fetcher 與 DB store 的組裝、`budget.remaining` 接線、exit code，見 [architecture](architecture.md)「入口與組裝」）；真 DB 整合（M2：全流程、replay、政策、atomicity、uncertain commit、Bestseller protection，CR-K09、CR-K10）。Phase 6 進行中（M1：清單、上限、image；見 [architecture](architecture.md)「Image」；M2：每個 DB session 的新連線（首次與 reconnect）先取 shared migration lock，取不到不寫入（CR-T19），以及金石堂 schema preflight `SCHEMA_PREREQUISITE_MISSING`（CR-K12，入口 exit 2）；M5：terminal JSON（`last-run.json`）、bounded history、log alert、診斷檔與計數欄位（CR-K13、CR-K14、CR-K15）；M3 deploy 端 exclusive lock 與 M4 runner 未完成）；Phase 6 其餘 runner 等仍未實作。
 - 決定（使用者 2026-10-25）：比照博客來分類榜，由使用者在 `crawler/kingstone-pages.txt` 提供金石堂分類列表頁；每個 URL 只抓那一頁、不跟分頁；不探索分類樹；沒有跨 run 進度狀態檔，靠 replay＋Source identity 推進；`HTTP_ONLY`；請求間隔 3～10 秒。來源契約見下方「CB-07 來源契約」。
 - 證據：[kingstone fixtures](../tests/fixtures/kingstone/README.md)（13 份）與 CR-K01。
-- 待做（Phase 6，依 [v12 計畫](../../Docs/plans/kingstone-category-crawler.md) §8、§9）：本地 runner（kingstone mode、SSH tunnel、DB secret、EC2 deploy 狀態唯讀閘門、watchdog 強制 `CRAWLER_RUN_HARD_LIMIT_SECONDS`、所有 provider 的 fencing）、DB advisory lock 的 deploy migration 端（M3；crawler 端與 schema preflight 已於 M2 完成）、last-run JSON 與 bounded history、log alert（零進度、zero-card、`pages_not_reached` 連續 3 次）、診斷檔（`KINGSTONE_DIAGNOSTIC_MAX_BYTES`）。Phase 6 M1 已完成：清單（328 筆）、上限 400、預設 soft／hard 7200／9000、HTTP-only image（kingstone target）。Phase 7：acceptance。Phase 1～5 已完成（見上）。
+- 待做（Phase 6，依 [v12 計畫](../../Docs/plans/kingstone-category-crawler.md) §8、§9）：本地 runner（kingstone mode、SSH tunnel、DB secret、EC2 deploy 狀態唯讀閘門、watchdog 強制 `CRAWLER_RUN_HARD_LIMIT_SECONDS`、所有 provider 的 fencing；M4）、DB advisory lock 的 deploy migration 端（M3；crawler 端與 schema preflight 已於 M2 完成）、runner 端 orphan alert（M4）。last-run JSON、bounded history、log alert 與診斷檔已於 M5 完成（見上）。Phase 6 M1 已完成：清單（328 筆）、上限 400、預設 soft／hard 7200／9000、HTTP-only image（kingstone target）。Phase 7：acceptance。Phase 1～5 已完成（見上）。
 - 博客來入口未加 schema preflight（可選，未排程）。
+- Phase 6 M5 完成（2026-10-25，計畫 v12 §8）：`kingstone/alerts.py`（alert reason 的唯一判定處）、`kingstone/artifacts.py`（`last-run.json` 原子寫入、history 上限 20 與 `pages_not_reached` streak）、`kingstone/diagnostics.py`（診斷 HTML 限額與保留 20 份）、`kingstone/cli.py` 接線（所有 terminal 結果，ALERT 行）、計數欄位（`items_listed`、`details_fetched`、`http_attempts`、`http_failures`）。「待做」中 last-run JSON、bounded history、log alert（零進度、zero-card、streak）與診斷檔已完成；零進度的 alert 另以 `failed` 表達（FAILED 狀態）。
 - Phase 6 決定（使用者 2026-10-25，計畫 v12）：crawler 改在本地 host 手動執行，SSH 轉發經 EC2 直連 RDS；沿用全域 `CRAWLER_ENABLED`；清單隨 image 發布；另做 HTTP-only `KINGSTONE_CRAWLER_IMAGE`；writer fencing／watchdog 套用到所有 provider；與 migration 的互斥改為 DB advisory lock；alert 只寫 log；清單上限 400、soft／hard 7200／9000 秒；先手動、不排程。細節見 [v12 計畫](../../Docs/plans/kingstone-category-crawler.md) §8、§10。尚未實作。
 - 未覆蓋：E0 沒有觀察到 challenge、CAPTCHA、限制級頁、429／5xx、無 ISBN 的書；出現時先收錄 fixture。
 - Phase 1 留下的待辦：
@@ -43,12 +44,11 @@
   - 作者值含 `/` 一律視為角色前綴（`角色/姓名`）；真實作者名含 `/` 時會被拆錯。E0 沒有此情形，出現時再定規則。
   - 規格表「分級」欄（限制級辨識）尚未讀取；E0 的 7 本都是「普通級」，待有限制級 fixture 再定。
 - Phase 4 留下的待辦（M1、M2）：
-  - `zero_card_pages` 已計數，但 alert 條件與送出位置屬於 Phase 6。
-  - 診斷大小 `KINGSTONE_DIAGNOSTIC_MAX_BYTES` 與 `CRAWLER_ALERT_COMMAND` 不在 M1 config 內，留給 Phase 6。（寫入政策已於 Phase 5 M1 加入 config。）
+  - `zero_card_pages` 已計數；alert 條件已於 Phase 6 M5 實作（`zero_card_pages` reason）。
+  - 診斷大小 `KINGSTONE_DIAGNOSTIC_MAX_BYTES` 已於 Phase 6 M5 加入 config；`CRAWLER_ALERT_COMMAND` 不實作（使用者決定 alert 只寫 log）。（寫入政策已於 Phase 5 M1 加入 config。）
   - 已於 Phase 5 M2 解決：`kingstone/cli.py` 把 `KINGSTONE_SOFT_RUN_BUDGET_SECONDS` 轉成 `SoftBudget`，並把同一個 budget 交給真 fetcher（`budget_remaining=budget.remaining`）。
   - 詳細頁在 budget 停止時被截斷的卡，以 `budget_exhausted` 記入 `failed_items`（統計上算失敗，下次 replay 會處理）；是否改為不計入失敗另定。
 - Phase 3 留下的待辦：
-  - 診斷檔（限額）未實作，所以 Phase 3 只算 core acquisition 完成：金石堂 acquisition 不寫 failure diagnostics；計畫 §6 要求「診斷有限額」，§7 設定表有 `KINGSTONE_DIAGNOSTIC_MAX_BYTES`（2 MiB）。留待 runner／production 整合（Phase 6）時一併定內容、數量、保留期限（參考 CB-02）並實作。
   - challenge／CAPTCHA 分類待 fixture：目前 200 照常回傳，由 parser fail closed；收錄 fixture 後再定分類。
   - `budget_remaining` 由 Phase 4 run 以 `SoftBudget` 提供（caller 組裝時傳入 `budget.remaining`）；Phase 3 預設 `math.inf`（不限制）。真 fetcher 的組裝已於 Phase 5 M2 完成（`kingstone/cli.py`）；真站上的 budget 行為仍未驗證（禁止連網）。
   - libcurl 傳輸中的大小上限（`MAXFILESIZE_LARGE`）未以真實傳輸驗證：開發環境禁止連網，單元測試只驗證選項有傳入與 `FILESIZE_EXCEEDED`（63）的對應。目前保證 5 MiB 記憶體上限的是 per-call 串流計量（第二道）；第一道是額外保護。
@@ -58,7 +58,13 @@
   - 真站（金石堂網站）的端到端未驗證：所有 HTTP 都是 fake；真站抓取需要當前任務的明確授權。
   - 必要 DB 測試的 skip 風險：既有 `conftest.py` 在缺 dotnet SDK 時 skip EF schema 測試（Books 既有行為，未改）。本次執行 Kingstone DB 測試 19 個全部執行。
   - DB 角色權限：程式只發出 SELECT、INSERT、UPDATE；實際 role 的 grant 屬部署（Phase 6），未驗證。
-  - hard limit 強制執行、runner、alert 與診斷檔都屬 Phase 6（見上方待做）。Dockerfile 已於 Phase 6 M1 完成。
+  - hard limit 強制執行與 runner 屬 Phase 6（見上方待做）。Dockerfile 已於 Phase 6 M1 完成；alert 與診斷檔已於 Phase 6 M5 完成。
+- Phase 6 M5 留下的待辦：
+  - challenge／CAPTCHA 偵測未實作：acquisition 回 200，parser fail closed，無法與其他無法解析的頁區分；待收錄 challenge fixture 後定義分類與 `challenge` alert reason（不做猜測性偵測）。
+  - runner 端的 orphan alert（`ORPHAN_WRITER`）屬 Phase 6 M4；runner 也要把 artifacts 目錄掛入 container（目前程式只使用 `KINGSTONE_ARTIFACTS_DIR`）。
+  - `pages_not_reached` streak 的已知限制：被略過的壞 history 檔不參與視窗，視窗可能跨過它接上較舊的摘要，於是可能誤報；若要消除需另定 history 的完整性規則。
+  - 「provider 停用或未註冊」的 pre-run 結果以 `failed` alert 表達（status FAILED，exit 2）。這是實作決定，若只想對執行失敗告警需另定。
+  - `items_listed` 是解析去重後的卡片數（同頁重複的 km_code 只計一次），與計畫 §8「items listed」的字面定義一致，但不等於頁面上可見的卡片總數。
 - Phase 6 M1 留下的待辦：
   - CD 尚未推送 `KINGSTONE_CRAWLER_IMAGE` 與 release metadata：`cd.yml` 仍以 `docker build crawler/`（預設 target＝博客來）建置；待後續另案。
   - Kingstone image 在本機未 build（`pip install` 需網路）；build 與離線 smoke 以 CI docker job 為準，實際結果待確認。
