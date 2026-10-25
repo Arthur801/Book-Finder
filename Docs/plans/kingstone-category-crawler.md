@@ -9,7 +9,7 @@
 
 完成金石堂分類 discovery→detail→Catalog ingestion；來源 acquisition／parsing 集中於 `crawler/kingstone/`，共用 identity、ISBN、NULL enrichment、transaction 與 retry recovery，不複製 core。
 
-Baseline：PR3（#119）與 PR4（#123）已合併，KINGSTONE registry row 預設 disabled。**migration 011 已在 repo，production 也已套用（v0.0.7）**，schema 上已能寫入 KINGSTONE；本次不實作 migration，金石堂 runtime 仍須做 post-011 schema read-only preflight（§8）。Python persistence 已只寫 `source_code`、ISBN 只查 `ISBN` 型別，但仍依賴 module-global `PROVIDER=BOOKS_COM_TW`（`crawler/books_crawler/db.py`、`ledger.py`），需改為明確傳入 provider。schema／single-writer contract 以 `Docs/data/data-model.md`、crawler authority 為準。
+Baseline：PR3（#119）與 PR4（#123）已合併，KINGSTONE registry row 預設 disabled。**migration 011 已在 repo，production 也已套用（v0.0.7）**，schema 上已能寫入 KINGSTONE；本次不實作 migration，金石堂 runtime 仍須做 post-011 schema read-only preflight（§8）。Python persistence 已只寫 `source_code`、ISBN 只查 `ISBN` 型別，但仍依賴 module-global `PROVIDER=BOOKS_COM_TW`（`crawler/books_crawler/db.py`、`ledger.py`），需改為明確傳入 provider。現行 authority 依 AGENTS.md §3.2 為 module-local docs（`crawler/docs/*`、`deploy/docs/*`）；root `Docs/`（含 `Docs/data/data-model.md`、`Docs/modules/crawler.md`）是 archived reference，只作歷史背景。
 
 In scope：provider-neutral core、金石堂 adapter／CLI、持久化分類進度與 repair queue、有限 acquisition、Docker／runner、writer fencing、report／alert hook、離線與 DB 測試、文件。
 
@@ -22,7 +22,7 @@ Out of scope：DDL／schema、金石堂 Bestseller、Offer／價格／庫存、�
 1. 收集去識別 fixtures：category root／child／terminal／multi-page／empty、product card／detail、代表性 HTTP error；challenge 僅在實際觀察到時收錄。
 2. 由 committed fixtures 凍結 origins、category／product identity 與 URL grammar、external ID、pagination、encoding、required fields、challenge／error classification；不自行發明 selector 或 URL 規則。
 3. 選擇 `HTTP_ONLY` 或 `HTTP_PLUS_BROWSER`：只有證據顯示一般 HTTP 無法可靠取得必要內容時才加入 browser。
-4. 凍結 bounds，更新 `Docs/modules/crawler.md`、system architecture、deployment、test-plan；ADR／requirements 僅於對應決策／目標需變更時更新。
+4. 凍結 bounds，寫進 `crawler/docs/` 五份文件（architecture、workflow-diagram、test-suite、backlog、update-history）；影響 runner／host 的部分同步 `deploy/docs/`。不更新 archived root `Docs/`。
 
 **Exit：** fixtures 對 identity／navigation 具有單一可測解釋，contract review 通過；自動測試不需真站。取得 fixture 的真實抓取仍須當次授權；2026-10-25 已授權 E0 有限抓取：循序請求、總數上限約 60 次、每次請求（含重試）前隨機等待 3～30 秒、不登入、不代解 CAPTCHA、不用 proxy。
 
@@ -59,7 +59,7 @@ PostgreSQL item transaction
 | 1 | 附加 Source、只補 NULL；缺 AUTHOR 才補 AUTHOR，補 identifiers／來源 subjects | `POLICY_SKIPPED_EXISTING_BOOK`；不建 Source、不 enrichment |
 | ≥2 | 新建 Book＋Source，不改 ambiguous Books | 同左 |
 
-每個 New Source 的 Book／Source／補值／identifiers／contributors／subjects 在**同一 transaction**；commit 完整落地、rollback 零半套 mutation。Existing touch 獨立，原子執行 `last_seen_at=max(current, observed_at)`，確認恰為預期 provider Source。測正向、時鐘倒退、重複 touch、uncertain ACK。現行 `db.touch_source` 是 `SET last_seen_at = now WHERE id = …`（不單調、不檢查 provider），改共用 core 後博客來的 touch 也變單調；這是 Books 唯一的行為變更，須同步更新 `Docs/modules/crawler.md` §6.1 與 Books 測試。
+每個 New Source 的 Book／Source／補值／identifiers／contributors／subjects 在**同一 transaction**；commit 完整落地、rollback 零半套 mutation。Existing touch 獨立，原子執行 `last_seen_at=max(current, observed_at)`，確認恰為預期 provider Source。測正向、時鐘倒退、重複 touch、uncertain ACK。現行 `db.touch_source` 是 `SET last_seen_at = now WHERE id = …`（不單調、不檢查 provider），改共用 core 後博客來的 touch 也變單調；這是 Books 唯一的行為變更，須同步更新 `crawler/docs/architecture.md`、`workflow-diagram.md` 與 Books 測試。
 
 Commit 結果不確定時丟棄／重連 connection，**下次寫入前重新 resolve identity，不盲目重播 transaction**：
 
@@ -72,7 +72,7 @@ Crash 在 DB commit 後、state checkpoint 前：同分類 replay，再由 ident
 ## 5. Acquisition 與安全
 
 - HTTP：最多3次、request timeout30秒、backoff最多60秒、Retry-After最多120秒、response最多5MiB。retry限 timeout／connection reset／429／500／502／503／504；所有等待受 soft budget 限制。
-- Pacing：循序請求，請求之間的隨機等待由 E0 依實際回應（429、Retry-After、challenge）凍結並寫入 `Docs/modules/crawler.md`；E0 抓取期間先沿用博客來的 3～30 秒（crawler.md §12、`RequestPacer`）。凍結值決定每個 soft budget 能涵蓋的請求數，category bounds 依此評估。
+- Pacing：循序請求，請求之間的隨機等待由 E0 依實際回應（429、Retry-After、challenge）凍結並寫入 `crawler/docs/architecture.md`；E0 抓取期間先沿用博客來的 3～30 秒（`crawler/docs/architecture.md`、`RequestPacer`）。凍結值決定每個 soft budget 能涵蓋的請求數，category bounds 依此評估。
 - Retry-After 超出可等待範圍時不得提早重送；以 defer／本次 incomplete 處理。以 fake clock 驗證 delay 與 budget。
 - 每次 navigation 前檢查 HTTPS、fixture-approved origins、無 userinfo／IP literal、核准 path grammar；redirect後再驗 final URL，off-origin拒絕，無任意 HTML URL acquisition。
 - Browser 僅於 E0 選定：每 invocation 一個 context、無跨 run state／登入／私人帳號、non-root、TLS on、有限 CPU／memory／PID；無持鎖期間的人工作業。
@@ -188,7 +188,7 @@ Host alert command為absolute root-owned executable，只收sanitized event JSON
 | State／budget | discovery crash、checkpoint前crash、queue＋index原子發布、repair rotation/crash/success、fsync/conflict/corrupt/version/config change、completion/rollover、各phase前中後budget |
 | Host stop | watchdog stop/kill、精確container inspect、orphan blocking、migration fence、durable mounts |
 | Books／Bestseller | daily/pages/first_book原contract與report/retry不變；Kingstone三種status前後Bestseller邏輯一致 |
-| Docs | 五份crawler/docs與affected authority的module／CLI／config／state/status／path一致 |
+| Docs | 五份crawler/docs與deploy/docs的module／CLI／config／state/status／path一致 |
 
 ## 10. Production gates 與 rollback
 
@@ -217,5 +217,6 @@ Rollback：disable KINGSTONE→確認writer停止→必要時回復runner/image 
 | D5 | 新舊兩份計畫並存 | 本文件取代舊版，刪除根目錄副本 |
 | D6 | runner 尚無 container name／label／cidfile／hard limit | 與計畫一致，屬 Phase 6 新增 |
 | D7 | 共用 run.lock 符合 data-model §7.5；長 run 會讓博客來 cron 排隊 | §10 P5 註明避開時段 |
-| D8 | `Docs/data/data-model.md` §7.2 的 ISBN 查詢已註明 011 後只查 `ISBN`，與程式一致 | 無需處理 |
+| D8 | archived `Docs/data/data-model.md` §7.2 的 ISBN 查詢已註明 011 後只查 `ISBN`，與程式一致 | 無需處理 |
+| D10 | AGENTS.md 已改為 module-local docs 為 authority（PR #126），v10 原本要求更新 root `Docs/` 規格 | §1、§2、§4、§5 改寫為 `crawler/docs/`、`deploy/docs/` |
 | D9 | host `CRAWLER_ENABLED` 為全域開關，production 為 `false` | §8 列為 Phase 6 待決 |
