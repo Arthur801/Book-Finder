@@ -773,3 +773,103 @@ def test_libcurl_size_cap_is_reported_as_oversize_and_not_retried():
     fetch_error = expect_failure(make_fetcher(world, transport).fetch_list_page, LIST_URL, AcquisitionFailure.OVERSIZE)
     assert fetch_error.attempts == 1
     assert len(world.timeline) == 1  # one pacing wait, one attempt
+
+
+# --- configurable timeout, attempts and size limit (Phase 4 config) ---------------------------------------------------
+
+
+def test_configured_timeout_and_size_limit_reach_the_transport():
+    world = World()
+    transport = FakeTransport(world, ok(), ok())
+    fetcher = KingstoneFetcher(
+        transport=transport,
+        sleep=world.sleep,
+        clock=world.clock,
+        sample_delay=lambda: 3.0,
+        timeout=12.5,
+        max_response_bytes=1234,
+    )
+    assert fetcher.fetch_list_page(LIST_URL) == OK_BODY
+    assert fetcher.fetch_detail_page(DETAIL_URL) == OK_BODY
+    assert transport.calls == [(LIST_URL, 12.5, 1234), (DETAIL_URL, 12.5, 1234)]
+
+
+def test_configured_size_limit_rejects_a_body_over_it_and_accepts_one_at_it():
+    world = World()
+    transport = FakeTransport(world, status(200, body=b"x" * 11), status(200, body=b"x" * 10))
+    fetcher = KingstoneFetcher(transport=transport, sleep=world.sleep, clock=world.clock, sample_delay=lambda: 3.0, max_response_bytes=10)
+    error = expect_failure(fetcher.fetch_list_page, LIST_URL, AcquisitionFailure.OVERSIZE)
+    assert error.attempts == 1
+    assert "10 bytes" in str(error)
+    assert fetcher.fetch_detail_page(DETAIL_URL) == "x" * 10
+
+
+def test_max_attempts_one_does_not_retry_a_timeout():
+    world = World()
+    transport = FakeTransport(world, TransportTimeout("timeout"), ok())
+    fetcher = KingstoneFetcher(transport=transport, sleep=world.sleep, clock=world.clock, sample_delay=lambda: 3.0, max_attempts=1)
+    error = expect_failure(fetcher.fetch_list_page, LIST_URL, AcquisitionFailure.TRANSPORT)
+    assert error.attempts == 1
+    assert len(transport.calls) == 1
+    assert world.sleeps == [3.0]  # the pacing wait before the only request; no retry backoff
+
+
+def test_max_attempts_one_does_not_retry_a_retryable_status():
+    world = World()
+    transport = FakeTransport(world, status(503), ok())
+    fetcher = KingstoneFetcher(transport=transport, sleep=world.sleep, clock=world.clock, sample_delay=lambda: 3.0, max_attempts=1)
+    error = expect_failure(fetcher.fetch_list_page, LIST_URL, AcquisitionFailure.HTTP_STATUS)
+    assert error.attempts == 1
+    assert error.status == 503
+    assert len(transport.calls) == 1
+
+
+def test_max_attempts_two_stops_after_two_requests():
+    world = World()
+    transport = FakeTransport(world, TransportConnectionError("reset"), TransportConnectionError("reset"), ok())
+    fetcher = KingstoneFetcher(transport=transport, sleep=world.sleep, clock=world.clock, sample_delay=lambda: 3.0, max_attempts=2)
+    error = expect_failure(fetcher.fetch_list_page, LIST_URL, AcquisitionFailure.TRANSPORT)
+    assert error.attempts == 2
+    assert len(transport.calls) == 2
+
+
+@pytest.mark.parametrize("value", [0, -1])
+def test_max_attempts_below_one_is_rejected_at_construction(value):
+    world = World()
+    with pytest.raises(ValueError):
+        KingstoneFetcher(transport=FakeTransport(world), max_attempts=value)
+
+
+def test_defaults_are_the_module_constants():
+    world = World()
+    transport = FakeTransport(world, ok())
+    fetcher = KingstoneFetcher(transport=transport, sleep=world.sleep, clock=world.clock, sample_delay=lambda: 3.0)
+    fetcher.fetch_list_page(LIST_URL)
+    assert transport.calls == [(LIST_URL, REQUEST_TIMEOUT_SECONDS, MAX_RESPONSE_BYTES)]
+
+
+def test_curl_transport_session_uses_the_configured_size_cap(monkeypatch):
+    created = []
+
+    class RecordingSession(FakeCurlSession):
+        def __init__(self, **kwargs):
+            super().__init__()
+            created.append(kwargs)
+
+    monkeypatch.setattr(acquisition.curl_requests, "Session", RecordingSession)
+    transport = CurlTransport(max_response_bytes=2048)
+    assert created == [{"impersonate": "chrome", "curl_options": {CurlOpt.MAXFILESIZE_LARGE: 2048}}]
+    transport.close()
+
+
+def test_fetcher_builds_its_curl_transport_with_the_configured_size_cap(monkeypatch):
+    created = []
+
+    class RecordingSession(FakeCurlSession):
+        def __init__(self, **kwargs):
+            super().__init__()
+            created.append(kwargs)
+
+    monkeypatch.setattr(acquisition.curl_requests, "Session", RecordingSession)
+    KingstoneFetcher(max_response_bytes=4096).close()
+    assert created == [{"impersonate": "chrome", "curl_options": {CurlOpt.MAXFILESIZE_LARGE: 4096}}]

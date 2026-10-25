@@ -1,0 +1,166 @@
+"""Kingstone run configuration (kingstone.config). Offline: plain mappings, no environment, no files."""
+
+from pathlib import Path
+
+import pytest
+
+from kingstone import acquisition
+from kingstone.config import (
+    DEFAULT_HARD_LIMIT_SECONDS,
+    DEFAULT_SOFT_BUDGET_SECONDS,
+    KingstoneConfig,
+    KingstoneConfigError,
+    load_config,
+)
+from kingstone.page_list import DEFAULT_PAGES_FILE, PAGES_FILE_ENV
+
+_ENV_KEYS = [
+    PAGES_FILE_ENV,
+    "KINGSTONE_SOFT_RUN_BUDGET_SECONDS",
+    "CRAWLER_RUN_HARD_LIMIT_SECONDS",
+    "KINGSTONE_HTTP_TIMEOUT_SECONDS",
+    "KINGSTONE_HTTP_MAX_ATTEMPTS",
+    "KINGSTONE_MAX_RESPONSE_BYTES",
+]
+
+
+def test_defaults_when_nothing_is_set():
+    config = load_config({})
+    assert config == KingstoneConfig(
+        pages_file=DEFAULT_PAGES_FILE,
+        soft_budget_seconds=3300.0,
+        hard_limit_seconds=3600.0,
+        http_timeout_seconds=float(acquisition.REQUEST_TIMEOUT_SECONDS),
+        http_max_attempts=acquisition.MAX_ATTEMPTS,
+        max_response_bytes=acquisition.MAX_RESPONSE_BYTES,
+    )
+    assert DEFAULT_SOFT_BUDGET_SECONDS == 3300
+    assert DEFAULT_HARD_LIMIT_SECONDS == 3600
+
+
+def test_the_config_is_frozen():
+    config = load_config({})
+    with pytest.raises(AttributeError):
+        config.soft_budget_seconds = 1.0  # type: ignore[misc]
+
+
+def test_every_key_can_be_set():
+    config = load_config(
+        {
+            PAGES_FILE_ENV: "/data/pages.txt",
+            "KINGSTONE_SOFT_RUN_BUDGET_SECONDS": "120.5",
+            "CRAWLER_RUN_HARD_LIMIT_SECONDS": "600",
+            "KINGSTONE_HTTP_TIMEOUT_SECONDS": "12",
+            "KINGSTONE_HTTP_MAX_ATTEMPTS": "1",
+            "KINGSTONE_MAX_RESPONSE_BYTES": "2048",
+        }
+    )
+    assert config == KingstoneConfig(
+        pages_file=Path("/data/pages.txt"),
+        soft_budget_seconds=120.5,
+        hard_limit_seconds=600.0,
+        http_timeout_seconds=12.0,
+        http_max_attempts=1,
+        max_response_bytes=2048,
+    )
+
+
+def test_surrounding_whitespace_is_ignored_in_values():
+    config = load_config({"KINGSTONE_SOFT_RUN_BUDGET_SECONDS": "  900 ", PAGES_FILE_ENV: "  /data/p.txt  "})
+    assert config.soft_budget_seconds == 900.0
+    assert config.pages_file == Path("/data/p.txt")
+
+
+@pytest.mark.parametrize("blank", ["", "   ", "\t"])
+def test_blank_values_count_as_unset(blank):
+    env = {key: blank for key in _ENV_KEYS}
+    config = load_config(env)
+    assert config == load_config({})
+
+
+# --- seconds: finite and > 0 -----------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "KINGSTONE_SOFT_RUN_BUDGET_SECONDS",
+        "CRAWLER_RUN_HARD_LIMIT_SECONDS",
+        "KINGSTONE_HTTP_TIMEOUT_SECONDS",
+    ],
+)
+@pytest.mark.parametrize("value", ["abc", "3 300s", "1,5"])
+def test_seconds_must_be_numbers(key, value):
+    with pytest.raises(KingstoneConfigError) as info:
+        load_config({key: value})
+    assert key in str(info.value)
+    assert value not in str(info.value)
+
+
+@pytest.mark.parametrize("key", ["KINGSTONE_HTTP_TIMEOUT_SECONDS", "KINGSTONE_SOFT_RUN_BUDGET_SECONDS", "CRAWLER_RUN_HARD_LIMIT_SECONDS"])
+@pytest.mark.parametrize("value", ["0", "-1", "-0.5"])
+def test_seconds_must_be_positive(key, value):
+    with pytest.raises(KingstoneConfigError) as info:
+        load_config({key: value})
+    assert key in str(info.value)
+
+
+@pytest.mark.parametrize("key", ["KINGSTONE_HTTP_TIMEOUT_SECONDS", "KINGSTONE_SOFT_RUN_BUDGET_SECONDS", "CRAWLER_RUN_HARD_LIMIT_SECONDS"])
+@pytest.mark.parametrize("value", ["nan", "NaN", "inf", "-inf", "Infinity", "1e400"])
+def test_seconds_must_be_finite(key, value):
+    with pytest.raises(KingstoneConfigError) as info:
+        load_config({key: value})
+    assert key in str(info.value)
+
+
+def test_soft_budget_must_be_below_the_hard_limit():
+    with pytest.raises(KingstoneConfigError) as info:
+        load_config({"KINGSTONE_SOFT_RUN_BUDGET_SECONDS": "3600", "CRAWLER_RUN_HARD_LIMIT_SECONDS": "3600"})
+    assert "KINGSTONE_SOFT_RUN_BUDGET_SECONDS" in str(info.value)
+    assert "CRAWLER_RUN_HARD_LIMIT_SECONDS" in str(info.value)
+
+
+def test_soft_budget_above_the_default_hard_limit_is_rejected():
+    with pytest.raises(KingstoneConfigError):
+        load_config({"KINGSTONE_SOFT_RUN_BUDGET_SECONDS": "3700"})
+
+
+def test_soft_budget_below_a_lowered_hard_limit_is_accepted():
+    config = load_config({"KINGSTONE_SOFT_RUN_BUDGET_SECONDS": "100", "CRAWLER_RUN_HARD_LIMIT_SECONDS": "101"})
+    assert (config.soft_budget_seconds, config.hard_limit_seconds) == (100.0, 101.0)
+
+
+# --- counts: whole numbers, at least 1 --------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("key", ["KINGSTONE_HTTP_MAX_ATTEMPTS", "KINGSTONE_MAX_RESPONSE_BYTES"])
+@pytest.mark.parametrize("value", ["0", "-1"])
+def test_counts_must_be_at_least_one(key, value):
+    with pytest.raises(KingstoneConfigError) as info:
+        load_config({key: value})
+    assert key in str(info.value)
+
+
+@pytest.mark.parametrize("key", ["KINGSTONE_HTTP_MAX_ATTEMPTS", "KINGSTONE_MAX_RESPONSE_BYTES"])
+@pytest.mark.parametrize("value", ["abc", "2.5", "1e3", "nan", "inf", "+3", "3 4"])
+def test_counts_must_be_whole_numbers(key, value):
+    with pytest.raises(KingstoneConfigError) as info:
+        load_config({key: value})
+    assert key in str(info.value)
+    assert value not in str(info.value)
+
+
+def test_counts_accept_plain_whole_numbers():
+    config = load_config({"KINGSTONE_HTTP_MAX_ATTEMPTS": "5", "KINGSTONE_MAX_RESPONSE_BYTES": "1"})
+    assert config.http_max_attempts == 5
+    assert config.max_response_bytes == 1
+
+
+def test_error_messages_name_the_key_of_the_first_bad_value():
+    with pytest.raises(KingstoneConfigError) as info:
+        load_config({"KINGSTONE_HTTP_MAX_ATTEMPTS": "0", "KINGSTONE_MAX_RESPONSE_BYTES": "x"})
+    assert "KINGSTONE_HTTP_MAX_ATTEMPTS" in str(info.value)
+
+
+def test_config_error_is_a_value_error():
+    assert issubclass(KingstoneConfigError, ValueError)

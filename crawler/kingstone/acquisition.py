@@ -51,7 +51,6 @@ REQUEST_TIMEOUT_SECONDS = 30
 MAX_BACKOFF_SECONDS = 60
 MAX_RETRY_AFTER_SECONDS = 120
 MAX_RESPONSE_BYTES = 5 * 1024 * 1024
-_LIBCURL_SIZE_CAP = {CurlOpt.MAXFILESIZE_LARGE: MAX_RESPONSE_BYTES}
 MIN_PAGE_DELAY_SECONDS = 3
 MAX_PAGE_DELAY_SECONDS = 10
 BACKOFF_BASE_SECONDS = 5
@@ -112,15 +111,16 @@ class CurlTransport:
     """The production transport: curl_cffi Chrome impersonation, redirects not followed, TLS verification on.
 
     Two bounds on the body. libcurl's ``MAXFILESIZE_LARGE`` is set on the session at construction to
-    ``MAX_RESPONSE_BYTES``; when libcurl aborts with ``FILESIZE_EXCEEDED`` (63) that becomes ``ResponseTooLarge``. The
+    ``max_response_bytes`` (default ``MAX_RESPONSE_BYTES``); when libcurl aborts with ``FILESIZE_EXCEEDED`` (63) that becomes ``ResponseTooLarge``. The
     body is also streamed and counted against the per-call ``max_bytes``, so a response is never buffered past it,
     whatever libcurl does. Timeouts and connection failures map to the retryable transport exceptions. TLS failures are
     not retried: a certificate problem does not go away on a second request, so they propagate unchanged and the
     fetcher reports them as ``TRANSPORT``.
     """
 
-    def __init__(self, *, session: Any | None = None) -> None:
-        self._session = session if session is not None else curl_requests.Session(impersonate="chrome", curl_options=_LIBCURL_SIZE_CAP)
+    def __init__(self, *, session: Any | None = None, max_response_bytes: int = MAX_RESPONSE_BYTES) -> None:
+        # ``max_response_bytes`` sets the libcurl cap of the session this transport creates; an injected session keeps its own.
+        self._session = session if session is not None else curl_requests.Session(impersonate="chrome", curl_options={CurlOpt.MAXFILESIZE_LARGE: max_response_bytes})
 
     def get(self, url: str, *, timeout: float, max_bytes: int) -> RawResponse:
         try:
@@ -133,7 +133,7 @@ class CurlTransport:
             raise TransportConnectionError(type(exc).__name__) from exc
         except curl_exceptions.RequestException as exc:
             if exc.code == CurlECode.FILESIZE_EXCEEDED:
-                raise ResponseTooLarge(f"libcurl stopped the body at {MAX_RESPONSE_BYTES} bytes") from exc
+                raise ResponseTooLarge("libcurl stopped the body at the configured size limit") from exc
             raise
 
     def _fetch(self, url: str, *, timeout: float, max_bytes: int) -> RawResponse:
@@ -185,7 +185,7 @@ class KingstoneFetcher:
     - Each request (retries included) waits ``max(sample_delay() - seconds since the previous request ended, floor)``.
       The first request has no previous request, so its pacing term is the full sampled delay. The floor is 0 except
       on a retry.
-    - Up to ``MAX_ATTEMPTS`` requests. Retried: timeouts, connection failures, and HTTP 429, 500, 502, 503, 504.
+    - Up to ``max_attempts`` requests (default ``MAX_ATTEMPTS``). Retried: timeouts, connection failures, and HTTP 429, 500, 502, 503, 504.
       The floor for retry N is ``backoff_seconds(N)``; it is counted from the moment the failed response or error
       was received. A 429 or 503 Retry-After (seconds or HTTP-date, read against ``wall_clock``) raises the floor to
       ``max(backoff, Retry-After)``, counted from the same moment. Retry-After above ``MAX_RETRY_AFTER_SECONDS`` fails
@@ -207,8 +207,16 @@ class KingstoneFetcher:
         wall_clock: Callable[[], float] = time.time,
         sample_delay: Callable[[], float] = _sample_delay,
         budget_remaining: Callable[[], float] = _unlimited_budget,
+        timeout: float = REQUEST_TIMEOUT_SECONDS,
+        max_attempts: int = MAX_ATTEMPTS,
+        max_response_bytes: int = MAX_RESPONSE_BYTES,
     ) -> None:
-        self._transport = transport if transport is not None else CurlTransport()
+        if max_attempts < 1:
+            raise ValueError("max_attempts must be at least 1")
+        self._transport = transport if transport is not None else CurlTransport(max_response_bytes=max_response_bytes)
+        self._timeout = timeout
+        self._max_attempts = max_attempts
+        self._max_response_bytes = max_response_bytes
         self._sleep = sleep
         self._clock = clock
         self._wall_clock = wall_clock
@@ -238,22 +246,22 @@ class KingstoneFetcher:
             except (TransportTimeout, TransportConnectionError) as exc:
                 reason = type(exc).__name__
                 log.info("GET %s error=%s attempt=%d", url, reason, attempt)
-                if attempt == MAX_ATTEMPTS:
+                if attempt == self._max_attempts:
                     raise AcquisitionError(AcquisitionFailure.TRANSPORT, f"GET {url} failed after {attempt} attempts: {reason}", attempt) from exc
                 log.warning("retrying GET %s attempt=%d after %s", url, attempt, reason)
                 retry_floor = backoff_seconds(attempt + 1)
                 continue
             except ResponseTooLarge as exc:
                 log.info("GET %s error=ResponseTooLarge attempt=%d", url, attempt)
-                raise _oversize(url, attempt) from exc
+                raise _oversize(url, attempt, self._max_response_bytes) from exc
             except Exception as exc:
                 log.info("GET %s error=%s attempt=%d", url, type(exc).__name__, attempt)
                 raise AcquisitionError(AcquisitionFailure.TRANSPORT, f"GET {url} failed: {type(exc).__name__}", attempt) from exc
 
             status = response.status
             log.info("GET %s status=%d bytes=%d attempt=%d", url, status, len(response.body), attempt)
-            if len(response.body) > MAX_RESPONSE_BYTES:
-                raise _oversize(url, attempt, status)
+            if len(response.body) > self._max_response_bytes:
+                raise _oversize(url, attempt, self._max_response_bytes, status)
             if status == 200:
                 return _decode(url, response.body, attempt)
             if 300 <= status < 400:
@@ -264,7 +272,7 @@ class KingstoneFetcher:
                     attempt,
                     status,
                 )
-            if status in RETRYABLE_STATUSES and attempt < MAX_ATTEMPTS:
+            if status in RETRYABLE_STATUSES and attempt < self._max_attempts:
                 retry_floor = backoff_seconds(attempt + 1)
                 if status in RETRY_AFTER_STATUSES:
                     retry_after = self._retry_after_seconds(response.headers)
@@ -285,7 +293,7 @@ class KingstoneFetcher:
 
     def _send(self, url: str) -> RawResponse:
         try:
-            return self._transport.get(url, timeout=REQUEST_TIMEOUT_SECONDS, max_bytes=MAX_RESPONSE_BYTES)
+            return self._transport.get(url, timeout=self._timeout, max_bytes=self._max_response_bytes)
         finally:
             self._last_finished = self._clock()
 
@@ -345,8 +353,8 @@ def _require_site_origin(url: object, message: str) -> None:
         raise ValueError(message)
 
 
-def _oversize(url: str, attempt: int, status: int | None = None) -> AcquisitionError:
-    return AcquisitionError(AcquisitionFailure.OVERSIZE, f"GET {url} response exceeds {MAX_RESPONSE_BYTES} bytes", attempt, status)
+def _oversize(url: str, attempt: int, limit: int, status: int | None = None) -> AcquisitionError:
+    return AcquisitionError(AcquisitionFailure.OVERSIZE, f"GET {url} response exceeds {limit} bytes", attempt, status)
 
 
 def _decode(url: str, body: bytes, attempt: int) -> str:

@@ -27,7 +27,9 @@
 | [kingstone/models](../kingstone/models.py) | 金石堂 adapter 的資料型別：`ListedItem`、`ListPage`，以及 `KingstoneParseError`、`ProductNotFound` |
 | [kingstone/parse_list](../kingstone/parse_list.py) | 金石堂分類列表頁 HTML → `ListPage`（純函式）；契約見下方「金石堂 adapter」 |
 | [kingstone/parse_detail](../kingstone/parse_detail.py) | 金石堂詳細頁 HTML → `BookDraft`（純函式）；soft 404 → `ProductNotFound`；契約見下方「金石堂 adapter」 |
-| [kingstone/acquisition](../kingstone/acquisition.py) | 金石堂 HTTP acquisition（Phase 3）：`Transport` port、`CurlTransport`（curl_cffi Chrome、不跟隨 redirect、libcurl `MAXFILESIZE_LARGE` 與串流計量兩道上限）、`KingstoneFetcher`（URL 守門、pacing、重試、budget、回應分類）；契約見下方「金石堂 adapter」 |
+| [kingstone/acquisition](../kingstone/acquisition.py) | 金石堂 HTTP acquisition（Phase 3）：`Transport` port、`CurlTransport`（curl_cffi Chrome、不跟隨 redirect、libcurl `MAXFILESIZE_LARGE` 與串流計量兩道上限）、`KingstoneFetcher`（URL 守門、pacing、重試、budget、回應分類；timeout、max attempts、size 上限可設定）；契約見下方「金石堂 adapter」 |
+| [kingstone/config](../kingstone/config.py) | 金石堂 run 設定（Phase 4 M1）：`load_config(env) -> KingstoneConfig`，純函式、不讀檔不連網；讀取並驗證 `KINGSTONE_PAGES_FILE`、預算、HTTP 與回應大小設定；非法值 → `KingstoneConfigError`（`ValueError`，caller 對應 exit 2）；契約見下方「金石堂 adapter」 |
+| [kingstone/ledger](../kingstone/ledger.py) | 金石堂 run 帳本（Phase 4 M1）：`KingstoneLedger`（逐頁 started／completed／skipped、卡片結果計數、budget 停止）、`KingstoneReport`、集中的 terminal status 函式 `decide_status`、`format_report`；純記帳、不做 I/O（只記 WARNING log）；契約見下方「金石堂 adapter」 |
 | [catalog_core/html_text](../catalog_core/html_text.py) | 共用 HTML 區段文字抽取 `text_with_line_breaks`（自 `books_crawler/parsers.py` 原樣搬出）：只有 `<br>` 與區塊元素邊界換行、inline 元素不切行、連續空行收為一行；博客來詳細頁與金石堂詳細頁共用；會就地修改傳入的 node |
 | [Dockerfile](../Dockerfile) | Python 3.14、UID 10001、runtime 依賴與清單 |
 | [target wrapper](https://github.com/Arthur801/Book-Finder/blob/ce7b4f46c0889db6b10216294cac658136796ad7/crawler/deploy/run-crawler.sh) | host scheduling、SSM secret retrieval、daily/pages serialization、DB maintenance coordination、deployment state gate、Docker execution 與 pages schedule state |
@@ -45,7 +47,9 @@
                                                   └─► （未實作）catalog_core.service 的 fetch_draft callback
 ```
 
-尚未實作：run（逐頁流程、budget 來源、terminal status）、ingestion、runner，以及 Dockerfile 納入 `kingstone/`（見 [backlog](backlog.md) CB-07）。URL grammar 與錯誤分類仍以 backlog CB-07 為來源契約。
+設定與 run 帳本（`kingstone/config.py`、`kingstone/ledger.py`）已實作為純函式，尚未接到任何 run；它們定義的 terminal status 與報告格式是之後 run 的依據。
+
+尚未實作：run（逐頁流程、把 config 與 ledger 接到 acquisition 與 catalog_core）、ingestion、runner，以及 Dockerfile 納入 `kingstone/`（見 [backlog](backlog.md) CB-07）。URL grammar 與錯誤分類仍以 backlog CB-07 為來源契約。
 
 **列表頁**（`parse_list_html(html, url) -> ListPage`）
 
@@ -77,7 +81,7 @@
 
 **Acquisition**（`kingstone/acquisition.py`，Phase 3）
 
-- 兩層：`Transport` port（`get(url, *, timeout, max_bytes) -> RawResponse`，另有 `close`）與策略層 `KingstoneFetcher`。`CurlTransport` 是唯一接觸 curl_cffi 的地方：`Session(impersonate="chrome", curl_options={CurlOpt.MAXFILESIZE_LARGE: MAX_RESPONSE_BYTES})`；每次 `get` 帶 `allow_redirects=False`、`stream=True`、`Accept-Language: zh-TW,zh;q=0.9`；TLS 驗證維持 curl_cffi 預設（開啟）。
+- 兩層：`Transport` port（`get(url, *, timeout, max_bytes) -> RawResponse`，另有 `close`）與策略層 `KingstoneFetcher`。`CurlTransport` 是唯一接觸 curl_cffi 的地方：`Session(impersonate="chrome", curl_options={CurlOpt.MAXFILESIZE_LARGE: max_response_bytes})`（`max_response_bytes` 預設 `MAX_RESPONSE_BYTES`）；每次 `get` 帶 `allow_redirects=False`、`stream=True`、`Accept-Language: zh-TW,zh;q=0.9`；TLS 驗證維持 curl_cffi 預設（開啟）。
 - `KingstoneFetcher` 的依賴全部可注入：`transport`、`sleep`、`clock`（monotonic）、`wall_clock`、`sample_delay`（預設 uniform 3～10 秒）、`budget_remaining`（預設 `math.inf`，Phase 4 run 提供剩餘秒數）。公開方法：`fetch_list_page(url) -> str`、`fetch_detail_page(url) -> str`、`close()`。
 - URL 守門（每次請求前；不通過即 `ValueError`，transport 未被呼叫）：列表頁必須 `canonical_list_url(url) == url`（`&sort=sa_desc` 不合格，因為 canonical 形式省略它）；詳細頁必須 `km_code_from_detail_url(url)` 非 None（帶 query 不合格）。兩者另明確要求 `https`、host 與 `kingstone.urls.SITE_HOST`（`www.kingstone.com.tw`）完全相等、無 userinfo、無 port；非字串一律拒絕。IP literal 不需另外判斷，因為它不可能等於 `SITE_HOST`。
 - 等待：每次請求（含重試）前的等待 = `max(sample_delay() − 距上一次請求結束的秒數, retry floor)`，兩者取較大者，不相加。第一個請求沒有上一次請求，pacing 項為完整的 sample delay；retry floor 只在重試時非 0。
@@ -87,11 +91,12 @@
 - Backoff：retry N 的 floor 為 `backoff_seconds(N)`（第 2 次 5 秒、第 3 次 10 秒，`min(60, 5 * 2 ** (N - 2))`）。
 - Retry-After（只在 429、503 且仍會重送時讀取）：秒數（`[0-9]+`，任何長度）與 HTTP-date 都支援；HTTP-date 以注入的 wall clock 換算，已過去的日期視為 0；無法解析的值忽略，只用 backoff。值大於 120 秒（含極長的數字）→ `RETRY_AFTER_TOO_LONG`，不提早重送。最後一次嘗試的 Retry-After 不讀取（沒有可延後的重送），該次直接以 `HTTP_STATUS`（attempts=3）失敗；此時原因分類可能失真（伺服器其實要求等待後重試，但最終只表達為 HTTP 狀態）。
 - Budget：每次請求前檢查（包括不需等待的請求）：`budget_remaining() <= 0`，或等待 > `budget_remaining()` → `BUDGET_EXHAUSTED`，不睡、不送；`attempts` 為已送出的請求數。預設 `math.inf`（不限制）。
-- 回應分類：200 → 嚴格 UTF-8 解碼，失敗為不重試的 `DECODE_ERROR`；3xx → `REDIRECT`（不跟隨、不重試；訊息只含 Location 的 path，列表頁 302 到 `/book/` 即分類不存在）；其他 4xx（含 403、404）與其他非 200 狀態 → `HTTP_STATUS`，不重試；可重試狀態用盡 → `HTTP_STATUS`（attempts=3）；body 超過 5 MiB → `OVERSIZE`；可重試 transport 例外用盡 → `TRANSPORT`；其他 transport 例外 → `TRANSPORT`（不重試）。
+- 回應分類：200 → 嚴格 UTF-8 解碼，失敗為不重試的 `DECODE_ERROR`；3xx → `REDIRECT`（不跟隨、不重試；訊息只含 Location 的 path，列表頁 302 到 `/book/` 即分類不存在）；其他 4xx（含 403、404）與其他非 200 狀態 → `HTTP_STATUS`，不重試；可重試狀態用盡 → `HTTP_STATUS`（attempts=3）；body 超過 `max_response_bytes`（預設 5 MiB）→ `OVERSIZE`；可重試 transport 例外用盡 → `TRANSPORT`；其他 transport 例外 → `TRANSPORT`（不重試）。
 - 大小上限三道：(1) `Content-Length` 超過上限 → `ResponseTooLarge`，不讀 body；(2) libcurl `MAXFILESIZE_LARGE` 超過時 libcurl 以 `FILESIZE_EXCEEDED`（63）中止，`CurlTransport` 對應為 `ResponseTooLarge`；(3) 串流計量超過 per-call `max_bytes` 即中止。第 (2) 道的選項有傳入、錯誤對應有測試；libcurl 在傳輸中是否確實依此中止（例如無 Content-Length 時）未以真實傳輸驗證（禁止連網），因此第 (3) 道是保證 5 MiB 記憶體上限的依據，第 (2) 道是額外保護。
 - Cookie：curl session 在單次執行內以記憶體保存 `Set-Cookie`，並在後續請求送出（與博客來 fetcher 相同）；不寫檔、不跨 run；沒有 cookie 子系統（沒有持久化、管理或設定介面）。
 - 失敗一律 raise `AcquisitionError(kind, message, attempts, status)`，`kind` 為 `AcquisitionFailure`（`REDIRECT`、`HTTP_STATUS`、`OVERSIZE`、`TRANSPORT`、`DECODE_ERROR`、`RETRY_AFTER_TOO_LONG`、`BUDGET_EXHAUSTED`）。`attempts` 是實際送出的請求數，budget 在第一次請求前失敗時為 0。錯誤訊息只含 URL、HTTP 狀態與 Location 的 path，不含 body、cookie 或其他 header 值；transport 例外只記錄型別名稱，不回顯其訊息。
-- 常數：`MAX_ATTEMPTS=3`、`REQUEST_TIMEOUT_SECONDS=30`、`BACKOFF_BASE_SECONDS=5`、`MAX_BACKOFF_SECONDS=60`、`MAX_RETRY_AFTER_SECONDS=120`、`MAX_RESPONSE_BYTES=5 MiB`、`MIN_PAGE_DELAY_SECONDS=3`、`MAX_PAGE_DELAY_SECONDS=10`、`RETRYABLE_STATUSES={429, 500, 502, 503, 504}`、`RETRY_AFTER_STATUSES={429, 503}`。
+- 常數（預設值）：`MAX_ATTEMPTS=3`、`REQUEST_TIMEOUT_SECONDS=30`、`BACKOFF_BASE_SECONDS=5`、`MAX_BACKOFF_SECONDS=60`、`MAX_RETRY_AFTER_SECONDS=120`、`MAX_RESPONSE_BYTES=5 MiB`、`MIN_PAGE_DELAY_SECONDS=3`、`MAX_PAGE_DELAY_SECONDS=10`、`RETRYABLE_STATUSES={429, 500, 502, 503, 504}`、`RETRY_AFTER_STATUSES={429, 503}`。
+- 可設定的三個參數（Phase 4 M1，`KingstoneFetcher` 的可選建構參數，預設為上述常數，預設值下行為不變）：`timeout`（每次請求的 timeout 秒數，傳給 transport）、`max_attempts`（總請求數上限，含第一次；必須 ≥ 1，否則 `ValueError`；`1` 表示不重試）、`max_response_bytes`（body 上限：傳給 transport 的 `max_bytes`；每個回應的 body 都以它比對；也是 `CurlTransport` 建立 session 時的 libcurl `MAXFILESIZE_LARGE`）。由 `KingstoneFetcher` 建立的 `CurlTransport` 會收到 `max_response_bytes`；注入的 transport 與注入的 session 不受影響。
 - 刻意的實作決定（計畫未逐字要求，變更時需同步此處與測試）：
   - 嚴格 UTF-8：200 body 不以替代字元解碼，失敗即 `DECODE_ERROR`。
   - `Accept-Language: zh-TW,zh;q=0.9`。
@@ -102,6 +107,35 @@
 - log：logger `kingstone.acquisition`；每次送出請求一行 INFO `GET <url> status=<n> bytes=<n> attempt=<n>`（連線層或其他 transport 例外為 `error=<例外型別>`）；每次重試一行 WARNING。
 - 不在本層：challenge、CAPTCHA、限制級頁的判斷（200 照常回傳，交給 parser fail closed）、cookie 持久化、Playwright、診斷檔（計畫 §6 要求限額，尚未實作，見 [backlog](backlog.md) CB-07）。
 
+
+**設定**（`kingstone/config.py`，Phase 4 M1）
+
+- `load_config(env: Mapping[str, str]) -> KingstoneConfig` 是純函式：只讀傳入的 mapping，不讀 `.env`、不讀檔、不連網。`KingstoneConfig`（frozen）欄位：`pages_file`、`soft_budget_seconds`、`hard_limit_seconds`、`http_timeout_seconds`、`http_max_attempts`、`max_response_bytes`。
+- 鍵與預設：`KINGSTONE_PAGES_FILE`（經 `kingstone.page_list.resolve_pages_file`，預設 `crawler/kingstone-pages.txt`）；`KINGSTONE_SOFT_RUN_BUDGET_SECONDS`=3300；`CRAWLER_RUN_HARD_LIMIT_SECONDS`=3600；`KINGSTONE_HTTP_TIMEOUT_SECONDS`=`REQUEST_TIMEOUT_SECONDS`；`KINGSTONE_HTTP_MAX_ATTEMPTS`=`MAX_ATTEMPTS`；`KINGSTONE_MAX_RESPONSE_BYTES`=`MAX_RESPONSE_BYTES`。
+- 驗證：秒數必須是有限的數字且 > 0；次數與位元組數必須是十進位整數且 ≥ 1（不接受小數、科學記號或正負號）；空白或只含空白的值視為未設定；`soft < hard`。非法值 raise `KingstoneConfigError`（`ValueError` 子類，caller 對應 exit 2），訊息點名 key。只有被範圍規則拒絕的有限數字會在訊息中回顯；非數字的值一律不回顯。
+- 不在本模組：寫入政策 `KINGSTONE_WRITE_POLICY`（Phase 5）、診斷大小 `KINGSTONE_DIAGNOSTIC_MAX_BYTES`（Phase 6）、`CRAWLER_ALERT_COMMAND`（Phase 6）。
+
+**Run 帳本與 terminal status**（`kingstone/ledger.py`，Phase 4 M1）
+
+- `KingstoneLedger(page_urls)` 依清單順序記帳，一次只允許一頁開啟。呼叫順序：`page_started(url)`（頁已取得並解析）→ 每張卡一次 `record_item(url, result, source_url=, external_id=)`（`result` 為 `ItemResolved` 或 `ItemFailed`）→ `page_completed(url)`；頁無法取得或解析時改為 `record_page_skipped(SkippedPage)`；`stop_for_budget()` 之後不再開始或跳過任何頁。違反順序（未列出的 URL、重複處理、在開啟的頁之外記卡片、budget 之後開始頁）raise `ValueError`。
+- 頁的狀態：completed（每張卡都已有結果）、skipped（`SkippedPage`：url、reason、message、attempts；reason 由 run 提供，帳本不解讀）、interrupted（已開始、未完成；`stop_for_budget` 或致命錯誤時仍開啟的頁）、not reached（清單中既未開始也未跳過的頁，`pages_not_reached = 清單數 − completed − interrupted − skipped`）。
+- 卡片計數：`ItemResolved` 依 `CatalogResolution` 計入 `existing_source`、`imported`、`isbn_attached`、`ambiguous_created`；`ItemFailed` 計入 `failed` 並保存 `FailedItem`（list_url、source_url、external_id、reason、message、attempts）。`recovered_commit_count` 計 `recovered_commit=True`；`identity_warning_count` 計任何帶 `identity_warning` 的結果。`items_seen` 為 `record_item` 次數。
+- `zero_card_pages`：完成、但 0 張卡的頁數（合法空頁，是成功頁）。
+- **Useful progress**：至少一頁 completed。`decide_status(...)` 是唯一寫下 terminal 規則的地方，`KingstoneLedger.report` 只傳入計數：
+
+| 條件 | status | `zero_progress_reason` |
+|---|---|---|
+| `error` 非 None（致命錯誤） | FAILED | None |
+| 沒有 completed 頁，且清單為空 | FAILED | 清單沒有頁 |
+| 沒有 completed 頁，且所有頁都被跳過 | FAILED | 所有清單頁都被跳過 |
+| 沒有 completed 頁，且 budget 已停止 | FAILED | budget 在任何一頁完成前用盡 |
+| 沒有 completed 頁，其他 | FAILED | 沒有清單頁完成 |
+| 有 completed 頁，且有跳過頁、失敗書、interrupted 頁或 not reached 頁 | PARTIAL_SUCCESS | None |
+| 其他（包含全部 Existing、成功頁全為 0 張卡） | SUCCESS | None |
+
+- `RunStatus`（`SUCCESS`、`PARTIAL_SUCCESS`、`FAILED`）是 kingstone 自己的 StrEnum，不 import `books_crawler`。`KingstoneReport.exit_code`：FAILED → `EXIT_FAILED`（1），其餘 → `EXIT_SUCCESS`（0）；`EXIT_CONFIG_ERROR`（2）由 caller 的設定失敗使用。
+- `format_report(report)`：一行 `key=value`，欄位順序固定（見 `format_report` docstring）；計數為整數，`budget_exhausted` 為 `true`／`false`；`zero_progress_reason`、`error` 為 JSON 字串或 `null`；`skipped_pages`、`failed_items` 為 `ensure_ascii=False` 的 JSON 陣列。訊息不在此層 redact：run 必須在傳入前處理（與 Books 的 `_failure` 相同責任）。
+- 帳本只在記錄跳過頁與失敗書時寫 WARNING 到 `kingstone.ledger`；不寫其他 log，也不做 I/O。
 
 ## 選型、替代與代價
 
