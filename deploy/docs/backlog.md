@@ -37,6 +37,10 @@
 | DEP-B15 | P3 | L2 | 改善提案 | `/etc/book-finder` 目錄權限未由程式檢查 |
 | DEP-B17 | P3 | L3 | 改善提案 | exit 3 同時對應 history 的 `drift` 與 `rejected` |
 | DEP-B19 | P3 | L2 | 改善提案（#120 review） | compat contract allowance 與 gate 9 script 的結構整理 |
+| DEP-B20 | P1 | L4 | 部分驗證 | `client_connection_check_interval` 經 Npgsql `Options` 傳給 efbundle：Npgsql 送出 Options（負向對照已證）、生效值未讀到；RDS 版本（PG 14+）未確認 |
+| DEP-B21 | P1 | L4 | 已緩解；殘留風險待決策 | 保險 (a) 釋放前等連線結束、(b) 殘留容器拒絕、效果接受前的 final heartbeat；超時後的殘留風險與 host 被 SIGKILL 的風險仍在 |
+| DEP-B22 | P2 | L2 | 待 M2 合併 | deploy 與 crawler 的 migration lock key 一致性測試（跨模組） |
+| DEP-B23 | P1 | L3 | 大部分已驗證；未驗證項保留 | 真 lock holder 與拋棄式 PG 17 的整合測試已執行（test-suite §3.22）；efbundle 的 SIGTERM／kill 與 RDS 版本仍未驗證 |
 
 ## 2. 項目
 
@@ -204,6 +208,57 @@
 - **現況**：`deploy/migration-test/compat.sh` 在 `load_contract_allowances`、`snapshot_contract_tables`、`check_data_preserved` 三處各自解析 `allow.tsv`；`check_data_preserved` 同時處理一般、drop-column、rewrite 三組規則。`prev-release-on-contract.sh` 的 `expected_checks=15`、crawler 6 項、seed 4 本書與 `prev_crawler_driver.py`、011 seed 重複；Detail 檢查與 `expect_body` 邏輯重複。
 - **方向**：在 `deploy/lib/contract_allowance.sh` 提供列出 rewrite 表、drop 欄位的 helper，三處共用；把 `check_data_preserved` 的 allowance 分支抽成函式；gate 9 的檢查數由 driver 回報，不在 script 寫死。
 - **驗收條件**：`deploy/tests` 的 allowance 測試與 gate 9 整合測試不變且通過；shellcheck 通過。
+
+### DEP-B20 `client_connection_check_interval` 經 Npgsql `Options` 傳給 efbundle 的實際行為
+
+- **優先序／風險**：P1／L4（production migration 的連線設定）。
+- **狀態**：部分驗證（本機，拋棄式 PostgreSQL 17.11；RDS 未驗證）。
+- **證據與影響**：專案的 Npgsql 版本為 10.0.3。Npgsql 文件（`NpgsqlConnectionStringBuilder.Options`）說明為「Set PostgreSQL configuration parameter default values for the connection.」。本機整合測試（`deploy/tests/integration/test_migration_lock_it.py::test_npgsql_accepts_the_application_name_and_options_in_the_efbundle_connection_string`）以 `book-finder-web:local` 的 efbundle 對空的拋棄式 DB 執行：連線字串含 `Application Name=bookfinder-efbundle;Options=-c client_connection_check_interval=10000` 時 exit 0，PostgreSQL 的 `log_connections` 紀錄 `application_name=bookfinder-efbundle`；同一 efbundle 以 `Options=-c client_connection_check_interval=bogus` 時被伺服器拒絕，證明 Npgsql 會把 Options 送出。**仍未驗證**：伺服器端實際生效的值是 `10s`（只能在 efbundle 連線中讀取，本測試未做）；RDS 的 PostgreSQL 主版本（repo 內無紀錄；`client_connection_check_interval` 需要 PG 14+）。
+- **失敗方式**：若 Npgsql 不傳遞此選項，efbundle 會以原本的設定連線（效果退回沒有 check interval 的行為，與 DEP-B21 的殘留風險相同）。若 server 版本低於 14，startup 會因未知的 GUC 而失敗，migration 會 fail closed（`failed-migration`，不會部分套用）。
+- **調查方向**：在 staging 的 forward migration 中，於 efbundle 連線期間查詢 `SHOW client_connection_check_interval;`（或以 `pg_settings` 搭配 `source`），確認值為 `10s`；並確認 RDS 主版本。
+- **前置決策**：若 RDS 版本低於 14，決定是否要求升級，或移除此選項並接受 DEP-B21 的風險。
+- **驗收條件**：在 staging 的 forward migration 中確認 efbundle 連線的 `client_connection_check_interval` 為 `10s`；RDS 版本記錄於 runbook。
+- **測試入口**：`deploy/tests/host/test_machine.py::test_migration_connection_goes_to_efbundle_and_the_web_file_stays_on_the_web_connection`（檔案內容）；`deploy/tests/integration/test_migration_lock_it.py::test_npgsql_accepts_the_application_name_and_options_in_the_efbundle_connection_string`（Npgsql 接受與送出）。
+
+### DEP-B21 migration lock 掉線後的殘留風險
+
+- **優先序／風險**：P1／L4。
+- **狀態**：已緩解（本次 PR #146 之後的 commit）；兩項殘留風險與處置方式待決策。
+- **已實作**：
+  - (a) efbundle 的連線帶 `Application Name=bookfinder-efbundle`。efbundle 結束或被停止後、lock 仍持有時，lock session 等待（上限 120 秒）直到沒有該名稱的 session。仍存在：不 unlock，`failed-migration`，dirty 與 paused 保留。lock session 無法回應：維持原結果並照常釋放。
+  - (b) 在 pause 之前檢查 `com.bookfinder.role=efbundle` 與 `deploy-lock` 容器：running 拒絕（exit 3，未改動），已結束則 journal 後移除。
+  - review 修正：efbundle 結束後，先做同一 lock session 的 final heartbeat，通過才接受 exit code 與進入 (a)。依據：session 斷過不可能復原，同一 session 的 heartbeat 成功即證明 lock 持續持有。
+- **殘留風險（待決策）**：
+  1. (a) 逾時後 lock 不 unlock，但 lock session 會隨 deploy 程序結束而結束，server 端的 advisory lock 隨之釋放；此時 efbundle 的 statement 可能仍在執行（最遲由 `client_connection_check_interval` 的 10 秒偵測）。crawler 仍受 dirty 與 paused 閘門阻擋。
+  2. host 程序被 SIGKILL 或主機重開時，efbundle 容器可能繼續執行而沒有 lock holder。下一次 deploy 由 (b) 拒絕；但在那之前沒有 lock 保證。
+- **待決策**：(1) 是否接受「逾時後 lock 隨程序結束釋放」，或改為讓 unit 持續持有直到連線結束（需要新的 unit 生命週期設計）；(2) 是否接受 SIGKILL 窗口的風險，或加入 efbundle 容器的 label 監控。這是 production deploy 行為，由使用者決定。
+- **驗收條件**：決定後補測試；runbook §5.8 與 architecture 同步（runbook 已描述 (a) 與 (b) 的操作）。
+- **測試入口**：`deploy/tests/host/test_machine.py` 的 DEP-MIGLOCK-19 至 32；`deploy/tests/integration/test_migration_lock_it.py::test_efbundle_exit_after_the_real_lock_session_was_terminated_is_not_accepted`。
+
+### DEP-B22 deploy 與 crawler 的 migration lock key 一致性（跨模組）
+
+- **優先序／風險**：P2／L2。
+- **狀態**：待 M2 合併。
+- **證據與影響**：deploy 端 `locks.CATALOG_MIGRATION_LOCK_KEY = 2026102501` 已由 `deploy/tests/host/test_locks.py` 固定。crawler 端的常數位於 `crawler/catalog_core/migration_lock.py`（M2 定義），本分支尚不存在。兩端不一致時，兩把鎖互不排斥，migration 與 crawler 可同時寫入。
+- **驗收條件**：合併 M2 後，新增一個測試以 regex 讀取 `crawler/catalog_core/migration_lock.py` 的值並與 deploy 常數比對；讀不到檔案時測試必須失敗（不 skip）。
+- **測試入口**：`deploy/tests/host/test_locks.py::test_catalog_migration_lock_key_is_the_agreed_value`（只驗 deploy 端）。
+
+### DEP-B23 DB migration lock 的整合驗證
+
+- **優先序／風險**：P1／L3。
+- **狀態**：大部分已驗證（本機，`BOOKFINDER_IT=1`，PostgreSQL 17.11，Docker 29.9.1）；下列未驗證項保留。
+- **已驗證**（見 test-suite §3.22）：
+  1. `SET lock_timeout` 對 `pg_advisory_lock` 的等待生效；逾時後 psql（`ON_ERROR_STOP=1`）結束，host 讀到 EOF（IT-LOCK-03）。
+  2. shared holder 存在時 acquire 在時限內失敗，無殘留 session（IT-LOCK-03）。
+  3. release 後 session 結束，server 端 exclusive lock 可取得（IT-LOCK-02）。
+  4. keepalive 與 `application_name` 的 libpq URL 被接受（IT-LOCK-01）。
+  5. 伺服器端 `pg_terminate_backend` 與 `docker kill` lock holder 容器：heartbeat 失敗、server 端 lock 釋放（IT-LOCK-04、05）。**注意**：server 端終止後 `alive()` 仍為 True，直到下一個命令失敗；偵測依賴 heartbeat。
+- **未驗證**（保留）：
+  1. `docker rm -f` 作為 backstop 的效果：本次 lock 逾時後容器自行結束，`docker rm -f` 是 no-op，未能與「未執行」區分。
+  2. efbundle 的 SIGTERM 與 `docker kill` 的實際行為（本次只在 fake 驗證）。
+  3. RDS 的 PostgreSQL 版本（DEP-B20）。
+  4. 跨模組的 lock key 一致性（DEP-B22，仍待 M2 合併）。
+- **測試入口**：`deploy/tests/integration/test_migration_lock_it.py`。
 
 ## 3. 已處理
 

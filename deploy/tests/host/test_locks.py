@@ -108,3 +108,9 @@ def test_lock_file_symlink_is_refused(tmp_path):
     link.symlink_to(real)
     with pytest.raises(OSError), locks.exclusive(link, timeout_s=0.1, clock=FakeClock()):
         pass
+
+
+def test_catalog_migration_lock_key_is_the_agreed_value():
+    # The crawler side (crawler/catalog_core/migration_lock.py) must hold the same bigint. This pins the deploy side;
+    # the cross-module comparison is added when the crawler's constant is on the branch.
+    assert locks.CATALOG_MIGRATION_LOCK_KEY == 2026102501
