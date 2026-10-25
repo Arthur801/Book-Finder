@@ -16,8 +16,8 @@ POLL_INTERVAL_S = 0.05
 
 # The database advisory lock that serialises the catalog migration against the crawler (plan v12 §8, item 1).
 # Must equal the key in crawler/catalog_core/migration_lock.py (the crawler takes it shared; the deploy's lock holder
-# takes it exclusive for the whole forward migration). The deploy side is pinned by a test; the cross-module check
-# is added when the crawler side lands.
+# takes it exclusive for the whole forward migration). Both values are compared by
+# deploy/tests/host/test_locks.py::test_catalog_migration_lock_key_matches_the_crawler_side.
 CATALOG_MIGRATION_LOCK_KEY = 2026102501
 
 

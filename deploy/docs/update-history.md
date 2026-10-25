@@ -295,6 +295,14 @@ git log --reverse --no-merges --format='@@%h' --numstat -- <同上路徑>
 
 本段的命令與結果：`deploy/tests` 非整合測試全過（721 passed，含新增）；`BOOKFINDER_IT=1` 完整結果見 test-suite §3.22 與 §2。ruff check 與 format check 皆通過。未 push、未連線任何 AWS、EC2 或 RDS。
 
+### 3.17 DEP-B22：跨模組 lock key 一致性測試（2026-10-25）
+
+| 日期 | SHA | 主旨 | 影響檔案（+/-） | diff 摘要 |
+|---|---|---|---|---|
+| 2026-10-25 | 本次 commit | test(deploy): compare the migration lock key with the crawler side | `host/bookfinder_host/locks.py`（註解）、`tests/host/test_locks.py`、`deploy/docs/*`、`crawler/docs/architecture.md` | 新增 `deploy/tests/host/test_locks.py::test_catalog_migration_lock_key_matches_the_crawler_side`，以 `ast` 讀取 crawler 端常數並比對；DEP-B22 移到已處理；test-suite 新增 DEP-MIGLOCK-38 |
+
+本段的命令與結果：`pytest deploy/tests .github/scripts/tests` 全過；ruff check 與 format check 通過。負向驗證：crawler 端改為 `2026102502` 時斷言失敗；移走檔案時 `FileNotFoundError`。
+
 ## 4. 目前工作樹與未提交差異
 
 - `git status --porcelain`：只有既存的 `?? .venv`。

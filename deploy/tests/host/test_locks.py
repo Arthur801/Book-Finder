@@ -4,6 +4,7 @@ Why: the deploy lock and the crawler's shared lock must exclude each other acros
 cannot show that, because flock state is per open file description.
 """
 
+import ast
 import subprocess
 import sys
 import textwrap
@@ -15,6 +16,7 @@ from bookfinder_host.ports import SystemClock
 from bookfinder_host.testing import FakeClock
 
 HOST_DIR = Path(__file__).resolve().parents[2] / "host"
+CRAWLER_MIGRATION_LOCK = Path(__file__).resolve().parents[3] / "crawler" / "catalog_core" / "migration_lock.py"
 
 
 def holder(path: Path, mode: str, seconds: float) -> subprocess.Popen:
@@ -111,6 +113,25 @@ def test_lock_file_symlink_is_refused(tmp_path):
 
 
 def test_catalog_migration_lock_key_is_the_agreed_value():
-    # The crawler side (crawler/catalog_core/migration_lock.py) must hold the same bigint. This pins the deploy side;
-    # the cross-module comparison is added when the crawler's constant is on the branch.
     assert locks.CATALOG_MIGRATION_LOCK_KEY == 2026102501
+
+
+def _crawler_lock_key() -> int:
+    # Read from source, not imported: the crawler is a separate Python 3.14 package and is not on the deploy test path.
+    tree = ast.parse(CRAWLER_MIGRATION_LOCK.read_text(encoding="utf-8"))
+    values = [
+        node.value.value
+        for node in tree.body
+        if isinstance(node, ast.Assign)
+        and any(isinstance(target, ast.Name) and target.id == "CATALOG_MIGRATION_LOCK_KEY" for target in node.targets)
+        and isinstance(node.value, ast.Constant)
+        and type(node.value.value) is int
+    ]
+    assert len(values) == 1, f"expected one integer CATALOG_MIGRATION_LOCK_KEY in {CRAWLER_MIGRATION_LOCK}, found {values}"
+    return values[0]
+
+
+def test_catalog_migration_lock_key_matches_the_crawler_side():
+    # Different keys would make the deploy's exclusive lock and the crawler's shared lock miss each other, so a
+    # migration and a crawler could write at the same time. A missing crawler file fails here (FileNotFoundError).
+    assert _crawler_lock_key() == locks.CATALOG_MIGRATION_LOCK_KEY
