@@ -38,7 +38,7 @@
 | DEP-B17 | P3 | L3 | 改善提案 | exit 3 同時對應 history 的 `drift` 與 `rejected` |
 | DEP-B19 | P3 | L2 | 改善提案（#120 review） | compat contract allowance 與 gate 9 script 的結構整理 |
 | DEP-B20 | P1 | L4 | 部分驗證 | `client_connection_check_interval` 經 Npgsql `Options` 傳給 efbundle：Npgsql 送出 Options（負向對照已證）、生效值未讀到；RDS 版本（PG 14+）未確認 |
-| DEP-B21 | P1 | L4 | 已緩解；殘留風險待決策 | 保險 (a) 釋放前等連線結束、(b) 殘留容器拒絕、效果接受前的 final heartbeat；超時後的殘留風險與 host 被 SIGKILL 的風險仍在 |
+| DEP-B21 | P1 | L4 | 已緩解；殘留風險已接受（2026-10-25） | 保險 (a) 釋放前等連線結束、(b) 殘留容器拒絕、效果接受前的 final heartbeat；超時後的殘留風險與 host 被 SIGKILL 的風險仍在 |
 | DEP-B23 | P1 | L3 | 大部分已驗證；未驗證項保留 | 真 lock holder 與拋棄式 PG 17 的整合測試已執行（test-suite §3.22）；efbundle 的 SIGTERM／kill 與 RDS 版本仍未驗證 |
 
 ## 2. 項目
@@ -222,16 +222,16 @@
 ### DEP-B21 migration lock 掉線後的殘留風險
 
 - **優先序／風險**：P1／L4。
-- **狀態**：已緩解（本次 PR #146 之後的 commit）；兩項殘留風險與處置方式待決策。
+- **狀態**：已緩解（PR #146）；兩項殘留風險由使用者於 2026-10-25 接受，不再實作。
 - **已實作**：
   - (a) efbundle 的連線帶 `Application Name=bookfinder-efbundle`。efbundle 結束或被停止後、lock 仍持有時，lock session 等待（上限 120 秒）直到沒有該名稱的 session。仍存在：不 unlock，`failed-migration`，dirty 與 paused 保留。lock session 無法回應：維持原結果並照常釋放。
   - (b) 在 pause 之前檢查 `com.bookfinder.role=efbundle` 與 `deploy-lock` 容器：running 拒絕（exit 3，未改動），已結束則 journal 後移除。
   - review 修正：efbundle 結束後，先做同一 lock session 的 final heartbeat，通過才接受 exit code 與進入 (a)。依據：session 斷過不可能復原，同一 session 的 heartbeat 成功即證明 lock 持續持有。
-- **殘留風險（待決策）**：
+- **殘留風險（已接受）**：
   1. (a) 逾時後 lock 不 unlock，但 lock session 會隨 deploy 程序結束而結束，server 端的 advisory lock 隨之釋放；此時 efbundle 的 statement 可能仍在執行（最遲由 `client_connection_check_interval` 的 10 秒偵測）。crawler 仍受 dirty 與 paused 閘門阻擋。
   2. host 程序被 SIGKILL 或主機重開時，efbundle 容器可能繼續執行而沒有 lock holder。下一次 deploy 由 (b) 拒絕；但在那之前沒有 lock 保證。
-- **待決策**：(1) 是否接受「逾時後 lock 隨程序結束釋放」，或改為讓 unit 持續持有直到連線結束（需要新的 unit 生命週期設計）；(2) 是否接受 SIGKILL 窗口的風險，或加入 efbundle 容器的 label 監控。這是 production deploy 行為，由使用者決定。
-- **驗收條件**：決定後補測試；runbook §5.8 與 architecture 同步（runbook 已描述 (a) 與 (b) 的操作）。
+- **決定（2026-10-25，使用者）**：接受兩項風險：(1) 逾時後 lock 隨 deploy 程序結束而釋放，不改 unit 生命週期；(2) host 程序被 SIGKILL 或主機重開的窗口，不加 efbundle 容器的 label 監控。理由：兩者都只在異常路徑出現，crawler 仍受 dirty 與 paused 閘門阻擋，下一次 deploy 由 (b) 拒絕殘留容器。
+- **重新評估時機**：若 production 曾出現 (a) 逾時或 deploy 程序異常結束，再評估上述兩項設計。
 - **測試入口**：`deploy/tests/host/test_machine.py` 的 DEP-MIGLOCK-19 至 32；`deploy/tests/integration/test_migration_lock_it.py::test_efbundle_exit_after_the_real_lock_session_was_terminated_is_not_accepted`。
 
 ### DEP-B23 DB migration lock 的整合驗證
