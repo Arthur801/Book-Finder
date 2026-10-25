@@ -220,10 +220,10 @@ migration 011 的 schema 由 test_db_integration.py 在 011 上檢查（無 `sou
 ### CR-K02 — 金石堂清單與 URL grammar
 
 - **責任／規格**：[backlog](backlog.md)「CB-07 來源契約」與 Kingstone plan v11 §3–§4；風險 L2；狀態：已有測試（2026-10-25 新增並執行）。純函式與檔案讀取，不連線金石堂，也不碰資料庫。
-- **Given**：[fixtures README](../tests/fixtures/kingstone/README.md) 列出的五個列表頁網址、五種排序鍵、以及不在 grammar 內的網址（http、其他主機、無 www、userinfo、port、fragment、`/normal/book/jd`、缺尾斜線、代碼 1 或 5 字母或含數字、缺 `dis` 或 `page`、`dis=pic`、page 為 0／-1／01／abc、未知 sort、多餘或重複參數）；`list_jdc_p1.html` 的每張卡片連結；一份含 BOM、註解、空行、大小寫不同代碼的清單檔；`kingstone-pages.txt`（目前沒有 URL）。
+- **Given**：[fixtures README](../tests/fixtures/kingstone/README.md) 列出的五個列表頁網址、五種排序鍵（`sa_desc` 與省略 sort 視為同一頁，canonical 移除；`pu_desc`、`pu_asc`、`pr_desc`、`pr_asc` 保留）、以及不在 grammar 內的網址（http、其他主機、無 www、userinfo、port、fragment、`/normal/book/jd`、缺尾斜線、代碼 1 或 5 字母或含數字、缺 `dis` 或 `page`、`dis=pic`、page 為 0／-1／01／abc、未知 sort、多餘或重複參數）；`list_jdc_p1.html` 的每張卡片連結；一份含 BOM、註解、空行、大小寫不同代碼的清單檔；`kingstone-pages.txt`（目前沒有 URL）。
 - **When**：`canonical_list_url`、`detail_url`、`km_code_from_href` 與 `kingstone.page_list.load_page_urls` 處理上述輸入。
-- **Then**：合法網址得到固定順序（dis、page、sort）的 canonical 形式，代碼轉小寫，查詢參數順序不影響結果；不合法網址回 None；`detail_url` 只接受 13 位數字；每張卡片的 href 都解析為 `data-prodno`；清單檔以 canonical 值去重並保留首見順序，非法行的錯誤含檔名與行號但不含網址文字，超過 200 個 URL 失敗，空清單與目前的預設檔都回 `PageListError`。
-- **來源與狀態**：[test_kingstone_urls.py](../tests/test_kingstone_urls.py)、[test_kingstone_page_list.py](../tests/test_kingstone_page_list.py)、[test_catalog_page_list.py](../tests/test_catalog_page_list.py)（核心 loader）；Books 的 [test_page_list.py](../tests/test_page_list.py) 不變。
+- **Then**：合法網址得到固定順序（dis、page、sort）的 canonical 形式，代碼轉小寫，查詢參數順序不影響結果；不合法網址回 None；`detail_url` 只接受 13 位數字；每張卡片的 href 都解析為 `data-prodno`；清單檔以 canonical 值去重並保留首見順序（同一頁的 `sa_desc` 版本只保留一筆並記 INFO log），200 上限依 canonical 後的計數（200 個不同頁加上其中一頁的 `sa_desc` 版本仍接受；201 個不同頁失敗），非法行的錯誤含檔名與行號但不含網址文字，超過 200 個 URL 失敗，空清單與目前的預設檔都回 `PageListError`。
+- **來源與狀態**：[test_kingstone_urls.py](../tests/test_kingstone_urls.py)、[test_kingstone_page_list.py](../tests/test_kingstone_page_list.py)、[test_catalog_page_list.py](../tests/test_catalog_page_list.py)（核心 loader）；Books 的 [test_page_list.py](../tests/test_page_list.py) 不變。角色標籤表屬於 Books adapter，core 不再持有；[test_normalize.py](../tests/test_normalize.py) 檢查 `catalog_core.normalize` 不匯出 `ROLE_MAP`／`map_contributor_role`。
 
 ### 連線中斷與重連（crawler.md §13.1、§6.1，#119）
 
