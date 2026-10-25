@@ -45,12 +45,13 @@ def test_comments_blank_lines_and_surrounding_whitespace_are_ignored_and_order_i
 
 
 def test_a_code_differing_only_in_case_is_a_duplicate_and_the_first_seen_form_is_kept(tmp_path, caplog):
-    caplog.set_level(logging.INFO, logger="catalog_core.page_list")
+    caplog.set_level(logging.INFO, logger="kingstone.page_list")
     text = f"{BASE}JDC/?dis=list&page=1\n{BASE}jdc/?dis=list&page=1&sort=pu_desc\n{BASE}jdc/?page=1&dis=list\n"
     path = write_list(tmp_path, text.encode())
 
     assert load_page_urls(path) == [f"{BASE}jdc/?dis=list&page=1", f"{BASE}jdc/?dis=list&page=1&sort=pu_desc"]
     assert sum("duplicate" in r.getMessage() for r in caplog.records) == 1
+    assert all(r.name == "kingstone.page_list" for r in caplog.records)
 
 
 def test_an_invalid_line_error_names_the_file_and_the_line_but_not_the_url_text(tmp_path):
@@ -111,7 +112,7 @@ def test_a_missing_file_is_an_error_naming_the_file(tmp_path):
 
 
 def test_sa_desc_and_the_omitted_sort_are_one_page_so_the_list_keeps_one_row(tmp_path, caplog):
-    caplog.set_level(logging.INFO, logger="catalog_core.page_list")
+    caplog.set_level(logging.INFO, logger="kingstone.page_list")
     text = f"{BASE}jdc/?dis=list&page=1\n{BASE}jdc/?dis=list&page=1&sort=sa_desc\n"
     path = write_list(tmp_path, text.encode())
 

@@ -7,6 +7,7 @@ is not followed. The file rules live in ``catalog_core.page_list``.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from catalog_core.page_list import PageListError, load_url_list
@@ -18,6 +19,7 @@ PAGES_FILE_ENV = "KINGSTONE_PAGES_FILE"
 # crawler/kingstone-pages.txt, located relative to the package, not the working directory.
 DEFAULT_PAGES_FILE = Path(__file__).resolve().parent.parent / "kingstone-pages.txt"
 MAX_PAGES = 200
+log = logging.getLogger("kingstone.page_list")
 
 
 def resolve_pages_file(raw: str) -> Path:
@@ -35,4 +37,5 @@ def load_page_urls(path: Path) -> list[str]:
         file_label="Kingstone category list pages",
         url_label="Kingstone category list page URLs",
         max_entries=MAX_PAGES,
+        logger=log,
     )
