@@ -6,8 +6,12 @@ Error messages name the key. A value is echoed only when it is a finite number t
 anything that is not a number is never echoed.
 
 ``KINGSTONE_WRITE_POLICY`` (``normal`` or ``new-books-only``, default ``new-books-only``) is validated here. The
-error message never echoes the value, since it is not a number. Diagnostic size and the alert command are not part
-of this module (Phase 5 and 6).
+error message never echoes the value, since it is not a number.
+
+``KINGSTONE_ARTIFACTS_DIR`` (default ``crawler/artifacts``, located relative to the package, not the working directory)
+is the root of the run artifacts: ``kingstone/last-run.json``, ``kingstone/history/`` and ``kingstone/diagnostics/``.
+An env value is used as given, like ``KINGSTONE_PAGES_FILE``. ``KINGSTONE_DIAGNOSTIC_MAX_BYTES`` (default 2 MiB) caps
+one saved diagnostic HTML file. The alert command is not part of this module (no alert command: plan v12 §8).
 """
 
 from __future__ import annotations
@@ -29,9 +33,14 @@ HARD_LIMIT_ENV = "CRAWLER_RUN_HARD_LIMIT_SECONDS"
 HTTP_TIMEOUT_ENV = "KINGSTONE_HTTP_TIMEOUT_SECONDS"
 HTTP_MAX_ATTEMPTS_ENV = "KINGSTONE_HTTP_MAX_ATTEMPTS"
 MAX_RESPONSE_BYTES_ENV = "KINGSTONE_MAX_RESPONSE_BYTES"
+ARTIFACTS_DIR_ENV = "KINGSTONE_ARTIFACTS_DIR"
+DIAGNOSTIC_MAX_BYTES_ENV = "KINGSTONE_DIAGNOSTIC_MAX_BYTES"
 
 DEFAULT_SOFT_BUDGET_SECONDS = 7200
 DEFAULT_HARD_LIMIT_SECONDS = 9000
+# crawler/artifacts, located relative to the package, not the working directory (same rule as the Books artifacts).
+DEFAULT_ARTIFACTS_DIR = Path(__file__).resolve().parent.parent / "artifacts"
+DEFAULT_DIAGNOSTIC_MAX_BYTES = 2 * 1024 * 1024
 
 
 class KingstoneConfigError(ValueError):
@@ -47,6 +56,8 @@ class KingstoneConfig:
     http_timeout_seconds: float
     http_max_attempts: int
     max_response_bytes: int
+    artifacts_dir: Path  # the root of the run artifacts; the Kingstone files live in its ``kingstone/`` folder
+    diagnostic_max_bytes: int  # the size cap of one saved diagnostic HTML file, in bytes
 
 
 def load_config(env: Mapping[str, str]) -> KingstoneConfig:
@@ -63,6 +74,8 @@ def load_config(env: Mapping[str, str]) -> KingstoneConfig:
         http_timeout_seconds=_seconds(env, HTTP_TIMEOUT_ENV, acquisition.REQUEST_TIMEOUT_SECONDS),
         http_max_attempts=_count(env, HTTP_MAX_ATTEMPTS_ENV, acquisition.MAX_ATTEMPTS),
         max_response_bytes=_count(env, MAX_RESPONSE_BYTES_ENV, acquisition.MAX_RESPONSE_BYTES),
+        artifacts_dir=_artifacts_dir(env),
+        diagnostic_max_bytes=_count(env, DIAGNOSTIC_MAX_BYTES_ENV, DEFAULT_DIAGNOSTIC_MAX_BYTES),
     )
 
 
@@ -98,6 +111,11 @@ def _seconds(env: Mapping[str, str], key: str, default: float) -> float:
     if value <= 0:
         raise KingstoneConfigError(f"{key} must be greater than 0, not {value:g}")
     return value
+
+
+def _artifacts_dir(env: Mapping[str, str]) -> Path:
+    raw = _raw(env, ARTIFACTS_DIR_ENV)
+    return DEFAULT_ARTIFACTS_DIR if raw is None else Path(raw)
 
 
 def _count(env: Mapping[str, str], key: str, default: int) -> int:

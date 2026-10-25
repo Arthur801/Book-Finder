@@ -173,7 +173,7 @@ Writer fencing 只依 container 名稱與 label 判定：同一時間最多一�
 
 來源：[run-local-crawler.sh](../deploy/local/run-local-crawler.sh)、[runner_support.py](../deploy/local/runner_support.py)。測試：[test_local_runner.py](../tests/test_local_runner.py)（CR-T20）。
 
-## 金石堂入口（`python -m kingstone`，Phase 5 M2）
+## 金石堂入口（`python -m kingstone`，Phase 5 M2；產物與 ALERT，Phase 6 M5）
 
 ```text
 python -m kingstone（於 crawler/ 執行）→ kingstone.cli.main()
@@ -188,9 +188,38 @@ python -m kingstone（於 crawler/ 執行）→ kingstone.cli.main()
   8 missing_schema_prerequisites(conn)：非空 → exit 2（log SCHEMA_PREREQUISITE_MISSING: …）
   9 fetcher = fetcher_factory(config, budget)（預設 KingstoneFetcher，budget_remaining = budget.remaining）
       SessionCatalogStore → KingstoneRunDependencies(write_policy = config)
-      run_pages(deps, page_urls) → report.exit_code（SUCCESS／PARTIAL_SUCCESS → 0，FAILED → 1）
+      run_pages(deps, page_urls, run_id) → report（SUCCESS／PARTIAL_SUCCESS → 0，FAILED → 1）
   10 finally：fetcher.close()；with 結束時關閉 session
+  11 terminal 輸出（步驟 4 之後的每個 terminal 結果，見下節）：finalize → stdout 一行 JSON → 寫產物 → 回傳 exit code（產物失敗不改 exit code）
 ```
+
+金石堂 run 結束後的產物與 ALERT（Phase 6 M5，計畫 v12 §8）：
+
+```text
+terminal 結果（run 報告，或 pre-run：步驟 5、6、7、8 的失敗）
+  ├─ finalize（KingstoneArtifacts，唯一產生最終 record）
+  │    ├─ 讀 history（本次之前，只取可讀摘要，依 finished_at 新到舊）
+  │    ├─ alert_reasons = failed | schema_prerequisite_missing | maintenance_busy
+  │    │                | unclassified_200（parse_error_200_count > 0，任何 status）
+  │    │                | zero_card_pages | pages_not_reached_streak（本次與前兩份 pages_not_reached 皆 > 0）
+  │    └─ 加入 alert_reasons，全部字串 redact → final record
+  ├─ stdout：print 一行 json.dumps(final, ensure_ascii=False, sort_keys=True)（先於寫檔；寫檔失敗也已輸出）
+  ├─ write（同一份 final）
+  │    ├─ 原子寫入 artifacts/kingstone/last-run.json（同目錄 temp → fsync → os.replace）
+  │    ├─ 寫入 artifacts/kingstone/history/<run_id>.json（summary 取自 final），超過 20 份刪最舊
+  │    └─ 寫入失敗 → log ERROR 一行，不拋例外；exit code 不變
+  └─ alert_reasons 非空 → log WARNING：ALERT reasons=<…> last_run=<路徑>（kingstone.cli）
+
+解析失敗（run 中途）：列表頁或詳細頁 KingstoneParseError → DiagnosticWriter.save_html
+  → artifacts/kingstone/diagnostics/<UTC>-<list|detail>-<code>.html（≤ KINGSTONE_DIAGNOSTIC_MAX_BYTES，保留 20 份）
+  soft 404 與 acquisition 失敗不存；寫入失敗只 log WARNING
+
+未寫入：設定無效、缺 DATABASE_URL（artifacts 目錄未知）；博客來 run 不寫任何這些檔案。
+```
+
+- 步驟 5 之前的 pre-run 結果（清單無效、provider 停用）也寫 last-run，`pages_not_reached` 為 null，不計入 streak。
+- challenge 的 alert 尚未細分（沒有 fixture 可判定）；目前 challenge 落在 `unclassified_200`，見 backlog CB-07。runner 端的 orphan alert 屬 Phase 6 M4。
+- stdout 的 JSON 行與 log 行分開：log 有時間戳前綴，不以 `{` 開頭；取出 JSON 時讀以 `{` 開頭的行。
 
 - 「停用」與「未註冊」都是設定錯誤（exit 2），都不建立 fetcher、不發出請求。
 - 步驟 7、8 失敗時 fetcher 尚未建立，沒有 HTTP、沒有寫入。
@@ -250,4 +279,5 @@ run_pages(deps, page_urls)
 - 重跑（replay）：同一份清單再跑一次。Existing 只 touch；未完成的 New 才抓詳細頁。政策跳過的書沒有 Source，因此下一次 run 仍是 New，會再抓一次詳細頁。
 - `new-books-only` 的全部政策跳過 run 是合法 SUCCESS，但零寫入：報告以 `write_policy`、`policy_skipped` 與 `zero_progress_reason=null` 與真正零進度區分；它不能作為 promotion 到 `normal` 的證據。
 - 結果：`KingstoneReport`；一行 INFO `mode=kingstone …`；FAILED 另有一行 ERROR。exit code 由 `report.exit_code` 決定，由 `kingstone.cli` 回傳（Phase 5 M2）；hard limit 的強制執行由 runner 負責（Phase 6）。
+- 報告的計數（Phase 6 M5）：`items_listed`（已解析列表頁的卡片數）、`details_fetched`（每次要求詳細頁抓取即計，失敗也計）、`http_attempts`／`http_failures`（fetcher 送出的請求與沒有可用 body 的請求）。它們與其他欄位一起進入 `last-run.json`（見「金石堂入口」下方的產物流程）。
 

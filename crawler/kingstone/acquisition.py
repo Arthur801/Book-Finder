@@ -196,6 +196,10 @@ class KingstoneFetcher:
     - Redirects are never followed: a 3xx is ``REDIRECT``. Other 4xx are ``HTTP_STATUS`` and are not retried.
     - A 200 body must be strict UTF-8, otherwise ``DECODE_ERROR``. Page content (challenges, CAPTCHA, restricted
       pages) is not judged here; the parser fails closed on it.
+    - Counts for the run report (plan v12 §8): ``http_attempts`` is the number of requests actually sent (retries
+      included; a request refused by the budget is not sent and not counted). ``http_failures`` counts the sent requests
+      that did not give a usable 200 body: a transport error, a non-200 status (redirects and retried statuses too),
+      an oversize body or a body that is not UTF-8.
     """
 
     def __init__(
@@ -223,6 +227,18 @@ class KingstoneFetcher:
         self._sample_delay = sample_delay
         self._budget_remaining = budget_remaining
         self._last_finished: float | None = None
+        self._sent = 0
+        self._failed = 0
+
+    @property
+    def http_attempts(self) -> int:
+        """Requests actually sent by this fetcher (retries included)."""
+        return self._sent
+
+    @property
+    def http_failures(self) -> int:
+        """Sent requests that did not give a usable 200 body."""
+        return self._failed
 
     def fetch_list_page(self, url: str) -> str:
         _require_list_url(url)
@@ -244,6 +260,7 @@ class KingstoneFetcher:
             try:
                 response = self._send(url)
             except (TransportTimeout, TransportConnectionError) as exc:
+                self._failed += 1
                 reason = type(exc).__name__
                 log.info("GET %s error=%s attempt=%d", url, reason, attempt)
                 if attempt == self._max_attempts:
@@ -252,18 +269,26 @@ class KingstoneFetcher:
                 retry_floor = backoff_seconds(attempt + 1)
                 continue
             except ResponseTooLarge as exc:
+                self._failed += 1
                 log.info("GET %s error=ResponseTooLarge attempt=%d", url, attempt)
                 raise _oversize(url, attempt, self._max_response_bytes) from exc
             except Exception as exc:
+                self._failed += 1
                 log.info("GET %s error=%s attempt=%d", url, type(exc).__name__, attempt)
                 raise AcquisitionError(AcquisitionFailure.TRANSPORT, f"GET {url} failed: {type(exc).__name__}", attempt) from exc
 
             status = response.status
             log.info("GET %s status=%d bytes=%d attempt=%d", url, status, len(response.body), attempt)
             if len(response.body) > self._max_response_bytes:
+                self._failed += 1
                 raise _oversize(url, attempt, self._max_response_bytes, status)
             if status == 200:
-                return _decode(url, response.body, attempt)
+                try:
+                    return _decode(url, response.body, attempt)
+                except AcquisitionError:
+                    self._failed += 1
+                    raise
+            self._failed += 1
             if 300 <= status < 400:
                 location = _location_path(response.headers)
                 raise AcquisitionError(
@@ -292,6 +317,7 @@ class KingstoneFetcher:
             raise AcquisitionError(AcquisitionFailure.HTTP_STATUS, f"GET {url} returned HTTP {status}", attempt, status)
 
     def _send(self, url: str) -> RawResponse:
+        self._sent += 1
         try:
             return self._transport.get(url, timeout=self._timeout, max_bytes=self._max_response_bytes)
         finally:

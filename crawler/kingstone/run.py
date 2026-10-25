@@ -31,6 +31,14 @@ Identity warnings (URL drift on the touch path, or any warning an outcome carrie
 
 Write policy. ``deps.write_policy`` is passed to every ``resolve_item``. Under ``new-books-only`` a card whose ISBN matches exactly one Book is a policy skip: nothing is written, and the card counts as handled, not failed.
 
+A parse error of a list or detail page (``KingstoneParseError``, not a soft 404 and not an acquisition failure) is also
+handed to ``deps.diagnostics`` when one is given (plan v12 §8). A diagnostic sink never affects the run: its failures are
+logged and dropped.
+
+Counts (plan v12 §8). ``items_listed`` is the number of cards each parsed list page returned; ``details_fetched`` counts
+every detail fetch the run asked for; ``http_attempts`` and ``http_failures`` are read from the fetcher when the report
+is built, so the fetcher must provide them (``KingstoneFetcherPort``).
+
 Not here: composing the real fetcher and the database store (Phase 5/6), the CLI and the exit code wiring. ``run_pages``
 never raises; the caller reads ``report.exit_code``.
 """
@@ -60,6 +68,7 @@ from kingstone.ledger import KingstoneLedger, KingstoneReport, RunStatus, Skippe
 from kingstone.models import KingstoneParseError, ListedItem, ProductNotFound
 from kingstone.parse_detail import parse_detail_html
 from kingstone.parse_list import parse_list_html
+from kingstone.urls import category_code_from_list_url
 
 log = logging.getLogger("kingstone.run")
 
@@ -83,11 +92,26 @@ class SoftBudget:
 
 
 class KingstoneFetcherPort(Protocol):
-    """The page source. ``kingstone.acquisition.KingstoneFetcher`` is the production one."""
+    """The page source. ``kingstone.acquisition.KingstoneFetcher`` is the production one.
+
+    ``http_attempts`` and ``http_failures`` are the requests sent so far and the sent requests that gave no usable body.
+    """
+
+    @property
+    def http_attempts(self) -> int: ...
+
+    @property
+    def http_failures(self) -> int: ...
 
     def fetch_list_page(self, url: str) -> str: ...
 
     def fetch_detail_page(self, url: str) -> str: ...
+
+
+class DiagnosticSink(Protocol):
+    """Saves the HTML of a page that failed to parse. It must not raise; ``kingstone.diagnostics`` is the production one."""
+
+    def save_html(self, *, kind: str, code: str, html: str) -> None: ...
 
 
 @dataclass
@@ -108,6 +132,7 @@ class KingstoneRunDependencies:
     sleep: Callable[[float], None]  # database retry backoff; injected so tests never wait
     write_policy: WritePolicy
     max_item_attempts: int = MAX_ITEM_ATTEMPTS
+    diagnostics: DiagnosticSink | None = None  # None: parse-error pages are not saved
 
 
 def backoff_seconds(attempt: int) -> float:
@@ -121,6 +146,16 @@ def _attempts(deps: KingstoneRunDependencies) -> Iterator[int]:
         if attempt > 1:
             deps.sleep(backoff_seconds(attempt))
         yield attempt
+
+
+def _diagnose(deps: KingstoneRunDependencies, *, kind: str, code: str, html: str) -> None:
+    """Hands a page that failed to parse to the diagnostic sink. Never raises: the run does not depend on the file."""
+    if deps.diagnostics is None:
+        return
+    try:
+        deps.diagnostics.save_html(kind=kind, code=code, html=html)
+    except Exception as exc:  # noqa: BLE001 - a diagnostic write must not change the run
+        log.warning("could not save the %s diagnostic for %s: %s", kind, code, redact(f"{type(exc).__name__}: {exc}"))
 
 
 def _fatal_message(exc: BaseException) -> str:
@@ -151,6 +186,8 @@ def run_pages(deps: KingstoneRunDependencies, page_urls: Sequence[str], run_id: 
         started_at=started_at,
         finished_at=deps.clock(),
         error=error,
+        http_attempts=deps.fetcher.http_attempts,
+        http_failures=deps.fetcher.http_failures,
     )
     if report.status is RunStatus.FAILED:
         log.error("kingstone run failed: %s", report.error or report.zero_progress_reason)
@@ -172,15 +209,16 @@ def _run_page(deps: KingstoneRunDependencies, ledger: KingstoneLedger, url: str)
     try:
         page = parse_list_html(html, url)
     except KingstoneParseError as exc:
+        _diagnose(deps, kind="list", code=category_code_from_list_url(url) or "unknown", html=html)
         ledger.record_page_skipped(SkippedPage(url=url, reason="parse_error", message=redact(str(exc)), attempts=1))
         return True
 
-    ledger.page_started(url)
+    ledger.page_started(url, items_listed=len(page.items))
     for item in page.items:
         if deps.budget.exhausted():
             ledger.stop_for_budget()  # the open page is interrupted
             return False
-        result, budget_hit = _resolve_card(deps, item)
+        result, budget_hit = _resolve_card(deps, ledger, item)
         ledger.record_item(url, result, source_url=item.source_url, external_id=item.external_id)
         if budget_hit:
             ledger.stop_for_budget()
@@ -189,7 +227,7 @@ def _run_page(deps: KingstoneRunDependencies, ledger: KingstoneLedger, url: str)
     return True
 
 
-def _resolve_card(deps: KingstoneRunDependencies, item: ListedItem) -> tuple[ItemResolved | ItemFailed | ItemPolicySkipped, bool]:
+def _resolve_card(deps: KingstoneRunDependencies, ledger: KingstoneLedger, item: ListedItem) -> tuple[ItemResolved | ItemFailed | ItemPolicySkipped, bool]:
     """One card through the shared resolver. Returns the outcome and whether the detail fetch hit the budget."""
     budget_hit = False
 
@@ -198,6 +236,7 @@ def _resolve_card(deps: KingstoneRunDependencies, item: ListedItem) -> tuple[Ite
 
     def fetch_draft(attempt: int) -> BookDraft | DraftFailure:
         nonlocal budget_hit
+        ledger.record_detail_fetch()
         try:
             html = deps.fetcher.fetch_detail_page(item.source_url)
         except AcquisitionError as exc:
@@ -211,6 +250,7 @@ def _resolve_card(deps: KingstoneRunDependencies, item: ListedItem) -> tuple[Ite
         except ProductNotFound:
             return DraftFailure("product_not_found", "the detail page is a soft 404: no product", retryable=False)
         except KingstoneParseError as exc:
+            _diagnose(deps, kind="detail", code=item.external_id, html=html)
             return DraftFailure("parse_error", redact(str(exc)), retryable=False)
         if draft.external_id != item.external_id:
             # The parser already checked sku against the URL, and the card's URL is built from its km_code: a mismatch is a bug.

@@ -399,12 +399,17 @@ FIELD_ORDER = [
     "zero_card_pages",
     "budget_exhausted",
     "items_seen",
+    "items_listed",
+    "details_fetched",
+    "http_attempts",
+    "http_failures",
     "existing_source",
     "imported",
     "isbn_attached",
     "ambiguous_created",
     "policy_skipped",
     "failed",
+    "parse_error_200_count",
     "recovered_commit_count",
     "identity_warning_count",
     "zero_progress_reason",
@@ -549,3 +554,43 @@ def test_format_report_shows_normal_policy_with_zero_policy_skips():
     values = dict(parse_line(format_report(build(ledger))))
     assert values["write_policy"] == "normal"
     assert values["policy_skipped"] == "0"
+
+
+# ---------------------------------------------------------------------------
+# parse_error_200_count (unclassified_200, CB-07): a 200 page or detail page that failed to parse
+# ---------------------------------------------------------------------------
+
+
+def test_a_list_page_parse_error_counts_as_a_parse_error_200():
+    ledger = KingstoneLedger([P1, P2], WritePolicy.NEW_BOOKS_ONLY)
+    ledger.record_page_skipped(skipped(P1, reason="parse_error", attempts=1))
+    completed_page(ledger, P2, resolved())
+    assert build(ledger).parse_error_200_count == 1
+
+
+def test_a_failed_detail_parse_error_counts_as_a_parse_error_200():
+    ledger = KingstoneLedger([P1], WritePolicy.NEW_BOOKS_ONLY)
+    completed_page(ledger, P1, failed("parse_error"), resolved())
+    report = build(ledger)
+    assert report.parse_error_200_count == 1
+    assert report.failed == 1
+
+
+def test_a_soft_404_and_an_acquisition_failure_are_not_parse_error_200():
+    ledger = KingstoneLedger([P1, P2], WritePolicy.NEW_BOOKS_ONLY)
+    ledger.record_page_skipped(skipped(P2, reason="http_status", attempts=3))
+    completed_page(ledger, P1, failed("product_not_found", attempts=1), failed("http_status", attempts=3))
+    assert build(ledger).parse_error_200_count == 0
+
+
+def test_a_clean_run_has_no_parse_error_200():
+    ledger = KingstoneLedger([P1], WritePolicy.NEW_BOOKS_ONLY)
+    completed_page(ledger, P1, resolved(CatalogResolution.EXISTING))
+    assert build(ledger).parse_error_200_count == 0
+
+
+def test_format_report_shows_the_parse_error_200_count():
+    ledger = KingstoneLedger([P1], WritePolicy.NEW_BOOKS_ONLY)
+    completed_page(ledger, P1, failed("parse_error"))
+    values = dict(parse_line(format_report(build(ledger))))
+    assert values["parse_error_200_count"] == "1"
