@@ -1,6 +1,8 @@
 # deploy/ 架構：責任、選型與已知差距
 
 > 目標：`deploy/`（EC2 host 程式、release 內容、CI/CD 來源、compat 與整合測試），外加分散的 CD 來源（見 §2）。
+> PR4 M3（#120）補記：2026-10-25 更新；程式變更以 `d249c07`、`6e70e93`、`b99b368` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+>
 > 查核基準：2026-10-25，HEAD `5563d80`（#121 的程式 commit；前一基準 `01db2d7`，tag `v0.0.4`）。工作樹 clean（僅既存未追蹤 `.venv`）。
 > 文件修正：PR #107 依程式對照修正 C1 至 C7（見 §8）；程式未改動。
 > 營運觀察（2026-10-24 operator 工作階段）以「營運觀察，非本次驗證」標示；本文件未在 EC2、AWS、GHCR 或 Cloudflare 上執行任何指令。
@@ -24,8 +26,8 @@
 |---|---|---|
 | host 程式 | [deploy/host/](../host/)：`deploy-entry`、`book-finder-admin`、`bookfinder_host/*.py`、`bookfinder_host/HOST_API_RANGE`（內容 `1 1`） | EC2 上的狀態機與人工指令（stdlib-only，靜態 import 掃描確認） |
 | release 內容 | [deploy/release/](../release/)：`compose.prod.yaml`、`compose.ca-bundle.yaml`、`build-manifest.sh` | 隨 web image 的 `/opt/release/` 發布，host 以 `docker create` + `docker cp` 取出 |
-| 共用 shell 函式庫 | [deploy/lib/](../lib/)：`manifest.sh`、`smoke.sh`、`schema_dump.sh`、`compat_plan.sh` | compat 與 smoke 的共用函式 |
-| compat | [deploy/migration-test/](../migration-test/)：`compat.sh`、`seeds/*.sql` | 在拋棄式 DB 上驗證 migration |
+| 共用 shell 函式庫 | [deploy/lib/](../lib/)：`manifest.sh`、`smoke.sh`、`schema_dump.sh`、`compat_plan.sh`、`contract_allowance.sh` | compat 與 smoke 的共用函式；contract allowance 的解析與判定 |
+| compat | [deploy/migration-test/](../migration-test/)：`compat.sh`、`seeds/*.sql`、`contract/<migration-id>/`（reviewed allowance：`allow.tsv`、`verify.sql`）、`preflight/*.sql`（011 gate 7，唯讀）、`prev-release-on-contract.sh` 與 `prev_crawler_driver.py`（gate 9 與 manual recovery，本機） | 在拋棄式 DB 上驗證 migration；契約型 migration 的豁免與 production 前的唯讀檢查 |
 | smoke | [deploy/smoke/web-smoke.sh](../smoke/web-smoke.sh) | web image 的 HTTP 煙霧測試 |
 | 整合測試 | [deploy/integration/](../integration/)：`run-local.sh`、`edge_stub.py`、`imagetools-roundtrip.sh` | 真實 docker、替身 AWS 與 nginx |
 | 測試 | [deploy/tests/](../tests/)：`host/`（unit）、`integration/`（`BOOKFINDER_IT=1`）、`test_*.py` | pytest |
@@ -135,7 +137,7 @@
 
 - `release.json` 的鍵（`RELEASE_KEYS`）：`schema_version`、`tag`、`commit`、`web_digest`、`crawler_digest`、`release_api`、`migrations`、`sql_assets`。
 - `migrations.txt`：每行 `<id> <source_hash>`，`id` 格式 `14 位時間戳_名稱`。
-- `compat-report.json`：`schema_version: 1`、`classification`、`pending`、`checks`、`forward_ok`、`runtime_smoke`（見 test-plan §6.1）。
+- `compat-report.json`：`schema_version: 1`、`classification`、`pending`、`checks`、`contract_allowances`（使用中的 allowance：migration、dropped columns、rewritten tables、verify 結果）、`forward_ok`、`runtime_smoke`（見 test-plan §6.1）。
 - CD `plan` 輸出的 12 個 step output（`revision`、`expect_runtime`、`expect_schema`、`chain`、`pending`、`applied_last`、`rebuild_tag`、`rebuild_web_digest`、`runtime_web_digest`、`state_crawler_digest`、`crawler_for_deploy`、`cutover_ok`）。
 
 ### 5.6 plan 與 status JSON

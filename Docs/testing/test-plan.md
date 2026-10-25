@@ -145,7 +145,18 @@ schema-ahead 的檢查：`applied history unchanged by target`（T 的 web 啟�
 
 Runtime smoke（目前在 production 運行的版本，對升級後的 DB 執行）對所有分類都只是 INFO，不會讓 compat 失敗。它的結果寫入 report 的 `runtime_smoke`，供 reviewer 參考。
 
-Report：`compat-report.json`（`schema_version: 1`）包含 `classification`、`pending`、`checks`（每項的 `name`、`result`、`detail`）、`forward_ok` 與 `runtime_smoke`。CI 與 CD 都會在 job summary 顯示逐項結果，並上傳為 artifact。
+contract allowance（reviewed，`deploy/migration-test/contract/<migration-id>/`）：契約型 migration 會故意丟欄位或改寫資料，`data preserved` 會因此失敗，所以只有 pending 的 migration 才能用它豁免。
+
+- `allow.tsv`：`drop-column<TAB>table<TAB>column` 與 `rewrite<TAB>table`，`#` 註解與空行允許；其他指令、欄位數錯誤或非小寫 identifier 會在連到資料庫前失敗（`deploy/lib/contract_allowance.sh`）。
+- `verify.sql`：升級後必須回傳 0 列（`contract verify <id>`）。它可以讀 `compat_before.<table>`，這是升級前對每個 `rewrite` table 做的複本（`contract snapshot`）。
+- 不是 pending 的 migration 的 allowance 會被忽略，記為 INFO（`contract allowance <id>`）。
+- `drop-column` 的欄位不存在時允許，但仍存在、或升級前就不存在，都會失敗。該 table 的其他欄位照常比對，row count 仍須相同。
+- `rewrite` 的 table 必須存在；其 row 與欄位 checksum 不比對，改由 `verify.sql` 判定。
+- `compat_before` 在升級後的 `data preserved` 與 `verify` 之後、schema 比對之前移除（`contract scratch removed`），不會進入 schema dump。
+- report 的 `contract_allowances` 記錄每個使用中的 allowance（migration、dropped columns、rewritten tables、verify 結果）；CI summary 另有一節列出。
+- 目前只有 `20261025120000_ContractMultiSourceCatalog`（011）：移除 `book_sources.source_type` 與 `book_subjects.source_type`，改寫 `book_identifiers`（ISBN_10/13 → ISBN、同一 Book 同值去重、OTHER 保留）。`verify.sql` 檢查 (a) ISBN 類的每筆都有對應的 ISBN、(b) OTHER 不變、(c) 升級後沒有無法由升級前推導的列、(d) ISBN_10/13 已不存在。
+
+Report：`compat-report.json`（`schema_version: 1`）包含 `classification`、`pending`、`checks`（每項的 `name`、`result`、`detail`）、`contract_allowances`、`forward_ok` 與 `runtime_smoke`。CI 與 CD 都會在 job summary 顯示逐項結果，並上傳為 artifact。
 
 ### 6.2 本機整合測試（`BOOKFINDER_IT=1`）
 
@@ -167,30 +178,30 @@ Report：`compat-report.json`（`schema_version: 1`）包含 `classification`、
 
 ## 7. Multi-source Catalog 規劃覆蓋（#113）
 
-以下是 #113 系列 PR 必須新增的測試。狀態：標為「已實作」的 PR2 列已由下方列出的測試覆蓋（PR2 phase A 與 B，`2c662f5`、`d9d8948`、`df57cbf`）；其餘 PR3、PR4 列仍是規劃，尚未實作。「PR」欄為負責實作的 PR（PR2：migration 010 與 Web；PR3：crawler；PR4：migration 011 與 cutover）。規則來源見 `Docs/data/data-model.md` §7、§11 與 `Docs/modules/crawler.md` §6、§10、§14。
+以下是 #113 系列 PR 必須新增的測試。狀態：標為「已實作」的 PR2 列已由下方列出的測試覆蓋（PR2 phase A 與 B，`2c662f5`、`d9d8948`、`df57cbf`）；PR3、PR4 各列的狀態寫在該列的「PR」欄（PR3 已於 #116 實作；PR4 已於 #120 實作，gate 9 的證據只在本機執行）。「PR」欄為負責實作的 PR（PR2：migration 010 與 Web；PR3：crawler；PR4：migration 011 與 cutover）。規則來源見 `Docs/data/data-model.md` §7、§11 與 `Docs/modules/crawler.md` §6、§10、§14。
 
 | # | 案例 | 層 | PR |
 |---|---|---|---|
 | 1 | ISBN 對到 0 本 Book 時建立新 Book | Crawler（DB） | PR3 |
 | 2 | 對到 1 本時附加 Source 並補 NULL：日期與精度成對補；Book 沒有 AUTHOR 才補 AUTHOR；`updated_at` 只在 books 欄位真的補了值時更新 | Crawler（DB） | PR3 |
 | 3 | 對到 2 本以上，或 draft 的兩個 ISBN 各對到不同 Book：建立新 Book，`new_book`、`new_source`、`ambiguous_isbn` 各 +1 | Crawler（DB） | PR3 |
-| 4 | 既有 `ISBN_13` 資料與新 draft 的 `ISBN` 對到同一本 Book | Crawler（DB） | PR3 |
+| 4 | 既有 `ISBN` 資料（011 後唯一的 ISBN 類型）與新 draft 的 `ISBN` 對到同一本 Book | Crawler（DB） | PR3；PR4 M2 改寫為 `ISBN` 版本（`test_existing_isbn_row_and_a_draft_isbn_with_the_same_value_are_the_same_book`） |
 | 5 | 附加之後才發現同榜重複：`existing_book`、`attached_source`、`new_source`、`skipped`、`error` 各 +1 | Crawler（ledger + DB） | PR3 |
 | 6 | Existing Source 同榜重複：`existing_source`、`skipped`、`error`、consecutive 各 +1，不 reset | Crawler（ledger） | PR3 |
 | 7 | 連續 10 個 `ERROR_SKIP`、1 個 `RESTRICTED_SKIP`、再 1 個 `ERROR_SKIP` → `consecutive_error_count = 1` | Crawler（ledger） | PR3 |
-| 8 | 011：同一本 Book 同時有 `ISBN_13 X` 與 `ISBN X`，跑完只剩一筆 `ISBN X`，migration 不失敗 | Integration（DB） | PR4 |
-| 9 | 010 trigger：只帶 `source_type` 的 INSERT 成功（v0.0.4 寫法）；只帶 `source_code` 的 INSERT 成功；兩值不一致被拒絕；原本的 ISBN_10／13 unique 仍有效 | Integration（DB） | PR2 已實作：`MultiSourceCatalogSchemaTests`（`Source_type_only_insert_from_v004_writer_fills_source_code`、`Source_code_only_insert_fills_source_type`、`Mismatched_source_type_and_source_code_are_rejected`、`Legacy_isbn13_stays_unique_while_isbn_values_may_be_shared`） |
-| 10 | 實體 schema（查 `pg_constraint`、`pg_indexes`、`information_schema`）：010 之後 `source_type` 與 `source_code` 並存、`book_subjects` PK 為 `(book_id, subject, source_type)`、UNIQUE `(book_id, subject, source_code)`；011 之後 `source_type` 不存在、PK 為 `(book_id, subject, source_code)` | Integration（DB） | PR2／PR4 010 部分已實作：`Physical_schema_matches_expand_step`、`Physical_constraints_match_the_expand_contract`；011 部分仍為 PR4 |
+| 8 | 011：同一本 Book 同時有 `ISBN_13 X` 與 `ISBN X`，跑完只剩一筆 `ISBN X`，migration 不失敗 | Integration（DB） | PR4 M1 已實作：`ContractMigration011Tests.Migration_011_converts_legacy_isbns_without_failing_and_keeps_shared_isbn_values`。同一測試也覆蓋 ISBN_10 轉換與兩本共用 ISBN Z；010 的 legacy partial unique 不允許兩本同為 `ISBN_13 Z`，因此第二本以 `ISBN` 寫入 |
+| 9 | 010 trigger：只帶 `source_type` 的 INSERT 成功（v0.0.4 寫法）；只帶 `source_code` 的 INSERT 成功；兩值不一致被拒絕；原本的 ISBN_10／13 unique 仍有效 | Integration（DB） | PR2 已實作（PR4 M1 起在 `MultiSourceCatalog010SchemaTests` 以停在 010 的 database 執行）：`MultiSourceCatalog010SchemaTests`（`Source_type_only_insert_from_v004_writer_fills_source_code`、`Source_code_only_insert_fills_source_type`、`Mismatched_source_type_and_source_code_are_rejected`、`Legacy_isbn13_stays_unique_while_isbn_values_may_be_shared`） |
+| 10 | 實體 schema（查 `pg_constraint`、`pg_indexes`、`information_schema`）：010 之後 `source_type` 與 `source_code` 並存、`book_subjects` PK 為 `(book_id, subject, source_type)`、UNIQUE `(book_id, subject, source_code)`；011 之後 `source_type` 不存在、PK 為 `(book_id, subject, source_code)` | Integration（DB） | PR2／PR4 010 部分已實作：`Physical_schema_matches_expand_step`、`Physical_constraints_match_the_expand_contract`；011 部分已實作（PR4 M1）：`MultiSourceCatalogSchemaTests.Physical_schema_matches_contract_step`；Down 還原 010：`ContractMigration011Tests.Down_to_010_restores_the_expand_physical_schema` |
 | 11 | `last_seen_at`：Existing Source 在 abort 或 snapshot 失敗後更新仍保留；New Source 失敗時不寫任何資料；分類榜與 first_book 也會更新 | Crawler（DB） | PR3 |
 | 12 | Search 與 Detail：三種 ISBN 類型都讀得到；輸入 `ABC123` 不走 ISBN 搜尋；使用共用 test vectors | Unit + Web | PR2 已實作：C# 側 `IsbnNormalizerTests`；Search `SearchPageTests.Isbn_mode_matches_the_new_isbn_type_as_well_as_legacy_types`、`Abc123_is_a_keyword_search_and_never_matches_an_identifier`；Detail `BookDetailViewModelTests`、`BookDetailPageTests`。Search 規則不依 fixture（§3.1 與寫入端正規化刻意分開） |
-| 13 | PR3 runtime 在 011 上相容：PR3 Web 的 Search、Detail（含去重）、health；PR3 crawler 的 Existing Source 查詢與 touch、ISBN 查詢、寫入新 Source、Bestseller 驗證與替換 | Integration / compat | PR4（gate） |
-| 14 | Manual recovery compatibility：011 的 DB 搭配上一個 release 的 Web 與 crawler，手動恢復所需的 smoke 全部通過（CD compat 的 runtime smoke 依 I5 仍只供參考） | Integration / compat | PR4（gate） |
+| 13 | PR3 runtime 在 011 上相容：PR3 Web 的 Search、Detail（含去重）、health；PR3 crawler 的 Existing Source 查詢與 touch、ISBN 查詢、寫入新 Source、Bestseller 驗證與替換 | Integration / compat | PR4 M4 已實作（本機）：`deploy/migration-test/prev-release-on-contract.sh` 與 `deploy/tests/integration/test_prev_release_on_contract.py`，15 項檢查見 `deploy/docs/test-suite.md` §3.21；不在 CI。「Detail（含去重）」在 011 上無法構造：011 之後只有 `ISBN` 類型，而 PK `(book_id, identifier_type, identifier_value)` 讓同一本 Book 的同一個值只能有一筆，PR3 去重的輸入不存在；script 檢查的是 PR3 Detail 在 011 上正確顯示 ISBN。health 以 `GET /` 代表（app 沒有獨立的 health endpoint） |
+| 14 | Manual recovery compatibility：011 的 DB 搭配上一個 release 的 Web 與 crawler，手動恢復所需的 smoke 全部通過（CD compat 的 runtime smoke 依 I5 仍只供參考） | Integration / compat | PR4 M4 已實作（本機）：同一個 script 就是 manual recovery 的 smoke（011 的 DB 搭配上一個 release 的 Web 與 crawler），見 `deploy/README.md` §4.5；CD compat 的 runtime smoke 仍只供參考（I5） |
 | 15 | 已實作（`EfStaleDetectionTests.A_null_fill_makes_only_the_data_it_changes_stale`，DatabaseIntegration，9 組補值）。Stale 偵測依欄位（`Infrastructure/Persistence/BookMetadata.cs` 的 hash 輸入）：補 AUTHOR、subject 或 description → embedding FindPending 與 profile FindStale 都 stale；補 publisher 或 table_of_contents → 只有 profile stale；只補 published_date、page_count、thumbnail 或 ISBN → 都不要求 stale | Integration（DB） | PR3 |
-| 16 | Detail 去重：同一本 Book 有 `ISBN_13 X` 與 `ISBN X` 只顯示一次 `ISBN X`；值不同的 ISBN 全部顯示 | Unit + Web | PR2 已實作：`BookDetailViewModelTests`（同值去重與標籤順序）、`BookDetailPageTests.Isbn_type_is_labelled_plain_isbn_and_legacy_isbn13_with_the_same_value_is_not_repeated` |
+| 16 | Detail 只讀 ISBN：ISBN 值依值排序全部顯示；OTHER 不顯示（PR2 的同值去重在 011 後不再需要，同一本 Book 的同值只會有一筆 `ISBN`） | Unit + Web | PR2 已實作、PR4 M1 改寫：`BookDetailViewModelTests.Isbn_values_are_all_shown_as_isbn_ordered_by_value`、`BookDetailPageTests.Isbn_values_are_shown_ordered_by_value_and_other_identifiers_are_not_shown`、`EfBookDetailReaderTests.Identifiers_are_isbn_values_ordered_by_value_and_other_identifiers_are_excluded` |
 | 17 | touch 失敗：暫時性錯誤重試後成功；最後仍失敗時每日榜單為 `ERROR_SKIP` + `database_error` 且 run 繼續、分類榜只有該筆失敗、first_book FAILED exit 1；三種模式 `existing_source_count` 不加 1、`last_seen_at` 維持原值 | Crawler（DB） | PR3 |
 | 18 | C# 與 Python 讀同一份 `tests/Fixtures/isbn-normalization.json`（完整 `White_Space` 與反例），結果逐 byte 一致 | Unit + Crawler | PR2（C# 與 fixture）／PR3（Python） C# 部分已實作：`IsbnNormalizerTests`（fixture 全部 vector 與 White_Space 覆蓋）；Python 部分仍為 PR3 |
 | 19 | Source identity 矩陣（`data-model.md` §7.3）：以下兩種情況都回報 `source_identity_conflict`，而且不寫入任何資料：E 和 U 對到不同的 Source；E 沒有命中，但 U 命中的 Source 有不同的非 NULL `external_id`。E 沒有命中、U 命中的 Source 的 `external_id` 是 NULL 時，視為 Existing 並 touch，不 backfill。URL 漂移時保留既有 URL、記 WARNING，照常 touch | Crawler（DB） | PR3 |
-| 20 | 011 ISBN conversion preflight：不同 Book 有相同 ISBN 時仍通過、只回報統計；同一本 Book 的重複值正確去重，預估 row 數與實際一致 | Integration（DB） | PR4 |
+| 20 | 011 ISBN conversion preflight：不同 Book 有相同 ISBN 時仍通過、只回報統計；同一本 Book 的重複值正確去重，預估 row 數與實際一致 | Integration（DB） | PR4 M3 已實作：`ContractMigration011PreflightTests.Preflight_estimates_match_the_011_conversion_and_the_migration_result`（對 010 的資料跑 `deploy/migration-test/preflight/` 的 SQL，再升級到 011 比對實際 row 數）；`ContractMigration011VerifyTests`（contract allowance 的 `verify.sql` 對每種違規回傳列，011 seed 可在 011 上載入）|
 | 21 | 每個 PR：`dotnet build`、`dotnet test`、crawler pytest（含 DB integration）、`deploy/tests`、CI compat | 全部 | PR2／PR3／PR4 |
 
 另外：disabled provider 的既有 Book Source 仍出現在 Detail（PR2，已實作：`BookDetailPageTests.Source_of_a_disabled_provider_is_still_shown_with_its_provider_display_name`）；crawler 對 disabled provider 啟動 job 時 exit 2（PR3）。

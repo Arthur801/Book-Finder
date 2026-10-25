@@ -1,6 +1,7 @@
 # Infrastructure 架構
 
 > PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+> PR4 M1（#120）補記：2026-10-25 更新；程式變更以 `5052361`、`d864acc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 > 查核日期：2026-10-24；基準 `91333c3`。本次只做文件靜態檢查，未執行 build、測試、migration、部署或外部服務。
 
@@ -26,7 +27,8 @@
 | EmbeddingBackfillService／pending vector | [EfEmbeddingStore](../Persistence/EfEmbeddingStore.cs) | hash、batch selection、單句 upsert |
 | Profile scheduler | [queue](../BackgroundJobs/BookProfileQueue.cs)、[worker](../BackgroundJobs/BookProfileWorker.cs)、[store](../Persistence/EfBookProfileStore.cs) | bounded Channel、pending set、每書 scope、獨立 profile 表 |
 | Program／configuration | [HostingSetup](../Hosting/HostingSetup.cs) | 額外可信 CIDR、key ring 路徑 |
-| Multi-source（010 phase） | [MultiSourceCatalog](../Persistence/Migrations/20261024160045_MultiSourceCatalog.cs)：`source_providers`、`source_code`、雙向 trigger、`book_offers` | 過渡期 DB 同時有 `source_type`；EF 不 mapping；011 才收斂（data-model §11.4） |
+| Multi-source（010 phase） | [MultiSourceCatalog](../Persistence/Migrations/20261024160045_MultiSourceCatalog.cs)：`source_providers`、`source_code`、雙向 trigger、`book_offers` | 010 的 `source_type` 與 trigger 由 011 移除；EF 不 mapping（data-model §11.4） |
+| Multi-source contract（011） | [ContractMultiSourceCatalog](../Persistence/Migrations/20261025120000_ContractMultiSourceCatalog.cs)：`ISBN_10`／`ISBN_13` 轉 `ISBN`，移除 `source_type`、trigger、legacy partial unique；`book_subjects` PK 換成 `source_code`；Up 自我守衛（gate 4、5）；Down 還原 010 實體 schema | KINGSTONE／ESLITE 無 010 對應 source_type，Down 拒絕執行（data-model §11.3、§11.5） |
 | Domain entities | [AppDbContext](../Persistence/AppDbContext.cs)、[snapshot](../Persistence/Migrations/AppDbContextModelSnapshot.cs) | 12 application tables、snake_case、vector、constraints |
 
 ## 選型比較

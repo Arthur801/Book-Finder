@@ -122,7 +122,7 @@ jobs:
       - run: python -m pytest deploy/tests -q
 
       # These scripts run in the Docker job (release manifest, smoke tests and migration compat check); shellcheck catches shell mistakes earlier.
-      - run: shellcheck deploy/release/build-manifest.sh deploy/smoke/web-smoke.sh deploy/lib/manifest.sh deploy/lib/smoke.sh deploy/lib/schema_dump.sh deploy/lib/compat_plan.sh deploy/migration-test/compat.sh deploy/integration/imagetools-roundtrip.sh
+      - run: shellcheck deploy/release/build-manifest.sh deploy/smoke/web-smoke.sh deploy/lib/manifest.sh deploy/lib/smoke.sh deploy/lib/schema_dump.sh deploy/lib/compat_plan.sh deploy/lib/contract_allowance.sh deploy/migration-test/compat.sh deploy/integration/imagetools-roundtrip.sh
 
   dotnet:
     name: .NET build and tests
@@ -244,6 +244,17 @@ jobs:
           print("| --- | --- | --- |")
           for check in report["checks"]:
               print(f"| {check['name']} | {check['result']} | {check['detail']} |")
+          allowances = report.get("contract_allowances") or []
+          if allowances:
+              print()
+              print("### Contract allowances")
+              print()
+              print("| migration | dropped columns | rewritten tables | verify rows | verify |")
+              print("| --- | --- | --- | --- | --- |")
+              for item in allowances:
+                  verify = item["verify"]
+                  rows = "-" if verify["rows"] is None else verify["rows"]
+                  print(f"| {item['migration']} | {', '.join(item['dropped_columns']) or 'none'} | {', '.join(item['rewritten_tables']) or 'none'} | {rows} | {verify['result']} |")
           PY
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

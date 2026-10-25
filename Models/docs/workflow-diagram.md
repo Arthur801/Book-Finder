@@ -77,7 +77,7 @@ flowchart TD
     O --> URL[封面與來源限定絕對 http 或 https]
     URL --> G[Contributor 依 Order 排序再按 Role 分組]
     G --> INFO[出版社 日期 ISBN 分類 頁數]
-    INFO -->|ISBN 家族同值去重：ISBN > ISBN-13 > ISBN-10；OTHER 不顯示| ISBNROWS[ISBN 列依優先序與值排序]
+    INFO -->|只讀 ISBN；OTHER 不顯示| ISBNROWS[ISBN 列依值排序]
     INFO --> LINKS[博客來優先主連結；否則第一個合格來源為主連結；文字用 ProviderDisplayName]
     LINKS --> VM[BookDetailViewModel]
     VM --> VIEW[Detail View]

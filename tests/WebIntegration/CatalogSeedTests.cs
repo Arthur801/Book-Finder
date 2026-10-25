@@ -25,7 +25,7 @@ public sealed class CatalogSeedTests(WebFixture fixture)
                 ThumbnailUrl = "https://img.example.test/three-body.jpg",
                 Description = "簡介文字",
                 TableOfContents = "目錄文字",
-                Identifiers = [new IdentifierSeed(IdentifierType.Isbn13, "9789862620998")],
+                Identifiers = [new IdentifierSeed(IdentifierType.Isbn, "9789862620998")],
                 Contributors = [new ContributorSeed(1, "劉慈欣", ContributorRole.Author)],
                 Subjects = [new SubjectSeed("科幻")],
                 Sources =
@@ -46,7 +46,7 @@ public sealed class CatalogSeedTests(WebFixture fixture)
             ("zh-TW", 400, "https://img.example.test/three-body.jpg"), (stored.Language, stored.PageCount, stored.ThumbnailUrl));
         Assert.Equal(("簡介文字", "目錄文字"), (stored.Description, stored.TableOfContents));
         var identifier = await db.BookIdentifiers.SingleAsync(x => x.BookId == book.BookId);
-        Assert.Equal((IdentifierType.Isbn13, "9789862620998"), (identifier.IdentifierType, identifier.IdentifierValue));
+        Assert.Equal((IdentifierType.Isbn, "9789862620998"), (identifier.IdentifierType, identifier.IdentifierValue));
         var contributor = await db.BookContributors.SingleAsync(x => x.BookId == book.BookId);
         Assert.Equal(((short)1, "劉慈欣", ContributorRole.Author), (contributor.ContributorOrder, contributor.Name, contributor.Role));
         var subject = await db.BookSubjects.SingleAsync(x => x.BookId == book.BookId);

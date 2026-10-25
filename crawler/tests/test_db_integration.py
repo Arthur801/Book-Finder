@@ -126,13 +126,13 @@ def test_full_ranking_success_writes_100_bestsellers(db_url):
     joined = query(
         db_url,
         """
-        SELECT b.rank, s.source_type, s.source_url, s.book_id, b.book_id, s.id, b.source_id
+        SELECT b.rank, s.source_code, s.source_url, s.book_id, b.book_id, s.id, b.source_id
         FROM bestsellers b JOIN book_sources s ON s.id = b.source_id
         ORDER BY b.rank
         """,
     )
-    for (rank, source_type, source_url, source_book_id, bestseller_book_id, source_id, bestseller_source_id), row in zip(joined, rows, strict=True):
-        assert source_type == "BOOKS_COM_TW"
+    for (rank, source_code, source_url, source_book_id, bestseller_book_id, source_id, bestseller_source_id), row in zip(joined, rows, strict=True):
+        assert source_code == "BOOKS_COM_TW"
         assert source_url == row.url
         assert source_book_id == bestseller_book_id
         assert source_id == bestseller_source_id
@@ -141,7 +141,7 @@ def test_full_ranking_success_writes_100_bestsellers(db_url):
 def test_existing_urls_are_reused_without_detail_fetch_or_metadata_change(db_url):
     run(db_url, ranking_rows(100))
     before = query(db_url, "SELECT id, title, publisher, created_at, updated_at FROM books ORDER BY id")
-    old_ids_by_url = dict(query(db_url, "SELECT source_url, book_id FROM book_sources WHERE source_type = 'BOOKS_COM_TW'"))
+    old_ids_by_url = dict(query(db_url, "SELECT source_url, book_id FROM book_sources WHERE source_code = 'BOOKS_COM_TW'"))
 
     # Second run: products 51..100 are already known, 101..150 are new. The drafts for the known
     # products carry different titles, so any accidental overwrite would be visible.
@@ -398,7 +398,7 @@ def test_new_source_with_known_isbn_attaches_to_existing_book(db_url, caplog, ra
     assert query(db_url, "SELECT identifier_type, identifier_value FROM book_identifiers WHERE book_id = %s", (existing_book_id,)) == identifiers_before
     assert query(
         db_url,
-        "SELECT book_id, source_type, external_id, first_seen_at, last_seen_at FROM book_sources WHERE source_url = %s",
+        "SELECT book_id, source_code, external_id, first_seen_at, last_seen_at FROM book_sources WHERE source_url = %s",
         (product_url(101),),
     ) == [(existing_book_id, "BOOKS_COM_TW", None, NOW, NOW)]
 
@@ -641,13 +641,13 @@ def test_new_book_columns_match_data_model_with_nulls_for_missing_fields(db_url)
         "SELECT contributor_order, name, role FROM book_contributors WHERE book_id = %s ORDER BY contributor_order",
         (book_id,),
     ) == [(1, "作者甲", "AUTHOR"), (2, "譯者乙", "TRANSLATOR")]
-    assert query(db_url, "SELECT subject, source_type FROM book_subjects WHERE book_id = %s ORDER BY subject", (book_id,)) == [
+    assert query(db_url, "SELECT subject, source_code FROM book_subjects WHERE book_id = %s ORDER BY subject", (book_id,)) == [
         ("小說", "BOOKS_COM_TW"),
         ("文學", "BOOKS_COM_TW"),
     ]
     assert query(
         db_url,
-        "SELECT source_type, external_id, first_seen_at, last_seen_at FROM book_sources WHERE source_url = %s",
+        "SELECT source_code, external_id, first_seen_at, last_seen_at FROM book_sources WHERE source_url = %s",
         (full_url,),
     ) == [("BOOKS_COM_TW", None, NOW, NOW)]
 
@@ -702,7 +702,7 @@ def test_replacement_rejects_a_source_that_is_not_the_books_own_books_com_tw_sou
         query(
             db_url,
             """
-            INSERT INTO book_sources (id, book_id, source_type, external_id, source_url, first_seen_at, last_seen_at)
+            INSERT INTO book_sources (id, book_id, source_code, external_id, source_url, first_seen_at, last_seen_at)
             VALUES (%s, %s, 'GOOGLE_BOOKS', 'volume-1', 'https://books.google.com/books?id=volume-1', %s, %s)
             RETURNING id
             """,
@@ -986,14 +986,14 @@ def test_isbn_draft_with_no_match_imports_a_new_book_with_an_isbn_identifier(db_
     assert query(db_url, "SELECT identifier_type, identifier_value FROM book_identifiers WHERE book_id = %s", (book,)) == [("ISBN", "9780306406157")]
 
 
-def test_legacy_isbn13_row_and_a_draft_isbn_with_the_same_value_are_the_same_book(db_url):
+def test_existing_isbn_row_and_a_draft_isbn_with_the_same_value_are_the_same_book(db_url):
     _seed_with_identifiers(db_url, {})
-    legacy_book = _book_of(db_url, product_url(1))
-    # A v0.0.4 identifier row: the value is the same, the type is the legacy ISBN_13.
+    existing_book = _book_of(db_url, product_url(1))
+    # Migration 011 converted every legacy ISBN_10 / ISBN_13 row to ISBN, so the existing row is the ISBN type.
     execute(
         db_url,
-        "INSERT INTO book_identifiers (book_id, identifier_type, identifier_value) VALUES (%s, 'ISBN_13', '9780306406157')",
-        (legacy_book,),
+        "INSERT INTO book_identifiers (book_id, identifier_type, identifier_value) VALUES (%s, 'ISBN', '9780306406157')",
+        (existing_book,),
     )
     rows = [RankingRow(rank=1, url=product_url(101))] + [RankingRow(rank=rank, url=product_url(rank)) for rank in range(2, 101)]
     drafts = {row.url: make_draft(row.url) for row in rows}
@@ -1002,7 +1002,7 @@ def test_legacy_isbn13_row_and_a_draft_isbn_with_the_same_value_are_the_same_boo
     report, _ = run(db_url, rows, drafts)
 
     assert (report.attached_source_count, report.new_book_count) == (1, 0)
-    assert _book_of(db_url, product_url(101)) == legacy_book
+    assert _book_of(db_url, product_url(101)) == existing_book
 
 
 def test_attach_fills_only_null_columns_adds_author_when_missing_and_sets_updated_at(db_url):
@@ -1033,7 +1033,7 @@ def test_attach_fills_only_null_columns_adds_author_when_missing_and_sets_update
     ) == [("Original publisher", date(2026, 10, 11), "DAY", "zh-TW", "內容簡介", 300, LATER)]
     assert query(db_url, "SELECT contributor_order, name, role FROM book_contributors WHERE book_id = %s", (book_a,)) == [(1, "作者甲", "AUTHOR")]
     assert count(db_url, "book_identifiers") == 2  # the seeded ISBN is not duplicated; the new ISBN is added
-    assert query(db_url, "SELECT subject, source_type, source_code FROM book_subjects WHERE book_id = %s", (book_a,)) == [("文學", "BOOKS_COM_TW", "BOOKS_COM_TW")]
+    assert query(db_url, "SELECT subject, source_code FROM book_subjects WHERE book_id = %s", (book_a,)) == [("文學", "BOOKS_COM_TW")]
     assert query(db_url, "SELECT source_code, first_seen_at, last_seen_at FROM book_sources WHERE source_url = %s", (product_url(101),)) == [
         ("BOOKS_COM_TW", LATER, LATER)
     ]
@@ -1177,19 +1177,41 @@ def test_null_external_id_on_the_url_match_is_existing_without_backfill(db_url):
     assert query(db_url, "SELECT external_id FROM book_sources WHERE source_url = %s", (product_url(3),)) == [(None,)]
 
 
-def test_writes_through_the_crawler_leave_source_type_equal_to_source_code(db_url):
+def test_source_type_columns_are_gone_after_migration_011(db_url):
+    # Migration 011 removed the 010 expand artifacts: no source_type column on either table, and writes use source_code only.
+    columns = query(db_url, "SELECT table_name FROM information_schema.columns WHERE table_schema = current_schema() AND column_name = 'source_type'")
+    assert columns == []
     _seed_with_identifiers(db_url, {})
-    assert query(db_url, "SELECT count(*) FROM book_sources WHERE source_type IS DISTINCT FROM source_code") == [(0,)]
+    assert query(db_url, "SELECT count(*) FROM book_sources WHERE source_code IS NULL") == [(0,)]
+    assert query(db_url, "SELECT count(*) FROM book_subjects WHERE source_code IS NULL") == [(0,)]
 
-    # A v0.0.4 style insert (only source_type) is completed by the trigger from its value.
+
+def test_legacy_identifier_types_are_rejected_by_the_schema(db_url):
+    # The identifier check after 011 allows only ISBN and OTHER; the ISBN_10 / ISBN_13 writes of v0.0.4 are refused.
+    _seed_with_identifiers(db_url, {})
     book = _book_of(db_url, product_url(1))
+    for legacy_type in ("ISBN_10", "ISBN_13"):
+        with pytest.raises(psycopg.errors.CheckViolation):
+            execute(
+                db_url,
+                "INSERT INTO book_identifiers (book_id, identifier_type, identifier_value) VALUES (%s, %s, '9780306406157')",
+                (book, legacy_type),
+            )
+
+
+def test_isbn_matching_ignores_other_identifier_types(db_url):
+    # data-model 7.2 after 011: the distinct-Book lookup queries only 'ISBN'; an OTHER row with the same value is not a match.
+    _seed_with_identifiers(db_url, {})
+    other_book = _book_of(db_url, product_url(1))
     execute(
         db_url,
-        """INSERT INTO book_sources (id, book_id, source_type, external_id, source_url, first_seen_at, last_seen_at)
-           VALUES (gen_random_uuid(), %s, 'BOOKS_COM_TW', NULL, 'https://www.books.com.tw/products/legacy', %s, %s)""",
-        (book, NOW, NOW),
+        "INSERT INTO book_identifiers (book_id, identifier_type, identifier_value) VALUES (%s, 'OTHER', '9780306406157')",
+        (other_book,),
     )
-    assert query(db_url, "SELECT source_code FROM book_sources WHERE source_url = 'https://www.books.com.tw/products/legacy'") == [("BOOKS_COM_TW",)]
+    with db.connect(db_url) as conn:
+        assert db.find_books_by_isbn(conn, ["9780306406157"]) == []
+        execute(db_url, "INSERT INTO book_identifiers (book_id, identifier_type, identifier_value) VALUES (%s, 'ISBN', '9780306406157')", (other_book,))
+        assert db.find_books_by_isbn(conn, ["9780306406157"]) == [other_book]
 
 
 def test_provider_enabled_reads_the_registry_row(db_url):

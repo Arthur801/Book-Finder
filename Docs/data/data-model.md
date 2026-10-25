@@ -313,7 +313,7 @@ Allowed types：
 | Type | 狀態 | 說明 |
 |---|---|---|
 | `ISBN` | 目標 | 新 writer 只寫這個類型；值依 §7.1 正規化，不區分 10／13 碼 |
-| `ISBN_10`、`ISBN_13` | legacy，過渡至 011 | v0.0.4 以前寫入的資料；010 起不再新增，011 轉成 `ISBN` 後移除（§11.3） |
+| `ISBN_10`、`ISBN_13` | legacy，已於 011 移除（`5052361`） | v0.0.4 以前寫入的資料；010 起不再新增，011 轉成 `ISBN` 後移除（§11.3） |
 | `OTHER` | 目標 | 其他識別碼；不參與 ISBN 比對與搜尋 |
 
 Primary key：
@@ -325,7 +325,7 @@ Primary key：
 Uniqueness：
 
 - `ISBN` 類型**不要求跨 Book 唯一**：不同 Book 可以有相同的 ISBN 值（例如來源資料錯誤或同 ISBN 的不同商品）。跨來源去重由 §7.2 的 distinct Book 數量判斷，不依賴 DB unique。
-- 過渡期保留 legacy 的 partial unique `UNIQUE(identifier_type, identifier_value) WHERE identifier_type IN ('ISBN_10','ISBN_13')`，它只約束 legacy 類型；011 DROP。
+- 過渡期保留 legacy 的 partial unique `UNIQUE(identifier_type, identifier_value) WHERE identifier_type IN ('ISBN_10','ISBN_13')`，它只約束 legacy 類型；011 已 DROP（`5052361`）。
 
 寫入前的正規化見 §7.1（不驗證長度與 checksum）。
 
@@ -598,7 +598,7 @@ NFKC 與 White_Space 都固定在 **Unicode 15.1**，與 runtime 內建的 Unico
 ```
 
 - 無 ISBN 時（或正規化後沒有任何值），不得只因 title / author 相似就自動跨來源 merge，直接建立新 Book。
-- 舊的 `ISBN_13` 資料與新 draft 的 `ISBN` 值相同時，對到同一本 Book（步驟 2 同時查三種類型）。
+- 舊的 `ISBN_13` 資料與新 draft 的 `ISBN` 值相同時，對到同一本 Book（010 期間步驟 2 同時查三種類型；011 已把舊資料轉成 `ISBN`，之後只查 `ISBN` 也得到同一結果）。
 
 ### 7.3 Source identity 衝突與 URL 漂移
 
@@ -824,8 +824,9 @@ Multi-source 變更採 **expand（010）→ contract（011）** 兩階段。理�
    - 因 `ON CONFLICT DO NOTHING` 而消失的資料，只能是同一本 Book、同一個值的預期去重。
    - 預估的 row 數與 migration 後實際的 row 數一致。
    - 不同 Book 有相同的 ISBN 是允許的，只做統計並記 INFO，**不算失敗**。
+   - 檢查 SQL：`deploy/migration-test/preflight/20261025120000_ContractMultiSourceCatalog.sql`（唯讀，在 `BEGIN READ ONLY` 內執行並 ROLLBACK）。操作方式與通過條件見 `deploy/README.md` §4.4；每一列的 `ok` 都必須為 `true`。
 8. compat 通過，並確認 backup 與 recovery 都可用。
-9. PR3 runtime 在 011 上的相容性驗證通過（PR3 Web：Search、Detail 含去重、health；PR3 crawler：Existing Source 查詢與 touch、ISBN 查詢、寫入新 Source、Bestseller 驗證與替換），以及 manual recovery compatibility（011 的 DB 搭配上一個 release 的 Web 與 crawler，手動恢復所需的 smoke 全部通過）。CD compat 的 runtime smoke 依 ADR-006 I5 仍只供參考，這項由 PR4 另外以測試證明（`Docs/testing/test-plan.md` §7）。
+9. PR3 runtime 在 011 上的相容性驗證通過（PR3 Web：Search、Detail 含去重、health；PR3 crawler：Existing Source 查詢與 touch、ISBN 查詢、寫入新 Source、Bestseller 驗證與替換），以及 manual recovery compatibility（011 的 DB 搭配上一個 release 的 Web 與 crawler，手動恢復所需的 smoke 全部通過）。CD compat 的 runtime smoke 依 ADR-006 I5 仍只供參考，這項由 PR4 另外以測試證明（`Docs/testing/test-plan.md` §7）。證據：`deploy/migration-test/prev-release-on-contract.sh`（本機執行，`deploy/README.md` §4.5；檢查項目見 `deploy/docs/test-suite.md` §3.21）。
 
 ### 11.4 010 phase 的 database-only compatibility artifacts
 
@@ -923,7 +924,7 @@ External verification references：
 - `IdentifierType` 只有 `Isbn10`／`Isbn13`／`Other`；ISBN 以 partial unique 跨 Book 唯一；crawler 寫入前驗證格式與 checksum（`crawler/books_crawler/normalize.py`），不合格的值被丟棄。
 - crawler 依 ISBN-13 → ISBN-10 逐一比對；ISBN 命中時只附加 Source、不補 NULL；榜內重複的新 Source 不寫入；`last_seen_at` 只在 Bestseller 替換 transaction 中更新。
 
-crawler 的實作狀態（#116 phase A／B，2026-10-25）：crawler 只讀寫 `source_code`（trigger 補 `source_type`）；ISBN 依 §7.1 正規化、寫入型別 `ISBN`、不驗證 checksum；比對依 §7.2 的 distinct Book（三種類型）；附加時依 §7.4 補 NULL；Source identity 依 §7.3 矩陣；`last_seen_at` 在獨立 transaction touch；disabled provider 以 exit 2 拒絕執行。上方第一、第三點描述的是 #113 之前的程式，已由 crawler 實作取代；尚未完成的只有 migration 011 與 `IdentifierType.Isbn10`／`Isbn13` 的移除（PR4）。
+crawler 的實作狀態（#116 phase A／B，2026-10-25）：crawler 只讀寫 `source_code`（011 後無 `source_type`）；ISBN 依 §7.1 正規化、寫入型別 `ISBN`、不驗證 checksum；比對依 §7.2 的 distinct Book（PR4 M2 起只查 `ISBN`）；附加時依 §7.4 補 NULL；Source identity 依 §7.3 矩陣；`last_seen_at` 在獨立 transaction touch；disabled provider 以 exit 2 拒絕執行。上方第一、第三點描述的是 #113 之前的程式，已由 crawler 實作取代；PR4 M1（`5052361`）已完成 migration 011 與 `IdentifierType.Isbn10`／`Isbn13` 的移除，M2（`f92a63d`）已讓 crawler 只查 `ISBN`；M3 已加入 011 的 CD seed、compat 的 contract allowance 與 gate 7 preflight，M4 已加入 gate 9 的本機證據；仍待：§11.3 gate 在 production 的執行證據與部署授權（L4）。
 
 收斂順序（每個 PR 合併後下一個才從最新 main 建立）：
 

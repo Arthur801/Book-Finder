@@ -303,16 +303,16 @@ public sealed class BookDetailPageTests(WebFixture fixture)
     }
 
     [Fact]
-    public async Task Isbn_13_is_shown_before_isbn_10_and_other_identifiers_are_not_shown()
+    public async Task Isbn_values_are_shown_ordered_by_value_and_other_identifiers_are_not_shown()
     {
         await fixture.ResetDatabaseAsync();
         var book = await AddBookAsync(new BookSeed("三體")
         {
             Identifiers =
             [
-                new IdentifierSeed(IdentifierType.Isbn10, "9862620998"),
+                new IdentifierSeed(IdentifierType.Isbn, "9862620998"),
                 new IdentifierSeed(IdentifierType.Other, "OTHER-ID-998877"),
-                new IdentifierSeed(IdentifierType.Isbn13, "9789862620998"),
+                new IdentifierSeed(IdentifierType.Isbn, "9789862620998"),
             ],
         });
         await using var app = fixture.CreateFactory();
@@ -320,31 +320,9 @@ public sealed class BookDetailPageTests(WebFixture fixture)
         var html = await app.CreateClient().GetPageAsync(DetailPath(book));
 
         Assert.Equal(
-            [("ISBN-13", "9789862620998"), ("ISBN-10", "9862620998")],
+            [("ISBN", "9789862620998"), ("ISBN", "9862620998")],
             HtmlPage.InfoRows(html).Where(row => row.Label.StartsWith("ISBN", StringComparison.Ordinal)));
         Assert.DoesNotContain("OTHER-ID-998877", html);
-    }
-
-    [Fact]
-    public async Task Isbn_type_is_labelled_plain_isbn_and_legacy_isbn13_with_the_same_value_is_not_repeated()
-    {
-        await fixture.ResetDatabaseAsync();
-        var book = await AddBookAsync(new BookSeed("三體")
-        {
-            Identifiers =
-            [
-                new IdentifierSeed(IdentifierType.Isbn13, "9789862620998"),
-                new IdentifierSeed(IdentifierType.Isbn, "9789862620998"),
-                new IdentifierSeed(IdentifierType.Isbn, "9789861234567"),
-            ],
-        });
-        await using var app = fixture.CreateFactory();
-
-        var html = await app.CreateClient().GetPageAsync(DetailPath(book));
-
-        Assert.Equal(
-            [("ISBN", "9789861234567"), ("ISBN", "9789862620998")],
-            HtmlPage.InfoRows(html).Where(row => row.Label.StartsWith("ISBN", StringComparison.Ordinal)));
     }
 
     // A provider's enabled flag only controls acquisition; its existing sources must still be shown (book-catalog 4, data-model 6.1).

@@ -17,6 +17,5 @@ public class BookIdentifierConfiguration : IEntityTypeConfiguration<BookIdentifi
         builder.Property(x => x.IdentifierType).HasColumnType("varchar(16)").HasStoredEnumConversion();
         builder.Property(x => x.IdentifierValue).HasColumnType("varchar(64)").IsRequired();
         builder.HasOne<Book>().WithMany().HasForeignKey(x => x.BookId).OnDelete(DeleteBehavior.Cascade);
-        builder.HasIndex(x => new { x.IdentifierType, x.IdentifierValue }).IsUnique().HasFilter(StoredEnum.InSql("identifier_type", IdentifierType.Isbn10, IdentifierType.Isbn13));
     }
 }

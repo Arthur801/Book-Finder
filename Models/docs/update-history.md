@@ -1,6 +1,7 @@
 # Models Git 修改歷史
 
 > PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+> PR4 M1（#120）補記：2026-10-25 更新；程式變更以 `5052361`、`d864acc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 查核基準 `91333c3` 的 source history 如下；`Models/docs` 明確排除，不將 PR #100 新增或後續修正的文件 commits 計入 source history。
 
@@ -86,3 +87,4 @@ git show cda623f -- Models
 | 2026-10-25 | `d9d8948` | feat(catalog): read ISBN, ISBN-13 and ISBN-10 and provider names on detail | `BookDetailViewModel.cs`：ISBN 值去重（優先度 ISBN > ISBN-13 > ISBN-10）、連結文字以 `ProviderDisplayName` 產生、主要按鈕改為博客來優先否則任一 provider 的第一個合格來源 |
 | 2026-10-25 | `bbe0a0a` | refactor(catalog): share ISBN-family types and display priority | `BookDetailViewModel.cs`：ISBN 去重與排序改用 IsbnIdentifierTypes，view model 為唯一的去重與排序層 |
 | 2026-10-25 | `c3021e3` | fix(catalog): make the detail reader own ISBN identifier order | `BookDetailViewModel.cs`：註解改為 reader 擁有排序，view model 只做同值去重（行為不變） |
+| 2026-10-25 | `5052361` | feat(catalog): contract migration 011 and read only the ISBN type | `BookDetailViewModel.cs`：`IdentifierLabel` 移除 `Isbn13`／`Isbn10`；`IdentifierRows` 改為只取 `Isbn` 並依值排序，移除同值去重與 `IsbnIdentifierTypes` 依賴 |

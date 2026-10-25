@@ -44,7 +44,7 @@ normalized 符合 ISBN-13（13 位數字）或 ISBN-10（9 位數字 + 數字或
 
 | 模式 | 比對 |
 |---|---|
-| ISBN | `book_identifiers.identifier_type IN (ISBN, ISBN_13, ISBN_10) AND identifier_value = normalized`（過渡期查三種類型；migration 011 之後只查 `ISBN`，`data-model.md` §11.3。不做 ISBN-10 ↔ 13 互轉；`OTHER` 類型不參與） |
+| ISBN | `book_identifiers.identifier_type = ISBN AND identifier_value = normalized`（migration 011 之後只查 `ISBN`，`data-model.md` §11.3。不做 ISBN-10 ↔ 13 互轉；`OTHER` 類型不參與） |
 | 關鍵字 | `books.title ILIKE '%q%'` OR 任一 `book_contributors.name ILIKE '%q%'` |
 
 - 整段 `q` 當作一個字串比對，不拆詞。
@@ -106,7 +106,7 @@ normalized 符合 ISBN-13（13 位數字）或 ISBN-10（9 位數字 + 數字或
 
 - 出版日期依精度（一般搜尋共用）：`YEAR` → `2011`，`MONTH` → `2011-03`，`DAY` → `2011-03-15`。
 - 貢獻者依角色分組，每組一行，例「作者：劉慈欣、作者乙」「譯者：譯者甲」。組的順序依各角色第一次出現的 `contributor_order`；組內名字依 `contributor_order`，以「、」連接。角色標籤：`AUTHOR` 作者、`ORIGINAL_AUTHOR` 原文作者、`TRANSLATOR` 譯者、`EDITOR` 編者、`ILLUSTRATOR` 繪者、`OTHER` 其他。
-- ISBN：`ISBN` 類型標示為「ISBN」，legacy 的 `ISBN_13`、`ISBN_10` 維持標示「ISBN-13」「ISBN-10」；`OTHER` 類型的 identifier 不顯示。過渡期（migration 010 至 011）同一本書可能同時有 `ISBN`、`ISBN_13`、`ISBN_10` 資料：值相同時依類型優先順序 `ISBN` > `ISBN_13` > `ISBN_10` 只顯示一次（例如 `ISBN X` 與 `ISBN_13 X` 只顯示一次 `ISBN X`）；值不同的全部顯示。011 之後只讀 `ISBN`。
+- ISBN：`ISBN` 類型標示為「ISBN」，依值排序全部顯示；`OTHER` 類型的 identifier 不顯示。migration 011 之後只讀 `ISBN`（legacy `ISBN_13`、`ISBN_10` 已轉為 `ISBN`，同一本書的同值只會有一筆）。
 - 分類：依分類文字排序，以「、」連接。`book_subjects` 沒有順序欄位，來源的層級順序（例：人文社科 > 政治 > 政治人物）無法還原；保留層級順序列為進階目標（§8）。
 - 沒有值的欄位（副標、出版社、出版日期、ISBN、分類、頁數）整列不顯示。沒有封面時顯示「無封面」佔位。
 - 外部連結以新分頁開啟（`target="_blank" rel="noopener noreferrer"`）。
@@ -128,7 +128,7 @@ normalized 符合 ISBN-13（13 位數字）或 ISBN-10（9 位數字 + 數字或
 2. 沒有博客來來源時，依同樣的 `first_seen_at`、`id` 順序取第一個合格來源為主要按鈕（例如只有 Google Books 來源的書，Google Books 連結即為主要按鈕「在 Google Books 查看」）。
 3. 不合格的網址不產生連結，主要按鈕改由下一個合格的來源擔任（§4.1）。
 
-> 實作狀態：PR2（#115）已改為 `{Id, SourceCode, ProviderDisplayName, Url, FirstSeenAt}` 並 JOIN `source_providers`（不以 `enabled` 過濾）；Detail 與一般搜尋讀三種 ISBN 類型。011 之前仍為過渡期。
+> 實作狀態：PR2（#115）已改為 `{Id, SourceCode, ProviderDisplayName, Url, FirstSeenAt}` 並 JOIN `source_providers`（不以 `enabled` 過濾）；Detail 與一般搜尋只讀 `ISBN`（PR4 M1，`5052361`；migration 011 已在 head）。
 
 Library 狀態（BOOK-04）：已登入且該書在 Library 中時，顯示並可修改 Reading Status 與評分（行為見 `user-library.md`）。Library 狀態不進入 cache。
 
@@ -172,8 +172,8 @@ Library 狀態（BOOK-04）：已登入且該書在 Library 中時，顯示並�
 - LIKE 特殊字元 escape。
 - 排序：完全相符優先、出版日期新到舊、NULL 最後。
 - 查無結果時不呼叫 Google Books（以 fake adapter 驗證沒有呼叫）。
-- ISBN 搜尋：`ISBN`、`ISBN_13`、`ISBN_10` 三種類型都查得到；輸入 `ABC123` 不走 ISBN 模式。
-- Book 詳細頁：同值的 `ISBN_13 X` 與 `ISBN X` 只顯示一次；disabled provider 的來源仍顯示；連結文字取自 `display_name`。
+- ISBN 搜尋：只查 `ISBN` 類型，`OTHER` 不命中；輸入 `ABC123` 不走 ISBN 模式。
+- Book 詳細頁：ISBN 值依值排序全部顯示，OTHER 不顯示；disabled provider 的來源仍顯示；連結文字取自 `display_name`。
 - Google Books 寫入：ISBN 恰好命中 1 本時不建立 duplicate Book 且只補 NULL；命中 ≥ 2 本或無 ISBN 時建立新 Book。
 
 ## 8. 進階開發目標

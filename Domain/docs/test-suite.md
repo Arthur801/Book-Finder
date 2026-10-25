@@ -1,6 +1,7 @@
 # Domain 文字測試案例庫
 
 > PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+> PR4 M1（#120）補記：2026-10-25 更新；程式變更以 `5052361`、`d864acc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 查核：2026-10-24；HEAD `91333c3`。本次只做靜態查核，沒有執行下列測試。已有測試不表示本次已通過。Domain 無獨立測試專案，多數 invariant 在 DB integration 與 Application/contract tests 斷言。
 

@@ -49,19 +49,19 @@ INSERT INTO books(id, title, page_count, created_at, updated_at) VALUES
 INSERT INTO users(id, email, password_hash, display_name, created_at, updated_at) VALUES
  ('00000000-0000-0000-0000-000000000101', 'Test@example.test', 'fixture', 'Test', now(), now()),
  ('00000000-0000-0000-0000-000000000102', 'cascade@example.test', 'fixture', 'Cascade', now(), now());
-INSERT INTO book_sources(id, book_id, source_type, external_id, source_url, first_seen_at, last_seen_at) VALUES
+INSERT INTO book_sources(id, book_id, source_code, external_id, source_url, first_seen_at, last_seen_at) VALUES
  ('00000000-0000-0000-0000-000000000301', '00000000-0000-0000-0000-000000000001', 'BOOKS_COM_TW', NULL, 'https://example.test/1', now(), now()),
  ('00000000-0000-0000-0000-000000000302', '00000000-0000-0000-0000-000000000002', 'GOOGLE_BOOKS', 'volume-2', 'https://example.test/2', now(), now()),
  ('00000000-0000-0000-0000-000000000303', '00000000-0000-0000-0000-000000000003', 'BOOKS_COM_TW', NULL, 'https://example.test/3', now(), now()),
  ('00000000-0000-0000-0000-000000000304', '00000000-0000-0000-0000-000000000004', 'BOOKS_COM_TW', NULL, 'https://example.test/4', now(), now());
 INSERT INTO book_identifiers(book_id, identifier_type, identifier_value) VALUES
- ('00000000-0000-0000-0000-000000000001', 'ISBN_13', '9780132350884'),
- ('00000000-0000-0000-0000-000000000001', 'ISBN_10', '0132350882'),
+ ('00000000-0000-0000-0000-000000000001', 'ISBN', '9780132350884'),
+ ('00000000-0000-0000-0000-000000000001', 'ISBN', '0132350882'),
  ('00000000-0000-0000-0000-000000000001', 'OTHER', 'shared'),
  ('00000000-0000-0000-0000-000000000002', 'OTHER', 'shared'),
  ('00000000-0000-0000-0000-000000000003', 'OTHER', 'cascade');
 INSERT INTO book_contributors(book_id, contributor_order, name, role) VALUES ('00000000-0000-0000-0000-000000000003', 1, 'Test Author', 'AUTHOR');
-INSERT INTO book_subjects(book_id, subject, source_type) VALUES ('00000000-0000-0000-0000-000000000003', 'Test', 'BOOKS_COM_TW');
+INSERT INTO book_subjects(book_id, subject, source_code) VALUES ('00000000-0000-0000-0000-000000000003', 'Test', 'BOOKS_COM_TW');
 INSERT INTO book_ai_profiles(book_id, difficulty, source_content_hash, model_name, prompt_version, updated_at)
  VALUES ('00000000-0000-0000-0000-000000000003', NULL, repeat('a', 64), 'fixture', 'v1', now());
 INSERT INTO book_embeddings(book_id, embedding, model_name, source_content_hash, updated_at)
@@ -84,13 +84,13 @@ INSERT INTO recommendation_results(search_id, book_id, rank, relevance_score, re
 -- unique URL
 SELECT pg_temp.expect_failure($stmt$UPDATE book_sources SET source_url='https://example.test/1' WHERE id='00000000-0000-0000-0000-000000000303'$stmt$, '23505');
 -- unique external ID
-SELECT pg_temp.expect_failure($stmt$INSERT INTO book_sources(id, book_id, source_type, external_id, source_url, first_seen_at, last_seen_at) VALUES(gen_random_uuid(),'00000000-0000-0000-0000-000000000001','GOOGLE_BOOKS','volume-2','https://example.test/new',now(),now())$stmt$, '23505');
--- source enum
-SELECT pg_temp.expect_failure($stmt$UPDATE book_sources SET source_type='INVALID'$stmt$, '23514');
--- ISBN13 across books
-SELECT pg_temp.expect_failure($stmt$INSERT INTO book_identifiers(book_id, identifier_type, identifier_value) VALUES('00000000-0000-0000-0000-000000000002','ISBN_13','9780132350884')$stmt$, '23505');
--- ISBN10 across books
-SELECT pg_temp.expect_failure($stmt$INSERT INTO book_identifiers(book_id, identifier_type, identifier_value) VALUES('00000000-0000-0000-0000-000000000002','ISBN_10','0132350882')$stmt$, '23505');
+SELECT pg_temp.expect_failure($stmt$INSERT INTO book_sources(id, book_id, source_code, external_id, source_url, first_seen_at, last_seen_at) VALUES(gen_random_uuid(),'00000000-0000-0000-0000-000000000001','GOOGLE_BOOKS','volume-2','https://example.test/new',now(),now())$stmt$, '23505');
+-- source code is a foreign key to the provider registry
+SELECT pg_temp.expect_failure($stmt$UPDATE book_sources SET source_code='INVALID'$stmt$, '23503');
+-- ISBN values are not unique across books (data-model 6.5): the same ISBN may belong to another Book
+INSERT INTO book_identifiers(book_id, identifier_type, identifier_value) VALUES('00000000-0000-0000-0000-000000000002','ISBN','9780132350884');
+-- legacy identifier types no longer exist after 011
+SELECT pg_temp.expect_failure($stmt$INSERT INTO book_identifiers(book_id, identifier_type, identifier_value) VALUES('00000000-0000-0000-0000-000000000002','ISBN_13','9780132350885')$stmt$, '23514');
 -- identifier enum
 SELECT pg_temp.expect_failure($stmt$UPDATE book_identifiers SET identifier_type='INVALID'$stmt$, '23514');
 -- case insensitive email
@@ -134,9 +134,9 @@ SELECT pg_temp.assert_true(
 -- contributor order unique per book
 SELECT pg_temp.expect_failure($stmt$INSERT INTO book_contributors(book_id, contributor_order, name, role) VALUES('00000000-0000-0000-0000-000000000003',1,'Other Author','EDITOR')$stmt$, '23505');
 -- subject unique per book and source
-SELECT pg_temp.expect_failure($stmt$INSERT INTO book_subjects(book_id, subject, source_type) VALUES('00000000-0000-0000-0000-000000000003','Test','BOOKS_COM_TW')$stmt$, '23505');
+SELECT pg_temp.expect_failure($stmt$INSERT INTO book_subjects(book_id, subject, source_code) VALUES('00000000-0000-0000-0000-000000000003','Test','BOOKS_COM_TW')$stmt$, '23505');
 -- invalid foreign key
-SELECT pg_temp.expect_failure($stmt$INSERT INTO book_subjects(book_id, subject, source_type) VALUES('99999999-0000-0000-0000-000000000001','Missing','BOOKS_COM_TW')$stmt$, '23503');
+SELECT pg_temp.expect_failure($stmt$INSERT INTO book_subjects(book_id, subject, source_code) VALUES('99999999-0000-0000-0000-000000000001','Missing','BOOKS_COM_TW')$stmt$, '23503');
 -- null required title
 SELECT pg_temp.expect_failure($stmt$UPDATE books SET title=NULL$stmt$, '23502');
 -- page count zero
@@ -145,8 +145,8 @@ SELECT pg_temp.expect_failure($stmt$UPDATE books SET page_count=0$stmt$, '23514'
 SELECT pg_temp.expect_failure($stmt$UPDATE books SET published_date_precision='INVALID'$stmt$, '23514');
 -- contributor enum
 SELECT pg_temp.expect_failure($stmt$UPDATE book_contributors SET role='INVALID'$stmt$, '23514');
--- subject source enum
-SELECT pg_temp.expect_failure($stmt$UPDATE book_subjects SET source_type='INVALID'$stmt$, '23514');
+-- subject source code is a foreign key to the provider registry
+SELECT pg_temp.expect_failure($stmt$UPDATE book_subjects SET source_code='INVALID'$stmt$, '23503');
 -- book offer: a current retailer snapshot is one row per Book Source (data-model 6.4)
 INSERT INTO book_offers(source_id, currency, price, list_price, availability, captured_at) VALUES
  ('00000000-0000-0000-0000-000000000301', 'TWD', 320.00, NULL, 'IN_STOCK', now());

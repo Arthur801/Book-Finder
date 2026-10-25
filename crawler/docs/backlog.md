@@ -35,7 +35,7 @@
 ## CB-04 — Multi-source Catalog：provider code 與 ISBN 比對（#113 PR3）
 
 - P1；L3；狀態：完成（#116 phase B，`861c334`）。PR4（migration 011）之後只查 `ISBN` 屬 CB-06。
-- 已實作：只用 `source_code`（trigger 補 `source_type`，#115 migration 010）；ISBN 依 data-model §7.1 正規化（共用 fixture 逐 byte 驗證）、寫入型別 `ISBN`、不驗 checksum；以 draft 所有 ISBN 查 distinct Book（三種類型），0 建立、1 附加並補 NULL、≥2 ambiguous 建立；Source identity 依 §7.3 矩陣（`identity.py`）；disabled provider 以 exit 2 拒絕。
+- 已實作：只用 `source_code`（migration 010 的 trigger 曾補 `source_type`，011 已移除）；ISBN 依 data-model §7.1 正規化（共用 fixture 逐 byte 驗證）、寫入型別 `ISBN`、不驗 checksum；以 draft 所有 ISBN 查 distinct Book（PR4 M2 起只查 `ISBN`），0 建立、1 附加並補 NULL、≥2 ambiguous 建立；Source identity 依 §7.3 矩陣（`identity.py`）；disabled provider 以 exit 2 拒絕。
 - 剩餘差距：無（`offer_updated_count` 固定 0 屬 §8，未排程）。
 - 驗收：[test-plan §7](../../Docs/testing/test-plan.md) #1～#4、#18、#19（crawler 端）由 [test_isbn_fixture.py](../tests/test_isbn_fixture.py)、[test_identity.py](../tests/test_identity.py)、[test_db_integration.py](../tests/test_db_integration.py)、[test_cli.py](../tests/test_cli.py) 覆蓋。
 - 注意：`tests/test_normalize.py` 與 `tests/test_parsers_real_fixtures.py` 的 ISBN 期望已改為 §7.1 規則。
@@ -51,8 +51,8 @@
 
 ## CB-06 — 只查 `ISBN` 類型（#113 PR4）
 
-- P2；L3；狀態：確認缺口（依賴 migration 011）。
-- 目標：011 之後 crawler 刪除 `ISBN_10`／`ISBN_13`，distinct 查詢只用 `identifier_type = 'ISBN'`（[data-model §7.2](../../Docs/data/data-model.md)）。
+- P2；L3；狀態：完成（PR4 M2，`f92a63d`；依賴 migration 011，M1 `5052361`）。
+- 已實作：`IdentifierType` 只剩 `ISBN`，`find_books_by_isbn` 只查 `identifier_type = 'ISBN'`（[data-model §7.2](../../Docs/data/data-model.md)）；R1 正規化、0／1／≥2 判斷、補 NULL、identity 與 touch 不變。
 - 前置：011 gate 全部通過（[data-model §11.3](../../Docs/data/data-model.md)），包括 PR3 crawler 在 011 上的相容性測試。
-- 驗收：PR4 的 crawler 測試只建立與查詢 `ISBN`；PR3 crawler 在 011 schema 上的 smoke（Existing Source touch、ISBN 查詢、新 Source、Bestseller 替換）通過。
+- 驗收：PR4 的 crawler 測試只建立與查詢 `ISBN`（`test_db_integration.py`、`test_normalize.py`）；PR3 crawler 在 011 schema 上的 DB 測試（Existing Source touch、ISBN 查詢、新 Source、Bestseller 替換）以 pytest 執行通過。§11.3 gate 的實際執行證據與 seed 不屬本項。
 

@@ -1,6 +1,8 @@
 # deploy/ 待辦：優化與 debug
 
 > PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+> PR4 M3（#120）補記：2026-10-25 更新；程式變更以 `d249c07`、`6e70e93`、`b99b368` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+> PR4 M4（#120）補記：2026-10-25 更新；gate 9 與 manual recovery smoke 的程式變更以 `89d983e`、`7c8899d` 記入 update-history §3.14。原查核基準保留，未重新審查其餘內容。
 
 > 目標：`deploy/` 與分散的 CD 來源（見 [architecture.md §2](architecture.md)）。
 > 查核基準：2026-10-25，HEAD `5563d80`（#121 的程式 commit；前一基準 `01db2d7`，tag `v0.0.4`）。證據來自程式、測試、git 與 runbook；營運觀察以「營運觀察，非本次驗證」標示。
@@ -34,7 +36,8 @@
 | DEP-B14 | P2 | L3 | 已發生（營運觀察）＋待驗證 | SSM 連線字串的跳脫問題 |
 | DEP-B15 | P3 | L2 | 改善提案 | `/etc/book-finder` 目錄權限未由程式檢查 |
 | DEP-B17 | P3 | L3 | 改善提案 | exit 3 同時對應 history 的 `drift` 與 `rejected` |
-| DEP-B18 | P1 | L4（部署）／L3（seed 與測試） | 已確認缺口（#113 目標，未實作） | Multi-source migration 010／011 的 seed、gate 與恢復程序 |
+| DEP-B18 | P1 | L4（部署）／L3（seed 與測試） | 程式與測試已完成（#120）；011 部署待 gate | Multi-source migration 010／011 的 seed、gate 與恢復程序 |
+| DEP-B19 | P3 | L2 | 改善提案（#120 review） | compat contract allowance 與 gate 9 script 的結構整理 |
 
 ## 2. 項目
 
@@ -210,13 +213,20 @@
 ### DEP-B18 Multi-source migration 010／011 的 seed、gate 與恢復程序
 
 - **優先序／風險**：P1／seed 與 compat 測試 L3，010 與 011 的 production 部署 L4。
-- **狀態**：已確認缺口（#113 目標規格已定，未實作）。
+- **狀態**：程式、seed、preflight、contract allowance 與 gate 9 本機證據已於 #120（PR4 M1～M4）完成；剩下 011 在 production 的 gate 確認與部署（L4）。
 - **目標**：[data-model §11](../../Docs/data/data-model.md) 與 [deployment §6.1](../../Docs/deployment/deployment.md)：010（expand，含雙向 trigger）與 011（contract）分屬不同 release；每個成為已發布 schema head 的 migration 都有 `deploy/migration-test/seeds/<id>.sql`；011 只在 gate 全部通過、使用者明確關閉 v0.0.4 rollback window 後部署；011 之後若新 runtime 失敗，不還原 snapshot，手動 dispatch PR3 release 並 `resume-crawler`。
-- **目前差距**（010 seed 已於 `22bebf5` 補上）：`deploy/migration-test/seeds/` 已有 010 的 `20261024160045_MultiSourceCatalog.sql`；011 seed 尚未建立；compat 的 runtime smoke 依 I5 只是 INFO，無法證明「PR3 runtime 在 011 上可運作」與 manual recovery compatibility；runbook 沒有 010／011 專屬的恢復步驟，也沒有「新版寫入 `ISBN` 後舊版 crawler 必須保持停用」的操作提示。
+- **目前差距**（010 seed 已於 `22bebf5` 補上；011 seed、contract allowance、gate 7 preflight 已於 M3 補上）：`deploy/migration-test/seeds/` 已有 010 與 011 的 seed；compat 的 runtime smoke 依 I5 只是 INFO，無法證明「PR3 runtime 在 011 上可運作」與 manual recovery compatibility；runbook 沒有 010／011 專屬的恢復步驟，也沒有「新版寫入 `ISBN` 後舊版 crawler 必須保持停用」的操作提示。
 - **方向**：PR2 新增 010 的 seed（含 v0.0.4 形式的 `source_type`-only 資料，驗證 trigger 回填）；PR4 新增 011 的 seed、ISBN conversion preflight（dry-run SELECT）與 manual recovery compatibility 測試（[test-plan §7](../../Docs/testing/test-plan.md) #13、#14、#20），並在 runbook 補 011 gate checklist 與恢復程序。
 - **前置決策**：011 的部署時間與 rollback window 的關閉由使用者決定（L4）。
 - **驗收條件**：010 與 011 的 compat 在 CI 通過；gate checklist 每項有可檢查的證據；PR3 Web／crawler 在 011 的 smoke 通過且不需 snapshot restore。
-- **測試入口**：010 seed 已建（`deploy/migration-test/seeds/20261024160045_MultiSourceCatalog.sql`，待 CI compat 證據；本次 `deploy/tests` 632 通過）；PR4：011 seed、preflight、recovery compat 待建。
+- **測試入口**：010 seed 已建（`deploy/migration-test/seeds/20261024160045_MultiSourceCatalog.sql`）；011 seed、preflight（`deploy/migration-test/preflight/`）與 contract allowance（`deploy/migration-test/contract/`）已於 M3 建立。recovery compat 已由 PR4 M4 在本機建立（`prev-release-on-contract.sh`，test-plan §7 #13、#14），尚未納入 CI；是否納入 CI 待決策。
+
+### DEP-B19 compat contract allowance 與 gate 9 script 的結構整理
+
+- **狀態**：改善提案（#120 兩軸 review 的判斷題，未在 PR4 處理）。
+- **現況**：`deploy/migration-test/compat.sh` 在 `load_contract_allowances`、`snapshot_contract_tables`、`check_data_preserved` 三處各自解析 `allow.tsv`；`check_data_preserved` 同時處理一般、drop-column、rewrite 三組規則。`prev-release-on-contract.sh` 的 `expected_checks=15`、crawler 6 項、seed 4 本書與 `prev_crawler_driver.py`、011 seed 重複；Detail 檢查與 `expect_body` 邏輯重複。
+- **方向**：在 `deploy/lib/contract_allowance.sh` 提供列出 rewrite 表、drop 欄位的 helper，三處共用；把 `check_data_preserved` 的 allowance 分支抽成函式；gate 9 的檢查數由 driver 回報，不在 script 寫死。
+- **驗收條件**：`deploy/tests` 的 allowance 測試與 gate 9 整合測試不變且通過；shellcheck 通過。
 
 ## 3. 已處理（PR #107）
 

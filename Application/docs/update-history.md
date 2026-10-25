@@ -1,6 +1,7 @@
 # Application Git 修改歷史
 
 > PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+> PR4 M1（#120）補記：2026-10-25 更新；程式變更以 `5052361`、`d864acc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 查核基準 `91333c3` 的 source history 如下；`Application/docs` 明確排除，不將 PR #100 新增或後續修正的文件 commits 計入 source history。
 
@@ -123,6 +124,7 @@ git show --format= --numstat <sha> -- Application ':(exclude)Application/docs'
 | 2026-10-25 | `df57cbf` | test(db): assert last_seen_at-only UPDATE passes the 010 trigger | `Application` 無變更 |
 | 2026-10-25 | `aa792bf` | fix(catalog): pin ISBN NFKC to Unicode 15.1 independent of the runtime | `Catalog/IsbnNormalizer.cs`（分段 NFKC、啟動防護）、`Catalog/Unicode151Assigned.cs`（新增，產生檔）|
 | 2026-10-25 | `c3021e3` | fix(catalog): make the detail reader own ISBN identifier order | `Catalog/BookDetail.cs`：註解改為 reader 負責順序 |
+| 2026-10-25 | `5052361` | feat(catalog): contract migration 011 and read only the ISBN type | `Catalog/BookDetail.cs`：`Identifiers` 註解改為只含 ISBN，依值排序（僅註解，型別不變） |
 
 ## 導覽
 

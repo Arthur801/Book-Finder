@@ -4,6 +4,8 @@
 -- boundaries. Data is fictional; password_hash is a placeholder, not a credential.
 -- Old writers (v0.0.4) insert only source_type and new writers only source_code; both shapes are covered here, and the
 -- 010 triggers fill the other column. source_providers is seeded by the migration itself, so it is not repeated here.
+-- Book 1 holds ISBN_13 and ISBN with the same value, Book 3 an ISBN_10 and Book 1 an OTHER, so the 011 upgrade in
+-- compat exercises the conversion and the same-Book dedupe.
 -- Maintenance: after a release with new migrations is deployed, add a seed named after the new last migration id.
 BEGIN;
 
@@ -33,6 +35,7 @@ INSERT INTO bestsellers (rank, book_id, source_id, captured_at) VALUES
 
 INSERT INTO book_identifiers (book_id, identifier_type, identifier_value) VALUES
   ('10000000-0000-0000-0000-000000000001', 'ISBN_13', '9786263100001'),
+  ('10000000-0000-0000-0000-000000000001', 'ISBN', '9786263100001'),
   ('10000000-0000-0000-0000-000000000001', 'OTHER', repeat('o', 64)),
   ('10000000-0000-0000-0000-000000000003', 'ISBN_10', '0132350882'),
   ('10000000-0000-0000-0000-000000000004', 'ISBN', '9786263100002');

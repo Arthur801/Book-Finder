@@ -1,6 +1,7 @@
 # Infrastructure AI 文字測試案例庫
 
 > PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+> PR4 M1（#120）補記：2026-10-25 更新；程式變更以 `5052361`、`d864acc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 > 查核日期：2026-10-24；基準 `91333c3`。本次只做文件靜態檢查，未執行 build、測試、migration、部署或外部服務。
 
@@ -149,8 +150,15 @@ Authority：[test plan](../../Docs/testing/test-plan.md)、[data model](../../Do
 - Given：已 migrate 到 head 的 pgvector container；另一個 container 先停在 `20261010204858_Embedding` 並寫入 v0.0.4 形式的 rows。
 - When：查 `information_schema`、`pg_constraint`、`pg_indexes`、`pg_trigger`，並以 `source_type`-only、`source_code`-only、不一致值、KINGSTONE 寫入；再 migrate 到 010。
 - Then：兩欄都存在；`source_type` 與 `source_code` 皆 NOT NULL，舊 check 仍在；兩個 `source_code` FK 指向 source_providers 且 RESTRICT；`book_subjects` 實體 PK 仍為 `(book_id, subject, source_type)` 且 UNIQUE `(book_id, subject, source_code)` 存在；`book_identifiers` check 接受 `ISBN`；`book_offers` FK 指向 book_sources 且 CASCADE，price、list_price、availability check 存在；雙向 trigger 生效，不一致回 23514，KINGSTONE 未到 011 前回 23502；回填後 `source_code = source_type`。
-- 來源與執行狀態：[MultiSourceCatalogSchemaTests](../../tests/DatabaseIntegration/MultiSourceCatalogSchemaTests.cs)、[MultiSourceBackfillTests](../../tests/DatabaseIntegration/MultiSourceBackfillTests.cs)；本次 `dotnet test` DatabaseIntegration 通過（120 項）。
+- 來源與執行狀態：[MultiSourceCatalog010SchemaTests](../../tests/DatabaseIntegration/MultiSourceCatalog010SchemaTests.cs)（每個 test 自己的 database，migrate 到 010）、[MultiSourceBackfillTests](../../tests/DatabaseIntegration/MultiSourceBackfillTests.cs)（停在 010）；`d864acc` 之後以 DatabaseIntegration 通過（見 update-history）。
 
+
+## INF-T20 — Migration 011 的轉換、自我守衛與 Down
+
+- Given：每個 test 有自己的空 database，先 migrate 到 `20261024160045_MultiSourceCatalog`（010）並寫入 ISBN_13／ISBN_10／ISBN 列；守衛案例以 `DISABLE TRIGGER` 與 `DROP NOT NULL` 製造 010 無法產生的不一致。
+- When：migrate 到 `20261025120000_ContractMultiSourceCatalog`；守衛案例 migrate 到 011；Down 案例先到 011 再回 010，並另測含 KINGSTONE 來源的 Down。
+- Then：row 8 的案例只剩一筆 `ISBN X`、ISBN_10 Y 變 `ISBN Y`、共用值 Z 兩本都保留；無 ISBN_10／ISBN_13 列。gate 5 與 gate 4 拋錯，資料庫仍在 010（`source_type` 存在、history 最後一筆是 010）。Down 還原 010 的 PK、check、legacy partial unique、trigger 與 function；含 KINGSTONE 時拒絕 Down。
+- 來源：[ContractMigration011Tests](../../tests/DatabaseIntegration/ContractMigration011Tests.cs)、[MultiSourceCatalogSchemaTests](../../tests/DatabaseIntegration/MultiSourceCatalogSchemaTests.cs)、[MigrationServer](../../tests/DatabaseIntegration/MigrationServer.cs)。`d864acc` 與 `5052361` 之後通過。
 
 ## 可執行入口（僅記錄，本次未執行）
 
@@ -170,7 +178,7 @@ dotnet test tests/WebIntegration/WebIntegration.csproj
 
 ## INF-T18 — Detail reader 的 ISBN 順序
 
-- Given：同一本書含 ISBN_10、ISBN_13、兩個 ISBN（值亂序）與 OTHER。
+- Given：同一本書含兩個 ISBN（值亂序）與 OTHER。
 - When：`EfBookDetailReader.ReadAsync`。
-- Then：順序為 ISBN（依值）、ISBN_13、ISBN_10；OTHER 不出現。這是 Application `BookDetail` contract 的順序，由 reader 負責。
-- 來源：[EfBookDetailReaderTests](../../tests/DatabaseIntegration/EfBookDetailReaderTests.cs)（DatabaseIntegration）。本次通過（DatabaseIntegration 123 項）。
+- Then：只有 ISBN，依值排序；OTHER 不出現。這是 Application `BookDetail` contract 的順序，由 reader 負責。
+- 來源：[EfBookDetailReaderTests](../../tests/DatabaseIntegration/EfBookDetailReaderTests.cs)（DatabaseIntegration）。`d864acc`／`5052361` 後通過。

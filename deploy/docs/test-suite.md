@@ -1,6 +1,7 @@
 # deploy/ 測試案例庫（AI 可操作的文字案例）
 
 > PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+> PR4 M3（#120）補記：2026-10-25 更新；程式變更以 `d249c07`、`6e70e93`、`b99b368` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 > 目標：`deploy/`（host 程式、CD 腳本、compat、整合測試）與分散的 CD 來源。
 > 查核基準：2026-10-25，HEAD `5563d80`（#121 的程式 commit；前一基準 `01db2d7`）。§3.20 的 #121 測試於本次實際執行；其餘狀態「已有測試」只表示測試存在，不表示本次通過。
@@ -53,14 +54,17 @@
 | `cd crawler && pytest` | `ci.yml` 的 `crawler` job | 需 `requirements.txt`；Playwright 測試需 Chromium，否則跳過 | 已有測試但本次未執行 |
 | `cd crawler && pytest tests/test_deploy.py -q` | 同上（單檔） | 同上 | 已有測試但本次未執行 |
 | `ruff check --config deploy/ruff.toml deploy` 與 `ruff format --check --config deploy/ruff.toml deploy` | `ci.yml` `lint` job | ruff 版本依 `crawler/requirements.txt` 固定 | 已有檢查但本次未執行 |
-| `shellcheck deploy/release/build-manifest.sh deploy/smoke/web-smoke.sh deploy/lib/manifest.sh deploy/lib/smoke.sh deploy/lib/schema_dump.sh deploy/lib/compat_plan.sh deploy/migration-test/compat.sh deploy/integration/imagetools-roundtrip.sh` | `ci.yml` `lint` job | 需 shellcheck | 已有檢查但本次未執行 |
+| `shellcheck deploy/release/build-manifest.sh deploy/smoke/web-smoke.sh deploy/lib/manifest.sh deploy/lib/smoke.sh deploy/lib/schema_dump.sh deploy/lib/compat_plan.sh deploy/lib/contract_allowance.sh deploy/migration-test/compat.sh deploy/integration/imagetools-roundtrip.sh` | `ci.yml` `lint` job | 需 shellcheck | 已有檢查但本次未執行 |
 | `python .github/scripts/check_version_sync.py` | `ci.yml` `lint` job | 讀取 `global.json`、`Dockerfile`、compose | 已有檢查但本次未執行 |
 | `python .github/scripts/check_migrations.py [--released-manifest FILE]` | `ci.yml` `lint` job | 比對已發布的 `migrations.txt` | 已有檢查但本次未執行 |
 | `BOOKFINDER_IT=1 bash deploy/integration/run-local.sh` | test-plan §6.2 與 runbook | 需本機 Docker；建立 `bf-it-*` 容器；使用 port 5000；**不在 CI** | 已有測試但本次未執行（不列為 production 證據） |
 | `docker build --build-arg GIT_COMMIT=… -t book-finder-web:ci .` 與 `bash deploy/smoke/web-smoke.sh book-finder-web:ci`（含 `--control-no-keys`） | `ci.yml` `docker` job | 需 Docker；內部網路；placeholder secrets | 已有測試但本次未執行 |
 | `bash deploy/integration/imagetools-roundtrip.sh` | `ci.yml` `docker` job | 需 Docker 與本機 registry（`127.0.0.1`） | 已有測試但本次未執行 |
+| `deploy/migration-test/contract/20261025120000_ContractMultiSourceCatalog/`（allow.tsv、verify.sql）| 011 的 reviewed allowance；只在 011 為 pending 時套用。`verify.sql` 必須回傳 0 列 | `test_contract_allowance.py`（解析、非 pending 忽略、drop-column 仍存在、判定）；`ContractMigration011VerifyTests`（每種違規都回傳一列）；本地 compat 通過（見 update-history） |
+| `deploy/migration-test/preflight/20261025120000_ContractMultiSourceCatalog.sql`（011 gate 7，唯讀） | production 在 010 時由操作者執行（`deploy/README.md` §4.4）。不由 CI 執行 | `ContractMigration011PreflightTests`（test-plan row 20） |
 | `deploy/migration-test/seeds/20261024160045_MultiSourceCatalog.sql`（010 head seed）| compat 在 applied 為 010 時必須有此 seed；本次只以 Testcontainers 驗證可載入並列數（`book_sources` 5 筆、`book_subjects` 3 筆、`book_offers` 2 筆） | 待 CI compat 證據 |
 | `bash deploy/migration-test/compat.sh --rebuild-image IMG --target-image IMG [--runtime-image IMG\|none] --applied FILE --seeds-dir DIR --report OUT.json` | CD `compat` job；`ci.yml` 在 PR 條件下執行 | 需 Docker 與 GHCR digest；拋棄式 DB | 已有測試但本次未執行 |
+| `BOOKFINDER_IT=1 python -m pytest deploy/tests/integration/test_prev_release_on_contract.py -m integration -q -s`，或 `bash deploy/migration-test/prev-release-on-contract.sh --target-image IMG --prev-web-image IMG --prev-crawler-image IMG` | gate 9 與 manual recovery（`deploy/README.md` §4.5）；不在 CI | 需 Docker；建立並移除 `bf-prev-*` 的容器、內部網路與 volume；離線（不連博客來）；前一個 release 的 image 以 digest 指定 | 本次已執行（M4，見 update-history §3.14） |
 | `ssh -i <plan key> -o IdentitiesOnly=yes deployer@<EC2_HOST> "status 1-1"`（預期 `not-started`，exit 0） | runbook §2.6（上線前驗證） | 只讀；不改變 state | 營運觀察（上線前驗證的結果未記錄） |
 
 **未在 CI 或 runbook 中找到的命令**：`actionlint`。`ci.yml` 沒有呼叫它；只有 `Docs/Implementation-Report/` 的歷史報告提到（DEP-CI-01 列為未實作）。
@@ -273,6 +277,12 @@
 | DEP-COMPAT-01 | applied 與 target 的關係為 forward 或 in-sync | 規劃 compat | 執行全部升級檢查 | `test_compat_plan.py::test_forward_and_in_sync_run_every_upgrade_check` | 已有測試但本次未執行（M） |
 | DEP-COMPAT-02 | schema-ahead | 規劃 | 不執行 target bundle | `test_compat_plan.py::test_schema_ahead_never_runs_the_target_bundle` | 已有測試但本次未執行（M） |
 | DEP-COMPAT-03 | 未規劃的分類 | 規劃 | 拒絕 | `test_compat_plan.py::test_unplanned_classification_is_rejected` | 已有測試但本次未執行（M） |
+| DEP-COMPAT-04 | allow.tsv 含未知指令、欄位數錯誤或非小寫 identifier | 解析 | 失敗，並附行號，不輸出任何指令 | `test_contract_allowance.py::test_unknown_or_malformed_directives_fail_with_the_line_number` | 已有測試（M3，本次執行 pytest） |
+| DEP-COMPAT-05 | allowance 的 migration 不在 pending | 選擇 | 忽略（INFO），不解析 | `test_contract_allowance.py::test_an_allowance_for_a_migration_that_is_not_pending_is_ignored` | 已有測試（M3，本次執行 pytest） |
+| DEP-COMPAT-06 | allowed drop-column 升級後仍存在，或升級前就不存在 | 判定 | 失敗 | `test_contract_allowance.py::test_drop_problems_report_an_allowed_column_that_still_exists` 與 `…::test_drop_problems_report_an_allowance_for_a_column_that_never_existed` | 已有測試（M3，本次執行 pytest） |
+| DEP-COMPAT-07 | verify.sql 回傳 1 列以上 | 判定 | fail | `test_contract_allowance.py::test_verify_passes_only_with_zero_rows` | 已有測試（M3，本次執行 pytest） |
+| DEP-COMPAT-08 | 升級後的 schema 比對 | 順序 | compat_before 在 schema 比對前移除（靜態檢查 main 的順序，失敗路徑也會繼續到移除） | `test_contract_allowance.py::test_compat_before_is_dropped_before_the_schema_comparison_even_when_the_data_check_fails` | 已有測試（M3，本次執行 pytest） |
+| DEP-COMPAT-09 | 011 allowance 與 verify | 本地 compat（需 Docker） | `compat checks passed`；allowance 與 verify 都在報告中 | 本地 `deploy/migration-test/compat.sh`（M3 的 update-history 記錄結果） | 本次已執行（M3，見 update-history） |
 | DEP-MAN-01 | 有效與無效的 manifest | 以 Python 與 bash 同時驗證 | 接受與拒絕結果一致 | `host/test_manifest_parity.py::test_valid_and_invalid_manifests_agree_on_acceptance` | 已有測試但本次未執行（M） |
 | DEP-MAN-02 | 相同 manifest | 計算 digest | Python 與 bash 的 digest 相同 | `host/test_manifest_parity.py::test_digest_matches_bash_for_every_valid_manifest` | 已有測試但本次未執行（M） |
 | DEP-MAN-03 | applied 落後 target 一個 id | classify | forward；同 id 不同 hash 為 divergent | `host/test_manifest.py`（`classify` 系列）與 `test_manifest_lib.py::test_classify_same_id_different_hash_is_divergent` | 已有測試但本次未執行（M） |
@@ -360,6 +370,30 @@
 | DEP-MIG-08 | 真實 efbundle 輸出 | `run_efbundle` | 回傳 exit code 與 stdout＋stderr；argv 不變（`--pull=never`、`--env-file`） | `test_adapters.py::test_efbundle_returns_the_exit_code_and_its_output_for_the_journal` | 本次執行通過（M） |
 | DEP-MIG-09 | 設定 migration 連線，in-sync 新 web 健康檢查失敗，migration 參數第二次讀取失敗 | 切換後回滾 | rolled-back（不是 failed-down）；migration 參數只讀一次；兩檔刪除 | `test_machine.py::test_rollback_succeeds_without_reading_the_migration_parameter_again` | 本次執行通過（M） |
 | DEP-MIG-10 | 同 DEP-MIG-09，容器 log 含 migration 連線 | 切換後回滾 | 遮蔽仍有效：`connecting with ***`；secret 不出現在 stdout、stderr 或 history | `test_machine.py::test_masking_still_covers_the_migration_secret_after_a_rollback` | 本次執行通過（M） |
+
+### 3.21 Gate 9：上一個 release 在 011 上（類別 I，本機，需 `BOOKFINDER_IT=1`）
+
+Gate 9（`Docs/data/data-model.md` §11.3）與 test-plan §7 #13、#14。Given：目標 bundle 建置的 image、拋棄式 pgvector DB、v0.0.6 的 Web 與 crawler image（digest 固定）。When：`deploy/migration-test/prev-release-on-contract.sh` 執行。Then：下列 15 項都輸出 `PASS`，exit 0。測試位置：`deploy/tests/integration/test_prev_release_on_contract.py::test_previous_release_runs_on_the_011_contract_schema`（要求全部 15 項的名稱都出現在 PASS 行）。
+
+| ID | 檢查（script 輸出的名稱） | 證明 | 狀態 |
+|---|---|---|---|
+| DEP-G9-01 | `migrate: efbundle applied to 011 on an empty database` | 目標 bundle 從空 DB 升到 011，exit 0，history 的最後一筆是 011 | 本次已執行（M4） |
+| DEP-G9-02 | `migrate: migration history ends at 011 and source_type is gone` | `source_type` 在 `book_sources`、`book_subjects` 都不存在 | 本次已執行（M4） |
+| DEP-G9-03 | `seed: 011 seed loaded` | 011 seed 載入，`books` 4 筆 | 本次已執行（M4） |
+| DEP-G9-04 | `web: GET / -> 200` | v0.0.6 Web 在 011 上健康（`X-Forwarded-Proto: https`） | 本次已執行（M4） |
+| DEP-G9-05 | `web: GET /books -> 200` | 書庫頁可讀 | 本次已執行（M4） |
+| DEP-G9-06 | `web: keyword search finds the seeded Book` | 關鍵字 Search 找到 seed 的 Book（`/books/…0004`） | 本次已執行（M4） |
+| DEP-G9-07 | `web: hyphenated ISBN search finds the seeded Book` | `978-626-3100-002` 正規化後走 ISBN 模式，找到同一本 Book | 本次已執行（M4） |
+| DEP-G9-08 | `web: detail shows the ISBN and the books.com.tw source link` | Detail 同時顯示 ISBN 值與 `books.com.tw` 來源連結 | 本次已執行（M4） |
+| DEP-G9-09 | `web: no unhandled exception in the container log` | container log 沒有 unhandled exception | 本次已執行（M4） |
+| DEP-G9-10 | `crawler: existing Source resolves by URL and touch advances last_seen_at` | v0.0.6 `resolve_source_identity` 以 URL 找到 Existing Source；`touch_source` 使 `last_seen_at` 前進 | 本次已執行（M4） |
+| DEP-G9-11 | `crawler: ISBN row matches the draft, the Source is attached and no Book is created` | `find_books_by_isbn`（`identifier_type = ANY(ISBN, ISBN_10, ISBN_13)`）對到既有 `ISBN`；`persist_new_source` 附加到該 Book，不建立新 Book | 本次已執行（M4） |
+| DEP-G9-12 | `crawler: new Source with a fresh ISBN creates a Book with source_code BOOKS_COM_TW` | 無匹配時建立 Book；`book_sources.source_code` 為 `BOOKS_COM_TW`、`external_id` 為 NULL；寫入 `ISBN` 列 | 本次已執行（M4） |
+| DEP-G9-13 | `crawler: 100-row ranking validates and replaces the bestsellers` | `validate_ranking` 接受 100 筆；`replace_bestsellers` 替換整份清單（rank 1..100，seed 的 Bestseller 消失） | 本次已執行（M4） |
+| DEP-G9-14 | `crawler: incomplete ranking is rejected` | 99 筆的榜單被 `RankingValidationError` 拒絕（負面案例） | 本次已執行（M4） |
+| DEP-G9-15 | `crawler: Source of another Book is rejected and the bestseller list is unchanged` | 來源屬於其他 Book 時 `SnapshotValidationError`，清單仍為 100 筆且 rank 1 不變（負面案例） | 本次已執行（M4） |
+
+負面驗證：把 crawler image 換成 Web image 時，script 輸出 `FAIL crawler: driver`、`RESULT FAIL`，exit 1，且容器、網路與 volume 都被移除（M4 本機執行）。
 
 ## 4. 覆蓋摘要與缺口
 

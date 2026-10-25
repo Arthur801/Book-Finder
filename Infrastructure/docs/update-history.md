@@ -1,6 +1,7 @@
 # Infrastructure 修改歷史
 
 > PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+> PR4 M1（#120）補記：2026-10-25 更新；程式變更以 `5052361`、`d864acc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 查核基準 `91333c3` 的 source history 如下；`Infrastructure/docs` 明確排除，不將 PR #100 新增或後續修正的文件 commits 計入 source history。
 
@@ -127,3 +128,5 @@ git show <SHA> -- Infrastructure
 | 2026-10-25 | `df57cbf` | test(db): assert last_seen_at-only UPDATE passes the 010 trigger | `Persistence/Migrations/20261024160045_MultiSourceCatalog.cs`：僅新增註解，operations 未變 |
 | 2026-10-25 | `bbe0a0a` | refactor(catalog): share ISBN-family types and display priority | `Persistence/EfBookSearch.cs`、`Persistence/EfBookDetailReader.cs` 改用 IsbnIdentifierTypes；reader 不再依優先序排序（改由 view model 負責）；`Persistence/Migrations/20261024160045_MultiSourceCatalog.cs` 僅註解補充 IX_book_subjects_source_code 為 EF FK 索引 |
 | 2026-10-25 | `c3021e3` | fix(catalog): make the detail reader own ISBN identifier order | `Persistence/EfBookDetailReader.cs`：identifiers 依 DisplayPriority 再依值排序 |
+| 2026-10-25 | `5052361` | feat(catalog): contract migration 011 and read only the ISBN type | `Persistence/Migrations/20261025120000_ContractMultiSourceCatalog.cs`（新增：自我守衛、ISBN 轉換、DROP source_type／trigger／legacy partial unique、book_subjects PK 換成 source_code；Down 還原 010）、`ContractMultiSourceCatalog.Designer.cs`、`AppDbContextModelSnapshot.cs`（移除 legacy partial unique 與 ISBN_10／13 check）、`Persistence/EfBookSearch.cs`（只查 `ISBN`）、`Persistence/EfBookDetailReader.cs`（只讀 `ISBN`，依值排序）、`Persistence/Configurations/BookIdentifierConfiguration.cs`、`Persistence/SnakeCase.cs`（註解例子） |
+| 2026-10-25 | `d864acc` | test(db): cover migration 010 and 011 on their own databases | `Persistence/` 無變更（測試位於 `tests/DatabaseIntegration`，見 tests/docs） |

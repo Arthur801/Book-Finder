@@ -3,7 +3,7 @@
 Resolution of a discovery item gives a ``CatalogResolution`` (crawler.md §6):
 1. Known BOOKS_COM_TW Book Source URL → reuse its Book, no detail request (``EXISTING``).
 2. Unknown URL → fetch and parse the detail page, then match its normalized ISBN values (data-model §7.1)
-   against the distinct Books that own any ``ISBN``, ``ISBN_10`` or ``ISBN_13`` identifier (§7.2):
+   against the distinct Books that own an ``ISBN`` identifier (§7.2, only ``ISBN`` since migration 011):
    a. no Book → create a new Book (``IMPORTED``);
    b. exactly one Book → attach a new BOOKS_COM_TW Book Source to it, and in the same transaction fill
       only its NULL columns, a missing AUTHOR, its identifiers and the source's subjects (§7.4)

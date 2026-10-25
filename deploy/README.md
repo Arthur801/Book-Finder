@@ -515,6 +515,44 @@ sudo systemctl disable <SYSTEMD_UNIT>
 - 舊版 crawler 不會更新（S7）。理由：crawler 的 smoke 不連 DB，無法證明舊版 crawler 能在較新的 schema 上運作。
 - compat 的 `runtime` smoke 對所有分類都只供參考，不會阻擋部署。
 
+### 4.4 011 的 gate 7 preflight（部署 011 前，唯讀）
+
+`deploy/migration-test/preflight/20261025120000_ContractMultiSourceCatalog.sql` 是 `Docs/data/data-model.md` §11.3 gate 7 的檢查。它在 production 仍為 010 時執行，確認 ISBN 轉換的預估與 gate 4、5 的結果。
+
+- **L4 安全**：整個腳本在 `BEGIN READ ONLY; … ROLLBACK;` 內執行，只有 SELECT，不改資料、不改 `__EFMigrationsHistory`，也不取得寫入鎖。它仍需要 production 的連線，因此由操作者以自己的權限執行；連線字串不要寫進 repo 或 shell history。
+- 執行（操作者以 `$DATABASE_URL` 指向 production 的 010 database）：
+
+  ```bash
+  psql "$DATABASE_URL" -X -f deploy/migration-test/preflight/20261025120000_ContractMultiSourceCatalog.sql
+  ```
+
+- 輸出每個指標一列（`check`、`value`、`ok`），依序為：各類 legacy 筆數、參與轉換的筆數、預估的 ISBN 筆數、預期因 `ON CONFLICT` 消失的筆數、轉換前後的 `book_identifiers` 總數、未知 identifier 類型、gate 4 與 gate 5 的不一致筆數、不同 Book 共用同一 ISBN 的統計。
+- **通過條件**：每一列的 `ok` 都必須是 `true`。標示 `(must be 0)` 的列，`value` 必須為 0；標示 `INFO` 的列恆為 `true`，只供記錄，不算失敗（gate 7 的「不同 Book 有相同 ISBN」）。任一列為 `false` 就不要部署 011，回到 data-model §11.3 與 migration 的 guard。
+- 這個腳本在 011 之後執行會失敗（`source_type` 已不存在），這是預期行為，不是錯誤。
+- 把輸出貼到部署紀錄（issue 或 CD summary），作為 gate 7 的證據。
+- **部署後比對（gate 7「預估的 row 數與 migration 後實際的 row 數一致」）**：011 部署成功後執行 `SELECT count(*) FROM book_identifiers;`，結果必須等於 preflight 的 `estimated book_identifiers rows after` 列；另執行 `SELECT count(*) FROM book_identifiers WHERE identifier_type = 'ISBN';`，必須等於 `estimated ISBN rows after`。不一致時記錄兩個數字並停止後續操作，回到 data-model §11.3。
+- `estimated ISBN rows after` 與 `expected rows removed by ON CONFLICT` 兩列以 DISTINCT 與差值計算，「每個 `(book_id, 'ISBN', value)` 最多一筆」與「消失的只能是同一本 Book、同一個值」在計算上必然成立，因此標為 INFO；真正的檢查是上面的部署後比對。
+
+
+### 4.5 Gate 9：上一個 release 在 011 上的相容性（本機）
+
+- **用途**：`Docs/data/data-model.md` §11.3 gate 9 的證據，對應 `Docs/testing/test-plan.md` §7 #13（PR3 Web 與 crawler 在 011 上）與 #14（manual recovery compatibility）。同一個 script 同時是 manual recovery 的 smoke：011 的 DB 搭配上一個 release 的 Web 與 crawler，正是手動恢復（§5.3、§5.4）會得到的狀態。
+- **內容**：`deploy/migration-test/prev-release-on-contract.sh` 以目標 bundle 把拋棄式 pgvector DB 升到 011、載入 011 seed，再以 v0.0.6（`ghcr.io/arthur801/book-finder-web@sha256:38fc701f…`、`book-finder-crawler@sha256:8675e6a7…`）檢查 Web（首頁、書庫、Search 關鍵字與帶連字號的 ISBN、Detail 的 ISBN 與來源連結、container log）與 crawler（`prev_crawler_driver.py`：Existing Source 與 touch、ISBN 附加、新 Source 建立 Book、100 筆 Bestseller 驗證與替換，以及兩個負面案例）。
+- **執行**（需要 Docker，會建立並移除 `bf-prev-*` 的容器、內部網路與 volume）：
+
+  ```bash
+  docker build -t bf-m4-target .
+  bash deploy/migration-test/prev-release-on-contract.sh \
+    --target-image bf-m4-target \
+    --prev-web-image ghcr.io/arthur801/book-finder-web@sha256:38fc701f9b652640c24a28aa207bdbaf078febed34ab2cec1c86fd068328c441 \
+    --prev-crawler-image ghcr.io/arthur801/book-finder-crawler@sha256:8675e6a7f43db669a931e74a1ada96a9a9c89d3172ad7b28c75989661446217b
+  ```
+
+  或以 `BOOKFINDER_IT=1 .venv/bin/python -m pytest deploy/tests/integration/test_prev_release_on_contract.py -m integration -q -s` 執行（未設定 `PREV_RELEASE_TARGET_IMAGE` 時會自行建置目標 image）。
+- **預期輸出**：每項檢查一行 `PASS <名稱>`（共 15 行），最後一行 `RESULT PASS 15/15`，exit 0。任何一項 `FAIL` 都 exit 1，並附原因；細節以 `INFO` 開頭，不是檢查結果。
+- **安全範圍**：離線。crawler 以 `--network` 內部網路執行，不連博客來；secrets 為每次隨機產生的 placeholder，只以變數名稱傳入。不在 CI 執行（`ci.yml` 未納入），也不接觸 production、RDS、SSM 或 GHCR 的寫入權限。
+- **風險等級**：本機驗證（L3 的 integration 驗證要求：DB schema、migration 與 crawler 寫入路徑），不屬於部署。它不能取代 gate 8 的 backup 與 recovery 檢查，也不能取代 production 上的 gate 核准（L4）。
+
 ---
 
 ## 5. 人工程序（每一項都是 L4）
@@ -738,6 +776,7 @@ Journal 是**輔助資訊**，不是結果的來源。結果以 history 為準�
 
 - CD 的 `compat` job 上傳 `compat-report` artifact（JSON），summary 有逐項結果。
 - PR 的 `Docker image` job 在 `Migrations/`、`deploy/`、`Dockerfile` 等路徑有變動時執行 compat。
+- compat 使用中的 contract allowance（只有 011）會列在 summary 的 `Contract allowances` 節，含 dropped columns、rewritten tables 與 `verify.sql` 的列數（`Docs/testing/test-plan.md` §6.1）。
 
 ---
 
