@@ -307,7 +307,7 @@ git log --reverse --no-merges --format='@@%h' --numstat -- <同上路徑>
 
 | 日期 | SHA | 主旨 | 影響檔案（+/-） | diff 摘要 |
 |---|---|---|---|---|
-| 2026-10-25 | 本次 commit | docs(crawler): Phase 7 P2 passed with a dedicated crawler DB role | `deploy/docs/backlog.md`、本文件 | crawler P2 檢查經 tunnel 讀到 RDS `server_version` 17.11；DEP-B20 的版本項與 DEP-B23 的未驗證項 3 結案，生效值仍待 staging |
+| 2026-10-25 | `6db1e14` | docs(crawler): Phase 7 P2 passed with a dedicated crawler DB role | `deploy/docs/backlog.md`、本文件 | crawler P2 檢查經 tunnel 讀到 RDS `server_version` 17.11；DEP-B20 的版本項與 DEP-B23 的未驗證項 3 結案，生效值仍待 staging |
 
 ## 4. 目前工作樹與未提交差異
 
