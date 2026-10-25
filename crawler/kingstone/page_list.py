@@ -11,6 +11,7 @@ import logging
 from pathlib import Path
 
 from catalog_core.page_list import PageListError, load_url_list
+from catalog_core.redact import redact
 from kingstone.urls import canonical_list_url
 
 __all__ = ["DEFAULT_PAGES_FILE", "MAX_PAGES", "PAGES_FILE_ENV", "PageListError", "load_page_urls", "resolve_pages_file"]
@@ -37,5 +38,6 @@ def load_page_urls(path: Path) -> list[str]:
         file_label="Kingstone category list pages",
         url_label="Kingstone category list page URLs",
         max_entries=MAX_PAGES,
+        redact_message=redact,
         logger=log,
     )

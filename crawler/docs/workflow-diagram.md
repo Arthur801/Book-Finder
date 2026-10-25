@@ -132,3 +132,38 @@ Paused／dirty exit 6、maintenance timeout exit 3、state 無法解析 exit 2 �
 Fetcher 每次含首次／重試以 3～30 秒目標循序節流，解析／DB／backoff 抵扣已耗時間；實際可超過 30 秒。無 redirect、保留 TLS。challenge、連線異常頁、非 200／request error 為 FetchError，不切換 adapter；browser 啟動失敗整次 FAILED。不具應用層取消協定。診斷 curl 存原始 HTML 與選定 JSON，browser 加 PNG；診斷失敗不覆蓋原錯誤，inspect_page 一次請求無 DB。
 
 相關：[流程](workflow-diagram.md)／[架構](architecture.md)／[待辦](backlog.md)／[歷史](update-history.md)／[案例](test-suite.md)。
+
+## 金石堂逐頁 run（Phase 4 M2，尚無入口）
+
+caller：無。Phase 5／6 的組裝（真 fetcher、DB store、`SoftBudget`、CLI）會呼叫 `run_pages`；目前只有測試以 fake fetcher 與記憶體 store 呼叫它。詳見 [architecture](architecture.md)「Run（逐頁流程）」。
+
+```text
+run_pages(deps, page_urls)
+  for url in 清單（去重，清單順序）:
+    budget.exhausted？ 是 → stop_for_budget（不再發請求；剩下的頁 not reached）
+    fetch_list_page(url)
+      BUDGET_EXHAUSTED → stop_for_budget（該頁 not reached）
+      其他 AcquisitionError → record_page_skipped（reason = kind 小寫）
+    parse_list_html → KingstoneParseError → record_page_skipped（parse_error）
+    page_started(url)
+    for 每張卡:
+      budget.exhausted？ 是 → stop_for_budget（該頁 interrupted，停止）
+      resolve_item(store, (KINGSTONE, 詳細頁 URL, km_code), fetch_draft)
+        identity EXISTING → touch（不抓詳細頁）
+        identity NEW → fetch_draft（最多 3 次；只有資料庫失敗才重試，draft 保留）
+          fetch_detail_page
+            BUDGET_EXHAUSTED → 該卡失敗 budget_exhausted → stop_for_budget（頁 interrupted）
+            其他 AcquisitionError → 該卡失敗（kind 小寫，不重試）
+          parse_detail_html：ProductNotFound → product_not_found；KingstoneParseError → parse_error
+          km_code 與卡片不符 → parse_error
+          ISBN 查詢 → persist_new_source（資料庫失敗後下一次先 re-resolve identity）
+      record_item
+    page_completed(url)
+  report（terminal status 規則見 architecture「Run 帳本與 terminal status」）
+  fatal（identity 查詢的 psycopg.Error、未預期例外、ValueError）→ 停止，report.error
+```
+
+- 呼叫端責任：組裝 `KingstoneRunDependencies`；把同一個 `SoftBudget` 交給真 fetcher（`budget_remaining=budget.remaining`）；注入 `clock`、`sleep` 與 `run_id`。
+- 重跑（replay）：同一份清單再跑一次。Existing 只 touch；未完成的 New 才抓詳細頁。
+- 結果：`KingstoneReport`；一行 INFO `mode=kingstone …`；FAILED 另有一行 ERROR。exit code 由 `report.exit_code` 決定，接線在 Phase 6。
+

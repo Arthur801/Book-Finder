@@ -1,18 +1,11 @@
 """Secret redaction for everything the crawler writes to the log (crawler.md §12).
 
-Error messages come from libraries (psycopg, Playwright, requests) and can echo a connection
-string or a password. Every log line and every stored error message passes through ``redact``.
+The rules live in ``catalog_core.redact`` and are shared with the Kingstone adapter; this module keeps the
+``books_crawler.redact`` import path the Books code and tests use.
 """
 
 from __future__ import annotations
 
-import re
+from catalog_core.redact import redact
 
-_DSN = re.compile(r"postgres(?:ql)?(?:\+\w+)?://[^\s'\"]+")
-_PASSWORD = re.compile(r"(?i)\b(password|pwd)\s*=\s*(?:'[^']*'|\"[^\"]*\"|[^\s'\"&;,]+)")
-
-
-def redact(text: str) -> str:
-    """Replace database URLs and ``password=`` assignments with placeholders."""
-    text = _DSN.sub("postgresql://<redacted>", text)
-    return _PASSWORD.sub(lambda match: f"{match.group(1)}=<redacted>", text)
+__all__ = ["redact"]

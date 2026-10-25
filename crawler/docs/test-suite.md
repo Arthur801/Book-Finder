@@ -230,7 +230,7 @@ migration 011 的 schema 由 test_db_integration.py 在 011 上檢查（無 `sou
 - **責任／規格**：[backlog](backlog.md)「CB-07 來源契約」與 Kingstone plan v11 §3–§4；風險 L2；狀態：已有測試（2026-10-25 新增並執行）。純函式與檔案讀取，不連線金石堂，也不碰資料庫。
 - **Given**：[fixtures README](../tests/fixtures/kingstone/README.md) 列出的五個列表頁網址、五種排序鍵（`sa_desc` 與省略 sort 視為同一頁，canonical 移除；`pu_desc`、`pu_asc`、`pr_desc`、`pr_asc` 保留）、以及不在 grammar 內的網址（http、其他主機、無 www、userinfo、port、fragment、`/normal/book/jd`、缺尾斜線、代碼 1 或 5 字母或含數字、缺 `dis` 或 `page`、`dis=pic`、page 為 0／-1／01／abc、未知 sort、多餘或重複參數）；`list_jdc_p1.html` 的每張卡片連結；一份含 BOM、註解、空行、大小寫不同代碼的清單檔；`kingstone-pages.txt`（目前沒有 URL）。
 - **When**：`canonical_list_url`、`detail_url`、`km_code_from_href` 與 `kingstone.page_list.load_page_urls` 處理上述輸入。
-- **Then**：合法網址得到固定順序（dis、page、sort）的 canonical 形式，代碼轉小寫，查詢參數順序不影響結果；不合法網址回 None；`detail_url` 只接受 13 位數字；每張卡片的 href 都解析為 `data-prodno`；清單檔以 canonical 值去重並保留首見順序（同一頁的 `sa_desc` 版本只保留一筆並記 INFO log），200 上限依 canonical 後的計數（200 個不同頁加上其中一頁的 `sa_desc` 版本仍接受；201 個不同頁失敗），非法行的錯誤含檔名與行號但不含網址文字，超過 200 個 URL 失敗，空清單與目前的預設檔都回 `PageListError`。
+- **Then**：合法網址得到固定順序（dis、page、sort）的 canonical 形式，代碼轉小寫，查詢參數順序不影響結果；不合法網址回 None；`detail_url` 只接受 13 位數字；每張卡片的 href 都解析為 `data-prodno`；清單檔以 canonical 值去重並保留首見順序（同一頁的 `sa_desc` 版本只保留一筆並記 INFO log），200 上限依 canonical 後的計數（200 個不同頁加上其中一頁的 `sa_desc` 版本仍接受；201 個不同頁失敗），非法行的錯誤含檔名與行號但不含網址文字，超過 200 個 URL 失敗，空清單與目前的預設檔都回 `PageListError`；讀檔錯誤訊息經 `catalog_core.redact`（路徑中的 `password=` 會被遮蔽）。
 - **來源與狀態**：[test_kingstone_urls.py](../tests/test_kingstone_urls.py)、[test_kingstone_page_list.py](../tests/test_kingstone_page_list.py)、[test_catalog_page_list.py](../tests/test_catalog_page_list.py)（核心 loader）；Books 的 [test_page_list.py](../tests/test_page_list.py) 不變。角色標籤表屬於 Books adapter，core 不再持有；[test_normalize.py](../tests/test_normalize.py) 檢查 `catalog_core.normalize` 不匯出 `ROLE_MAP`／`map_contributor_role`。
 
 ### CR-K03 — 金石堂列表頁 parser
@@ -271,7 +271,15 @@ migration 011 的 schema 由 test_db_integration.py 在 011 上檢查（無 `sou
 - **Given**：清單 URL；`ItemResolved`（各 resolution、`recovered_commit`、`identity_warning`）與 `ItemFailed`（含 warning）；跳過的頁；budget 在頁前、頁中、頁後停止；致命錯誤；空清單；只有空頁的清單；違反順序的呼叫（未列出的 URL、重複開始、開啟中的頁之外記卡片、budget 之後開始或跳過頁）。
 - **When**：`KingstoneLedger` 的呼叫序列與 `report`；`decide_status` 的純計數表；`format_report`；`exit_code`。
 - **Then**：terminal 表每一列：致命錯誤 FAILED（無 zero-progress reason）；所有頁跳過 FAILED；budget 在第一頁完成前用盡 FAILED（頁中與頁前兩種）；清單為空 FAILED；部分跳過、失敗書、interrupted 頁、not reached 頁各自為 PARTIAL_SUCCESS；全部 Existing 為 SUCCESS；成功頁全為 0 張卡為 SUCCESS，`zero_card_pages` 計數；只有空頁亦為 SUCCESS 且不填 zero-progress reason。計數：各 resolution、`recovered_commit_count`、`identity_warning_count`、`items_seen`；`pages_interrupted` 與 `pages_not_reached` 依規則計算。違反順序的呼叫 raise `ValueError`。WARNING 只在跳過頁與失敗書時記在 `kingstone.ledger`，Existing 與 Imported 不記。`format_report`：欄位順序固定，每行一列，`budget_exhausted` 為 `true`／`false`，文字欄位與 `error` 為 JSON 字串或 `null`，清單欄位為 `ensure_ascii=False` 的 JSON（含中文訊息）；exit code 為 FAILED → 1、其餘 → 0。
-- **來源與狀態**：[test_kingstone_ledger.py](../tests/test_kingstone_ledger.py)（40 個測試）。已知驗證缺口：run 尚未接線（見 [backlog](backlog.md) CB-07 Phase 4），所以 budget 停止與 replay 在真實 run 中的端到端行為仍未驗證；訊息 redaction 由 run 負責，這裡只驗證輸出格式。
+- **來源與狀態**：[test_kingstone_ledger.py](../tests/test_kingstone_ledger.py)（40 個測試）。已知驗證缺口：budget 停止與 replay 的行為由 CR-K08 以 fake 組裝驗證；真 fetcher 與 DB 的端到端仍未驗證（見 [backlog](backlog.md) CB-07 Phase 5／6）。訊息 redaction 由 run 負責（CR-K08），這裡只驗證輸出格式。
+
+### CR-K08 — 金石堂逐頁 run
+
+- **責任／規格**：[architecture](architecture.md)「Run（逐頁流程）」、[workflow-diagram](workflow-diagram.md)「金石堂逐頁 run」與計畫 §5、§7、§9 Phase 4；風險 L3（決定寫入 Catalog、budget 停止點與 replay）；狀態：已有測試（2026-10-25 新增並執行）。全部離線：fake fetcher（URL → HTML 或例外）、記憶體 store、fake clock、記錄型 sleep；HTML 用真實 detail fixture 與合成的列表頁，不連網、不碰資料庫。
+- **Given**：列表頁（合成卡片或真實 fixture）、詳細頁 fixture、soft 404、302、parse error、合法空頁；store 的 identity 狀態、DB 失敗腳本、commit 後才失敗的寫入；budget 在首頁前、第二頁前、頁中用盡，或詳細頁、列表頁回 `BUDGET_EXHAUSTED`；store 拋出含假 DSN 與密碼的 `psycopg.Error`。
+- **When**：`run_pages` 一次；同一 store 再跑一次（replay）。
+- **Then**：全部 New 寫入，report 計數正確，SUCCESS；replay 全部 Existing、詳細頁 0 次請求；列表頁 302 與 parse error 跳過該頁，下一頁照常；全部跳過為 FAILED 並附 zero_progress_reason；合法空頁為成功頁，`zero_card_pages` 計數；soft 404 只該書失敗（`product_not_found`）、不寫入；詳細頁 acquisition 錯誤只請求一次；DB 失敗後以同一 draft 重試（退避 1 秒），commit 不確定時 re-resolve 得到 EXISTING 並計入 `recovered_commit_count`；budget 在任何頁前用盡為 FAILED 且零請求，在第二頁前為 PARTIAL 且剩餘頁 not reached，頁中為 interrupted 且 PARTIAL，詳細頁或列表頁回 `BUDGET_EXHAUSTED` 時乾淨停止；第二次 run 從清單開頭 replay 並推進；identity 查詢拋出的 `psycopg.Error` 使 run FAILED，error 不含 DSN 與密碼；未預期的 `ValueError` 同為 FAILED；identity warning 記為 WARNING 並計數；每次 run 一行 `mode=kingstone`；`SoftBudget` 的剩餘時間與 exhausted 規則。
+- **來源與狀態**：[test_kingstone_run.py](../tests/test_kingstone_run.py)（31 個測試）。已知缺口：真 fetcher 與 DB store 的組裝、`budget.remaining` 接到真 fetcher、CLI 與 exit code 都尚未存在（Phase 5／6），所以真 HTTP 與真 DB 的端到端未驗證。
 
 ### 連線中斷與重連（crawler.md §13.1、§6.1，#119）
 
