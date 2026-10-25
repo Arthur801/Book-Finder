@@ -219,7 +219,7 @@ migration 011 的 schema 由 test_db_integration.py 在 011 上檢查（無 `sou
 
 ### CR-K01 — 金石堂 fixture contract（E0）
 
-- **責任／規格**：[backlog](backlog.md)「CB-07 來源契約」；風險 L2；狀態：已有測試（2026-10-25 新增並執行）。尚無金石堂程式，這組測試直接以 BeautifulSoup 讀 fixture，固定之後 parser 必須遵守的解讀。
+- **責任／規格**：[backlog](backlog.md)「CB-07 來源契約」；風險 L2；狀態：已有測試（2026-10-25 新增並執行）。這組測試在 parser 存在之前寫成，直接以 BeautifulSoup 讀 fixture，固定 fixture 的解讀；parser 本身的行為由 CR-K03、CR-K04 驗證。
 - **Given**：[kingstone fixtures](../tests/fixtures/kingstone/README.md) 的 5 個列表頁、7 個詳細頁、1 個 soft 404。
 - **When**：以 contract 的選擇器與欄位規則讀取每份 fixture。
 - **Then**：列表卡數 48／48／39／0／6，`data-prodno` 與連結 km_code 一致，卡片文字沒有 ISBN；空頁有 `.emptyCategory`、沒有 `.productGrid`，巢狀推薦卡不被選到；`sort=pu_desc` 出版日遞減；詳細頁 `sku` 等於檔名、`isbn` 等於 `gtin13`、`name` 非空、`image[0]` 是 assets 網址、「分級」為普通級；簡體書規格表是中文簡體但 JSON-LD `inLanguage` 是 `zh-TW`；作者連結含原文姓名、「、」串接與「審訂/」前綴，JSON-LD `author` 只有第一個連結；譯者是純文字；breadcrumb 原始清單重複兩次，subjects 依序去重並去掉「中文書」；soft 404 沒有 Product JSON-LD；README 與檔案一一對應。
