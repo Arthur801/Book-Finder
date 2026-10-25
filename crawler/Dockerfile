@@ -1,3 +1,25 @@
+# Two targets. The Kingstone target (HTTP-only, no Playwright or browser) is built with `--target kingstone`.
+# The last stage is the default target (博客來 image), so a plain `docker build` still produces it.
+FROM python:3.14-slim-bookworm AS kingstone
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+WORKDIR /app/crawler
+# requirements-runtime.txt is the HTTP-only set (psycopg, curl_cffi, beautifulsoup4); no browser stack is installed.
+COPY requirements-runtime.txt ./
+RUN pip install --no-cache-dir -r requirements-runtime.txt \
+    && groupadd --gid 10001 crawler \
+    && useradd --uid 10001 --gid crawler --no-create-home crawler
+
+COPY catalog_core/ ./catalog_core/
+COPY kingstone/ ./kingstone/
+COPY kingstone-pages.txt ./kingstone-pages.txt
+
+USER 10001:10001
+ENTRYPOINT ["python", "-m"]
+CMD ["kingstone"]
+
 FROM python:3.14-slim-bookworm
 
 ENV PYTHONUNBUFFERED=1 \
