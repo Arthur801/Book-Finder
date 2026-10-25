@@ -25,7 +25,7 @@
 
 ## CB-07 — 金石堂分類頁 crawler（v11）
 
-- P2；L3；狀態：E0 完成；Phase 1（共用 `catalog_core`：型別、identity、ISBN、provider 明確的 persistence、單調 touch、item 解析 service，博客來已改走 service）完成（2026-10-25，見 [實作報告](../../Docs/Implementation-Report/kingstone-phase1-core.md)）；Phase 2 進行中：清單檔、URL grammar（#134）與詳細頁 parser（#136）已實作，列表頁 parser 在 #135。
+- P2；L3；狀態：E0 完成；Phase 1（共用 `catalog_core`：型別、identity、ISBN、provider 明確的 persistence、單調 touch、item 解析 service，博客來已改走 service）完成（2026-10-25，見 [實作報告](../../Docs/Implementation-Report/kingstone-phase1-core.md)）；Phase 2 parser 完成：清單檔、URL grammar（#134）、列表頁 parser（#135）、詳細頁 parser（#136）；Phase 3 起未實作。
 - 決定（使用者 2026-10-25）：比照博客來分類榜，由使用者在 `crawler/kingstone-pages.txt` 提供金石堂分類列表頁；每個 URL 只抓那一頁、不跟分頁；不探索分類樹；沒有跨 run 進度狀態檔，靠 replay＋Source identity 推進；`HTTP_ONLY`；請求間隔 3～10 秒。來源契約見下方「CB-07 來源契約」。
 - 證據：[kingstone fixtures](../tests/fixtures/kingstone/README.md)（13 份）與 CR-K01。
 - 待做：Phase 1～7 依 [v11 計畫](../../Docs/plans/kingstone-category-crawler.md) §9：共用 core（含單調 touch，會改變博客來的 touch 行為）、清單與 parser、acquisition、逐頁 run 與 budget、ingestion、runner／fencing／alert、acceptance。
@@ -35,7 +35,10 @@
   - `ItemResolved`／`ItemFailed.identity_warning` 目前只有 service 測試讀取；博客來沒有 `external_id`，不會產生 URL 漂移 warning。金石堂（有 km_code）在 Phase 4／5 要從回傳值記錄這個 warning。
   - `books_crawler/models.py` 重新匯出 `catalog_core.models` 的型別，讓既有測試的 import 不用改；同一型別因此有兩個匯入入口，之後把測試改成直接從 `catalog_core` 匯入，再移除這層相容匯出。
   - Phase 5 在 `catalog_core.service` 加入 `new-books-only` 寫入政策（v11 計畫 §5）。
-- Phase 2 留下的待辦（詳細頁）：
+- Phase 2 留下的待辦：
+  - `.productGrid` 內沒有 `data-prodno` 的 `.mod_prod_card` 目前被靜默略過（選擇器要求 `data-prodno`）；E0 fixture 沒有此情形，是否改為 parse error 待定。
+  - Dockerfile、`.dockerignore` 與 runner 納入 `kingstone/` 留到 Phase 6。
+  - 金石堂清單讀檔錯誤未經 `books_crawler.redact`（`catalog_core` 不依賴 `books_crawler`；清單讀檔錯誤不含 DSN），Phase 6 runner 整合時再確認 log redact 範圍。
   - 只讀「作者：」「譯者：」兩種標籤；其他角色標籤（繪者等）出現時再定。
   - 角色前綴一律 `OTHER`（E0 只見「審訂/」）；出現可對應 Catalog 角色的金石堂標籤時，依 fixture 加入金石堂自己的對應。
   - 作者值含 `/` 一律視為角色前綴（`角色/姓名`）；真實作者名含 `/` 時會被拆錯。E0 沒有此情形，出現時再定規則。
@@ -59,12 +62,7 @@
 
 **列表頁解析**：
 
-- 商品卡只取 `section#allProducts #displayCSS > .productGrid > .mod_prod_card[data-prodno]`（每頁最多 48 張）。`#allProducts` 外的輪播卡、空頁巢狀 `section.prodSlider` 內的推薦卡都不是列表商品。
-- 每張卡的 external_id 是 `data-prodno`，必須等於卡片 `.coverbox a` 連結的 `km_code`。
-- 總頁數在 `input#totalPages` 的 `value`，總筆數在「共計<span>n</span>筆」；只作 report，不跟分頁。
-- **合法空頁**：沒有 `.productGrid`，且 `#displayCSS > .emptyCategory` 顯示「此分類沒有相關商品唷！」（例如頁碼超過總頁數）。這是成功的零列頁。
-- 既沒有 `.productGrid` 也沒有 `.emptyCategory` → parse error，不是空頁。
-- 卡片有書名、作者、出版社、出版日，**沒有 ISBN**，所以 New Source 一定要抓詳細頁。
+已實作，現行契約見 [architecture](architecture.md)「金石堂 adapter」的列表頁段落。
 
 **詳細頁解析**：已實作，現行契約見 [architecture](architecture.md)「金石堂 adapter」的詳細頁段落。
 

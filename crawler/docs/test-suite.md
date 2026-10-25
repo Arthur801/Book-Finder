@@ -233,6 +233,14 @@ migration 011 的 schema 由 test_db_integration.py 在 011 上檢查（無 `sou
 - **Then**：合法網址得到固定順序（dis、page、sort）的 canonical 形式，代碼轉小寫，查詢參數順序不影響結果；不合法網址回 None；`detail_url` 只接受 13 位數字；每張卡片的 href 都解析為 `data-prodno`；清單檔以 canonical 值去重並保留首見順序（同一頁的 `sa_desc` 版本只保留一筆並記 INFO log），200 上限依 canonical 後的計數（200 個不同頁加上其中一頁的 `sa_desc` 版本仍接受；201 個不同頁失敗），非法行的錯誤含檔名與行號但不含網址文字，超過 200 個 URL 失敗，空清單與目前的預設檔都回 `PageListError`。
 - **來源與狀態**：[test_kingstone_urls.py](../tests/test_kingstone_urls.py)、[test_kingstone_page_list.py](../tests/test_kingstone_page_list.py)、[test_catalog_page_list.py](../tests/test_catalog_page_list.py)（核心 loader）；Books 的 [test_page_list.py](../tests/test_page_list.py) 不變。角色標籤表屬於 Books adapter，core 不再持有；[test_normalize.py](../tests/test_normalize.py) 檢查 `catalog_core.normalize` 不匯出 `ROLE_MAP`／`map_contributor_role`。
 
+### CR-K03 — 金石堂列表頁 parser
+
+- **責任／規格**：[architecture](architecture.md)「金石堂 adapter」的列表頁段落（來源：backlog CB-07 E0 契約）；風險 L2；狀態：已有測試（2026-10-25 新增並執行）。純函式，不連線。
+- **Given**：E0 真實列表頁 fixture：`list_jdc_p1.html`（48 張）、`list_jdc_p1_pu_desc.html`（48 張）、`list_jdc_p93.html`（末頁 39 張）、`list_jdc_p94.html`（合法空頁，含 24 張推薦卡）、`list_sj_p1.html`（6 張）；合成 HTML 覆蓋 grid 外與輪播卡、重複 km_code、恰好 48 與 49 張、grid 有但 0 張卡、缺 `#allProducts`／`#displayCSS`、沒有 grid 也沒有空頁提示、空頁提示文字不符、非 13 位 `data-prodno`、缺 `.coverbox` 連結、href 不在 grammar、`data-prodno` 與連結 km_code 不符、totals 缺少／合法／格式異常。
+- **When**：`parse_list_html(html, canonical_url)`；非 canonical URL 另測。
+- **Then**：真實頁卡數為 48／48／39／0／6，順序與首末 km_code 正確，`source_url` 為 `/basic/<km_code>/`、`list_url` 為列表頁 URL；合法空頁為 `empty=True` 的成功結果，推薦卡不計；重複 km_code 保留首見；0 張卡或超過 48 張、缺 grid／display、非合法空頁、`data-prodno` 非 13 位或與連結 km_code 不符皆為 `KingstoneParseError`；totals 是 report-only：totalPages 或共計格式異常時該欄為 None、商品卡完整解析、`kingstone.parse_list` 記 WARNING 且不回顯 HTML，兩者同時異常時各記一筆 WARNING、三張卡全數保留；非 canonical URL 為 `ValueError`。
+- **來源與狀態**：[test_kingstone_parse_list.py](../tests/test_kingstone_parse_list.py)（54 個測試）。
+
 ### CR-K04 — 金石堂詳細頁 parser
 
 - **責任／規格**：[architecture](architecture.md)「金石堂 adapter」的詳細頁段落（來源：backlog CB-07 E0 契約）；風險 L3（直接決定寫入 Book／Source 的欄位與錯誤分類）；狀態：已有測試（2026-10-25 新增並執行）。純函式，不連線。
