@@ -232,6 +232,27 @@ def test_touch_exhausted_fails_with_last_message_and_attempt():
     assert failures.events[-1] == (3, "database_error", "last one")
 
 
+def test_touch_failures_carry_the_identity_warning():
+    # The adapter logs the identity warning before the touch, so a failed touch must still report it.
+    source = ref()
+    conflict = resolve(
+        FakeStore(identities=[existing(source, warning="URL drift")], touches=[False]),
+        Fetch(),
+        failures=Failures(),
+    )
+    exhausted = resolve(
+        FakeStore(
+            identities=[existing(source, warning="URL drift")],
+            touches=[DB_ERROR, DB_ERROR, psycopg.OperationalError("last one")],
+        ),
+        Fetch(),
+        failures=Failures(),
+    )
+
+    assert isinstance(conflict, ItemFailed) and conflict.identity_warning == "URL drift"
+    assert isinstance(exhausted, ItemFailed) and exhausted.identity_warning == "URL drift"
+
+
 def test_touch_false_is_identity_conflict_without_retry_or_fetch():
     source = ref()
     failures = Failures()

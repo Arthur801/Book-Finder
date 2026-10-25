@@ -41,6 +41,8 @@ flowchart TD
 
 ## 共用單列管線
 
+本流程由 `catalog_core.service.resolve_item` 實作（provider-neutral）；Books 只提供 fetch／parse callback（`books_crawler/run.py` 的 `_fetch_and_parse`）與 log 行（rank 欄位、限制級、attempt、identity warning、ISBN 附加）。下圖即兩者合起來的行為。
+
 ```mermaid
 flowchart TD
  A[查詢 BOOKS_COM_TW 商品 URL] --> B{存在}
