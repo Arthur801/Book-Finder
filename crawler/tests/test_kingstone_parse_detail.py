@@ -537,6 +537,32 @@ def test_translator_row_is_plain_text_split_on_enumeration_comma():
     )
 
 
+def test_author_link_with_fullwidth_bracket_only_name_is_skipped():
+    units = _author_unit(_link("奧崴尼") + _link("（某某）"))
+
+    assert parse_detail_html(_page(basic_units=units), URL).contributors == (Contributor(1, "奧崴尼", AUTHOR),)
+
+
+def test_bracket_names_that_are_not_one_paired_group_are_not_skipped():
+    units = _author_unit(_link("(甲)乙(丙)") + _link("(X）"))
+    draft = parse_detail_html(_page(basic_units=units), URL)
+
+    assert draft.contributors == (
+        Contributor(1, "(甲)乙(丙)", AUTHOR),
+        Contributor(2, "(X）", AUTHOR),
+    )
+
+
+def test_translator_row_drops_follow_and_question_mark_noise_like_the_author_column():
+    units = '<li class="basicunit"><span class="title_basic">譯者：</span><a href="/events/track/">追蹤</a>丁、戊<span class="followfield">?</span></li>'
+    draft = parse_detail_html(_page(basic_units=units), URL)
+
+    assert draft.contributors == (
+        Contributor(1, "丁", TRANSLATOR),
+        Contributor(2, "戊", TRANSLATOR),
+    )
+
+
 def test_order_follows_document_order_across_rows():
     units = _author_unit(_link("甲")) + '<li class="basicunit"><span class="title_basic">譯者：</span>丙</li>' + _author_unit(_link("乙"))
     draft = parse_detail_html(_page(basic_units=units), URL)

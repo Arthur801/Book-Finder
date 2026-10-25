@@ -24,7 +24,7 @@ from catalog_core.html_text import text_with_line_breaks
 from catalog_core.models import BookDraft, Contributor, ContributorRole, PublishedDatePrecision
 from catalog_core.normalize import clean_text, normalize_isbn
 from kingstone.models import KingstoneParseError, ProductNotFound
-from kingstone.urls import SITE_ORIGIN
+from kingstone.urls import km_code_from_detail_url
 
 log = logging.getLogger("kingstone.parse_detail")
 
@@ -38,11 +38,11 @@ _ROLE_SEPARATOR = "/"
 _NOISE_LINKS = frozenset({"追蹤", "?"})
 _LANGUAGE_MAP = {"中文繁體": "zh-TW", "中文簡體": "zh-CN"}
 
-_DETAIL_URL = re.compile(rf"{re.escape(SITE_ORIGIN)}/basic/([0-9]{{13}})/")
 _SCRIPT = 'script[type="application/ld+json"]'
 _DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 _DIGITS = re.compile(r"[0-9]+")
-_BRACKETED = re.compile(r"[(（].*[)）]")
+# A whole original-language name in one bracket pair, with no bracket inside (half- or full-width).
+_BRACKETED = re.compile(r"\([^()（）]*\)|（[^()（）]*）")
 
 
 def parse_detail_html(html: str, url: str) -> BookDraft:
@@ -52,8 +52,8 @@ def parse_detail_html(html: str, url: str) -> BookDraft:
 
     product = _product_json_ld(soup)
     if product is None:
-        title = soup.title.get_text() if soup.title is not None else None
-        if clean_text(title) == SOFT_404_TITLE:
+        page_title = soup.title.get_text() if soup.title is not None else None
+        if clean_text(page_title) == SOFT_404_TITLE:
             raise ProductNotFound(url)
         raise KingstoneParseError(f"no Product JSON-LD and the page is not the 404 page: {url}")
 
@@ -86,10 +86,10 @@ def parse_detail_html(html: str, url: str) -> BookDraft:
 
 
 def _km_code(url: str) -> str:
-    match = _DETAIL_URL.fullmatch(url) if isinstance(url, str) else None
-    if match is None:
+    km_code = km_code_from_detail_url(url)
+    if km_code is None:
         raise ValueError(f"not a canonical Kingstone detail URL (/basic/<13 digits>/): {url!r}")
-    return match.group(1)
+    return km_code
 
 
 def _json_ld_items(data: Any) -> list[dict[str, Any]]:
@@ -233,8 +233,10 @@ def _author_pairs(unit: Tag) -> list[tuple[ContributorRole, str]]:
 
 
 def _translator_pairs(unit: Tag, label_tag: Tag) -> list[tuple[ContributorRole, str]]:
-    # The translator row is plain text after its label; the label itself is not a name.
-    text = " ".join(str(part) for part in unit.find_all(string=True) if part.parent is not label_tag)
+    # The translator row is plain text after its label; the label itself is not a name, and neither are the
+    # follow/question-mark noise nodes that the author column also drops.
+    parts = [str(part) for part in unit.find_all(string=True) if part.parent is not label_tag and clean_text(str(part)) not in _NOISE_LINKS]
+    text = " ".join(parts)
     pairs: list[tuple[ContributorRole, str]] = []
     for piece in text.split(_ENUMERATION_SEPARATOR):
         name = clean_text(piece)
@@ -247,10 +249,12 @@ def _contributors(soup: BeautifulSoup) -> tuple[Contributor, ...]:
     contributors: list[Contributor] = []
     for unit in soup.select("li.basicunit"):
         label_tag = unit.select_one(".title_basic")
-        label = clean_text(label_tag.get_text(" ", strip=True)) if label_tag is not None else None
+        if label_tag is None:
+            continue
+        label = clean_text(label_tag.get_text(" ", strip=True))
         if label == _AUTHOR_LABEL:
             pairs = _author_pairs(unit)
-        elif label == _TRANSLATOR_LABEL and label_tag is not None:
+        elif label == _TRANSLATOR_LABEL:
             pairs = _translator_pairs(unit, label_tag)
         else:
             continue

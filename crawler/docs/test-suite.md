@@ -171,6 +171,14 @@ python -m pytest tests/test_fetcher.py tests/test_curl_fetcher.py tests/test_pla
 - Then：每個分支的 `ItemResolved`／`ItemFailed` 欄位（`attempts`、`reason`、`identity_warning`、`recovered_commit`、`matched_book_ids`）、`on_attempt_failed` 的呼叫次序，以及 CONFLICT 與 touch 衝突時 fetch 與寫入的次數都符合規格。
 - 來源與狀態：[test_catalog_service.py](../tests/test_catalog_service.py)（fake store，覆蓋所有分支）。Books 的整合測試（[test_db_integration.py](../tests/test_db_integration.py)、[test_first_book.py](../tests/test_first_book.py)、[test_reconnect_integration.py](../tests/test_reconnect_integration.py)）經由 adapter 與真實 session／store 覆蓋同一條路徑。
 
+### CR-T18 — 共用 HTML 區段文字抽取
+
+- 責任／規格：`catalog_core/html_text`（Kingstone Phase 2 M3 抽出，Books 規格與金石堂詳細頁共用）；風險 L2；狀態：已有測試（2026-10-25 新增並執行）。
+- Given：含 `<br>`、`<p>`、`<li>`、`<strong>`／`<a>` 等 inline 與 block 元素的片段；原始碼內的 CRLF 與多餘空白；只有空白的區段。
+- When：`text_with_line_breaks(node)`。
+- Then：只有 `<br>` 與區塊邊界產生換行；inline 元素不切行；原始碼換行不算換行；連續空行收為一行；頭尾空行去除；全空白區段回傳 None。Books 的規格文字由既有 Books 解析測試（未改）覆蓋。
+- 來源與狀態：[test_html_text.py](../tests/test_html_text.py)（15 個測試）；Books 端由 `books_crawler/parsers.py` 的既有測試覆蓋。
+
 ## 狀態限制
 
 沒有明確暫緩的 crawler 核心功能；embedding 是明確不屬此模組，不建立待實作案例。artifact cleanup 是未實作改善提案；產品時間語意需決策。沒有程序取消狀態與取消測試，不推定 finally 可處理 SIGKILL。本次僅靜態文件檢查，所有命令均是日後測試入口。
@@ -224,6 +232,14 @@ migration 011 的 schema 由 test_db_integration.py 在 011 上檢查（無 `sou
 - **When**：`canonical_list_url`、`detail_url`、`km_code_from_href` 與 `kingstone.page_list.load_page_urls` 處理上述輸入。
 - **Then**：合法網址得到固定順序（dis、page、sort）的 canonical 形式，代碼轉小寫，查詢參數順序不影響結果；不合法網址回 None；`detail_url` 只接受 13 位數字；每張卡片的 href 都解析為 `data-prodno`；清單檔以 canonical 值去重並保留首見順序（同一頁的 `sa_desc` 版本只保留一筆並記 INFO log），200 上限依 canonical 後的計數（200 個不同頁加上其中一頁的 `sa_desc` 版本仍接受；201 個不同頁失敗），非法行的錯誤含檔名與行號但不含網址文字，超過 200 個 URL 失敗，空清單與目前的預設檔都回 `PageListError`。
 - **來源與狀態**：[test_kingstone_urls.py](../tests/test_kingstone_urls.py)、[test_kingstone_page_list.py](../tests/test_kingstone_page_list.py)、[test_catalog_page_list.py](../tests/test_catalog_page_list.py)（核心 loader）；Books 的 [test_page_list.py](../tests/test_page_list.py) 不變。角色標籤表屬於 Books adapter，core 不再持有；[test_normalize.py](../tests/test_normalize.py) 檢查 `catalog_core.normalize` 不匯出 `ROLE_MAP`／`map_contributor_role`。
+
+### CR-K04 — 金石堂詳細頁 parser
+
+- **責任／規格**：[architecture](architecture.md)「金石堂 adapter」的詳細頁段落（來源：backlog CB-07 E0 契約）；風險 L3（直接決定寫入 Book／Source 的欄位與錯誤分類）；狀態：已有測試（2026-10-25 新增並執行）。純函式，不連線。
+- **Given**：E0 的 7 份真實詳細頁 fixture（含簡體書、審訂前綴、括號原文作者、譯者行、多作者）；soft 404 fixture `detail_2099999999999.html`；合成 HTML 覆蓋 JSON-LD 為陣列或 `@graph`、JSON 損壞、sku 與 URL 不符、sku 缺少、name 缺少或空白、title 不是站名、gtin13 代替 isbn、ISBN 無值、日期格式不合或不存在、publisher 缺少、image 為陣列或字串、語言對應與缺列、頁數為 0、非數字、帶單位、非法 URL、作者括號與全形括號（成對整段才跳過，「(甲)乙(丙)」與「(X）」照一般作者名）、「、」拆分、角色前綴（含博客來角色表認得的「繪者/」）一律 OTHER、譯者純文字、譯者列的「追蹤」與「?」節點、subjects 去重與根節點、description／目錄缺少。
+- **When**：`parse_detail_html(html, canonical_url)`；非 canonical URL 另測。
+- **Then**：真實頁各欄位符合 fixture 的已知值；description 與目錄保留換行、無相鄰區塊文字外漏（活動、相關主題、作者介紹不被讀）；soft 404 為 `ProductNotFound` 而非 parse error；損壞 JSON 或 sku 不符、name 缺少為 `KingstoneParseError`；日期無效與語言未知為 None（後者記 WARNING）；ISBN 只來自 `isbn` 或 `gtin13` 並經共用正規化；作者與譯者的角色與順序依規則；譯者列排除「追蹤」「?」；subjects 去掉「中文書」並去重；非 canonical URL 為 `ValueError`。
+- **來源與狀態**：[test_kingstone_parse_detail.py](../tests/test_kingstone_parse_detail.py)（74 個測試）。
 
 ### 連線中斷與重連（crawler.md §13.1、§6.1，#119）
 

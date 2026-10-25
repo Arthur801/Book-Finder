@@ -18,8 +18,12 @@ _SITE_HOST = "www.kingstone.com.tw"
 _LIST_PATH = re.compile(r"/book/([A-Za-z]{2,4})/")
 _PAGE = re.compile(r"[1-9][0-9]*")
 _KM_CODE = re.compile(r"[0-9]{13}")
-_RELATIVE_DETAIL = re.compile(r"/basic/([0-9]{13})/(?:\?[A-Za-z0-9_=&.%\-]*)?")
+# The query characters a card href may carry. One definition, shared by the relative and absolute forms.
+_QUERY_CHARS = r"[A-Za-z0-9_=&.%\-]*"
+_QUERY = re.compile(_QUERY_CHARS)
+_RELATIVE_DETAIL = re.compile(rf"/basic/([0-9]{{13}})/(?:\?{_QUERY_CHARS})?")
 _ABSOLUTE_DETAIL_PATH = re.compile(r"/basic/([0-9]{13})/")
+_CANONICAL_DETAIL = re.compile(rf"{re.escape(SITE_ORIGIN)}/basic/([0-9]{{13}})/")
 _LIST_QUERY_KEYS = frozenset({"dis", "page", "sort"})
 
 
@@ -82,6 +86,16 @@ def detail_url(km_code: str) -> str:
     return f"{SITE_ORIGIN}/basic/{km_code}/"
 
 
+def km_code_from_detail_url(url: str) -> str | None:
+    """The km_code of a canonical detail page URL (exactly ``detail_url(km_code)``), otherwise None."""
+    if not isinstance(url, str):
+        return None
+    match = _CANONICAL_DETAIL.fullmatch(url)
+    if match is None or detail_url(match.group(1)) != url:
+        return None
+    return match.group(1)
+
+
 def km_code_from_href(href: str) -> str | None:
     """The km_code of a product card link: a relative ``/basic/<km_code>/[?query]`` or the same URL on the site origin.
 
@@ -103,6 +117,6 @@ def km_code_from_href(href: str) -> str | None:
     path = _ABSOLUTE_DETAIL_PATH.fullmatch(parts.path)
     if path is None:
         return None
-    if parts.query and not re.fullmatch(r"[A-Za-z0-9_=&.%\-]*", parts.query):
+    if parts.query and _QUERY.fullmatch(parts.query) is None:
         return None
     return path.group(1)
