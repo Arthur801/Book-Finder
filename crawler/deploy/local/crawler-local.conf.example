@@ -1,0 +1,48 @@
+# Local crawler runner configuration, sourced by run-local-crawler.sh (path: CRAWLER_LOCAL_CONF).
+# Copy to ~/.config/book-finder/crawler-local.conf (chmod 0600) and replace every <placeholder>.
+# Non-secret values only: the database URL comes from SSM (via an AWS profile) or from a 600 file named below.
+
+# Set to false to stop local runs without any external work. Unset means true, the same as the EC2 runner.
+CRAWLER_ENABLED=true
+
+# Images, pulled with --pull=never: a digest from the release (see README). Books modes use CRAWLER_IMAGE;
+# kingstone uses KINGSTONE_CRAWLER_IMAGE (HTTP-only, no browser).
+CRAWLER_IMAGE='ghcr.io/arthur801/book-finder-crawler@sha256:<digest>'
+KINGSTONE_CRAWLER_IMAGE='<kingstone-image-with-digest-or-local-tag>'
+
+# Host directory mounted at /app/crawler/artifacts. It must be owned by UID 10001 (sudo chown 10001:10001 <dir>)
+# or world-writable, because the container runs as UID 10001.
+CRAWLER_LOCAL_ARTIFACTS_DIR='/home/<user>/book-finder/crawler-artifacts'
+
+# SSH alias of the EC2 host (in ~/.ssh/config). Used for the read-only deploy state check and for the tunnel.
+EC2_SSH_HOST='<ec2-ssh-alias>'
+# The deploy state file on EC2 (same path the EC2 runner reads).
+EC2_STATE_FILE=/var/lib/book-finder/state.json
+
+# RDS endpoint host name (no port). It becomes the TLS host name, so the certificate is checked against it.
+RDS_ENDPOINT='<rds-endpoint-host>'
+# Local end of the tunnel; any free port from 1024 to 65535.
+LOCAL_DB_PORT=15432
+# RDS CA bundle on this host (mode 0644). Mounted read-only into the container at a fixed path.
+DB_CA_BUNDLE='/home/<user>/.config/book-finder/global-bundle.pem'
+
+# Database URL source: ssm (AWS profile on this host) or file (a 600 file owned by you).
+DB_SECRET_SOURCE=ssm
+AWS_PROFILE='<aws-profile-with-ssm-read>'
+AWS_REGION=ap-northeast-1
+DATABASE_URL_PARAMETER=/book-finder/prod/crawler-database-url
+# DB_SECRET_SOURCE=file
+# DB_SECRET_FILE=/home/<user>/.config/book-finder/crawler-database-url
+
+# Hard run limit enforced by the watchdog. The kingstone value is also passed to the container, where it must stay
+# above its soft budget (7200 by default). Books keeps its own limit.
+CRAWLER_RUN_HARD_LIMIT_SECONDS=9000
+BOOKS_RUN_HARD_LIMIT_SECONDS=3600
+# Seconds docker waits after SIGTERM before it kills the container.
+CRAWLER_STOP_GRACE_SECONDS=30
+# Seconds to wait for the tunnel's local port to answer before the run is abandoned.
+TUNNEL_WAIT_SECONDS=20
+
+# Optional overrides. Defaults: $XDG_STATE_HOME/book-finder-crawler (run.lock) and $XDG_CACHE_HOME/book-finder-crawler/run.
+# CRAWLER_LOCAL_STATE_DIR=/home/<user>/.local/state/book-finder-crawler
+# CRAWLER_LOCAL_RUNTIME_DIR=/home/<user>/.cache/book-finder-crawler/run

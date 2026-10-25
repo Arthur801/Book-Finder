@@ -39,6 +39,7 @@
 | [Dockerfile](../Dockerfile) | Python 3.14、UID 10001。兩個 target：`kingstone`（HTTP-only，見「Image」）與最後一階的預設 target（博客來，內容不變，`docker build` 仍產生它） |
 | [.dockerignore](../.dockerignore) | build context 白名單：博客來與金石堂 target 所需檔案（含 `kingstone/`、`kingstone-pages.txt`） |
 | [target wrapper](https://github.com/Arthur801/Book-Finder/blob/ce7b4f46c0889db6b10216294cac658136796ad7/crawler/deploy/run-crawler.sh) | host scheduling、SSM secret retrieval、daily/pages serialization、DB maintenance coordination、deployment state gate、Docker execution 與 pages schedule state |
+| [deploy/local/run-local-crawler.sh](../deploy/local/run-local-crawler.sh)、[runner_support](../deploy/local/runner_support.py) | 本地 runner（Phase 6 M4，v12 §8）：在使用者本機以 `daily`、`pages`、`first_book`、`kingstone` 啟動一個 crawler container；經 EC2 唯讀讀取 deploy state；經 SSH 本地轉發連 RDS（`host` 為 RDS endpoint、`hostaddr=127.0.0.1`、`sslmode=verify-full`）；DB secret 來自 SSM 或 600 檔；本地 `run.lock`；orphan check；writer watchdog（hard limit → stop → kill → inspect，無法確認則 `ORPHAN_WRITER`）；exit code 表見 [deploy README](../deploy/README.md) §9。`runner_support.py` 為標準函式庫的 state 判定、URL 改寫與埠檢查，以 `python3 -I` 呼叫 |
 
 ## 金石堂 adapter（kingstone/）— 已實作的解析契約
 
@@ -55,7 +56,7 @@
 
 設定（`kingstone/config.py`）與 run 帳本（`kingstone/ledger.py`）為純函式；逐頁 run（`kingstone/run.py`）已把兩者與 acquisition、catalog_core 接起來，由入口呼叫（見下方「入口與組裝」與「Run（逐頁流程）」）。
 
-尚未實作：runner（watchdog 強制 hard limit、fencing、`deploy/` 與 CD 推送 `KINGSTONE_CRAWLER_IMAGE`，Phase 6）、alert 與診斷檔（Phase 6）、acceptance（Phase 7），見 [backlog](backlog.md) CB-07。URL grammar 與錯誤分類仍以 backlog CB-07 為來源契約。
+尚未實作：DB advisory lock（crawler 端與 deploy 端）、schema preflight、last-run JSON 與 alert、診斷檔（Phase 6 其餘）；CD 推送 `KINGSTONE_CRAWLER_IMAGE`；acceptance（Phase 7）。本地 runner 已實作（Phase 6 M4，見「Runtime ownership」），見 [backlog](backlog.md) CB-07。URL grammar 與錯誤分類仍以 backlog CB-07 為來源契約。
 
 **入口與組裝**（`kingstone/cli.py`、`kingstone/__main__.py`，Phase 5 M2）
 
@@ -63,7 +64,7 @@
 - 順序（第一個失敗即結束）：(1) logging：`kingstone` 與 `catalog_core` logger 送 stdout INFO，格式比照 Books，不 import `books_crawler`；(2) `ensure_runtime_unicode_supported()` 失敗 → 2；(3) `DATABASE_URL` 必填，空白視為未設定 → 2，訊息不含值；(4) `load_config(env)`，`KingstoneConfigError` → 2（訊息經 redact）；(5) `load_page_urls(config.pages_file)`，`PageListError` → 2（經 redact）；空清單、非法行與超過 400 筆都在此；**以上全部在建立 fetcher 之前**；(6) `provider_enabled(DATABASE_URL, KINGSTONE)`：`psycopg.Error` → 1（經 redact）；非 `True`（停用，或未註冊的 `None`）→ 2；(7) `SoftBudget(soft)`，`fetcher_factory(config, budget)`；(8) `DatabaseSession(lambda: persistence.connect(url))` 內建 `SessionCatalogStore` 與 `KingstoneRunDependencies`（`clock` 為 UTC now、`sleep=time.sleep`、`write_policy=config.write_policy`），`run_pages(deps, page_urls)`，回傳 `report.exit_code`；(9) `finally`：`fetcher.close()`，不論正常、FAILED 或例外。
 - Exit codes：0 = SUCCESS 或 PARTIAL_SUCCESS；1 = FAILED（含 provider 查詢失敗與 run 的致命錯誤）；2 = 設定錯誤（DATABASE_URL、設定鍵、Unicode runtime、清單、provider 停用或未註冊）。exit 2 之前不建立 fetcher、不發出請求。
 - 資料庫：步驟 (6) 是唯一的前置查詢（`SELECT` `source_providers`）。步驟 (8) 的 Catalog 連線是 lazy 的，只在 run 真的查詢或寫入時才連線。程式只發出 `SELECT`、`INSERT`、`UPDATE`，沒有 `DELETE`、沒有 DDL；DB 角色的實際 grant 屬部署範圍（Phase 6），本次未驗證。
-- Hard limit：`CRAWLER_RUN_HARD_LIMIT_SECONDS` 只被讀取與驗證（必須大於 soft budget）。強制終止屬 runner watchdog（Phase 6）；本入口不計時、不殺程序。Soft budget 由 run 與 fetcher 共同檢查（見「Run（逐頁流程）」）。
+- Hard limit：`CRAWLER_RUN_HARD_LIMIT_SECONDS` 只被讀取與驗證（必須大於 soft budget）。強制終止屬本地 runner watchdog（Phase 6 M4）；本入口不計時、不殺程序。Soft budget 由 run 與 fetcher 共同檢查（見「Run（逐頁流程）」）。
 - 機密：DATABASE_URL 與密碼不出現在 log、stdout 或 exit 訊息中；所有錯誤訊息經 `catalog_core.redact.redact`。測試以含假密碼的 DSN 驗證（CR-K09、CR-K10）。
 
 **列表頁**（`parse_list_html(html, url) -> ListPage`）
@@ -206,7 +207,9 @@
 
 本里程碑（Kingstone P1 M2）對 Books 的唯一行為變更：existing Source 的 touch 改為 `last_seen_at = GREATEST(last_seen_at, now)`，時鐘倒退時不再把 `last_seen_at` 往回拉；touch 限定 BOOKS_COM_TW，Source 已不存在時視為 `source_identity_conflict` 跳過（不重試、不抓詳細頁）。其餘 Books 寫入內容不變（`external_id` 對 Books 草稿仍為 NULL）。
 
-Host coordination 以 target wrapper 為準：先取 shared maintenance lock 才讀 state，與 deploy 的 exclusive migration lock 形成 concurrency boundary。`crawler.paused != null` 或 `schema.dirty is True` 在 SSM／Docker 前跳過；state 缺少只省略 state gate，maintenance lock 仍生效。Deployment state.json 與 pages-last-success 是不同 contract：前者保護部署／schema，後者只決定 pages 是否到期。鎖順序、exit 語意與既有測試見 [流程](workflow-diagram.md) 及 CR-T12-B。
+**Runtime ownership（Phase 6 M4，v12 §8）**：crawler（博客來與金石堂）改在使用者本機執行，由 `deploy/local/run-local-crawler.sh` 啟動；資料經 EC2 的 SSH 本地轉發到 RDS，EC2 只作跳板、不存資料。EC2 的 `run-crawler.sh` 與 cron 保留為既有路徑，正式環境以 `CRAWLER_ENABLED=false` 停用（operator 設定，程式不強制）；EC2 crawler cron 的移除另案（backlog CB-07）。本地 runner 與 EC2 runner 各自 host 的 `run.lock` 不互斥；與 migration 的互斥依 v12 §8 的 DB advisory lock，該 lock 的 crawler 端與 deploy 端尚未實作（backlog CB-07），在此之前只有 deploy state 閘門與人工避開部署窗口。
+
+EC2 路徑（target wrapper）的 coordination：先取 shared maintenance lock 才讀 state，與 deploy 的 exclusive migration lock 形成 concurrency boundary。`crawler.paused != null` 或 `schema.dirty is True` 在 SSM／Docker 前跳過；state 缺少只省略 state gate，maintenance lock 仍生效。Deployment state.json 與 pages-last-success 是不同 contract：前者保護部署／schema，後者只決定 pages 是否到期。鎖順序、exit 語意與既有測試見 [流程](workflow-diagram.md) 及 CR-T12-B。
 
 Target 的 image 由 CD 依 release.json 管理 GHCR digest，[crawler.conf.example](https://github.com/Arthur801/Book-Finder/blob/ce7b4f46c0889db6b10216294cac658136796ad7/crawler/deploy/crawler.conf.example) 中 `<digest>` 必須替換為實際值；不要把舊 Docker Hub 手動推送流程視為現行發布政策。
 
@@ -222,6 +225,6 @@ SSM 僅取 DB URL，log／JSON 遮罩；HTML 是原始頁面，PNG 可能含畫�
 - 驗證：靜態測試 `tests/test_kingstone_image.py`（不含 playwright、USER 10001、預設 target 不變）；CI docker job 以 `--network none` 執行離線 smoke（清單可由 image 載入、`import playwright` 因 ModuleNotFoundError 失敗）。本次 M1 在本機未 build（pip 安裝需網路），build 與 smoke 待 CI 驗證。
 - 尚未：CD 推送 `KINGSTONE_CRAWLER_IMAGE` 與 release metadata（見 backlog CB-07）。
 
-金石堂（KINGSTONE）目前有清單檔、URL grammar、列表頁與詳細頁 parser、HTTP acquisition、設定、run 帳本與逐頁 run（見「金石堂 adapter」）；入口已組裝（Phase 5 M2）；HTTP-only image 已建立（Phase 6 M1）；runner（Phase 6）與 acceptance（Phase 7）尚未實作，來源契約與計畫見 [backlog](backlog.md) CB-07。
+金石堂（KINGSTONE）目前有清單檔、URL grammar、列表頁與詳細頁 parser、HTTP acquisition、設定、run 帳本與逐頁 run（見「金石堂 adapter」）；入口已組裝（Phase 5 M2）；HTTP-only image 已建立（Phase 6 M1）；本地 runner（Phase 6 M4）已實作；DB advisory lock、schema preflight、alert、診斷檔與 acceptance（Phase 6 其餘與 Phase 7）尚未實作，來源契約與計畫見 [backlog](backlog.md) CB-07。
 
 相關：[流程](workflow-diagram.md)／[架構](architecture.md)／[待辦](backlog.md)／[歷史](update-history.md)／[案例](test-suite.md)。

@@ -192,3 +192,101 @@ Cloudflare／非 200 等診斷 HTML、JSON 經 bind mount 留在主機 artifacts
 - **部分失敗**：CD 在爬蟲更新中途失敗時，會保持 paused（結果 `partial-crawler`，exit 7）。此時先查 history 的 `crawler_substeps` 與 journal，再以 `resume-crawler` 處理。
 - **暫停後續排程**：可執行 `sudo mv /etc/cron.d/book-finder-crawler /opt/book-finder/crawler.cron.disabled`；已開始的 container 仍會執行。恢復時將檔案放回 `/etc/cron.d`。注意：CD 下次部署若附上 `crawler.cron`，會重新安裝它。
 - 不要透過刪除資料庫或 schema 停止爬蟲。要阻止爬蟲執行，使用 paused（由 CD 或 `deploy/README.md` 的人工程序處理）。
+
+## 9. 本地 runner（Phase 6，金石堂與博客來）
+
+v12 計畫（`Docs/plans/kingstone-category-crawler.md` §8）改由使用者的本機（WSL2／Linux＋Docker）手動執行 crawler。`deploy/local/run-local-crawler.sh` 經 SSH 隧道連到 RDS，所有 provider 共用同一把本地 `run.lock`，並套用 writer fencing 與 hard-limit watchdog。這個 runner 不會被 cron 呼叫，也不改變 EC2 上的 `run-crawler.sh`。EC2 的 crawler cron 另案移除，目前維持 `CRAWLER_ENABLED=false`。
+
+### 9.1 前置條件
+
+- **SSH**：`~/.ssh/config` 有 EC2 主機的 alias（填入 `EC2_SSH_HOST`），金鑰只在本機。runner 以 `BatchMode=yes` 執行，不會互動式詢問密碼。
+- **AWS 或 secret 檔（擇一）**：
+  - `DB_SECRET_SOURCE=ssm`：本機的 AWS profile 要有 `ssm:GetParameter`（與 `kms:Decrypt`，若使用客戶管理金鑰）權限，讀取與 EC2 相同的 `DATABASE_URL_PARAMETER`；
+  - `DB_SECRET_SOURCE=file`：`DB_SECRET_FILE` 指向本機的檔案，權限必須是 `600` 且 owner 是自己；內容是 psycopg 的 PostgreSQL URL（與 SSM 參數相同格式）。
+- **CA bundle**：RDS CA bundle 放在本機（`DB_CA_BUNDLE`），權限 `0644`。runner 以唯讀方式掛到容器內 `/etc/book-finder/rds-ca-bundle.pem`，`sslrootcert` 指向這個路徑。
+- **Docker**：daemon 正常執行；image 需已存在於本機（runner 使用 `--pull=never`）。
+- **Artifacts 目錄**：`CRAWLER_LOCAL_ARTIFACTS_DIR` 掛到容器內 `/app/crawler/artifacts`。容器以 UID 10001 執行，因此目錄須屬於 `10001`（`sudo chown 10001:10001 <dir>`）或為 world-writable；否則 runner 以 exit 10 拒絕。
+
+### 9.2 設定檔
+
+範例：`deploy/local/crawler-local.conf.example`（只有佔位值，不含 secret）。複製到 `~/.config/book-finder/crawler-local.conf`（或以 `CRAWLER_LOCAL_CONF` 指定其他路徑），權限 `0600`。runner 以 shell 讀取此檔，因此只寫 `KEY=value`。
+
+| 鍵 | 必要 | 說明 |
+|---|---|---|
+| `CRAWLER_ENABLED` | 否 | `true`（未設定即為 true）或 `false`。`false` 時不做任何外部工作，exit 0，log `skipped=disabled`。其他值 exit 10 |
+| `CRAWLER_IMAGE` | 博客來 | 博客來 image（digest）；daily、pages、first_book 使用 |
+| `KINGSTONE_CRAWLER_IMAGE` | 金石堂 | HTTP-only image（`crawler/Dockerfile` 的 `kingstone` target） |
+| `CRAWLER_LOCAL_ARTIFACTS_DIR` | 是 | 絕對路徑；掛到容器內 `/app/crawler/artifacts`（見 §9.1） |
+| `EC2_SSH_HOST` | 是 | EC2 的 SSH alias；用於唯讀讀取 deploy state 與建立隧道 |
+| `EC2_STATE_FILE` | 是 | EC2 上的 deploy `state.json`（與 `BOOKFINDER_STATE_FILE` 相同路徑） |
+| `RDS_ENDPOINT` | 是 | RDS 的 host name（不含 port）。它是 TLS 主機名稱，憑證以此比對 |
+| `LOCAL_DB_PORT` | 是 | 本機隧道埠，1024–65535 |
+| `DB_CA_BUNDLE` | 是 | 本機 RDS CA bundle 的絕對路徑（`0644`，不能是 symlink） |
+| `DB_SECRET_SOURCE` | 是 | `ssm` 或 `file` |
+| `AWS_PROFILE`／`AWS_REGION`／`DATABASE_URL_PARAMETER` | ssm 時 | 讀取 SSM 參數 |
+| `DB_SECRET_FILE` | file 時 | 600 權限的 secret 檔 |
+| `CRAWLER_RUN_HARD_LIMIT_SECONDS` | 否 | 金石堂的 hard limit（預設 9000）；同時以 `--env` 傳給 container，須大於 container 的 soft budget（預設 7200） |
+| `BOOKS_RUN_HARD_LIMIT_SECONDS` | 否 | 博客來的 hard limit（預設 3600，見 backlog） |
+| `CRAWLER_STOP_GRACE_SECONDS` | 否 | watchdog 的 `docker stop -t`（預設 30） |
+| `TUNNEL_WAIT_SECONDS` | 否 | 等待隧道埠可連的上限（預設 20） |
+| `CRAWLER_LOCAL_STATE_DIR` | 否 | `run.lock` 所在目錄（預設 `$XDG_STATE_HOME/book-finder-crawler`） |
+| `CRAWLER_LOCAL_RUNTIME_DIR` | 否 | 600 env file 與 cidfile 的暫存目錄（預設 `$XDG_CACHE_HOME/book-finder-crawler/run`，700） |
+
+### 9.3 執行
+
+```bash
+CRAWLER_LOCAL_CONF=~/.config/book-finder/crawler-local.conf \
+  crawler/deploy/local/run-local-crawler.sh kingstone
+
+# 博客來：daily、pages、first_book 與 EC2 相同的模組對應
+crawler/deploy/local/run-local-crawler.sh daily
+```
+
+執行順序（任一步失敗即停止，並在 exit 前清理）：
+
+1. 讀設定；`CRAWLER_ENABLED=false` 即結束；其他必要值驗證失敗 exit 10。
+2. 取得本地 `run.lock`（非阻塞；已被持有即 exit 11）。
+3. 經 SSH 唯讀讀取 EC2 `state.json`，paused／dirty 則 exit 6；讀不到（含檔案不存在）fail closed，exit 12。
+4. orphan check：固定 container 名稱 `book-finder-crawler-active`、label `com.bookfinder.role=catalog-crawler`。running、restarting、paused、removing 拒絕啟動（exit 13，`ORPHAN_WRITER`）；exited、dead、created 先 `docker rm`。
+5. 取得 DB secret（SSM 或 600 檔），不寫入 argv、log 或 env。
+6. 改寫連線字串，寫入 600 的 env file（只含 `DATABASE_URL`），用後刪除。
+7. 啟動 `ssh -N -o ExitOnForwardFailure=yes ... -L 127.0.0.1:<port>:<RDS>:5432`，等待本機埠可連；失敗 exit 16。
+8. 以 `docker run --network host --pull=never --init` 啟動 container（名稱與 labels 如上，`--cidfile` 指向 runtime 目錄）；kingstone 使用預設 CMD，博客來使用對應 module。
+9. watchdog：超過 hard limit、或收到 SIGINT／SIGTERM → `docker stop -t` → 仍 running 則 `docker kill` → 再確認停止。無法確認 → `ORPHAN_WRITER`，exit 14，之後的啟動會被第 4 步擋下。
+10. 正常結束也會確認狀態後 `docker rm`；關閉隧道、刪除 env file、釋放鎖。
+
+**連線字串的 TLS 設計**：`host` 保留為 RDS endpoint（憑證主機名比對），`hostaddr=127.0.0.1` 指定實際連線位址，埠改為本機隧道埠，並加上 `sslmode=verify-full` 與 `sslrootcert=/etc/book-finder/rds-ca-bundle.pem`。secret 中的 host 必須等於 `RDS_ENDPOINT`，否則拒絕（exit 17），以免隧道連到其他主機。密碼等 userinfo 保留原樣，不解碼，因此 URL 中的特殊字元須已 percent-encode。
+
+### 9.4 Exit code
+
+| Exit | 意義 |
+|---|---|
+| 0 | container 成功（SUCCESS 或 PARTIAL_SUCCESS），或 `CRAWLER_ENABLED=false` 跳過 |
+| 1 | container FAILED（容器自身的結果，見 `kingstone` 或 `books_crawler` 的說明） |
+| 2 | container 設定錯誤（DB URL、設定、清單或 provider；由容器回傳） |
+| 6 | 跳過：EC2 deploy state 為 paused 或 dirty |
+| 10 | runner 設定或用法錯誤（缺值、格式錯誤、CA bundle、artifacts 權限、`CRAWLER_ENABLED` 非法） |
+| 11 | 另一個本地 run 持有 `run.lock` |
+| 12 | 無法讀取 EC2 deploy state（fail closed；本 runner 不沿用 EC2 的 exit 2，以免與 container 的設定錯誤混淆） |
+| 13 | 偵測到 writer container 仍在運作（`ORPHAN_WRITER`）或處於 busy 狀態；未啟動任何 container |
+| 14 | watchdog 無法確認 writer 已停止（`ORPHAN_WRITER`）；之後的啟動會被擋下，需人工確認 container 狀態 |
+| 15 | DB secret 無法讀取或無效（SSM 失敗、secret 檔權限或 owner 錯誤、secret 為空） |
+| 16 | SSH 隧道無法轉發（ssh 立即退出，或等待逾時） |
+| 17 | 連線字串改寫失敗（不是 PostgreSQL URL，或 host 與 `RDS_ENDPOINT` 不符） |
+| 18 | Docker 無法使用（orphan check 時） |
+| 20 | watchdog 因 hard limit 停止 writer（已確認停止） |
+| 21 | 被 SIGINT／SIGTERM 中斷；已先停止 writer（若尚未啟動 container 則直接退出） |
+
+其他值（例如 container 內部的 125）為 Docker 或 container 自身的 exit code，原樣傳回。
+
+### 9.5 手動 canary（金石堂）
+
+金石堂第一次真站驗證只在使用者本機執行，且不得與 CD 部署重疊：
+
+1. 確認 EC2 deploy state 沒有 paused 或 dirty（runner 會檢查，但部署進行中時請不要啟動）；Phase 6 的 DB advisory lock 尚未由本 runner 取得，因此請自行避開部署窗口。
+2. 清單只放 1 頁：暫時把 `crawler/kingstone-pages.txt` 改為只有一行，`docker build --target kingstone -t kingstone:canary crawler`，設定 `KINGSTONE_CRAWLER_IMAGE=kingstone:canary`。測試完成後還原清單檔，並重建 image。
+3. 確認寫入策略為 `new-books-only`。這是程式的預設值（`KINGSTONE_WRITE_POLICY` 未設定即是），本 runner 不轉傳此變數；不要在 image 或環境中改為 `normal`。
+4. 執行 `run-local-crawler.sh kingstone`，確認 exit code、`artifacts/kingstone/last-run.json`（M5 之後）與 log 中的 `container=end exit_code=...`。
+5. 成功後還原清單與 image tag，再視需要以 `normal` 進行下一步（另案）。
+
+金石堂若封鎖本地 IP，依 rollback 停用（`CRAWLER_ENABLED=false`），不採取規避技術。

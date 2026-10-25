@@ -312,6 +312,33 @@ migration 011 的 schema 由 test_db_integration.py 在 011 上檢查（無 `sou
 - **Then**：存在名為 `kingstone` 的 target，且最後一階（`docker build` 的預設）仍是博客來；`kingstone` target 不含 playwright、chromium，也不安裝 `requirements.txt`（開發依賴，含 playwright）；`requirements-runtime.txt` 不含 playwright；`kingstone` target 複製 `catalog_core/`、`kingstone/`、`kingstone-pages.txt`，不含 `books_crawler`；UID 10001 與 `ENTRYPOINT ["python", "-m"]`、`CMD ["kingstone"]`；博客來預設 target 的 COPY、USER、CMD 不變；`.dockerignore` 允許 `kingstone/` 與 `kingstone-pages.txt`；CI 有 `docker build --target kingstone` 與 `--network none` 離線 smoke，smoke 斷言 `import playwright` 因 `ModuleNotFoundError` 失敗。
 - **來源與狀態**：[test_kingstone_image.py](../tests/test_kingstone_image.py)（7 個測試）。**已知驗證缺口**：本次未在本機 build image（`pip install` 需要網路）；build 與離線 smoke 的實際結果需由 CI docker job 驗證；CD 尚未推送此 image（backlog CB-07）。
 
+### CR-T20 — 本地 runner（`deploy/local/`，Phase 6 M4）
+
+- **責任／規格**：[architecture](architecture.md)「Runtime ownership」、[流程](workflow-diagram.md)「本地 runner」與 Kingstone plan v12 §8；風險 L3（secret、TLS、tunnel、writer fencing、watchdog 與 container 參數）；狀態：已有測試（2026-10-25 新增並執行）。
+- **Given**：假 `ssh`（`-N` 時在 `-L` 的本機埠監聽，否則輸出 state 檔，可模擬 forward 失敗）、假 `docker`（container 狀態存於檔案；`run` 會複製收到的 env file；stop／kill 是否生效可由環境切換）、假 `aws`（輸出 secret，記錄 argv）。假指令置於 PATH 最前；不連網、不使用真 SSH 金鑰、真 AWS 或真 RDS。
+- **When**：`tests/test_local_runner.py` 執行 `deploy/local/run-local-crawler.sh`，並直接載入 `runner_support.py` 的函式。
+- **Then**：
+  - `CRAWLER_ENABLED=false` 零外部呼叫、log `skipped=disabled`、exit 0；非法值 exit 10；用法錯誤 exit 10。
+  - state 讀不到或不存在 → exit 12；paused／dirty → exit 6，未呼叫 docker 或 aws。
+  - orphan：running、restarting、paused、removing → exit 13，未取 secret；exited、dead、created → `docker rm` 後才啟動。docker 不可用 → exit 18。
+  - secret：`ssm` 使用 profile、`--with-decryption`；`file` 權限不是 600 或為 symlink → exit 15；空值 → exit 15；secret 不出現在任何假指令的 argv、runner 的 stdout 或 stderr（marker 檢查）。env file、cidfile 在成功、失敗與 signal 路徑都被刪除。
+  - URL：host 保留為 RDS endpoint，port 換成本地埠，加上 `hostaddr=127.0.0.1`、`sslmode=verify-full`、`sslrootcert`；percent-encoded 密碼原樣保留；以 `psycopg.conninfo.conninfo_to_dict` 驗證 libpq 解析結果（不連線）；secret 的 host 與 `RDS_ENDPOINT` 不符 → exit 17，訊息不含 secret。
+  - tunnel：forward 失敗或埠不通（逾時）→ exit 16、不啟動 container、ssh 已終止；正常時 ssh 參數含 `ExitOnForwardFailure=yes`、`BatchMode=yes` 與正確的 `-L`；結束後 ssh 程序已不存在。
+  - container 參數：name、labels（role、mode、provider）、`--cidfile`、`--env-file`、`--network host`、`--rm=false`、artifacts 與 CA（唯讀）bind mount；kingstone 使用 `KINGSTONE_CRAWLER_IMAGE`、預設 CMD，並傳入 `CRAWLER_RUN_HARD_LIMIT_SECONDS`；博客來 daily／pages／first_book 使用 `CRAWLER_IMAGE` 與對應 module。
+  - watchdog：hard limit → `stop` → 狀態 exited → `rm`，exit 20；stop 無效 → `kill`，exit 20；stop 與 kill 皆無效 → `ORPHAN_WRITER`、exit 14、不 `rm`，下一次啟動 exit 13。博客來使用 `BOOKS_RUN_HARD_LIMIT_SECONDS`。
+  - signal：SIGTERM → 先 `stop` container，exit 21，tunnel 與 env file 清理。
+  - exit code：container 的 0、1、2 原樣回傳。
+  - run.lock：第一個 run 持有時，任何 mode 的第二個 run exit 11。
+  - artifacts 目錄 owner 不是 10001 且非 world-writable → exit 10。
+  - 設定檔範例可被 `bash -n` 解析，且不含 `postgresql://` 或 secret 標記。
+- **來源與狀態**：[test_local_runner.py](../tests/test_local_runner.py)（95 個測試，約 40 秒，含數個 1 至 6 秒的 watchdog 與 lock 等待）。執行：`cd crawler && ../.venv/bin/python -m pytest -q tests/test_local_runner.py`。`shellcheck -x deploy/local/run-local-crawler.sh` 無 warning。
+- **已知驗證缺口**：
+  - 全部為假指令。真實 `ssh`（ExitOnForwardFailure、host key）、AWS SSM 權限、Docker（`--cidfile`、bind mount 讓 UID 10001 可寫、`stop`／`kill`／`ps --filter label=` 的真實輸出與 paused 容器行為）與 RDS 的 `verify-full` 連線都未驗證；列為 P3（backlog CB-07），需使用者本機執行。
+  - secret 檔 owner 不是自己的分支只有程式檢查，沒有測試（需要另一個 owner 的檔案）。
+  - watchdog 以 1 秒 hard limit 與假 docker 模擬，不驗證真實 `docker stop` 的 grace 期間行為。
+  - run 中途 tunnel 斷線的 DB 行為由既有的 reconnect 與 CR-K10 負責，本測試不模擬。
+  - container 的 `ALERT` 行目前只顯示在終端，沒有轉寫到 runner log（backlog CB-07）。
+
 ### 連線中斷與重連（crawler.md §13.1、§6.1，#119）
 
 - **Given**：DB integration 的 PostgreSQL；fetcher 與 parser 是 fake，不連線博客來。會話斷線以 `pg_terminate_backend(<crawler backend pid>)` 從另一個 admin 連線執行，在操作前的 hook 中觸發。
