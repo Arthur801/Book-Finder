@@ -25,12 +25,16 @@
 
 ## CB-07 — 金石堂分類頁 crawler（v11）
 
-- P2；L3；狀態：E0 完成（2026-10-25），程式未實作。
+- P2；L3；狀態：E0 完成；Phase 1（共用 `catalog_core`：型別、identity、ISBN、provider 明確的 persistence、單調 touch、item 解析 service，博客來已改走 service）完成（2026-10-25，見 [實作報告](../../Docs/Implementation-Report/kingstone-phase1-core.md)）；Phase 2 起未實作。
 - 決定（使用者 2026-10-25）：比照博客來分類榜，由使用者在 `crawler/kingstone-pages.txt` 提供金石堂分類列表頁；每個 URL 只抓那一頁、不跟分頁；不探索分類樹；沒有跨 run 進度狀態檔，靠 replay＋Source identity 推進；`HTTP_ONLY`；請求間隔 3～10 秒。來源契約見下方「CB-07 來源契約」。
 - 證據：[kingstone fixtures](../tests/fixtures/kingstone/README.md)（13 份）與 CR-K01。
 - 待做：Phase 1～7 依 [v11 計畫](../../Docs/plans/kingstone-category-crawler.md) §9：共用 core（含單調 touch，會改變博客來的 touch 行為）、清單與 parser、acquisition、逐頁 run 與 budget、ingestion、runner／fencing／alert、acceptance。
 - 前置決策（Phase 6）：host `CRAWLER_ENABLED` 是全域開關，production 目前為 `false`（CB-03），金石堂是否用獨立開關；清單檔隨 image 發布或由 host mount。
 - 未覆蓋：E0 沒有觀察到 challenge、CAPTCHA、限制級頁、429／5xx、無 ISBN 的書；出現時先收錄 fixture。
+- Phase 1 留下的待辦：
+  - `ItemResolved`／`ItemFailed.identity_warning` 目前只有 service 測試讀取；博客來沒有 `external_id`，不會產生 URL 漂移 warning。金石堂（有 km_code）在 Phase 4／5 要從回傳值記錄這個 warning。
+  - `books_crawler/models.py` 重新匯出 `catalog_core.models` 的型別，讓既有測試的 import 不用改；同一型別因此有兩個匯入入口，之後把測試改成直接從 `catalog_core` 匯入，再移除這層相容匯出。
+  - Phase 5 在 `catalog_core.service` 加入 `new-books-only` 寫入政策（v11 計畫 §5）。
 
 ### CB-07 來源契約（E0 凍結，尚未實作）
 
