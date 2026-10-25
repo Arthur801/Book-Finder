@@ -155,6 +155,14 @@ python -m pytest tests/test_fetcher.py tests/test_curl_fetcher.py tests/test_pla
 - Then：僅第一次匯入 rank1，新來源再跑重用；榜與既有來源時間不變；rank1 一般失敗 exit1，限制級 exit0 partial，設定錯誤 exit2；fetcher 關閉。
 - 現有測試或擴充入口：[test_first_book.py](../tests/test_first_book.py)、[test_first_book_integration.py](../tests/test_first_book_integration.py)。
 
+### CR-T16 — 單調 touch 與 provider 隔離
+
+- 責任／規格：catalog_core persistence（Kingstone plan §3、§5，P1 M2）；風險 L3（touch 寫入與 provider 邊界）；狀態：已有測試（2026-10-25 新增並執行）。
+- Given：一筆 BOOKS_COM_TW Source，`last_seen_at` 為 NOW；一筆 KINGSTONE 草稿（帶 `external_id`）；與 BOOKS_COM_TW 同 URL 的既有 Source。
+- When：以較晚時間 touch；以較早時間（時鐘倒退）touch；同一時間重複 touch；以 KINGSTONE touch BOOKS_COM_TW 的 Source；touch 不存在的 Source id；以 KINGSTONE 寫入新 Source；以 KINGSTONE 與 BOOKS_COM_TW 分別做身分查詢；run 中 touch 匹配不到列。
+- Then：`last_seen_at` 變成較晚時間，較早時間不改它，重複 touch 結果不變；錯誤 provider 與不存在的 Source 都拋 `SourceTouchConflict` 且列不變；KINGSTONE 寫入同時存 `source_code` 與 `external_id`；同 URL 對 KINGSTONE 為 NEW、對 BOOKS_COM_TW 為 EXISTING；external_id 查詢只看自己的 provider；run 中 touch 衝突的列記為 `source_identity_conflict`（attempts 1），不重試、不抓詳細頁、不 sleep，榜單不含該列。
+- 來源與狀態：[test_persistence_integration.py](../tests/test_persistence_integration.py)、[test_db_integration.py](../tests/test_db_integration.py)（`test_a_touch_conflict_skips_the_row_as_source_identity_conflict_without_a_retry`、`test_a_clock_moved_back_keeps_a_later_last_seen_and_the_source_is_still_existing`）；[test_reconnect_integration.py](../tests/test_reconnect_integration.py)（`test_a_touch_commit_whose_acknowledgement_is_lost_is_idempotent_on_retry`，touch 已 commit 但 ACK 遺失，重試後仍 EXISTING、單列、`last_seen_at` 不變）。
+
 ### CR-T17 — 共用 item 解析 service
 
 - 責任／規格：`catalog_core/service`（Kingstone plan §3、§5，P1 M3；M3b 讓 Books 經由同一 service）；風險 L3（identity、touch、寫入與重試語意）；狀態：已有測試（2026-10-25 新增並執行）。
@@ -162,14 +170,6 @@ python -m pytest tests/test_fetcher.py tests/test_curl_fetcher.py tests/test_pla
 - When：逐一執行 service 的每個分支：CONFLICT；EXISTING touch 成功、失敗後重試成功、耗盡；touch 回傳 False；NEW 的 fetch 失敗、不可重試失敗、parse 後 ISBN 查詢失敗、1／0／2 本匹配、寫入失敗後 commit 不確定與重新解析（EXISTING 恢復、未 commit 繼續寫入）、耗盡。
 - Then：每個分支的 `ItemResolved`／`ItemFailed` 欄位（`attempts`、`reason`、`identity_warning`、`recovered_commit`、`matched_book_ids`）、`on_attempt_failed` 的呼叫次序，以及 CONFLICT 與 touch 衝突時 fetch 與寫入的次數都符合規格。
 - 來源與狀態：[test_catalog_service.py](../tests/test_catalog_service.py)（fake store，覆蓋所有分支）。Books 的整合測試（[test_db_integration.py](../tests/test_db_integration.py)、[test_first_book.py](../tests/test_first_book.py)、[test_reconnect_integration.py](../tests/test_reconnect_integration.py)）經由 adapter 與真實 session／store 覆蓋同一條路徑。
-
-### CR-T16 — 單調 touch 與 provider 隔離
-
-- 責任／規格：catalog_core persistence（Kingstone plan §3、§5，P1 M2）；風險 L3（touch 寫入與 provider 邊界）；狀態：已有測試（2026-10-25 新增並執行）。
-- Given：一筆 BOOKS_COM_TW Source，`last_seen_at` 為 NOW；一筆 KINGSTONE 草稿（帶 `external_id`）；與 BOOKS_COM_TW 同 URL 的既有 Source。
-- When：以較晚時間 touch；以較早時間（時鐘倒退）touch；同一時間重複 touch；以 KINGSTONE touch BOOKS_COM_TW 的 Source；touch 不存在的 Source id；以 KINGSTONE 寫入新 Source；以 KINGSTONE 與 BOOKS_COM_TW 分別做身分查詢；run 中 touch 匹配不到列。
-- Then：`last_seen_at` 變成較晚時間，較早時間不改它，重複 touch 結果不變；錯誤 provider 與不存在的 Source 都拋 `SourceTouchConflict` 且列不變；KINGSTONE 寫入同時存 `source_code` 與 `external_id`；同 URL 對 KINGSTONE 為 NEW、對 BOOKS_COM_TW 為 EXISTING；external_id 查詢只看自己的 provider；run 中 touch 衝突的列記為 `source_identity_conflict`（attempts 1），不重試、不抓詳細頁、不 sleep，榜單不含該列。
-- 來源與狀態：[test_persistence_integration.py](../tests/test_persistence_integration.py)、[test_db_integration.py](../tests/test_db_integration.py)（`test_a_touch_conflict_skips_the_row_as_source_identity_conflict_without_a_retry`）。
 
 ## 狀態限制
 

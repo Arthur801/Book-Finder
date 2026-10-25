@@ -90,6 +90,36 @@ def test_a_commit_whose_acknowledgement_is_lost_is_not_inserted_again_on_retry(d
     assert report.existing_source_count == 1  # the committed outcome is reported as EXISTING (crawler.md §13.1)
 
 
+def test_a_touch_commit_whose_acknowledgement_is_lost_is_idempotent_on_retry(db_url, monkeypatch, caplog):
+    # Uncertain ACK for the Existing touch (Kingstone plan §5): the UPDATE commits, the client never sees it.
+    caplog.set_level(logging.WARNING, logger="books_crawler")
+    _seed_with_identifiers(db_url, {})
+    target_url = product_url(5)
+    target = _source_id(db_url, target_url)
+    real_touch = persistence.touch_source
+    dropped = []
+
+    def touch_commit_then_drop(conn, provider, source_id, now):
+        real_touch(conn, provider, source_id, now)  # the touch commits
+        if source_id == target and not dropped:
+            dropped.append(conn)
+            kill_backend(db_url, conn)  # the connection breaks before the client sees the success
+            raise psycopg.OperationalError("connection lost before the touch was acknowledged")
+
+    monkeypatch.setattr(persistence, "touch_source", touch_commit_then_drop)
+
+    report, fetcher = run(db_url, ranking_rows(100), now=LATER, sleep=FakeSleep())
+
+    assert len(dropped) == 1
+    assert report.status is RunStatus.SUCCESS
+    assert report.skipped == []
+    assert report.existing_source_count == 100  # the retried touch resolves the row as EXISTING
+    assert not [url for url in fetcher.calls if url != RANKING_PAGE_URL]  # no detail page was fetched
+    assert query(db_url, "SELECT count(*) FROM book_sources WHERE source_url = %s", (target_url,)) == [(1,)]
+    assert query(db_url, "SELECT last_seen_at FROM book_sources WHERE id = %s", (target,)) == [(LATER,)]
+    assert "rank 5 attempt 1/3 failed" in caplog.text  # the first attempt failed; the retry succeeded
+
+
 def test_three_broken_connections_fail_the_row_with_database_error_and_the_daily_policy_applies(db_url, monkeypatch):
     _seed_with_identifiers(db_url, {})
     target_url = product_url(5)
