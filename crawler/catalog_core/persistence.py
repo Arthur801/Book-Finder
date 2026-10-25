@@ -79,10 +79,7 @@ def missing_schema_prerequisites(conn: psycopg.Connection) -> list[str]:
         if table not in tables:
             continue
         columns = {
-            row[0]
-            for row in conn.execute(
-                "SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = %s", (table,)
-            )
+            row[0] for row in conn.execute("SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = %s", (table,))
         }
         for column in POST_011_COLUMNS.get(table, ()):
             if column not in columns:
