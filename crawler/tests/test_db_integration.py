@@ -16,9 +16,10 @@ from books_crawler import db
 from books_crawler.browser import PlaywrightFetcher
 from books_crawler.fetcher import BrowserUnavailableError, FetchError
 from books_crawler.models import Contributor, ContributorRole, RankingRow, RunStatus, SnapshotRow
-from books_crawler.normalize import map_language, normalize_isbn
+from books_crawler.normalize import map_language
 from books_crawler.parsers import RANKING_PAGE_URL, ParseError, RestrictedBookError
 from books_crawler.run import RunDependencies, run_once
+from catalog_core.normalize import normalize_isbn
 from tests.browser_fakes import FakeBrowserContext, launching
 from tests.fakes import (
     RANKING_HTML,

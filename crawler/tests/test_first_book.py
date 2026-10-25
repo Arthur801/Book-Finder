@@ -9,10 +9,10 @@ import pytest
 
 from books_crawler import cli, db
 from books_crawler.fetcher import FetchError
-from books_crawler.identity import IdentityKind, SourceIdentity
 from books_crawler.models import BookDraft, RunStatus, SourceRef
 from books_crawler.parsers import RANKING_PAGE_URL, RestrictedBookError
 from books_crawler.run import RunDependencies, run_first_book
+from catalog_core.identity import IdentityKind, SourceIdentity
 from tests.fakes import FakeFetcher, FakeSleep, fake_detail_parser, fake_ranking_parser, make_draft, ranking_rows
 
 

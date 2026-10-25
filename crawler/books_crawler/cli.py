@@ -41,7 +41,6 @@ from books_crawler.fetcher import (
     create_fetcher,
 )
 from books_crawler.models import PROVIDER, ProviderCode
-from books_crawler.normalize import ensure_runtime_unicode_supported
 from books_crawler.page_list import (
     PAGES_FILE_ENV,
     PageListError,
@@ -51,6 +50,7 @@ from books_crawler.page_list import (
 from books_crawler.parsers import parse_detail_html, parse_ranking_html
 from books_crawler.redact import redact
 from books_crawler.run import RunDependencies, run_first_book, run_once, run_pages
+from catalog_core.normalize import ensure_runtime_unicode_supported
 
 EXIT_FAILED = 1
 EXIT_CONFIG_ERROR = 2
@@ -67,12 +67,15 @@ class CrawlerMode(StrEnum):
 
 
 def configure_logging() -> logging.Logger:
-    """Send ``books_crawler`` logs to stdout at INFO; shared by every crawler entry point."""
+    """Send ``books_crawler`` and ``catalog_core`` logs to stdout at INFO; shared by every crawler entry point."""
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
     root = logging.getLogger("books_crawler")
     root.handlers[:] = [handler]
     root.setLevel(logging.INFO)
+    core = logging.getLogger("catalog_core")
+    core.handlers[:] = [handler]
+    core.setLevel(logging.INFO)
     return root
 
 

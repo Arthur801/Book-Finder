@@ -19,11 +19,11 @@ import pytest
 from books_crawler import cli, db
 from books_crawler.cli import CrawlerMode
 from books_crawler.fetcher import BrowserUnavailableError, FetcherKind, FetchError
-from books_crawler.identity import IdentityKind, SourceIdentity
 from books_crawler.models import BookDraft, Identifier, IdentifierType, RankingRow, RunStatus, SkipReason, SourceRef
 from books_crawler.page_list import PAGES_FILE_ENV
 from books_crawler.parsers import RANKING_PAGE_URL, ParseError, RestrictedBookError
 from books_crawler.run import RunDependencies, run_once, run_pages
+from catalog_core.identity import IdentityKind, SourceIdentity
 from tests.fakes import (
     RANKING_HTML,
     FakeFetcher,

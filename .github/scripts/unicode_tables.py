@@ -3,7 +3,7 @@
 Why: data-model 7.1 pins NFKC to Unicode 15.1. A runtime with a newer Unicode database adds compatibility decompositions
 (for example Unicode 16.0's OUTLINED DIGIT), so the protocol first splits the input at code points that are not assigned
 in 15.1 and applies NFKC only to the assigned runs. The assigned ranges come from DerivedAge-15.1.0.txt and are written as
-the same table for C# (Application/Catalog) and Python (crawler/books_crawler). NormalizationTest.txt is trimmed to the
+the same table for C# (Application/Catalog) and Python (crawler/catalog_core). NormalizationTest.txt is trimmed to the
 two columns the C# conformance test needs (c1 source, c4 NFKC).
 
 Usage: unicode_tables.py --check   (default; fails when a committed file differs from the vendored data)
@@ -20,7 +20,7 @@ DERIVED_AGE = "DerivedAge.txt"
 NORMALIZATION_TEST = "NormalizationTest.txt"
 NFKC_TRIMMED = "NormalizationTest-NFKC.txt"
 CS_TABLE = Path("Application/Catalog/Unicode151Assigned.cs")
-PY_TABLE = Path("crawler/books_crawler/unicode_15_1.py")
+PY_TABLE = Path("crawler/catalog_core/unicode_15_1.py")
 EXPECTED_VERSION = (15, 1)
 NOTICE_HEADER = [
     "# Trimmed by .github/scripts/unicode_tables.py from NormalizationTest.txt (Unicode 15.1.0).",
