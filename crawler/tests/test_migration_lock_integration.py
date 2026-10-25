@@ -308,6 +308,10 @@ def test_the_schema_preflight_passes_on_the_post_011_database(db_url):
         ("ALTER TABLE book_sources RENAME COLUMN source_code TO source_code_old", "book_sources.source_code"),
         ("ALTER TABLE book_sources ADD COLUMN source_type text", "book_sources.source_type"),
         ("DELETE FROM source_providers WHERE code = 'KINGSTONE'", "source_providers row KINGSTONE"),
+        ("ALTER TABLE book_subjects RENAME COLUMN source_code TO source_code_old", "book_subjects.source_code"),
+        ("ALTER TABLE book_subjects ADD COLUMN source_type text", "book_subjects.source_type"),
+        ("ALTER TABLE book_subjects RENAME TO book_subjects_old", "table book_subjects"),
+        ("ALTER TABLE book_contributors RENAME TO book_contributors_old", "table book_contributors"),
         (
             (
                 "ALTER TABLE book_identifiers DROP CONSTRAINT ck_book_identifiers_identifier_type, "
@@ -331,10 +335,32 @@ def test_the_schema_preflight_reports_each_missing_prerequisite(db_url, statemen
         assert persistence.missing_schema_prerequisites(check) == []  # the rollback restored the schema
 
 
-def test_the_cli_exits_2_on_a_missing_prerequisite_and_builds_no_fetcher(db_url, tmp_path, kingstone_enabled, capsys):
+@pytest.mark.parametrize(
+    ("break_schema", "restore_schema", "expected"),
+    [
+        (
+            "ALTER TABLE book_sources RENAME COLUMN last_seen_at TO last_seen_at_old",
+            "ALTER TABLE book_sources RENAME COLUMN last_seen_at_old TO last_seen_at",
+            "book_sources.last_seen_at",
+        ),
+        (
+            "ALTER TABLE book_subjects RENAME COLUMN source_code TO source_code_old",
+            "ALTER TABLE book_subjects RENAME COLUMN source_code_old TO source_code",
+            "book_subjects.source_code",
+        ),
+        ("ALTER TABLE book_subjects ADD COLUMN source_type text", "ALTER TABLE book_subjects DROP COLUMN source_type", "book_subjects.source_type"),
+        ("ALTER TABLE book_subjects RENAME TO book_subjects_old", "ALTER TABLE book_subjects_old RENAME TO book_subjects", "table book_subjects"),
+        (
+            "ALTER TABLE book_contributors RENAME TO book_contributors_old",
+            "ALTER TABLE book_contributors_old RENAME TO book_contributors",
+            "table book_contributors",
+        ),
+    ],
+)
+def test_the_cli_exits_2_on_a_missing_prerequisite_and_builds_no_fetcher(db_url, tmp_path, kingstone_enabled, capsys, break_schema, restore_schema, expected):
     built = []
     with psycopg.connect(db_url, autocommit=True) as conn:
-        conn.execute("ALTER TABLE book_sources RENAME COLUMN last_seen_at TO last_seen_at_old")
+        conn.execute(break_schema)
     try:
         code = cli.main(
             {"DATABASE_URL": db_url, "KINGSTONE_PAGES_FILE": _page_file(tmp_path, LIST_A), "KINGSTONE_ARTIFACTS_DIR": str(tmp_path / "artifacts")},
@@ -343,12 +369,13 @@ def test_the_cli_exits_2_on_a_missing_prerequisite_and_builds_no_fetcher(db_url,
         )
     finally:
         with psycopg.connect(db_url, autocommit=True) as conn:
-            conn.execute("ALTER TABLE book_sources RENAME COLUMN last_seen_at_old TO last_seen_at")
+            conn.execute(restore_schema)
 
     assert code == 2
-    assert built == []
-    assert "SCHEMA_PREREQUISITE_MISSING: book_sources.last_seen_at" in capsys.readouterr().out
+    assert built == []  # no fetcher, so no HTTP
+    assert f"SCHEMA_PREREQUISITE_MISSING: {expected}" in capsys.readouterr().out
     assert book_count(db_url) == 0
+    assert query(db_url, "SELECT count(*) FROM book_sources") == [(0,)]
     record = json.loads((tmp_path / "artifacts" / "kingstone" / "last-run.json").read_text(encoding="utf-8"))
     assert record["reason"] == "SCHEMA_PREREQUISITE_MISSING"
     assert record["alert_reasons"] == ["failed", "schema_prerequisite_missing"]
