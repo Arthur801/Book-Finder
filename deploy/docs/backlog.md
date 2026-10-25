@@ -39,7 +39,6 @@
 | DEP-B19 | P3 | L2 | 改善提案（#120 review） | compat contract allowance 與 gate 9 script 的結構整理 |
 | DEP-B20 | P1 | L4 | 部分驗證 | `client_connection_check_interval` 經 Npgsql `Options` 傳給 efbundle：Npgsql 送出 Options（負向對照已證）、生效值未讀到；RDS 版本（PG 14+）未確認 |
 | DEP-B21 | P1 | L4 | 已緩解；殘留風險待決策 | 保險 (a) 釋放前等連線結束、(b) 殘留容器拒絕、效果接受前的 final heartbeat；超時後的殘留風險與 host 被 SIGKILL 的風險仍在 |
-| DEP-B22 | P2 | L2 | 待 M2 合併 | deploy 與 crawler 的 migration lock key 一致性測試（跨模組） |
 | DEP-B23 | P1 | L3 | 大部分已驗證；未驗證項保留 | 真 lock holder 與拋棄式 PG 17 的整合測試已執行（test-suite §3.22）；efbundle 的 SIGTERM／kill 與 RDS 版本仍未驗證 |
 
 ## 2. 項目
@@ -235,14 +234,6 @@
 - **驗收條件**：決定後補測試；runbook §5.8 與 architecture 同步（runbook 已描述 (a) 與 (b) 的操作）。
 - **測試入口**：`deploy/tests/host/test_machine.py` 的 DEP-MIGLOCK-19 至 32；`deploy/tests/integration/test_migration_lock_it.py::test_efbundle_exit_after_the_real_lock_session_was_terminated_is_not_accepted`。
 
-### DEP-B22 deploy 與 crawler 的 migration lock key 一致性（跨模組）
-
-- **優先序／風險**：P2／L2。
-- **狀態**：待 M2 合併。
-- **證據與影響**：deploy 端 `locks.CATALOG_MIGRATION_LOCK_KEY = 2026102501` 已由 `deploy/tests/host/test_locks.py` 固定。crawler 端的常數位於 `crawler/catalog_core/migration_lock.py`（M2 定義），本分支尚不存在。兩端不一致時，兩把鎖互不排斥，migration 與 crawler 可同時寫入。
-- **驗收條件**：合併 M2 後，新增一個測試以 regex 讀取 `crawler/catalog_core/migration_lock.py` 的值並與 deploy 常數比對；讀不到檔案時測試必須失敗（不 skip）。
-- **測試入口**：`deploy/tests/host/test_locks.py::test_catalog_migration_lock_key_is_the_agreed_value`（只驗 deploy 端）。
-
 ### DEP-B23 DB migration lock 的整合驗證
 
 - **優先序／風險**：P1／L3。
@@ -257,13 +248,13 @@
   1. `docker rm -f` 作為 backstop 的效果：本次 lock 逾時後容器自行結束，`docker rm -f` 是 no-op，未能與「未執行」區分。
   2. efbundle 的 SIGTERM 與 `docker kill` 的實際行為（本次只在 fake 驗證）。
   3. RDS 的 PostgreSQL 版本（DEP-B20）。
-  4. 跨模組的 lock key 一致性（DEP-B22，仍待 M2 合併）。
 - **測試入口**：`deploy/tests/integration/test_migration_lock_it.py`。
 
 ## 3. 已處理
 
 | 項目 | 處理 |
 |---|---|
+| DEP-B22：deploy 與 crawler 的 migration lock key 一致性（跨模組） | 已新增 `deploy/tests/host/test_locks.py::test_catalog_migration_lock_key_matches_the_crawler_side`：以 `ast` 讀取 `crawler/catalog_core/migration_lock.py` 的 `CATALOG_MIGRATION_LOCK_KEY`（不 import crawler 套件），與 deploy 常數比對；檔案不存在、找不到或找到多個整數定義時測試失敗，不 skip。改動 crawler 端的值時測試失敗（已驗證） |
 | DEP-B16：runbook 與程式、營運狀態不同步（C1、C2、C5、C6） | 已於 PR #107 修正：C1 健康探測的次數、逾時與間隔；C2 exit 6 與 `run-crawler.sh` 退出碼；C5 營運觀察證據（標示為營運觀察，非自動化測試）；C6 版本指引（移除過時的「發布 v0.0.2」建議）。同次 PR 也對齊了 C3、C4、C7 的文件說明，新的程式問題分別列為 DEP-B17、DEP-B08、DEP-B15 |
 | DEP-B04：forward migration、snapshot、dirty 路徑未在 production 執行 | 已於 production 執行：v0.0.6（CD run `40130185971`，host run `40130185971-1` completed:success，前兩次 `failed-migration`：`40124573448-1`、`40129058594-1`）與 v0.0.7（CD run `40154631718`，host run `40154631718-1` completed:success，套用 `20261025120000_ContractMultiSourceCatalog`）。RDS snapshot、dirty flag、`reconcile-schema --mark-clean`（runbook §5.2）、`resume-crawler`（§5.3）與 efbundle 失敗輸出（#121，`cfb606e`）皆已實際執行。未於本次整理重新核對開發機情境 a 到 d 的結果。 |
 | DEP-B18：Multi-source migration 010／011 的 seed、gate 與恢復程序 | 010 於 v0.0.6、011 於 v0.0.7 部署完成（見上列）。seed、ISBN conversion preflight（gate 7：估計 2698 列，部署後 book_identifiers 與 ISBN 列皆為 2698）、contract allowance、gate 9 script 由 #120 PR4 M1～M4 完成（`22bebf5`、`d249c07`、`6e70e93`、`b99b368`、`7c8899d`、`89d983e`）。使用者確認 gate 1、6、8；gate 2 為本機 copy DB 證據。剩餘待決策：previous-release recovery compat（test-plan §7 #13、#14）是否納入 CI，目前僅本機執行。 |

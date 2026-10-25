@@ -315,7 +315,7 @@
 | DEP-MIGLOCK-15 | heartbeat | 有 `1` 的回應、無回應、或結果不符 | 前者通過，後兩者為 lost session | `test_adapters.py::test_heartbeat_*`（3 案） | 本次新增（M） |
 | DEP-MIGLOCK-16 | release | 有活著的 session、或 session 已死 | 送 `pg_advisory_unlock_all()`、關閉、移除容器；第二次 release 為 no-op；session 已死時仍清除狀態 | `test_adapters.py::test_release_*` 與 `…::test_release_after_the_session_died_still_clears_the_holder` | 本次新增（M） |
 | DEP-MIGLOCK-17 | efbundle 子程序 | 啟動、結束、被停止 | 退出碼與輸出可讀；停止以容器名稱 `docker kill`；輸出只保留尾端 | `test_adapters.py::test_efbundle_child_reports_exit_code_and_output_and_is_stopped_by_name`、`…::test_efbundle_output_keeps_only_the_tail_of_a_chatty_migration` | 本次新增（M） |
-| DEP-MIGLOCK-18 | lock key 常數 | 讀取 | 等於 `2026102501` | `host/test_locks.py::test_catalog_migration_lock_key_is_the_agreed_value` | 本次新增（M）；跨模組比對待 M2 合併後加入（backlog DEP-B22） |
+| DEP-MIGLOCK-18 | lock key 常數 | 讀取 | 等於 `2026102501` | `host/test_locks.py::test_catalog_migration_lock_key_is_the_agreed_value` | 本次新增（M） |
 | DEP-MIGLOCK-19 | efbundle 結束的觀察與接受之間 lock session 斷線（heartbeat 成功 → 斷線 → 下一次 poll 前 exit 0） | forward deploy（fake） | `failed-migration`；dirty 與 paused 保留；無 `compose.*`（不 switch）；未 terminate、未 kill | `tests/host/test_machine.py::test_efbundle_exit_after_the_lock_session_dropped_between_polls_is_not_accepted` | 本次新增（review 修正） |
 | DEP-MIGLOCK-20 | 同上，但 periodic heartbeat 成功、final heartbeat 失敗 | forward deploy（fake） | 同 19 | `tests/host/test_machine.py::test_efbundle_exit_after_a_failed_final_heartbeat_is_not_accepted` | 本次新增（review 修正） |
 | DEP-MIGLOCK-21 | final heartbeat 成功（對照） | forward deploy（fake） | `OK`；順序 heartbeat < connections < release；switch 在 heartbeat 之後 | `tests/host/test_machine.py::test_efbundle_exit_after_a_successful_final_heartbeat_goes_on_to_the_id_check` | 本次新增（review 修正） |
@@ -335,6 +335,7 @@
 | DEP-MIGLOCK-35 | 連線等待：查詢 SQL、逐次計數、逾時、惡意名稱、session 已死 | `wait_migration_connections_gone` | 0 即返回；逾時 `MigrationConnectionActive`；名稱不符 pattern 拒絕；session 死為 `EffectFailed` | `tests/host/test_adapters.py::test_connection_wait_*`（4 案） | 本次新增（M） |
 | DEP-MIGLOCK-36 | 真 lock holder 的 forward 成功 | forward deploy（真 holder，真 DB） | `OK`；server 端 lock 釋放；無 lock 容器殘留 | `tests/integration/test_migration_lock_it.py::test_forward_migration_with_the_real_lock_holder_succeeds_and_leaves_no_lock_behind`（IT-LOCK-08） | 本次新增（IT） |
 | DEP-MIGLOCK-37 | 真 lock holder；efbundle 結束前 `pg_terminate_backend` lock session（review 修正的 race） | forward deploy（真 holder，真 DB） | `failed-migration`；dirty 與 paused；無 switch；server 端 lock 已釋放 | `tests/integration/test_migration_lock_it.py::test_efbundle_exit_after_the_real_lock_session_was_terminated_is_not_accepted`（IT-LOCK-09） | 本次新增（IT）；以 `f250b09` 的 machine.py 執行時失敗（switch 到目標），已驗證 |
+| DEP-MIGLOCK-38 | deploy 與 crawler 的 lock key（跨模組） | 以 `ast` 讀取 `crawler/catalog_core/migration_lock.py` | 恰有一個整數 `CATALOG_MIGRATION_LOCK_KEY`，且等於 deploy 常數；檔案不存在時失敗（不 skip） | `host/test_locks.py::test_catalog_migration_lock_key_matches_the_crawler_side` | 新增（DEP-B22）；把 crawler 端改成 `2026102502` 或移走檔案時失敗，已驗證 |
 
 ### 3.15 CD 腳本（類別 M，`.github/scripts/tests/test_cd_release.py`）
 
