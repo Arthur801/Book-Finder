@@ -271,7 +271,7 @@ migration 011 的 schema 由 test_db_integration.py 在 011 上檢查（無 `sou
 - **Given**：清單 URL；`ItemResolved`（各 resolution、`recovered_commit`、`identity_warning`）、`ItemFailed`（含 warning）與 `ItemPolicySkipped`（Phase 5 M1）；跳過的頁；budget 在頁前、頁中、頁後停止；致命錯誤；空清單；只有空頁的清單；違反順序的呼叫（未列出的 URL、重複開始、開啟中的頁之外記卡片、budget 之後開始或跳過頁）。
 - **When**：`KingstoneLedger` 的呼叫序列與 `report`；`decide_status` 的純計數表；`format_report`；`exit_code`。
 - **Then**：terminal 表每一列：致命錯誤 FAILED（無 zero-progress reason）；所有頁跳過 FAILED；budget 在第一頁完成前用盡 FAILED（頁中與頁前兩種）；清單為空 FAILED；部分跳過、失敗書、interrupted 頁、not reached 頁各自為 PARTIAL_SUCCESS；全部 Existing 為 SUCCESS；成功頁全為 0 張卡為 SUCCESS，`zero_card_pages` 計數；只有空頁亦為 SUCCESS 且不填 zero-progress reason。計數：各 resolution、`recovered_commit_count`、`identity_warning_count`、`items_seen`；`pages_interrupted` 與 `pages_not_reached` 依規則計算。違反順序的呼叫 raise `ValueError`。WARNING 只在跳過頁與失敗書時記在 `kingstone.ledger`，Existing 與 Imported 不記。`format_report`：欄位順序固定，每行一列，`budget_exhausted` 為 `true`／`false`，文字欄位與 `error` 為 JSON 字串或 `null`，清單欄位為 `ensure_ascii=False` 的 JSON（含中文訊息）；exit code 為 FAILED → 1、其餘 → 0。寫入政策（Phase 5 M1）：政策跳過計入 `policy_skipped_count`，不計入失敗與 `failed_items`，其 identity warning 計入 `identity_warning_count`；全部政策跳過為 SUCCESS 且 `zero_progress_reason` 為 null；報告帶 `write_policy`，`format_report` 欄位含 `write_policy`（在 `provider_code` 後）與 `policy_skipped`（在 `ambiguous_created` 後）。
-- **來源與狀態**：[test_kingstone_ledger.py](../tests/test_kingstone_ledger.py)（46 個測試）。已知驗證缺口：budget 停止與 replay 的行為由 CR-K08 以 fake 組裝驗證；真 fetcher 與 DB 的端到端仍未驗證（見 [backlog](backlog.md) CB-07 Phase 5／6）。訊息 redaction 由 run 負責（CR-K08），這裡只驗證輸出格式。
+- **來源與狀態**：[test_kingstone_ledger.py](../tests/test_kingstone_ledger.py)（46 個測試）。已知驗證缺口：budget 停止與 replay 的行為由 CR-K08 以 fake 組裝驗證；真 DB 端到端由 CR-K09、CR-K10 驗證；真站的端到端仍未驗證（禁止連網）。訊息 redaction 由 run 負責（CR-K08），這裡只驗證輸出格式。
 
 ### CR-K08 — 金石堂逐頁 run
 
@@ -279,7 +279,30 @@ migration 011 的 schema 由 test_db_integration.py 在 011 上檢查（無 `sou
 - **Given**：列表頁（合成卡片或真實 fixture）、詳細頁 fixture、soft 404、302、parse error、合法空頁；store 的 identity 狀態、DB 失敗腳本、commit 後才失敗的寫入；budget 在首頁前、第二頁前、頁中用盡，或詳細頁、列表頁回 `BUDGET_EXHAUSTED`；store 拋出含假 DSN 與密碼的 `psycopg.Error`。
 - **When**：`run_pages` 一次；同一 store 再跑一次（replay）；寫入政策（Phase 5 M1）的 `new-books-only` 與 `normal` 各跑一次，store 的 ISBN 命中以 fixture 的 ISBN 設定。
 - **Then**：全部 New 寫入，report 計數正確，SUCCESS；replay 全部 Existing、詳細頁 0 次請求；列表頁 302 與 parse error 跳過該頁，下一頁照常；全部跳過為 FAILED 並附 zero_progress_reason；合法空頁為成功頁，`zero_card_pages` 計數；soft 404 只該書失敗（`product_not_found`）、不寫入；詳細頁 acquisition 錯誤只請求一次；DB 失敗後以同一 draft 重試（退避 1 秒），commit 不確定時 re-resolve 得到 EXISTING 並計入 `recovered_commit_count`；budget 在任何頁前用盡為 FAILED 且零請求，在第二頁前為 PARTIAL 且剩餘頁 not reached，頁中為 interrupted 且 PARTIAL，詳細頁或列表頁回 `BUDGET_EXHAUSTED` 時乾淨停止；第二次 run 從清單開頭 replay 並推進；identity 查詢拋出的 `psycopg.Error` 使 run FAILED，error 不含 DSN 與密碼；未預期的 `ValueError` 同為 FAILED；identity warning 記為 WARNING 並計數；每次 run 一行 `mode=kingstone`；`SoftBudget` 的剩餘時間與 exhausted 規則；`new-books-only` 下 ISBN 命中 1 本 → 政策跳過、不 persist、不 touch、仍抓詳細頁，全部政策跳過 run 為 SUCCESS，下一次 run 仍會再抓（Source 不存在）；`normal` 下同一命中 → 附加 Source；0 本與 2 本以上在 `new-books-only` 下照常寫入。
-- **來源與狀態**：[test_kingstone_run.py](../tests/test_kingstone_run.py)（35 個測試）。已知缺口：真 fetcher 與 DB store 的組裝、`budget.remaining` 接到真 fetcher、CLI 與 exit code 都尚未存在（Phase 5／6），所以真 HTTP 與真 DB 的端到端未驗證。
+- **來源與狀態**：[test_kingstone_run.py](../tests/test_kingstone_run.py)（35 個測試）。組裝、CLI 與真 DB 的端到端由 CR-K09、CR-K10 驗證（Phase 5 M2）；真 HTTP（真站）仍未驗證，hard limit 的強制執行屬 Phase 6。
+
+### CR-K09 — 金石堂 CLI（`kingstone.cli`）
+
+- **責任／規格**：[architecture](architecture.md)「入口與組裝」、Kingstone plan v11 §4（清單無效 → exit 2）、§6（不輸出 DB URL）、§7（設定與 exit code）、§9 Phase 5；風險 L3（決定是否發出請求、exit code，以及 DATABASE_URL 是否外洩）；狀態：已有測試（2026-10-25 新增並執行）。離線：fake fetcher、注入的 provider 查詢；DATABASE_URL 是不可連線的假 DSN（密碼 `hunter2`），所有路徑都在碰到資料庫之前結束。
+- **When**：`kingstone.cli.main` 的各種輸入。
+- **Then**：provider 停用或未註冊 → 2，不建 fetcher、不發請求；provider 查詢的 `psycopg.Error` → 1，訊息經 redact；清單為空、只有註解、非法 URL、缺檔、超過 200 筆 → 2，不建 fetcher、不查 provider；DATABASE_URL 未設或空白 → 2，不 log 值；非法設定（秒數非數字、soft ≥ hard、寫入政策非法、attempts 為 0）→ 2，不建 fetcher；不支援的 Unicode runtime → 2；所有頁跳過 → 1；致命錯誤 → 1 且 fetcher 仍被 close；建立 fetcher 之後的每條路徑（全頁跳過、致命錯誤、正常 run）都會 close fetcher；預設 fetcher 以設定值與 `budget.remaining` 建立並為 `KingstoneFetcher`；stdout 含 `kingstone.run` 的 INFO 行，不含 DATABASE_URL 或密碼。正常 run 的 exit 0 與寫入由 CR-K10 以真 DB 驗證。
+- **來源與狀態**：[test_kingstone_cli.py](../tests/test_kingstone_cli.py)（23 個測試，離線）。
+
+### CR-K10 — 金石堂真 DB 整合（ingestion）
+
+- **責任／規格**：Kingstone plan v11 §5（交易、commit 不確定、replay）、§6、§9 Phase 5 Acceptance（清單→列表→詳細頁→DB 全流程；shared core／DB；Atomicity；Uncertain commit／replay；Books／Bestseller）；風險 L3；狀態：已有測試（2026-10-25 新增並執行）。
+- **Given**：真 PostgreSQL（post-011 EF schema，`db_url`，每案清空 crawler 表）。KINGSTONE 只在需要的測試中由 fixture UPDATE 為啟用，結束後還原為停用（`test_provider_enabled_reads_the_registry_row` 依賴停用狀態）。fake fetcher 以真實 detail fixture 與合成列表頁回應；真 parser、真 `SessionCatalogStore`、真 `DatabaseSession`；fake sleep；可控 clock。不連網。
+- **When／Then**：
+  - 全流程：8 張卡（7 本真 detail、1 個 soft 404）→ 寫入 7 本 Book 與 7 筆 `book_sources.source_code='KINGSTONE'`，`external_id` 為 km_code，`source_url` 為 canonical 詳細頁 URL；identifiers、contributors（含譯者角色與順序）、subjects 與 parser 結果相同；簡體書 `language='zh-CN'`；soft 404 不寫入；report 計數 items 8、imported 7、failed 1（`product_not_found`），PARTIAL_SUCCESS，CLI 回傳 0。
+  - replay：同一 DB 第二次 run → Book 與 Source 數不變、全部 EXISTING、詳細頁請求 0；`last_seen_at` 前進到第二次的時間；時鐘倒退時不後退。（soft 404 不建立 Source，所以含 soft 404 的清單 replay 時仍會再請求它一次；本測試的清單不含 soft 404。）
+  - 寫入政策（new-books-only）：ISBN 命中 1 本 → 政策跳過：不建 KINGSTONE Source、Books 書的欄位與 identifiers 不變、詳細頁仍抓一次；0 命中的 6 本照常建立；命中 2 本 → `AMBIGUOUS_CREATED`，建立新 Book，兩本舊 Books 不變。normal 下命中 1 本 → `ISBN_ATTACHED`，只補 NULL，既有值保留，ISBN 不重複寫入。
+  - Atomicity：identifiers 寫入每次都失敗 → 該卡 `database_error`、attempts 3、退避 1 秒與 2 秒；五張表沒有屬於該書的孤兒列，也沒有該書標題的 Book；寫入到 subjects 後、commit 前失敗一次 → 重試成功，只寫入一本（沒有殘留的第四本）。
+  - Uncertain commit：commit 成功後以 `pg_terminate_backend` 切斷並丟出 `OperationalError` → 後續 re-resolve 得 EXISTING（`recovered_commit_count == 1`），該 ISBN 只有 1 筆 Source，詳細頁只抓一次。
+  - Bestseller protection：先以 Books run 寫入 100 名榜單；金石堂 SUCCESS、PARTIAL_SUCCESS、FAILED（全頁 302）三種結果後 `bestsellers` 完全不變。
+  - CLI（真 DB）：registry 列停用 → 2，不建 fetcher；完整 run → 0、寫入 7 本、fetcher 被 close、輸出不含 DATABASE_URL；全頁 503 → 1 且 fetcher 被 close。
+- **必要 DB 測試不得 skip**：本次執行中 19 個 Kingstone DB 測試全部執行，`-rs` 沒有 skip。注意：既有 [conftest](../tests/conftest.py) 的 `ef_schema_sql` 在找不到 dotnet SDK 時會 `pytest.skip`（Books 既有行為，未改）；環境缺 dotnet 時這組測試會被 skip，必須在執行紀錄中註明。
+- **跨 provider 隔離**：同一 Book 的 BOOKS_COM_TW 與 KINGSTONE Source 互不影響，已由 [test_persistence_integration.py](../tests/test_persistence_integration.py) 的 provider isolation 測試覆蓋（`test_provider_isolation_*`），這裡不重複。
+- **來源與狀態**：[test_kingstone_db_integration.py](../tests/test_kingstone_db_integration.py)（19 個測試，其中 bestseller protection 為參數化 3 案）。
 
 ### 連線中斷與重連（crawler.md §13.1、§6.1，#119）
 

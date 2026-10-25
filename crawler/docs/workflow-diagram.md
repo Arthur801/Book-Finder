@@ -13,6 +13,7 @@
 | `python -m books_crawler` | [cli](../books_crawler/cli.py) → `run_once`，每日總榜 |
 | `python -m books_crawler.first_book` | [first_book](../books_crawler/first_book.py) → `run_first_book`，只匯入第一名 |
 | `python -m books_crawler.pages` | [pages](../books_crawler/pages.py) → `run_pages`，分類補書 |
+| `python -m kingstone` | [cli](../kingstone/cli.py) → `run_pages`，金石堂分類列表頁（KINGSTONE，CB-07 Phase 5）；清單檔 `crawler/kingstone-pages.txt`；流程見下方「金石堂入口」 |
 | `python -m books_crawler.inspect_page URL` | [inspect_page](../books_crawler/inspect_page.py)，單頁 browser 診斷，無 DB、不重試 |
 | cron → wrapper daily／pages | [target run-crawler.sh](https://github.com/Arthur801/Book-Finder/blob/ce7b4f46c0889db6b10216294cac658136796ad7/crawler/deploy/run-crawler.sh)，serialization／maintenance locks、state gate、SSM、Docker 與排程 |
 
@@ -135,9 +136,30 @@ Fetcher 每次含首次／重試以 3～30 秒目標循序節流，解析／DB�
 
 相關：[流程](workflow-diagram.md)／[架構](architecture.md)／[待辦](backlog.md)／[歷史](update-history.md)／[案例](test-suite.md)。
 
-## 金石堂逐頁 run（Phase 4 M2，尚無入口）
+## 金石堂入口（`python -m kingstone`，Phase 5 M2）
 
-caller：無。Phase 5／6 的組裝（真 fetcher、DB store、`SoftBudget`、CLI）會呼叫 `run_pages`；目前只有測試以 fake fetcher 與記憶體 store 呼叫它。詳見 [architecture](architecture.md)「Run（逐頁流程）」。
+```text
+python -m kingstone（於 crawler/ 執行）→ kingstone.cli.main()
+  1 logging：kingstone、catalog_core → stdout INFO
+  2 ensure_runtime_unicode_supported 失敗 → exit 2
+  3 DATABASE_URL 未設或空白 → exit 2（不輸出值）
+  4 load_config(env)：KingstoneConfigError → exit 2
+  5 load_page_urls(config.pages_file)：PageListError → exit 2（建立 fetcher 之前）
+  6 provider_enabled(DATABASE_URL, KINGSTONE)：psycopg.Error → exit 1；非 True（停用或未註冊）→ exit 2
+  7 budget = SoftBudget(soft)；fetcher = fetcher_factory(config, budget)（預設 KingstoneFetcher，budget_remaining = budget.remaining）
+  8 DatabaseSession（lazy 連線）→ SessionCatalogStore → KingstoneRunDependencies(write_policy = config)
+      run_pages(deps, page_urls) → report.exit_code（SUCCESS／PARTIAL_SUCCESS → 0，FAILED → 1）
+  9 finally：fetcher.close()
+```
+
+- 「停用」與「未註冊」都是設定錯誤（exit 2），都不建立 fetcher、不發出請求。
+- Exit 1 只來自步驟 6 的查詢失敗與 run 的 FAILED（包括清單所有頁都被跳過）。
+- `CRAWLER_RUN_HARD_LIMIT_SECONDS` 只被讀取與驗證；強制終止由 runner watchdog 執行（Phase 6），本入口不計時、不殺程序。
+- 來源：[cli](../kingstone/cli.py)、[run](../kingstone/run.py)、[config](../kingstone/config.py)、[page_list](../kingstone/page_list.py)、[persistence](../catalog_core/persistence.py)（只讀 `provider_enabled`，寫入由 run 經 store 呼叫）。
+
+## 金石堂逐頁 run（Phase 4 M2）
+
+caller：`kingstone.cli.main`（Phase 5 M2），組裝見上節。詳見 [architecture](architecture.md)「Run（逐頁流程）」。
 
 ```text
 run_pages(deps, page_urls)
@@ -169,5 +191,5 @@ run_pages(deps, page_urls)
 - 呼叫端責任：組裝 `KingstoneRunDependencies`（含 `write_policy`，無預設值；config 的預設為 `new-books-only`）；把同一個 `SoftBudget` 交給真 fetcher（`budget_remaining=budget.remaining`）；注入 `clock`、`sleep` 與 `run_id`。
 - 重跑（replay）：同一份清單再跑一次。Existing 只 touch；未完成的 New 才抓詳細頁。政策跳過的書沒有 Source，因此下一次 run 仍是 New，會再抓一次詳細頁。
 - `new-books-only` 的全部政策跳過 run 是合法 SUCCESS，但零寫入：報告以 `write_policy`、`policy_skipped` 與 `zero_progress_reason=null` 與真正零進度區分；它不能作為 promotion 到 `normal` 的證據。
-- 結果：`KingstoneReport`；一行 INFO `mode=kingstone …`；FAILED 另有一行 ERROR。exit code 由 `report.exit_code` 決定，接線在 Phase 6。
+- 結果：`KingstoneReport`；一行 INFO `mode=kingstone …`；FAILED 另有一行 ERROR。exit code 由 `report.exit_code` 決定，由 `kingstone.cli` 回傳（Phase 5 M2）；hard limit 的強制執行由 runner 負責（Phase 6）。
 
