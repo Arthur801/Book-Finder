@@ -82,13 +82,17 @@ def _author_links(soup: BeautifulSoup) -> list[str]:
     return [text for text in texts if text not in ("追蹤", "?")]
 
 
+def _breadcrumb_names(soup: BeautifulSoup) -> list[str]:
+    return [a.get_text(strip=True) for a in soup.select(".basic-category-breadcrumb a")]
+
+
 def _subjects(soup: BeautifulSoup) -> list[str]:
+    """Breadcrumb names, deduplicated in order, with the root 中文書 removed."""
     names: list[str] = []
-    for a in soup.select(".basic-category-breadcrumb a"):
-        name = a.get_text(strip=True)
+    for name in _breadcrumb_names(soup):
         if name not in names:
             names.append(name)
-    return names
+    return [name for name in names if name != "中文書"]
 
 
 # ---------------------------------------------------------------------------
@@ -129,7 +133,6 @@ def test_card_prodno_is_13_digits_unique_and_matches_cover_link(name):
 
 
 def test_p93_card_count_follows_total_and_page_size():
-    assert 4455 == 92 * 48 + 39
     assert len(_list_cards(_soup("list_jdc_p93.html"))) == 4455 - 92 * 48
 
 
@@ -151,6 +154,13 @@ def test_empty_page_has_recommendation_cards_that_the_selector_excludes():
     assert len(recommendation_cards) == 24
     assert soup.select(".mod_prod_card[data-prodno]")
     assert _list_cards(soup) == []
+
+
+@pytest.mark.parametrize("name", [page[0] for page in LIST_PAGES])
+def test_list_cards_have_no_isbn_field(name):
+    # Promotional text may contain ISBN-like digits (a free-reading PDF link), so only the label is checked.
+    for card in _list_cards(_soup(name)):
+        assert "ISBN" not in card.get_text(), card["data-prodno"]
 
 
 def test_list_page_has_carousel_cards_outside_the_selector():
@@ -267,19 +277,55 @@ def test_books_without_translator_row(sku):
     assert _basic_units(_soup(f"detail_{sku}.html"), "譯者：") == []
 
 
+@pytest.mark.parametrize("sku", [page[0] for page in DETAIL_PAGES])
+def test_breadcrumb_names_are_first_half_repeated_twice(sku):
+    names = _breadcrumb_names(_soup(f"detail_{sku}.html"))
+    half = len(names) // 2
+
+    assert names
+    assert len(names) % 2 == 0
+    assert names == names[:half] * 2
+
+
 @pytest.mark.parametrize(
     ("sku", "expected"),
     [
-        ("2028870033469", ["中文書", "童書/青少年", "繪本", "同儕相處"]),
-        ("2018630959191", ["中文書", "文學", "現代華文創作", "現代小說"]),
+        ("2028870033469", ["童書/青少年", "繪本", "同儕相處"]),
+        ("2018630959191", ["文學", "現代華文創作", "現代小說"]),
     ],
 )
-def test_subjects_are_breadcrumb_names_deduplicated_in_order(sku, expected):
+def test_subjects_are_breadcrumb_names_deduplicated_in_order_without_root(sku, expected):
     assert _subjects(_soup(f"detail_{sku}.html")) == expected
 
 
+@pytest.mark.parametrize("sku", [page[0] for page in DETAIL_PAGES])
+def test_detail_json_ld_name_is_non_empty_string(sku):
+    name = _product_ld(_soup(f"detail_{sku}.html"))["name"]
+
+    assert isinstance(name, str)
+    assert name.strip()
+
+
+def test_detail_json_ld_name_for_2018630959191():
+    assert _product_ld(_soup("detail_2018630959191.html"))["name"] == "我的黑道姑姑：教我的99件事"
+
+
+@pytest.mark.parametrize("sku", [page[0] for page in DETAIL_PAGES])
+def test_detail_json_ld_image_is_non_empty_list_of_kingstone_assets(sku):
+    image = _product_ld(_soup(f"detail_{sku}.html"))["image"]
+
+    assert isinstance(image, list)
+    assert image
+    assert image[0].startswith("https://assets.kingstone.com.tw/")
+
+
+@pytest.mark.parametrize("sku", [page[0] for page in DETAIL_PAGES])
+def test_detail_spec_table_rating_is_general(sku):
+    assert _spec_table(_soup(f"detail_{sku}.html"))["分級"] == "普通級"
+
+
 def test_soft_404_has_only_site_title_and_no_product_json_ld():
-    soup = _soup("detail_missing_2099999999999.html")
+    soup = _soup("detail_2099999999999.html")
 
     assert soup.title is not None
     assert soup.title.get_text().strip() == PRODUCT_NOT_FOUND_TITLE

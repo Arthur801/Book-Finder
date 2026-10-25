@@ -101,7 +101,7 @@ SSM 僅取 DB URL，log／JSON 遮罩；HTML 是原始頁面，PNG 可能含畫�
 | contributors | `li.basicunit` 中 `.title_basic` 為「作者：」的連結，以及「譯者：」的純文字 | 不使用 JSON-LD `author`（只有第一個連結）。作者欄排除「追蹤」與「?」；整段被括號包住的連結是原文姓名（例如「(Gao Junqing)」），不建立 contributor；一個連結或譯者值可能用「、」串多人，要拆開；`角色/姓名` 前綴（例如「審訂/張素惠」）拆出角色，無法對應的角色歸 `OTHER` |
 | 頁數 | 規格表「頁數」 | 選填；正整數 |
 | 目錄、簡介 | `.catalog` 區塊、內容簡介 | 選填，只供 AI，不公開 |
-| subjects | `.basic-category-breadcrumb a` 中「中文書」以下的名稱 | 頁面上出現兩次，依順序去重 |
+| subjects | `.basic-category-breadcrumb a` 的名稱 | 頁面上出現兩次，依順序去重後，去掉根節點「中文書」（例如 `童書/青少年`、`繪本`、`同儕相處`） |
 
 規格表另有「分級」欄（E0 的 7 本都是「普通級」），可作為之後辨識限制級的依據；E0 沒有觀察到限制級頁，規則待有 fixture 再定。
 
