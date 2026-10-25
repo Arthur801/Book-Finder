@@ -25,7 +25,7 @@ Out of scope：分類樹 discovery、自動跟分頁、跨 run 進度狀態檔�
 - 錯誤：分類不存在回 302 → `/book/`；商品不存在回 200 soft 404（標題只有「金石堂」、沒有 Product JSON-LD）。
 - 分類樹的觀察（`nav.nav1b_classlevel`、代碼長度不代表層級、子分類切分父分類）只保留為背景：v11 不實作 discovery，使用者可以在清單放任一層的分類列表頁。
 
-剩下的 E0 exit：fixture commit（`crawler/tests/fixtures/kingstone/`）與 contract review。
+E0 exit：fixture（`crawler/tests/fixtures/kingstone/`）、source contract 與 CR-K01 contract test 已在分支 `kingstone-e0-fixtures` 完成，兩軸 review 的修正後待使用者 review／merge。
 
 ## 3. 模組與型別邊界
 
@@ -121,11 +121,13 @@ Commit 結果不確定時丟棄／重連 connection，**下次寫入前重新 re
 
 | Status | 條件 | Exit |
 |---|---|---|
-| FAILED | fatal config／registry／schema／security contract、watchdog／orphan；或所有頁都被跳過；或有工作但零 useful progress | 1；config／provider-disabled維持2 |
+| FAILED | fatal config／registry／schema／security contract、watchdog／orphan；或所有頁都被跳過（零 useful progress） | 1；config／provider-disabled維持2 |
 | PARTIAL_SUCCESS | 無 fatal、有 useful progress，但有跳過的頁、失敗的書，或因 budget 有頁沒處理到 | 0 |
 | SUCCESS | 所有頁都處理完，沒有跳過的頁或失敗的書；或 new-books-only 合法全 policy-skip、無 acquisition error | 0 |
 
 `new-books-only`可零mutation但不可作為promotion到normal的證據；report須區分policy skip與真正零進度。
+
+**Useful progress**：至少一頁成功解析，而且該頁的每張卡都已處理完（Existing touch、policy skip、新寫入、單本失敗都算處理完）。v11 穩定後常見整次 run 都是 Existing、只做 touch，這是正常的 SUCCESS，不是零進度。`zero_progress_reason` 只在所有頁都被跳過時填寫。
 
 ## 8. Runner、writer fencing 與報告
 
@@ -143,13 +145,13 @@ provider／schema／清單驗證前無 Catalog mutation、無 HTTP；schema pref
 
 每run一份sanitized terminal JSON，輸出到 stdout，並原子寫入 artifacts mount 的 `kingstone/last-run.json`：run/provider/status/exit；pages listed／processed／skipped（含原因）／not reached；items listed／details fetched；existing／new Source、policy-skip、mutation／recovered commit；HTTP attempts／failures；zero_progress_reason、alert_reasons。
 
-Host alert command為absolute root-owned executable，只收sanitized event JSON path，不收secret。FAILED／NO_BOOK_ACQUIRED／orphan／schema 問題、challenge 出現、normal反覆零ingestion、`pages_not_reached` 連續多次大於 0 均須觸發。production須注入測試事件並由named owner確認收到；僅log不足，delivery失敗阻擋PRODUCTION_READY。
+Host alert command為absolute root-owned executable，只收sanitized event JSON path，不收secret。FAILED、orphan、schema 問題、challenge 出現、成功解析的頁全部是 0 張卡（可能是網站結構改變）、`pages_not_reached` 連續多次大於 0 均須觸發；全部 Existing 的正常 run 不觸發。production須注入測試事件並由named owner確認收到；僅log不足，delivery失敗阻擋PRODUCTION_READY。
 
 ## 9. 實作順序與驗證
 
 | Phase | 工作與完成條件 |
 |---|---|
-| 0 Evidence | fixtures commit＋contract review；E0 PASS才開程式實作 |
+| 0 Evidence | fixtures、source contract、CR-K01 已完成；使用者 review 通過（E0 PASS）才開程式實作 |
 | 1 Core | provider-neutral types／identity／normalize／persistence、monotonic touch、改Books caller；除 touch 單調化外 Books 行為不變；全Books regression PASS |
 | 2 Adapter | 清單驗證與 URL canonicalization、列表頁／詳細頁 parser；fixture/unit/contract全離線 |
 | 3 Acquisition | HTTP bounds／pacing／URL security；failure suite PASS |
@@ -167,7 +169,7 @@ Host alert command為absolute root-owned executable，只收sanitized event JSON
 | shared core／DB | 兩provider共用E/U完整matrix、0／1／≥2 ISBN、無ISBN、NULL／AUTHOR／identifiers／subjects／monotonic touch |
 | Atomicity | Book／Source／fill／identifier／contributor／subject後與commit前注入失敗，零半套mutation |
 | Uncertain commit／replay | 真commit＋ACK lost不二次mutation；真rollback可bounded retry；re-resolve unavailable不blind write；第二run Source不增加、既有detail=0；budget 中斷後第二 run 從清單開頭 replay 並推進 |
-| Run／status | 全頁跳過→FAILED；部分跳過→PARTIAL_SUCCESS；budget 中斷與 `pages_not_reached`；全 policy-skip→SUCCESS；零進度判定 |
+| Run／status | 全頁跳過→FAILED；部分跳過→PARTIAL_SUCCESS；budget 中斷與 `pages_not_reached`；全 policy-skip→SUCCESS；全部 Existing→SUCCESS 且不 alert；成功頁全為 0 張卡→alert |
 | Host stop | watchdog stop/kill、精確container inspect、orphan blocking、migration fence |
 | Books／Bestseller | daily/pages/first_book原contract與report/retry不變；Kingstone三種status前後Bestseller邏輯一致 |
 | Docs | 五份crawler/docs與deploy/docs的module／CLI／config／status／path一致 |
