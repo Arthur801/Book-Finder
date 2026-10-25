@@ -76,14 +76,14 @@ EC2 state gate（`sudo -n cat`）、SSM 讀取、URL 改寫、SSH 轉發與 `ver
 
 - **P3 剩餘實測（未做）**：tunnel 中途斷線、SIGTERM（exit 21）、hard limit 與 kill 路徑，步驟見 `crawler/docs/backlog.md` CB-07「P3 剩餘實測」。另外：container 的 `kingstone/last-run.json` 在 SIGTERM 時是否寫出未定義，需記錄實際結果。
 - **migration 與 crawler 的互斥（未在 production 實測）**：DEP-B23 的未驗證項（`docker rm -f` 作為 backstop、efbundle 的 SIGTERM 與 `docker kill`）仍保留；deploy 端的 exclusive lock 在下一次 production deploy 後才生效。
-- **DEP-B21 殘留風險（決定與文件不一致）**：#149 的 PR 內文寫「使用者決定 DEP-B21 兩項殘留風險已接受，backlog 狀態改為『已接受』」。但合併後 `deploy/docs/backlog.md` 第 41 行仍為「已緩解；殘留風險待決策」，§2 的 DEP-B21 段也仍寫「待決策」。本報告未修改 deploy 文件（不在本次範圍）；需要另一個 docs commit 同步。
+- **DEP-B21 殘留風險的文件同步（本分支已修正）**：決定的 commit `922af8c` 在 #149 合併（`b2439e2`）之後才 push，沒有進 main，所以 `deploy/docs/backlog.md` 仍寫「待決策」。本分支以 cherry-pick（`a202ff4`）補上：狀態改為「殘留風險已接受（2026-10-25）」，update-history §3.17 補列。
 - **DEP-B20 生效值未驗證**：`client_connection_check_interval` 在 staging 的 efbundle 連線中是否為 `10s`，仍未讀到；RDS 版本已確認為 17.11。
 - **runner 的一般 operational failure 沒有 ALERT 與 terminal record**：exit 12（`STATE_UNREADABLE`）、15、16、17、18 目前只 stderr 後直接 exit（#148 review 指出，CB-07 待辦）。Phase 7 第一次 P3 實測時 exit 12 曾實際發生；依 backlog，這類失敗只寫 stderr 並直接 exit。
 - **暫時性逾時的觀察**：`f03377c2` 的 3 次 `TransportTimeout` 原因未查明；之後若重複，需比對 container 內外是否同時不通。
 - **NULL enrichment 未在真實資料觸發**：`normal` 的 NULL 補欄位只由測試保證（`catalog_core`）。
 - **challenge 分類未實作**：真站沒有 challenge fixture；目前以 `unclassified_200` 告警。
 - **production image**：`book-finder-kingstone:dff2df5` 只在本機建置，未推送；CD 的 `KINGSTONE_CRAWLER_IMAGE` 推送與 release metadata 待後續。
-- **臨時 image 與清單檔的還原**：`kingstone:canary`、`kingstone:canary-normal` 的清理，與 `crawler/kingstone-pages.txt` 還原紀錄未記錄；`origin/main` 上的清單檔為 328 個 URL（repo 核對）。
+- **臨時 image 與清單檔**：canary image 是從暫存的程式碼副本 build（清單改為 1 行），repo 的 `crawler/kingstone-pages.txt` 從未修改，不需還原（`origin/main` 為 328 個 URL）。`kingstone:canary`、`kingstone:canary-normal` 仍留在本機，P3 剩餘實測會用到，做完後刪除。
 - **博客來 hard limit 3600 秒未量測**：需真站抓取博客來，不在目前授權內，另案。
 - **EC2 crawler cron 移除**：另案，目前以 `CRAWLER_ENABLED=false` 停用。
 - **排程**：依使用者決定，先手動，不加排程。
@@ -99,5 +99,5 @@ EC2 state gate（`sudo -n cat`）、SSM 讀取、URL 改寫、SSH 轉發與 `ver
   - #151、#152、#154：合併 main 時有文件衝突（`crawler/docs/backlog.md`、`update-history.md` 等），已在 merge commit 解決。
   - #154：寫入政策預設由 `new-books-only` 改為 `normal`；`cli.py`、`run.py` 只更新說明註解。
 - 本報告撰寫時的文件核對（未修正，見「未解決事項」）：
-  - DEP-B21 的狀態與 PR #149 內文不一致（見上）。
+  - DEP-B21 的狀態與 PR #149 內文不一致：本分支已補上（見上）。
   - v12 §10 的 P3 條目沒有狀態標示；狀態只記在 `crawler/docs/backlog.md`（部分完成）。
