@@ -57,6 +57,7 @@ from books_crawler import db
 from books_crawler.fetcher import Fetcher, FetchError
 from books_crawler.ledger import PagesLedger, RunLedger, RunReport
 from books_crawler.models import (
+    PROVIDER,
     BookDraft,
     CatalogResolution,
     Failure,
@@ -77,6 +78,7 @@ from books_crawler.parsers import (
 from books_crawler.ranking import validate_ranking
 from books_crawler.redact import redact
 from books_crawler.session import DatabaseSession
+from catalog_core import persistence
 from catalog_core.identity import IdentityKind
 
 log = logging.getLogger("books_crawler.run")
@@ -268,13 +270,17 @@ def _touch_with_retries(session: DatabaseSession, row: RankingRow, source_id: UU
     """``last_seen_at`` touch of an existing Source (crawler.md §6.1): DB retry rule, no detail refetch.
 
     Each attempt uses the run's session, which reconnects when the connection is broken (crawler.md §13.1).
-    Returns None on success, or the database failure after the last attempt.
+    Returns None on success, or the database failure after the last attempt. A touch that matches no
+    Source of this provider is a source identity conflict: not a database error, so it is not retried.
     """
     last_failure: Failure | None = None
     for attempt in _attempts(deps):
         try:
-            db.touch_source(session.conn, source_id, deps.clock())
+            persistence.touch_source(session.conn, PROVIDER, source_id, deps.clock())
             return None
+        except persistence.SourceTouchConflict as exc:
+            log.warning("rank %d source identity conflict, not written: %s: %s", row.rank, row.url, exc)
+            return _failure(SkipReason.SOURCE_IDENTITY_CONFLICT, str(exc), attempt)
         except psycopg.Error as exc:
             last_failure = _failure(SkipReason.DATABASE_ERROR, str(exc), attempt)
             _log_attempt_failed(row, attempt, last_failure)
@@ -296,7 +302,7 @@ def _write_new_source(
     """
     values = [item.identifier_value for item in draft.identifiers]
     try:
-        matches = db.find_books_by_isbn(session.conn, values)
+        matches = persistence.find_books_by_isbn(session.conn, values)
     except psycopg.Error as exc:
         return _WriteFailure(_failure(SkipReason.DATABASE_ERROR, str(exc), attempt), maybe_committed=False)
 
@@ -307,7 +313,7 @@ def _write_new_source(
         resolution = CatalogResolution.AMBIGUOUS_CREATED if len(matches) >= 2 else CatalogResolution.IMPORTED
         attach_to = None
     try:
-        ref = db.persist_new_source(session.conn, draft, deps.clock(), attach_to_book_id=attach_to)
+        ref = persistence.persist_new_source(session.conn, PROVIDER, draft, deps.clock(), attach_to_book_id=attach_to)
     except psycopg.Error as exc:
         return _WriteFailure(_failure(SkipReason.DATABASE_ERROR, str(exc), attempt), maybe_committed=True)
     return _WrittenSource(ref, resolution, tuple(matches))
@@ -328,7 +334,7 @@ def _resolve_row(
     Retries after a write re-resolve the identity first (crawler.md §13.1): if the earlier attempt had
     committed, the Source is reported as EXISTING and is not inserted again.
     """
-    identity = db.resolve_source_identity(session.conn, row.url)
+    identity = persistence.resolve_source_identity(session.conn, PROVIDER, row.url)
     if identity.kind is IdentityKind.CONFLICT:
         log.warning("rank %d source identity conflict, not written: %s: %s", row.rank, row.url, identity.reason)
         return _skipped(row, _failure(SkipReason.SOURCE_IDENTITY_CONFLICT, identity.reason or "", attempts=0))
@@ -360,7 +366,7 @@ def _resolve_row(
         if maybe_committed:
             # An earlier write may have committed before the client saw the result. Look again before writing.
             try:
-                committed = db.resolve_source_identity(session.conn, row.url)
+                committed = persistence.resolve_source_identity(session.conn, PROVIDER, row.url)
             except psycopg.Error as exc:
                 last_failure = _failure(SkipReason.DATABASE_ERROR, str(exc), attempt)
                 _log_attempt_failed(row, attempt, last_failure)

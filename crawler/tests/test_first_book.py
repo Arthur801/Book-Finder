@@ -12,6 +12,7 @@ from books_crawler.fetcher import FetchError
 from books_crawler.models import BookDraft, RunStatus, SourceRef
 from books_crawler.parsers import RANKING_PAGE_URL, RestrictedBookError
 from books_crawler.run import RunDependencies, run_first_book
+from catalog_core import persistence
 from catalog_core.identity import IdentityKind, SourceIdentity
 from tests.fakes import FakeFetcher, FakeSleep, fake_detail_parser, fake_ranking_parser, make_draft, ranking_rows
 
@@ -19,7 +20,7 @@ from tests.fakes import FakeFetcher, FakeSleep, fake_detail_parser, fake_ranking
 @pytest.fixture(autouse=True)
 def _provider_enabled(monkeypatch):
     """The CLI reads source_providers before the run; these tests have no database, so the provider is enabled."""
-    monkeypatch.setattr(db, "provider_enabled", lambda url, code: True)
+    monkeypatch.setattr(persistence, "provider_enabled", lambda url, code: True)
 
 
 def dependencies(connect, *, count=100, failures=None):
@@ -39,17 +40,17 @@ def dependencies(connect, *, count=100, failures=None):
 def test_import_only_first_book_and_retry_database_without_refetch(monkeypatch):
     deps, first = dependencies(lambda: nullcontext(object()))
     lookups, writes = [], []
-    monkeypatch.setattr(db, "resolve_source_identity", lambda conn, url, **kwargs: lookups.append(url) or SourceIdentity(IdentityKind.NEW))
-    monkeypatch.setattr(db, "find_books_by_isbn", lambda *args: [])
+    monkeypatch.setattr(persistence, "resolve_source_identity", lambda conn, provider, url, **kwargs: lookups.append(url) or SourceIdentity(IdentityKind.NEW))
+    monkeypatch.setattr(persistence, "find_books_by_isbn", lambda *args: [])
     ref = SourceRef(uuid4(), uuid4())
 
-    def persist(conn, draft, now, **kwargs):
+    def persist(conn, provider, draft, now, **kwargs):
         writes.append(draft)
         if len(writes) == 1:
             raise psycopg.OperationalError("temporary write failure")
         return ref
 
-    monkeypatch.setattr(db, "persist_new_source", persist)
+    monkeypatch.setattr(persistence, "persist_new_source", persist)
     monkeypatch.setattr(db, "replace_bestsellers", lambda *args, **kwargs: pytest.fail("must preserve snapshot"))
     report = run_first_book(deps)
     assert report.status is RunStatus.SUCCESS
@@ -62,9 +63,9 @@ def test_import_only_first_book_and_retry_database_without_refetch(monkeypatch):
 
 def test_known_first_book_does_not_fetch_detail_or_write(monkeypatch):
     deps, _first = dependencies(lambda: nullcontext(object()))
-    monkeypatch.setattr(db, "resolve_source_identity", lambda *args, **kwargs: SourceIdentity(IdentityKind.EXISTING, ref=SourceRef(uuid4(), uuid4())))
-    monkeypatch.setattr(db, "touch_source", lambda *args: None)
-    monkeypatch.setattr(db, "persist_new_source", lambda *args, **kwargs: pytest.fail("must reuse existing book"))
+    monkeypatch.setattr(persistence, "resolve_source_identity", lambda *args, **kwargs: SourceIdentity(IdentityKind.EXISTING, ref=SourceRef(uuid4(), uuid4())))
+    monkeypatch.setattr(persistence, "touch_source", lambda *args: None)
+    monkeypatch.setattr(persistence, "persist_new_source", lambda *args, **kwargs: pytest.fail("must reuse existing book"))
     report = run_first_book(deps)
     assert report.status is RunStatus.SUCCESS
     assert report.existing_book_count == 1
@@ -75,8 +76,8 @@ def test_first_book_challenge_exhausts_retries_and_fails(monkeypatch, caplog):
     caplog.set_level(logging.INFO, logger="books_crawler")
     first = ranking_rows()[0].url
     deps, _ = dependencies(lambda: nullcontext(object()), failures={first: FetchError("Cloudflare challenge")})
-    monkeypatch.setattr(db, "resolve_source_identity", lambda *args, **kwargs: SourceIdentity(IdentityKind.NEW))
-    monkeypatch.setattr(db, "persist_new_source", lambda *args, **kwargs: pytest.fail("must not write"))
+    monkeypatch.setattr(persistence, "resolve_source_identity", lambda *args, **kwargs: SourceIdentity(IdentityKind.NEW))
+    monkeypatch.setattr(persistence, "persist_new_source", lambda *args, **kwargs: pytest.fail("must not write"))
     report = run_first_book(deps)
     assert report.status is RunStatus.FAILED
     assert report.exit_code == 1
@@ -90,13 +91,13 @@ def test_first_book_challenge_exhausts_retries_and_fails(monkeypatch, caplog):
 
 def test_first_book_database_failure_is_not_reported_as_a_fetch_error(monkeypatch):
     deps, first = dependencies(lambda: nullcontext(object()))
-    monkeypatch.setattr(db, "resolve_source_identity", lambda *args, **kwargs: SourceIdentity(IdentityKind.NEW))
-    monkeypatch.setattr(db, "find_books_by_isbn", lambda *args: [])
+    monkeypatch.setattr(persistence, "resolve_source_identity", lambda *args, **kwargs: SourceIdentity(IdentityKind.NEW))
+    monkeypatch.setattr(persistence, "find_books_by_isbn", lambda *args: [])
 
     def persist(*args, **kwargs):
         raise psycopg.OperationalError("write failure")
 
-    monkeypatch.setattr(db, "persist_new_source", persist)
+    monkeypatch.setattr(persistence, "persist_new_source", persist)
     report = run_first_book(deps)
     assert report.status is RunStatus.FAILED
     assert report.exit_code == 1
@@ -108,8 +109,8 @@ def test_first_book_database_failure_is_not_reported_as_a_fetch_error(monkeypatc
 
 def test_draft_validation_error_from_the_detail_parser_is_retried_as_parse_error(monkeypatch):
     deps, first = dependencies(lambda: nullcontext(object()))
-    monkeypatch.setattr(db, "resolve_source_identity", lambda *args, **kwargs: SourceIdentity(IdentityKind.NEW))
-    monkeypatch.setattr(db, "persist_new_source", lambda *args, **kwargs: pytest.fail("must not write"))
+    monkeypatch.setattr(persistence, "resolve_source_identity", lambda *args, **kwargs: SourceIdentity(IdentityKind.NEW))
+    monkeypatch.setattr(persistence, "persist_new_source", lambda *args, **kwargs: pytest.fail("must not write"))
 
     def invalid_draft(html, url):
         return BookDraft(source_url=url, title="   ")  # BookDraft.__post_init__ raises ValueError
@@ -146,7 +147,7 @@ def test_first_book_cli_selects_runner_and_closes_fetcher(monkeypatch):
 def test_restricted_first_book_skips_once_without_error(monkeypatch, caplog):
     caplog.set_level(logging.INFO, logger="books_crawler")
     deps, first = dependencies(lambda: nullcontext(object()))
-    monkeypatch.setattr(db, "resolve_source_identity", lambda *args, **kwargs: SourceIdentity(IdentityKind.NEW))
+    monkeypatch.setattr(persistence, "resolve_source_identity", lambda *args, **kwargs: SourceIdentity(IdentityKind.NEW))
 
     def restricted(html, url):
         raise RestrictedBookError("restricted product requires member login")
@@ -165,9 +166,9 @@ def test_restricted_first_book_skips_once_without_error(monkeypatch, caplog):
 def test_first_book_summary_line_names_the_job_and_the_catalog_counters(monkeypatch, caplog):
     caplog.set_level(logging.INFO, logger="books_crawler")
     deps, _ = dependencies(lambda: nullcontext(object()))
-    monkeypatch.setattr(db, "resolve_source_identity", lambda *args, **kwargs: SourceIdentity(IdentityKind.NEW))
-    monkeypatch.setattr(db, "find_books_by_isbn", lambda *args: [])
-    monkeypatch.setattr(db, "persist_new_source", lambda *args, **kwargs: SourceRef(uuid4(), uuid4()))
+    monkeypatch.setattr(persistence, "resolve_source_identity", lambda *args, **kwargs: SourceIdentity(IdentityKind.NEW))
+    monkeypatch.setattr(persistence, "find_books_by_isbn", lambda *args: [])
+    monkeypatch.setattr(persistence, "persist_new_source", lambda *args, **kwargs: SourceRef(uuid4(), uuid4()))
 
     report = run_first_book(deps, run_id="run-fb")
 
@@ -182,9 +183,9 @@ def test_first_book_summary_line_names_the_job_and_the_catalog_counters(monkeypa
 
 def test_first_book_existing_source_is_counted_as_existing_not_as_new(monkeypatch):
     deps, _ = dependencies(lambda: nullcontext(object()))
-    monkeypatch.setattr(db, "resolve_source_identity", lambda *args, **kwargs: SourceIdentity(IdentityKind.EXISTING, ref=SourceRef(uuid4(), uuid4())))
-    monkeypatch.setattr(db, "touch_source", lambda *args: None)
-    monkeypatch.setattr(db, "persist_new_source", lambda *args, **kwargs: pytest.fail("a known source is not written"))
+    monkeypatch.setattr(persistence, "resolve_source_identity", lambda *args, **kwargs: SourceIdentity(IdentityKind.EXISTING, ref=SourceRef(uuid4(), uuid4())))
+    monkeypatch.setattr(persistence, "touch_source", lambda *args: None)
+    monkeypatch.setattr(persistence, "persist_new_source", lambda *args, **kwargs: pytest.fail("a known source is not written"))
     monkeypatch.setattr(db, "replace_bestsellers", lambda *args, **kwargs: pytest.fail("must preserve snapshot"))
 
     report = run_first_book(deps)
@@ -197,17 +198,17 @@ def test_first_book_existing_source_is_counted_as_existing_not_as_new(monkeypatc
 def test_first_book_touch_failing_after_three_attempts_fails_the_run_with_exit_1(monkeypatch):
     deps, _ = dependencies(lambda: nullcontext(object()))
     monkeypatch.setattr(
-        db,
+        persistence,
         "resolve_source_identity",
         lambda *args, **kwargs: SourceIdentity(IdentityKind.EXISTING, ref=SourceRef(uuid4(), uuid4())),
     )
 
     touched: list = []
 
-    def touch_down(conn, source_id, now):
+    def touch_down(conn, provider, source_id, now):
         raise psycopg.OperationalError("touch down")  # never reaches the store: no successful touch
 
-    monkeypatch.setattr(db, "touch_source", touch_down)
+    monkeypatch.setattr(persistence, "touch_source", touch_down)
 
     report = run_first_book(deps)
 

@@ -8,10 +8,10 @@ import logging
 
 import psycopg
 
-from books_crawler import db
 from books_crawler.models import RunStatus
 from books_crawler.parsers import RANKING_PAGE_URL
 from books_crawler.run import RunDependencies, run_first_book
+from catalog_core import persistence
 from tests.fakes import FakeFetcher, FakeSleep, fake_detail_parser, fake_ranking_parser, product_url, ranking_rows
 from tests.test_db_integration import LATER, NOW, _seed_with_identifiers, bestsellers, query, run, skipped_ranks
 
@@ -30,16 +30,16 @@ def test_touch_after_a_terminated_backend_reconnects_and_advances_last_seen(db_u
     caplog.set_level(logging.WARNING, logger="books_crawler")
     _seed_with_identifiers(db_url, {})
     target = _source_id(db_url, product_url(5))
-    real_touch = db.touch_source
+    real_touch = persistence.touch_source
     killed = []
 
-    def touch_after_a_drop(conn, source_id, now):
+    def touch_after_a_drop(conn, provider, source_id, now):
         if source_id == target and not killed:
             killed.append(conn)
             kill_backend(db_url, conn)
-        return real_touch(conn, source_id, now)
+        return real_touch(conn, provider, source_id, now)
 
-    monkeypatch.setattr(db, "touch_source", touch_after_a_drop)
+    monkeypatch.setattr(persistence, "touch_source", touch_after_a_drop)
 
     report, _ = run(db_url, ranking_rows(100), now=LATER, sleep=FakeSleep())
 
@@ -50,16 +50,16 @@ def test_touch_after_a_terminated_backend_reconnects_and_advances_last_seen(db_u
 
 
 def test_a_source_insert_after_a_terminated_backend_is_written_exactly_once(db_url, monkeypatch):
-    real_persist = db.persist_new_source
+    real_persist = persistence.persist_new_source
     killed = []
 
-    def persist_after_a_drop(conn, draft, now, attach_to_book_id=None):
+    def persist_after_a_drop(conn, provider, draft, now, attach_to_book_id=None):
         if draft.source_url == product_url(3) and not killed:
             killed.append(conn)
             kill_backend(db_url, conn)
-        return real_persist(conn, draft, now, attach_to_book_id=attach_to_book_id)
+        return real_persist(conn, provider, draft, now, attach_to_book_id=attach_to_book_id)
 
-    monkeypatch.setattr(db, "persist_new_source", persist_after_a_drop)
+    monkeypatch.setattr(persistence, "persist_new_source", persist_after_a_drop)
 
     report, _ = run(db_url, ranking_rows(100))
 
@@ -69,18 +69,18 @@ def test_a_source_insert_after_a_terminated_backend_is_written_exactly_once(db_u
 
 
 def test_a_commit_whose_acknowledgement_is_lost_is_not_inserted_again_on_retry(db_url, monkeypatch):
-    real_persist = db.persist_new_source
+    real_persist = persistence.persist_new_source
     dropped = []
 
-    def commit_then_drop(conn, draft, now, attach_to_book_id=None):
-        result = real_persist(conn, draft, now, attach_to_book_id=attach_to_book_id)  # the commit succeeds
+    def commit_then_drop(conn, provider, draft, now, attach_to_book_id=None):
+        result = real_persist(conn, provider, draft, now, attach_to_book_id=attach_to_book_id)  # the commit succeeds
         if draft.source_url == product_url(3) and not dropped:
             dropped.append(conn)
             kill_backend(db_url, conn)  # the connection breaks before the client sees the success
             raise psycopg.OperationalError("connection lost before the commit was acknowledged")
         return result
 
-    monkeypatch.setattr(db, "persist_new_source", commit_then_drop)
+    monkeypatch.setattr(persistence, "persist_new_source", commit_then_drop)
 
     report, _ = run(db_url, ranking_rows(100), sleep=FakeSleep())
 
@@ -94,16 +94,16 @@ def test_three_broken_connections_fail_the_row_with_database_error_and_the_daily
     _seed_with_identifiers(db_url, {})
     target_url = product_url(5)
     target = _source_id(db_url, target_url)
-    real_touch = db.touch_source
+    real_touch = persistence.touch_source
     kills = []
 
-    def touch_always_drops(conn, source_id, now):
+    def touch_always_drops(conn, provider, source_id, now):
         if source_id == target:
             kills.append(conn)
             kill_backend(db_url, conn)
-        return real_touch(conn, source_id, now)
+        return real_touch(conn, provider, source_id, now)
 
-    monkeypatch.setattr(db, "touch_source", touch_always_drops)
+    monkeypatch.setattr(persistence, "touch_source", touch_always_drops)
     sleep = FakeSleep()
 
     report, _ = run(db_url, ranking_rows(100), now=LATER, sleep=sleep)
@@ -122,16 +122,16 @@ def test_three_broken_connections_fail_the_row_with_database_error_and_the_daily
 def test_a_backend_lost_while_reading_an_existing_source_still_fails_the_run(db_url, monkeypatch):
     # crawler.md §6.1: a failed lookup of the existing Source is outside the retry rule and fails the run.
     _seed_with_identifiers(db_url, {})
-    real_resolve = db.resolve_source_identity
+    real_resolve = persistence.resolve_source_identity
     killed = []
 
-    def resolve_after_a_drop(conn, source_url, external_id=None):
+    def resolve_after_a_drop(conn, provider, source_url, external_id=None):
         if source_url == product_url(7) and not killed:
             killed.append(conn)
             kill_backend(db_url, conn)
-        return real_resolve(conn, source_url, external_id)
+        return real_resolve(conn, provider, source_url, external_id)
 
-    monkeypatch.setattr(db, "resolve_source_identity", resolve_after_a_drop)
+    monkeypatch.setattr(persistence, "resolve_source_identity", resolve_after_a_drop)
 
     report, _ = run(db_url, ranking_rows(100))
 
@@ -144,21 +144,21 @@ def test_a_backend_lost_while_reading_an_existing_source_still_fails_the_run(db_
 def test_first_book_with_three_broken_connections_fails_the_run_with_exit_1(db_url, monkeypatch):
     _seed_with_identifiers(db_url, {})
     target = _source_id(db_url, product_url(1))
-    real_touch = db.touch_source
+    real_touch = persistence.touch_source
     kills = []
 
-    def touch_always_drops(conn, source_id, now):
+    def touch_always_drops(conn, provider, source_id, now):
         if source_id == target:
             kills.append(conn)
             kill_backend(db_url, conn)
-        return real_touch(conn, source_id, now)
+        return real_touch(conn, provider, source_id, now)
 
-    monkeypatch.setattr(db, "touch_source", touch_always_drops)
+    monkeypatch.setattr(persistence, "touch_source", touch_always_drops)
     deps = RunDependencies(
         fetcher=FakeFetcher({RANKING_PAGE_URL: "<ranking/>"}),
         parse_ranking=fake_ranking_parser(ranking_rows(100)),
         parse_detail=fake_detail_parser({}),
-        connect=lambda: db.connect(db_url),
+        connect=lambda: persistence.connect(db_url),
         sleep=FakeSleep(),
     )
 

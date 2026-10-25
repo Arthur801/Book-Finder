@@ -15,10 +15,11 @@ import pytest
 from books_crawler import db
 from books_crawler.browser import PlaywrightFetcher
 from books_crawler.fetcher import BrowserUnavailableError, FetchError
-from books_crawler.models import Contributor, ContributorRole, RankingRow, RunStatus, SnapshotRow
+from books_crawler.models import PROVIDER, Contributor, ContributorRole, RankingRow, RunStatus, SnapshotRow
 from books_crawler.normalize import map_language
 from books_crawler.parsers import RANKING_PAGE_URL, ParseError, RestrictedBookError
 from books_crawler.run import RunDependencies, run_once
+from catalog_core import persistence
 from catalog_core.normalize import normalize_isbn
 from tests.browser_fakes import FakeBrowserContext, launching
 from tests.fakes import (
@@ -87,7 +88,7 @@ def run(
         fetcher=fetcher,
         parse_ranking=fake_ranking_parser(rows),
         parse_detail=parse,
-        connect=lambda: db.connect(db_url),
+        connect=lambda: persistence.connect(db_url),
         clock=lambda: now,
         sleep=sleep if sleep is not None else FakeSleep(),
     )
@@ -238,17 +239,17 @@ def test_detail_failing_twice_then_succeeding_writes_the_book_normally(db_url):
 def test_book_transaction_failing_twice_then_succeeding_writes_the_book_normally(db_url, monkeypatch):
     rows = ranking_rows(100, offset=100)
     target = rows[0].url
-    real_persist = db.persist_new_source
+    real_persist = persistence.persist_new_source
     attempts = {"count": 0}
 
-    def flaky_persist(conn, draft, now, attach_to_book_id=None):
+    def flaky_persist(conn, provider, draft, now, attach_to_book_id=None):
         if draft.source_url == target:
             attempts["count"] += 1
             if attempts["count"] <= 2:
                 raise psycopg.OperationalError("simulated connection drop inside the Book transaction")
-        return real_persist(conn, draft, now, attach_to_book_id=attach_to_book_id)
+        return real_persist(conn, provider, draft, now, attach_to_book_id=attach_to_book_id)
 
-    monkeypatch.setattr(db, "persist_new_source", flaky_persist)
+    monkeypatch.setattr(persistence, "persist_new_source", flaky_persist)
     sleep = FakeSleep()
 
     report, fetcher = run(db_url, rows, sleep=sleep)
@@ -311,7 +312,7 @@ def test_fetch_retry_that_reaches_a_restricted_page_is_skipped_as_restricted_aft
         fetcher,
         fake_ranking_parser(rows),
         parse,
-        lambda: db.connect(db_url),
+        lambda: persistence.connect(db_url),
         clock=lambda: NOW,
         sleep=sleep,
     )
@@ -336,7 +337,7 @@ def test_write_retry_that_finds_an_isbn_used_by_an_earlier_rank_is_skipped_as_du
     ]
     drafts = {row.url: make_draft(row.url) for row in rows}
     drafts[product_url(201)] = make_draft(product_url(201), identifiers=(isbn,))
-    real_find = db.find_books_by_isbn
+    real_find = persistence.find_books_by_isbn
     failed = {"once": False}
 
     def flaky_find(conn, values):
@@ -346,7 +347,7 @@ def test_write_retry_that_finds_an_isbn_used_by_an_earlier_rank_is_skipped_as_du
             raise psycopg.OperationalError("simulated connection drop during the ISBN lookup")
         return real_find(conn, values)
 
-    monkeypatch.setattr(db, "find_books_by_isbn", flaky_find)
+    monkeypatch.setattr(persistence, "find_books_by_isbn", flaky_find)
     sleep = FakeSleep()
 
     report, fetcher = run(db_url, rows, drafts, sleep=sleep)
@@ -569,8 +570,8 @@ def test_failed_book_transaction_is_rolled_back_retried_and_skipped_while_others
 def test_language_code_is_written_to_books(db_url, label, code):
     assert map_language(label) == code
     url = product_url(7777)
-    with db.connect(db_url) as conn:
-        ref = db.persist_new_source(conn, make_draft(url, language=map_language(label)), NOW)
+    with persistence.connect(db_url) as conn:
+        ref = persistence.persist_new_source(conn, PROVIDER, make_draft(url, language=map_language(label)), NOW)
 
     assert query(db_url, "SELECT language FROM books WHERE id = %s", (ref.book_id,)) == [(code,)]
 
@@ -713,7 +714,7 @@ def test_replacement_rejects_a_source_that_is_not_the_books_own_books_com_tw_sou
     snapshot[4] = SnapshotRow(rank=5, book_id=target.book_id, source_id=bad_source)
 
     with (
-        db.connect(db_url) as conn,
+        persistence.connect(db_url) as conn,
         pytest.raises(
             db.SnapshotValidationError,
             match=f"rank 5: source {bad_source} is not a BOOKS_COM_TW source of Book {target.book_id}",
@@ -730,7 +731,7 @@ def test_an_empty_snapshot_still_replaces_the_list(db_url):
     run(db_url, ranking_rows(100), now=NOW)
     seen_before = query(db_url, "SELECT id, last_seen_at FROM book_sources ORDER BY id")
 
-    with db.connect(db_url) as conn:
+    with persistence.connect(db_url) as conn:
         db.replace_bestsellers(conn, [], captured_at=LATER)
 
     assert bestsellers(db_url) == []
@@ -831,7 +832,7 @@ def test_each_restricted_page_is_requested_once_and_leaves_a_gap(db_url):
         return make_draft(url)
 
     sleep = FakeSleep()
-    deps = RunDependencies(fetcher, fake_ranking_parser(rows), parse, lambda: db.connect(db_url), clock=lambda: NOW, sleep=sleep)
+    deps = RunDependencies(fetcher, fake_ranking_parser(rows), parse, lambda: persistence.connect(db_url), clock=lambda: NOW, sleep=sleep)
     report = run_once(deps)
 
     assert report.status is RunStatus.PARTIAL_SUCCESS
@@ -938,14 +939,14 @@ def test_database_error_text_with_a_connection_string_never_reaches_the_log_or_r
     rows = ranking_rows(100, offset=100)
     target = rows[0].url
     secret_error = "could not connect to postgresql://app_user:pw-s3cret@db.internal:5432/books password=pw-s3cret"
-    real_persist = db.persist_new_source
+    real_persist = persistence.persist_new_source
 
-    def failing_persist(conn, draft, now, attach_to_book_id=None):
+    def failing_persist(conn, provider, draft, now, attach_to_book_id=None):
         if draft.source_url == target:
             raise psycopg.OperationalError(secret_error)
-        return real_persist(conn, draft, now, attach_to_book_id=attach_to_book_id)
+        return real_persist(conn, provider, draft, now, attach_to_book_id=attach_to_book_id)
 
-    monkeypatch.setattr(db, "persist_new_source", failing_persist)
+    monkeypatch.setattr(persistence, "persist_new_source", failing_persist)
 
     report, _ = run(db_url, rows)
 
@@ -1087,7 +1088,7 @@ def test_replace_bestsellers_does_not_update_last_seen_at(db_url):
     _seed_with_identifiers(db_url, {})
     source = query(db_url, "SELECT id, book_id FROM book_sources WHERE source_url = %s", (product_url(1),))[0]
     later = LATER.replace(year=2027)
-    with db.connect(db_url) as conn:
+    with persistence.connect(db_url) as conn:
         db.replace_bestsellers(conn, [SnapshotRow(rank=1, book_id=source[1], source_id=source[0])], captured_at=later)
 
     assert query(db_url, "SELECT last_seen_at FROM book_sources WHERE id = %s", (source[0],)) == [(NOW,)]
@@ -1095,16 +1096,16 @@ def test_replace_bestsellers_does_not_update_last_seen_at(db_url):
 
 def test_a_touch_that_fails_twice_then_succeeds_is_retried_without_refetching(db_url, monkeypatch):
     _seed_with_identifiers(db_url, {})
-    real_touch = db.touch_source
+    real_touch = persistence.touch_source
     failures = {"left": 2}
 
-    def flaky_touch(conn, source_id, now):
+    def flaky_touch(conn, provider, source_id, now):
         if failures["left"] > 0:
             failures["left"] -= 1
             raise psycopg.OperationalError("simulated connection drop during the touch")
-        return real_touch(conn, source_id, now)
+        return real_touch(conn, provider, source_id, now)
 
-    monkeypatch.setattr(db, "touch_source", flaky_touch)
+    monkeypatch.setattr(persistence, "touch_source", flaky_touch)
     rows = ranking_rows(100)
     sleep = FakeSleep()
 
@@ -1119,15 +1120,15 @@ def test_a_touch_that_fails_twice_then_succeeds_is_retried_without_refetching(db
 
 def test_a_touch_that_keeps_failing_is_a_database_error_skip_in_the_daily_run(db_url, monkeypatch):
     _seed_with_identifiers(db_url, {})
-    real_touch = db.touch_source
+    real_touch = persistence.touch_source
     target = product_url(5)
 
-    def broken_for_one(conn, source_id, now):
+    def broken_for_one(conn, provider, source_id, now):
         if query(db_url, "SELECT source_url FROM book_sources WHERE id = %s", (source_id,))[0][0] == target:
             raise psycopg.OperationalError("simulated database failure on touch")
-        return real_touch(conn, source_id, now)
+        return real_touch(conn, provider, source_id, now)
 
-    monkeypatch.setattr(db, "touch_source", broken_for_one)
+    monkeypatch.setattr(persistence, "touch_source", broken_for_one)
     sleep = FakeSleep()
 
     report, _ = run(db_url, ranking_rows(100), now=LATER, sleep=sleep)
@@ -1144,12 +1145,41 @@ def test_a_touch_that_keeps_failing_is_a_database_error_skip_in_the_daily_run(db
     assert 5 not in [row[0] for row in bestsellers(db_url)]
 
 
+def test_a_touch_conflict_skips_the_row_as_source_identity_conflict_without_a_retry(db_url, monkeypatch):
+    # The Source vanished between the identity lookup and the touch: not a database error, so no retry and no refetch.
+    _seed_with_identifiers(db_url, {})
+    real_touch = persistence.touch_source
+    target = product_url(5)
+    touches = []
+
+    def vanished_for_one(conn, provider, source_id, now):
+        if query(db_url, "SELECT source_url FROM book_sources WHERE id = %s", (source_id,))[0][0] == target:
+            touches.append(source_id)
+            raise persistence.SourceTouchConflict(f"Book Source {source_id} is not a {provider} Book Source")
+        return real_touch(conn, provider, source_id, now)
+
+    monkeypatch.setattr(persistence, "touch_source", vanished_for_one)
+    sleep = FakeSleep()
+
+    report, fetcher = run(db_url, ranking_rows(100), now=LATER, sleep=sleep)
+
+    assert report.status is RunStatus.PARTIAL_SUCCESS
+    assert skipped_ranks(report) == [5]
+    failure = report.skipped[0].failure
+    assert (failure.error_type, failure.attempts) == ("source_identity_conflict", 1)
+    assert len(touches) == 1 and sleep.calls == []
+    assert not [url for url in fetcher.calls if url != RANKING_PAGE_URL]  # no detail page was fetched
+    assert report.existing_source_count == 99  # the conflicting touch is not counted
+    assert query(db_url, "SELECT last_seen_at FROM book_sources WHERE source_url = %s", (target,)) == [(NOW,)]  # nothing changed
+    assert 5 not in [row[0] for row in bestsellers(db_url)]
+
+
 def test_url_drift_keeps_the_stored_url_and_matches_by_external_id(db_url):
     _seed_with_identifiers(db_url, {})
     execute(db_url, "UPDATE book_sources SET external_id = 'E-1' WHERE source_url = %s", (product_url(1),))
     book = _book_of(db_url, product_url(1))
-    with db.connect(db_url) as conn:
-        identity = db.resolve_source_identity(conn, "https://www.books.com.tw/drifted", external_id="E-1")
+    with persistence.connect(db_url) as conn:
+        identity = persistence.resolve_source_identity(conn, PROVIDER, "https://www.books.com.tw/drifted", external_id="E-1")
 
     assert identity.kind.value == "existing"
     assert identity.ref.book_id == book
@@ -1161,8 +1191,8 @@ def test_external_id_and_url_on_different_sources_is_a_conflict_with_no_writes(d
     _seed_with_identifiers(db_url, {})
     execute(db_url, "UPDATE book_sources SET external_id = 'E-1' WHERE source_url = %s", (product_url(1),))
     execute(db_url, "UPDATE book_sources SET external_id = 'E-2' WHERE source_url = %s", (product_url(2),))
-    with db.connect(db_url) as conn:
-        identity = db.resolve_source_identity(conn, product_url(2), external_id="E-1")
+    with persistence.connect(db_url) as conn:
+        identity = persistence.resolve_source_identity(conn, PROVIDER, product_url(2), external_id="E-1")
 
     assert identity.kind.value == "conflict"
     assert identity.reason.startswith("source_identity_conflict")
@@ -1171,8 +1201,8 @@ def test_external_id_and_url_on_different_sources_is_a_conflict_with_no_writes(d
 
 def test_null_external_id_on_the_url_match_is_existing_without_backfill(db_url):
     _seed_with_identifiers(db_url, {})
-    with db.connect(db_url) as conn:
-        identity = db.resolve_source_identity(conn, product_url(3), external_id="E-9")
+    with persistence.connect(db_url) as conn:
+        identity = persistence.resolve_source_identity(conn, PROVIDER, product_url(3), external_id="E-9")
 
     assert identity.kind.value == "existing"
     assert query(db_url, "SELECT external_id FROM book_sources WHERE source_url = %s", (product_url(3),)) == [(None,)]
@@ -1209,18 +1239,18 @@ def test_isbn_matching_ignores_other_identifier_types(db_url):
         "INSERT INTO book_identifiers (book_id, identifier_type, identifier_value) VALUES (%s, 'OTHER', '9780306406157')",
         (other_book,),
     )
-    with db.connect(db_url) as conn:
-        assert db.find_books_by_isbn(conn, ["9780306406157"]) == []
+    with persistence.connect(db_url) as conn:
+        assert persistence.find_books_by_isbn(conn, ["9780306406157"]) == []
         execute(db_url, "INSERT INTO book_identifiers (book_id, identifier_type, identifier_value) VALUES (%s, 'ISBN', '9780306406157')", (other_book,))
-        assert db.find_books_by_isbn(conn, ["9780306406157"]) == [other_book]
+        assert persistence.find_books_by_isbn(conn, ["9780306406157"]) == [other_book]
 
 
 def test_provider_enabled_reads_the_registry_row(db_url):
-    assert db.provider_enabled(db_url, "BOOKS_COM_TW") is True
-    assert db.provider_enabled(db_url, "KINGSTONE") is False
-    assert db.provider_enabled(db_url, "NO_SUCH_PROVIDER") is None
+    assert persistence.provider_enabled(db_url, "BOOKS_COM_TW") is True
+    assert persistence.provider_enabled(db_url, "KINGSTONE") is False
+    assert persistence.provider_enabled(db_url, "NO_SUCH_PROVIDER") is None
     execute(db_url, "UPDATE source_providers SET enabled = false WHERE code = 'BOOKS_COM_TW'")
     try:
-        assert db.provider_enabled(db_url, "BOOKS_COM_TW") is False
+        assert persistence.provider_enabled(db_url, "BOOKS_COM_TW") is False
     finally:
         execute(db_url, "UPDATE source_providers SET enabled = true WHERE code = 'BOOKS_COM_TW'")
