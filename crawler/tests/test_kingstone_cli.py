@@ -1,8 +1,9 @@
 """Kingstone entry point ``kingstone.cli.main`` (CR-K09), offline: fake fetcher, fake provider check, no database.
 
-Every path here ends before the database is needed: the provider check is faked, and the runs use a page list whose
-pages are all skipped, so the store is never touched. The DATABASE_URL used is unreachable on purpose; a test that
-connects to it would fail. The real database paths are in ``test_kingstone_db_integration.py``.
+The provider check is faked. The database session and the schema check are stubbed (``stub_database``), so no
+connection is opened: the DATABASE_URL used is unreachable on purpose, and a test that connects to it would hang or fail.
+The runs use a page list whose pages are all skipped, so the store is never touched. The real lock, schema and CLI
+paths against PostgreSQL are in ``test_kingstone_db_integration.py`` and ``test_migration_lock_integration.py``.
 """
 
 from __future__ import annotations
@@ -12,6 +13,7 @@ import logging
 import psycopg
 import pytest
 
+from catalog_core.migration_lock import MigrationLockBusy
 from catalog_core.models import ProviderCode
 from kingstone import cli
 from kingstone.acquisition import AcquisitionError, AcquisitionFailure, KingstoneFetcher
@@ -41,6 +43,36 @@ class FakeFetcher:
 
     def close(self) -> None:
         self.closed += 1
+
+
+class StubSession:
+    """Stands in for ``DatabaseSession``: no connection. ``busy`` makes the first access raise MigrationLockBusy."""
+
+    busy = False
+
+    def __init__(self, connect) -> None:
+        self._connect = connect
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc_info):
+        return None
+
+    @property
+    def conn(self):
+        if StubSession.busy:
+            raise MigrationLockBusy("migration lock busy: stub")
+        return object()
+
+
+@pytest.fixture(autouse=True)
+def stub_database(monkeypatch):
+    """Replaces the session and the schema check. ``state["missing"]`` is what the schema check reports."""
+    state = {"missing": []}
+    monkeypatch.setattr(cli, "DatabaseSession", StubSession)
+    monkeypatch.setattr(cli.persistence, "missing_schema_prerequisites", lambda conn: list(state["missing"]))
+    return state
 
 
 class Harness:
@@ -181,6 +213,28 @@ def test_a_provider_query_error_exits_1_and_the_message_is_redacted(tmp_path, ca
     assert "could not read source_providers" in out
     assert "hunter2" not in out
     assert harness.factory_calls == []
+
+
+def test_a_missing_schema_prerequisite_exits_2_before_the_fetcher_and_is_logged(tmp_path, capsys, stub_database):
+    stub_database["missing"] = ["book_sources.last_seen_at"]
+    harness = Harness(tmp_path)
+
+    assert harness.run() == 2
+
+    assert harness.factory_calls == []
+    assert harness.fetcher.calls == []
+    assert "SCHEMA_PREREQUISITE_MISSING: book_sources.last_seen_at" in capsys.readouterr().out
+
+
+def test_a_busy_first_connection_exits_1_with_maintenance_busy_before_the_fetcher(tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr(StubSession, "busy", True)
+    harness = Harness(tmp_path)
+
+    assert harness.run() == 1
+
+    assert harness.factory_calls == []
+    assert harness.fetcher.calls == []
+    assert "maintenance busy" in capsys.readouterr().out
 
 
 def test_every_page_skipped_exits_1_and_the_fetcher_is_closed(tmp_path):

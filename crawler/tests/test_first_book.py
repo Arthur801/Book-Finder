@@ -14,7 +14,7 @@ from books_crawler.parsers import RANKING_PAGE_URL, RestrictedBookError
 from books_crawler.run import RunDependencies, run_first_book
 from catalog_core import persistence
 from catalog_core.identity import IdentityKind, SourceIdentity
-from tests.fakes import FakeFetcher, FakeSleep, fake_detail_parser, fake_ranking_parser, make_draft, ranking_rows
+from tests.fakes import FakeFetcher, FakeSleep, LockGrantingConnection, fake_detail_parser, fake_ranking_parser, make_draft, ranking_rows
 
 
 @pytest.fixture(autouse=True)
@@ -38,7 +38,7 @@ def dependencies(connect, *, count=100, failures=None):
 
 
 def test_import_only_first_book_and_retry_database_without_refetch(monkeypatch):
-    deps, first = dependencies(lambda: nullcontext(object()))
+    deps, first = dependencies(lambda: nullcontext(LockGrantingConnection()))
     lookups, writes = [], []
     monkeypatch.setattr(persistence, "resolve_source_identity", lambda conn, provider, url, **kwargs: lookups.append(url) or SourceIdentity(IdentityKind.NEW))
     monkeypatch.setattr(persistence, "find_books_by_isbn", lambda *args: [])
@@ -62,7 +62,7 @@ def test_import_only_first_book_and_retry_database_without_refetch(monkeypatch):
 
 
 def test_known_first_book_does_not_fetch_detail_or_write(monkeypatch):
-    deps, _first = dependencies(lambda: nullcontext(object()))
+    deps, _first = dependencies(lambda: nullcontext(LockGrantingConnection()))
     monkeypatch.setattr(persistence, "resolve_source_identity", lambda *args, **kwargs: SourceIdentity(IdentityKind.EXISTING, ref=SourceRef(uuid4(), uuid4())))
     monkeypatch.setattr(persistence, "touch_source", lambda *args: None)
     monkeypatch.setattr(persistence, "persist_new_source", lambda *args, **kwargs: pytest.fail("must reuse existing book"))
@@ -75,7 +75,7 @@ def test_known_first_book_does_not_fetch_detail_or_write(monkeypatch):
 def test_first_book_challenge_exhausts_retries_and_fails(monkeypatch, caplog):
     caplog.set_level(logging.INFO, logger="books_crawler")
     first = ranking_rows()[0].url
-    deps, _ = dependencies(lambda: nullcontext(object()), failures={first: FetchError("Cloudflare challenge")})
+    deps, _ = dependencies(lambda: nullcontext(LockGrantingConnection()), failures={first: FetchError("Cloudflare challenge")})
     monkeypatch.setattr(persistence, "resolve_source_identity", lambda *args, **kwargs: SourceIdentity(IdentityKind.NEW))
     monkeypatch.setattr(persistence, "persist_new_source", lambda *args, **kwargs: pytest.fail("must not write"))
     report = run_first_book(deps)
@@ -90,7 +90,7 @@ def test_first_book_challenge_exhausts_retries_and_fails(monkeypatch, caplog):
 
 
 def test_first_book_database_failure_is_not_reported_as_a_fetch_error(monkeypatch):
-    deps, first = dependencies(lambda: nullcontext(object()))
+    deps, first = dependencies(lambda: nullcontext(LockGrantingConnection()))
     monkeypatch.setattr(persistence, "resolve_source_identity", lambda *args, **kwargs: SourceIdentity(IdentityKind.NEW))
     monkeypatch.setattr(persistence, "find_books_by_isbn", lambda *args: [])
 
@@ -108,7 +108,7 @@ def test_first_book_database_failure_is_not_reported_as_a_fetch_error(monkeypatc
 
 
 def test_draft_validation_error_from_the_detail_parser_is_retried_as_parse_error(monkeypatch):
-    deps, first = dependencies(lambda: nullcontext(object()))
+    deps, first = dependencies(lambda: nullcontext(LockGrantingConnection()))
     monkeypatch.setattr(persistence, "resolve_source_identity", lambda *args, **kwargs: SourceIdentity(IdentityKind.NEW))
     monkeypatch.setattr(persistence, "persist_new_source", lambda *args, **kwargs: pytest.fail("must not write"))
 
@@ -146,7 +146,7 @@ def test_first_book_cli_selects_runner_and_closes_fetcher(monkeypatch):
 
 def test_restricted_first_book_skips_once_without_error(monkeypatch, caplog):
     caplog.set_level(logging.INFO, logger="books_crawler")
-    deps, first = dependencies(lambda: nullcontext(object()))
+    deps, first = dependencies(lambda: nullcontext(LockGrantingConnection()))
     monkeypatch.setattr(persistence, "resolve_source_identity", lambda *args, **kwargs: SourceIdentity(IdentityKind.NEW))
 
     def restricted(html, url):
@@ -165,7 +165,7 @@ def test_restricted_first_book_skips_once_without_error(monkeypatch, caplog):
 
 def test_first_book_summary_line_names_the_job_and_the_catalog_counters(monkeypatch, caplog):
     caplog.set_level(logging.INFO, logger="books_crawler")
-    deps, _ = dependencies(lambda: nullcontext(object()))
+    deps, _ = dependencies(lambda: nullcontext(LockGrantingConnection()))
     monkeypatch.setattr(persistence, "resolve_source_identity", lambda *args, **kwargs: SourceIdentity(IdentityKind.NEW))
     monkeypatch.setattr(persistence, "find_books_by_isbn", lambda *args: [])
     monkeypatch.setattr(persistence, "persist_new_source", lambda *args, **kwargs: SourceRef(uuid4(), uuid4()))
@@ -182,7 +182,7 @@ def test_first_book_summary_line_names_the_job_and_the_catalog_counters(monkeypa
 
 
 def test_first_book_existing_source_is_counted_as_existing_not_as_new(monkeypatch):
-    deps, _ = dependencies(lambda: nullcontext(object()))
+    deps, _ = dependencies(lambda: nullcontext(LockGrantingConnection()))
     monkeypatch.setattr(persistence, "resolve_source_identity", lambda *args, **kwargs: SourceIdentity(IdentityKind.EXISTING, ref=SourceRef(uuid4(), uuid4())))
     monkeypatch.setattr(persistence, "touch_source", lambda *args: None)
     monkeypatch.setattr(persistence, "persist_new_source", lambda *args, **kwargs: pytest.fail("a known source is not written"))
@@ -196,7 +196,7 @@ def test_first_book_existing_source_is_counted_as_existing_not_as_new(monkeypatc
 
 
 def test_first_book_touch_failing_after_three_attempts_fails_the_run_with_exit_1(monkeypatch):
-    deps, _ = dependencies(lambda: nullcontext(object()))
+    deps, _ = dependencies(lambda: nullcontext(LockGrantingConnection()))
     monkeypatch.setattr(
         persistence,
         "resolve_source_identity",
