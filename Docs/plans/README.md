@@ -23,7 +23,7 @@
 
 | 計畫 | 狀態 |
 |---|---|
-| [kingstone-category-crawler.md](kingstone-category-crawler.md) 金石堂分類 crawler（v10） | E0 進行中；程式實作待 E0 通過；production activation 待 P1–P5 |
+| [kingstone-category-crawler.md](kingstone-category-crawler.md) 金石堂分類 crawler（v11，使用者提供分類頁清單） | E0 證據已完成，待 fixture commit 與 contract review；production activation 待 P1–P5 |
 
 ## 2. 共通的模組化原則
 
