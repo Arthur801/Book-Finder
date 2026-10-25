@@ -19,6 +19,12 @@
 - #15 與 #16 都會改 `RecommendationService`、`RecommendationsController` 與 `wwwroot/js/ai.js`；循序做可以避免衝突。
 - #18 要在 #16 的紀錄詳情頁顯示難度，所以排最後。
 
+## 其他計畫
+
+| 計畫 | 狀態 |
+|---|---|
+| [kingstone-category-crawler.md](kingstone-category-crawler.md) 金石堂分類 crawler（v10） | E0 進行中；程式實作待 E0 通過；production activation 待 P1–P5 |
+
 ## 2. 共通的模組化原則
 
 每份計劃都照同一套原則拆模組：
