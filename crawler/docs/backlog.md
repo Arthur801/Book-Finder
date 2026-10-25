@@ -36,6 +36,7 @@
 - Phase 7 進度：
   - **P2 通過（2026-10-25）**：檢查發現 crawler 原本使用 RDS 主帳號 `bookfinder_admin`（`rds_superuser`、CREATEROLE、CREATEDB、擁有所有表）。依使用者決定改建 `bookfinder_crawler`：`books`、`book_sources` 為 SELECT／INSERT／UPDATE，`book_identifiers`、`book_contributors` 為 SELECT／INSERT，`book_subjects` 為 INSERT，`bestsellers` 為 INSERT／DELETE，`source_providers` 為 SELECT；連線上限 5；無 DDL、不擁有物件、無所屬角色。使用者以新帳號執行 `crawler/deploy/local/sql/p2-crawler-privileges.sql` 的結果全部符合。權限依程式實際的 SQL 整理；本機另以拋棄式 PG 17 驗證新帳號可完成 schema preflight、New Source、ISBN attach、touch、榜單替換與 shared migration lock，讀 `users`、DDL、`DELETE FROM books`、`TRUNCATE` 皆被拒。
   - **權限的後續維護**：之後的 migration 若新增 crawler 需要的表或重建既有表，需要補 GRANT（`crawler/deploy/local/sql/create-crawler-role.sql` 為權限清單）；缺少時 crawler 以權限錯誤寫入失敗，不會寫到其他地方。schema preflight 只檢查表與欄位，不檢查權限。
+  - **P3 第一次實測發現（2026-10-25，已修正）**：runner 原本以 `ssh <host> cat <state.json>` 讀取，但 deploy host 每次寫入都把 `state.json` 設為 root 0600，SSH 使用者讀不到而 exit 12；假指令測試沒有涵蓋檔案權限。改為 `sudo -n cat --`，EC2 的 SSH 使用者需要免密碼 sudo（README §9.1 有限定單一指令的 sudoers 寫法）。
   - **待做**：P1（schema preflight 經 tunnel 在 production 通過）、P3 本地驗證、P5 1 頁 canary（`kingstone:canary`、`new-books-only`）。
 - Phase 6 M4 之後仍待辦：
   - **EC2 crawler cron 移除（另案）**：目前以 `CRAWLER_ENABLED=false` 停用，cron 仍安裝於 EC2；移除需另行決定與執行。

@@ -199,7 +199,8 @@ v12 計畫（`Docs/plans/kingstone-category-crawler.md` §8）改由使用者的
 
 ### 9.1 前置條件
 
-- **SSH**：`~/.ssh/config` 有 EC2 主機的 alias（填入 `EC2_SSH_HOST`），金鑰只在本機。runner 以 `BatchMode=yes` 執行，不會互動式詢問密碼。
+- **SSH**：`~/.ssh/config` 有 EC2 主機的 alias（填入 `EC2_SSH_HOST`），金鑰只在本機。runner 以 `BatchMode=yes` 執行，不會互動式詢問密碼。以本機使用者執行 runner，不要加 `sudo`（root 讀不到你的 `~/.ssh/config`、AWS profile）。
+- **EC2 上讀 state 的 sudo**：`state.json` 為 root 擁有、權限 0600，且 deploy 每次寫入都會重設，所以 runner 以 `sudo -n cat` 讀取。SSH 登入的使用者需要能免密碼執行這個指令。預設的 `ec2-user`／`ubuntu` 通常已有 NOPASSWD sudo；若沒有或想縮小範圍，在 EC2 以 `sudo visudo -f /etc/sudoers.d/book-finder-state` 加入（`<user>` 換成登入帳號，`cat` 路徑以 `command -v cat` 為準）：`<user> ALL=(root) NOPASSWD: /usr/bin/cat -- /var/lib/book-finder/state.json`。確認：`ssh <EC2_SSH_HOST> sudo -n cat -- /var/lib/book-finder/state.json >/dev/null && echo ok`。
 - **AWS 或 secret 檔（擇一）**：
   - `DB_SECRET_SOURCE=ssm`：本機的 AWS profile 要有 `ssm:GetParameter`（與 `kms:Decrypt`，若使用客戶管理金鑰）權限，讀取與 EC2 相同的 `DATABASE_URL_PARAMETER`；
   - `DB_SECRET_SOURCE=file`：`DB_SECRET_FILE` 指向本機的檔案，權限必須是 `600` 且 owner 是自己；內容是 psycopg 的 PostgreSQL URL（與 SSM 參數相同格式）。
@@ -247,7 +248,7 @@ crawler/deploy/local/run-local-crawler.sh daily
 
 1. 讀設定；`CRAWLER_ENABLED=false` 即結束；其他必要值驗證失敗 exit 10。
 2. 取得本地 `run.lock`（非阻塞；已被持有即 exit 11）。
-3. 經 SSH 唯讀讀取 EC2 `state.json`，paused／dirty 則 exit 6；讀不到（含檔案不存在）fail closed，exit 12。
+3. 經 SSH 以 `sudo -n cat -- <EC2_STATE_FILE>` 唯讀讀取 EC2 `state.json`（deploy host 每次寫入都把檔案設為 root 擁有、權限 0600），paused／dirty 則 exit 6；讀不到（含檔案不存在）fail closed，exit 12。
 4. orphan check：固定 container 名稱 `book-finder-crawler-active`、label `com.bookfinder.role=catalog-crawler`。running、restarting、paused、removing 拒絕啟動（exit 13，`ORPHAN_WRITER`）；exited、dead、created 先 `docker rm`。
 5. 取得 DB secret（SSM 或 600 檔），不寫入 argv、log 或 env。
 6. 改寫連線字串，寫入 600 的 env file（只含 `DATABASE_URL`），用後刪除。

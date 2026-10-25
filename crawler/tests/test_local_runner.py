@@ -434,7 +434,9 @@ def test_state_is_read_read_only_over_ssh_with_batch_mode(local):
     assert local.run("daily").returncode == 0
     argv = (local.fake / "ssh-state-argv").read_text().splitlines()
     assert "BatchMode=yes" in argv
-    assert argv[-3:] == ["ec2-test", "cat", "/var/lib/book-finder/state.json"]
+    # The deploy host writes state.json as root with mode 0600 on every change, so the SSH user reads it through
+    # non-interactive sudo; -n fails at once instead of waiting for a password.
+    assert argv[-6:] == ["ec2-test", "sudo", "-n", "cat", "--", "/var/lib/book-finder/state.json"]
 
 
 def test_unreadable_state_fails_closed(local):

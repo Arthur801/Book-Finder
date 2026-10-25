@@ -381,7 +381,7 @@ migration 011 的 schema 由 test_db_integration.py 在 011 上檢查（無 `sou
 - **When**：`tests/test_local_runner.py` 執行 `deploy/local/run-local-crawler.sh`，並直接載入 `runner_support.py` 的函式。
 - **Then**：
   - `CRAWLER_ENABLED=false` 零外部呼叫、log `skipped=disabled`、exit 0；非法值 exit 10；用法錯誤 exit 10。
-  - state 讀不到或不存在 → exit 12；paused／dirty → exit 6，未呼叫 docker 或 aws。
+  - state 以 `ssh … <host> sudo -n cat -- <EC2_STATE_FILE>` 讀取（`BatchMode=yes`；deploy host 的 state 為 root 0600，P3 實測發現）；讀不到或不存在 → exit 12；paused／dirty → exit 6，未呼叫 docker 或 aws。假 ssh 不模擬遠端權限，`sudo` 的實際行為只能在 EC2 驗證。
   - orphan：running、restarting、paused、removing → exit 13，未取 secret；exited、dead、created → `docker rm` 後才啟動。docker 不可用 → exit 18。
   - secret：`ssm` 使用 profile、`--with-decryption`；`file` 權限不是 600 或為 symlink → exit 15；空值 → exit 15；secret 不出現在任何假指令的 argv、runner 的 stdout 或 stderr（marker 檢查）。env file、cidfile 在成功、失敗與 signal 路徑都被刪除。
   - URL：host 保留為 RDS endpoint，port 換成本地埠，加上 `hostaddr=127.0.0.1`、`sslmode=verify-full`、`sslrootcert`；percent-encoded 密碼原樣保留；以 `psycopg.conninfo.conninfo_to_dict` 驗證 libpq 解析結果（不連線）；secret 的 host 與 `RDS_ENDPOINT` 不符 → exit 17，訊息不含 secret。
