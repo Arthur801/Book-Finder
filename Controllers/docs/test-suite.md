@@ -46,7 +46,7 @@ PIPE-03／PIPE-06 證據分層（均未在本次執行）：[AuthPipelineTests](
 | BOOKS-03／已有測試 | 25 本；`page=abc`、`0`、`-1` | 200，顯示第 1 頁。 |
 | BOOKS-04／已有測試 | 25 本；`page=3`、`2147483648`、`99999999999999999999`；不自動跟隨重導 | 302，Location `/books?page=2`；超大數字不溢位。 |
 | BOOKS-05／已有測試 | 空 Catalog；GET `/books?page=5` | 200，顯示「書庫還沒有書」；無摘要、無分頁，不重導。 |
-| BOOKS-06／已有測試 | 書有 description 與 table of contents 哨兵文字；GET `/books` | 列表 HTML 不含兩段文字（BOOK-05、AGENTS §1.3）。 |
+| BOOKS-06／已有測試 | 書有 description 與 table of contents 哨兵文字；GET `/books` | 列表 HTML 不含兩段文字（BOOK-05、[Application 架構](../../Application/docs/architecture.md)「核心不變條件」）。 |
 | BOOKS-07／已有測試 | 無自動跟隨；GET `/bestsellers` | 301，Location `/books`；不再顯示榜單。 |
 | HOME-02／已有測試 | 15 本；GET `/` | 最多 10 筆、不重複、皆來自 seed；不顯示 rank。 |
 | HOME-03／已有測試 | 空 Catalog；GET `/` | 200，顯示「書庫還沒有書」；連結 `/books`「查看完整書庫」。 |

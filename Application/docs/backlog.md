@@ -31,7 +31,7 @@
 
 - **P2 / L1 / 待決策，未實作**。
 - 證據：#109 M2 後 Web 無 Bestseller 呼叫者（M1 只新增後端，Home／Bestsellers 仍呼叫）；[BestsellerService](../Bestsellers/BestsellerService.cs) 的 `HomeTopCount`、`GetTopAsync` 與 [EfBestsellerReader](../../Infrastructure/Persistence/EfBestsellerReader.cs) 仍保留，由 [BestsellerReaderIntegrationTests](../../tests/WebIntegration/BestsellerReaderIntegrationTests.cs) 守住 DI 鏈。
-- 方向：Bestseller 是否長期保留、移除或改由其他功能使用，需另案決定；未決前不得刪除，也不得讓 Bestseller rank 進入推薦排序（AGENTS.md §1.3）。
+- 方向：Bestseller 是否長期保留、移除或改由其他功能使用，需另案決定；未決前不得刪除，也不得讓 Bestseller rank 進入推薦排序（本模組 [architecture.md](architecture.md)「核心不變條件」）。
 - 驗收：決定後同步更新 [bestseller](../../Docs/modules/bestseller.md) 與本文件。
 
 ## APP-B04 — Catalog 讀取 contract 改用 provider code（#113 PR2）
