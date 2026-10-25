@@ -653,6 +653,9 @@ def _run_efbundle_under_lock(r: _Run) -> tuple[int | None, str]:
         r.deps.clock.sleep(LOCK_HEARTBEAT_INTERVAL_S)
         code = child.poll()
         if code is not None:
+            # The exit is observed only after a final proof of the lock session: the session may have dropped during the
+            # sleep, and an exit code from a migration that ran without the lock must not be accepted.
+            _prove_lock_before_result(r, child)
             return code, child.output()
         if not r.effects.lock_holder.alive():
             _stop_efbundle(r, child, "lock session lost")
@@ -662,6 +665,27 @@ def _run_efbundle_under_lock(r: _Run) -> tuple[int | None, str]:
             _stop_efbundle(r, child, f"lock session lost: {_mask(str(exc), r.secrets)}")
         if r.deps.clock.monotonic() >= deadline:
             _stop_efbundle(r, child, f"efbundle did not finish within {EFBUNDLE_TIMEOUT_S:g} s")
+
+
+def _prove_lock_before_result(r: _Run, child) -> None:
+    """Checks the lock session once more after efbundle has exited, before its exit code is accepted (DEP-B21 review).
+
+    Why the same session's heartbeat is enough: a session that ended cannot come back, and the server drops its
+    advisory lock with it. A heartbeat answered by this session therefore proves the lock was held continuously from
+    acquire until now. efbundle has already exited, so nothing is terminated or killed here.
+    """
+    try:
+        if not r.effects.lock_holder.alive():
+            raise EffectFailed("the session has ended")
+        r.effects.lock_holder.heartbeat(LOCK_HEARTBEAT_TIMEOUT_S)
+    except EffectFailed as exc:
+        _journal_efbundle_output(r, child.output())
+        raise _Stop(
+            FAILED_MIGRATION,
+            "failed-migration",
+            f"lock session lost before the result was accepted: {_mask(str(exc), r.secrets)}; efbundle had already exited; "
+            "the database may be partly migrated; schema stays dirty, crawler stays paused; no automatic retry",
+        ) from exc
 
 
 def _stop_efbundle(r: _Run, child, why: str) -> None:

@@ -243,6 +243,10 @@ class FakeDocker:
         self.efbundle_polls = 1
         # When set, the migration container ignores SIGTERM, so the host must kill it after the grace period.
         self.efbundle_ignores_term = False
+        # When set, the lock session drops at the moment efbundle exits, before the host polls it again (DEP-B21 review).
+        self.efbundle_drop_lock_on_exit = False
+        # Runs once when the migration container exits, before the host sees the exit code (a test hook).
+        self.efbundle_on_exit: Callable[[], None] | None = None
         self.children: list[FakeChild] = []
         self.smoke_rc = 0
         self.env_files_seen: list[str] = []
@@ -296,6 +300,10 @@ class FakeDocker:
             self.host.db_ids = list(self.efbundle_db_ids)
         child = FakeChild(self.efbundle_rc, self.efbundle_output, polls_until_exit=self.efbundle_polls)
         child.ignores_term = self.efbundle_ignores_term
+        if self.efbundle_drop_lock_on_exit:
+            child.on_exit = lambda: setattr(self.fx.lock_holder, "lost", True)
+        elif self.efbundle_on_exit is not None:
+            child.on_exit = self.efbundle_on_exit
         self.children.append(child)
         return child
 
@@ -329,6 +337,8 @@ class FakeChild:
         self.terminated = False
         self.killed = False
         self._exit: int | None = None
+        # Runs once, when the process exits, before the host sees the exit code (a test hook).
+        self.on_exit: Callable[[], None] | None = None
 
     def poll(self) -> int | None:
         if self._exit is not None:
@@ -336,6 +346,8 @@ class FakeChild:
         if self._polls_left > 0:
             self._polls_left -= 1
             return None
+        if self.on_exit is not None:
+            self.on_exit()
         self._exit = self._returncode
         return self._exit
 
@@ -386,6 +398,8 @@ class FakeLockHolder:
     def heartbeat(self, timeout_s: float) -> None:
         self.fx.trace.append("lock.heartbeat")
         self.heartbeat_calls += 1
+        if self.lost:
+            raise EffectFailed("no reply within 10 s")
         if self.heartbeats_ok is not None:
             if self.heartbeats_ok <= 0:
                 self.lost = True

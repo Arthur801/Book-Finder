@@ -1617,3 +1617,45 @@ def test_a_residual_container_that_cannot_be_removed_is_drift_before_any_change(
     assert "cannot remove the residual migration container bookfinder-migration-old1" in err
     assert not any(t.startswith(("lock.", "aws.", "docker.efbundle")) for t in world.fx.trace)
     assert world.load_state().crawler.paused is None
+
+
+# Review fix: an efbundle exit is accepted only after a final proof of the lock session (DEP-B21).
+
+
+def test_efbundle_exit_after_the_lock_session_dropped_between_polls_is_not_accepted(tmp_path):
+    world = forward_world(tmp_path)
+    # efbundle exits at the second poll; one heartbeat succeeded before, and the session drops during the sleep.
+    world.fx.docker.efbundle_polls = 1
+    world.fx.docker.efbundle_rc = 0
+    world.fx.docker.efbundle_db_ids = [ID1, ID2]  # the database reports the full target: only the lock check can stop the switch
+    world.fx.docker.efbundle_drop_lock_on_exit = True
+    code, _out, err = world.run_unit(deploy_text(world, chain="forward", tag=TAG2))
+    assert code == FAILED_MIGRATION, err
+    assert "lock session lost before the result was accepted" in err
+    state = world.load_state()
+    assert state.schema.dirty is True and state.crawler.paused is not None
+    assert not any(t.startswith("compose.") for t in world.fx.trace)  # no switch
+    child = world.fx.docker.children[0]
+    assert child.terminated is False and child.killed is False  # it had already exited
+    assert [e["result"] for e in completed_records(world)] == ["failed-migration"]
+
+
+def test_efbundle_exit_after_a_failed_final_heartbeat_is_not_accepted(tmp_path):
+    world = forward_world(tmp_path)
+    world.fx.docker.efbundle_polls = 1
+    world.fx.lock_holder.heartbeats_ok = 1  # the periodic heartbeat answers, the final one does not
+    code, _out, err = world.run_unit(deploy_text(world, chain="forward", tag=TAG2))
+    assert code == FAILED_MIGRATION, err
+    assert "lock session lost before the result was accepted" in err
+    assert not any(t.startswith("compose.") for t in world.fx.trace)
+    assert world.load_state().schema.dirty is True
+
+
+def test_efbundle_exit_after_a_successful_final_heartbeat_goes_on_to_the_id_check(tmp_path):
+    world = forward_world(tmp_path)
+    world.fx.docker.efbundle_polls = 1
+    code, _out, err = world.run_unit(deploy_text(world, chain="forward", tag=TAG2))
+    assert code == OK, err
+    trace = world.fx.trace
+    assert index_of(trace, "lock.heartbeat") < index_of(trace, "lock.connections") < index_of(trace, "lock.release")
+    assert index_of(trace, "lock.heartbeat") < index_of(trace, "compose.")
