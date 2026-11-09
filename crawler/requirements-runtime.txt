@@ -1,4 +1,4 @@
 # Production curl fetcher. Browser diagnostics are installed separately on the host.
-psycopg[binary]==3.3.6
-curl_cffi==0.16.3
+psycopg[binary]==3.3.8
+curl_cffi==0.17.0
 beautifulsoup4==4.15.0
