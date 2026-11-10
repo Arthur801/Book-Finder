@@ -6,6 +6,8 @@
 
 > 歷史查核 2026-10-24；當時 HEAD `91333c334148fa5bfe07055d0e799dc13bb0bb4e`。依基準版本靜態閱讀；本次未執行 build、測試、部署、外部服務或真實抓取。
 
+> 2026-11-11（誠品計畫，CB-08）：基準 `origin/main @ 99f65d4`。新增 `Docs/plans/eslite-category-crawler.md`（v1）與 backlog CB-08；只有文件，沒有程式、測試執行、部署或真站抓取。
+
 > 2026-10-25（金石堂 E0，CB-07）：實作前 HEAD `590a574`（docs 分支 `docs/kingstone-plan-v10-reconcile`）。使用者授權的有限真站抓取 31 次；新增 13 份金石堂 fixture、architecture 的 source contract 與 CR-K01。該次紀錄執行完整 crawler pytest（19684 passed、0 skip，含 DB integration）與 ruff；沒有金石堂程式、沒有部署。
 
 > 2026-10-25（PR4 M2：crawler 只查 `ISBN`，DB integration 在 011 schema 上執行）：實作前 HEAD `6c67e3e`；該次紀錄執行 crawler pytest（含 DB integration）、ruff check／format 與 `unicode_tables.py --check`，未執行部署或真實抓取。
