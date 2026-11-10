@@ -144,7 +144,7 @@ valid() {
     local key=$1 pattern=$2
     [[ ${!key-} =~ $pattern ]] || fail 10 "$key is missing or invalid"
 }
-: "${CRAWLER_RUN_HARD_LIMIT_SECONDS:=9000}"
+: "${CRAWLER_RUN_HARD_LIMIT_SECONDS:=79200}"
 : "${BOOKS_RUN_HARD_LIMIT_SECONDS:=3600}"
 : "${CRAWLER_STOP_GRACE_SECONDS:=30}"
 : "${TUNNEL_WAIT_SECONDS:=20}"

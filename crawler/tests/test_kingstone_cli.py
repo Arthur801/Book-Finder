@@ -183,7 +183,7 @@ def test_a_missing_database_url_exits_2_and_logs_no_value(tmp_path, capsys, envi
     "key, value",
     [
         ("KINGSTONE_SOFT_RUN_BUDGET_SECONDS", "abc"),
-        ("KINGSTONE_SOFT_RUN_BUDGET_SECONDS", "9000"),  # not below CRAWLER_RUN_HARD_LIMIT_SECONDS (9000)
+        ("KINGSTONE_SOFT_RUN_BUDGET_SECONDS", "79200"),  # not below CRAWLER_RUN_HARD_LIMIT_SECONDS (79200)
         ("KINGSTONE_WRITE_POLICY", "bogus"),
         ("KINGSTONE_HTTP_MAX_ATTEMPTS", "0"),
     ],

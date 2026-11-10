@@ -109,8 +109,8 @@ Commit 結果不確定時丟棄／重連 connection，**下次寫入前重新 re
 |---|---|
 | `KINGSTONE_PAGES_FILE` | `crawler/kingstone-pages.txt` |
 | `KINGSTONE_WRITE_POLICY` | `normal`（v12 原為 `new-books-only`；Phase 7 canary 後使用者決定改為 `normal`） |
-| `KINGSTONE_SOFT_RUN_BUDGET_SECONDS` | 7200（v12；原 3300） |
-| `CRAWLER_RUN_HARD_LIMIT_SECONDS` | 9000（v12；原 3600；只套用 kingstone mode，博客來維持原值） |
+| `KINGSTONE_SOFT_RUN_BUDGET_SECONDS` | 72000（Phase 7 後使用者決定；v12 為 7200，原 3300） |
+| `CRAWLER_RUN_HARD_LIMIT_SECONDS` | 79200（Phase 7 後使用者決定；v12 為 9000，原 3600；只套用 kingstone mode，博客來維持原值） |
 | `KINGSTONE_HTTP_TIMEOUT_SECONDS` / `KINGSTONE_HTTP_MAX_ATTEMPTS` | 30 / 3 |
 | `KINGSTONE_MAX_RESPONSE_BYTES` | 5MiB |
 | `KINGSTONE_DIAGNOSTIC_MAX_BYTES` | 2MiB |
@@ -266,6 +266,7 @@ Rollback：disable KINGSTONE→確認本地 writer 停止、tunnel 關閉→必�
 | 11 | 排程 | 先手動，不加排程 |
 | 12 | 清單上限 | 200 → 400，soft budget 7200 秒、hard limit 9000 秒（kingstone mode） |
 | 13 | 寫入政策預設（Phase 7，2026-10-25） | 兩段 canary 通過後改為 `normal`：同一本書要同時有博客來與金石堂連結；改程式預設，不由 runner 轉傳 |
+| 14 | 單次 run 的 budget（Phase 7 後） | soft budget 72000 秒、hard limit 79200 秒（kingstone mode；hard 須大於 soft，留 10%）；runner 的預設與設定範例同步 |
 
 ## 設計變更紀錄（v11 → v12，2026-10-25）
 

@@ -198,3 +198,16 @@ git show --format=fuller 17c497d -- crawler/kingstone/config.py crawler/tests/te
 本次文件變更：將本地 runner 之後四個 `text` 流程改為 Mermaid activity-style flowchart，另補 runner 總覽；修正已實作 lock／artifacts、政策預設、歷史測試與 canary 語意，以及 archived reference 的 authority。既有 phase／canary 紀錄保留；本次不執行應用測試、SSH、AWS、Docker、DB、migration 或真實抓取，亦不把歷史 passed 字樣當成本次結果。
 
 本次實際文件檢查：五份檔名與變更範圍、9 個 Mermaid 區塊的 fence／括號／節點引用結構、265 個本地相對連結，以及 history 中以反引號標示的 commit SHA 可解析性均通過；`git diff --check` 通過。環境沒有可直接使用的 Mermaid renderer，本次未做 Mermaid parser 或圖像渲染驗證。
+
+## 2026-11-11 金石堂單次 run 的 budget
+
+```bash
+git show --format=fuller 37701f3 -- crawler/kingstone/config.py
+```
+
+| Author 日期／SHA | Subject 與已讀 source diff |
+|---|---|
+| 2026-11-11／`37701f3` | `feat(kingstone): soft budget 72000 s, hard limit 79200 s`；`DEFAULT_SOFT_BUDGET_SECONDS` 7200 → 72000、`DEFAULT_HARD_LIMIT_SECONDS` 9000 → 79200（使用者決定；`load_config` 要求 soft < hard，所以 hard 留 10%）。 |
+| 2026-11-11／`e3f6a61` | 配套：`tests/test_kingstone_config.py` 預設值斷言、`test_soft_budget_above_the_default_hard_limit_is_rejected` 改為 79201、`tests/test_kingstone_cli.py` 的 soft ≥ hard 案例改為 79200；`kingstone/cli.py` 說明；`deploy/local/run-local-crawler.sh` 的 `CRAWLER_RUN_HARD_LIMIT_SECONDS` 預設 9000 → 79200（runner 會把這個值以 `--env` 傳入 container，維持 9000 會讓 soft ≥ hard 而 exit 2）；`crawler-local.conf.example`、`deploy/README.md` §9.2、`docs/test-suite.md` CR-K06、`docs/architecture.md` 設定鍵；plan v12 §6 設定表與決定 #14。 |
+
+本段的命令與結果：`cd crawler && pytest`（含 DB 整合）第一次 20622 passed、1 failed（`test_soft_budget_above_the_default_hard_limit_is_rejected` 仍用 9001）；修正後該檔與 `test_kingstone_cli.py`、`test_local_runner.py` 235 passed；ruff check／format 通過。
