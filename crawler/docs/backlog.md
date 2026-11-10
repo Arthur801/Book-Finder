@@ -9,7 +9,7 @@
 | CB-02 | Books 診斷保留政策待決策；CR-T11。Kingstone 已有 20 份上限。 |
 | CB-03 | EC2 舊排程啟用前 live 驗證；L4，CR-T12／CR-T13。 |
 | CB-07 | 金石堂與本地 runner 已實作；剩餘 acceptance、operational failure record、CD image 與真實故障測試；CR-K01～CR-K15、CR-T19／CR-T20。 |
-| CB-08 | 誠品分類頁 crawler：只有計畫，尚未實作；下一步為 E0 真站證據。 |
+| CB-08 | 誠品分類頁 crawler：E0 完成、改用 JSON API（plan v2）；Phase 1 以後尚未實作；CR-E01。 |
 | CB-01／04／05／06 | 已處理，保留文末結案記錄，不重開為待辦。 |
 
 ## CB-02 — Books 診斷產物容量與保留期限
@@ -152,15 +152,31 @@
 
 相關：[流程](workflow-diagram.md)／[架構](architecture.md)／[待辦](backlog.md)／[歷史](update-history.md)／[案例](test-suite.md)。
 
-## CB-08 — 誠品分類頁 crawler（plan v1）
+## CB-08 — 誠品分類頁 crawler（plan v2）
 
-- P2；L3；狀態：**planned，尚未實作**（2026-11-11）。本節只記未完成工作，不是 current contract。
-- 計畫：[eslite-category-crawler.md](../../Docs/plans/eslite-category-crawler.md)（v1，含使用者決定 #1–#4）。
-- 範圍：比照金石堂，使用者提供 `crawler/eslite-pages.txt`，逐頁讀商品卡、New Source 抓詳細頁、經 `catalog_core.service.resolve_item` 寫入；HTTP-only；首次 canary 直接用 `normal`（1 頁）。
+- P2；L3；狀態：**E0 完成；Phase 1 以後 planned，尚未實作**（2026-11-11）。本節只記未完成工作與 E0 凍結的來源觀察，不是 current contract。
+- 計畫：[eslite-category-crawler.md](../../Docs/plans/eslite-category-crawler.md)（v2，含使用者決定 #1–#5）。
+- 範圍：比照金石堂，使用者提供 `crawler/eslite-pages.txt`（寫網頁網址，由 crawler 轉成列表 API），逐頁讀商品卡、New Source 抓詳細 API、經 `catalog_core.service.resolve_item` 寫入；HTTP-only；首次 canary 直接用 `normal`（1 頁）。
 - 已核對的前提：`ESLITE` registry 列已由 migration seed（disabled），不需 DDL；`bookfinder_crawler` 權限不分 provider，不需新增 GRANT；`ProviderCode` 尚無 `ESLITE`；`catalog_core/persistence.missing_schema_prerequisites` 與 `kingstone/{run,ledger,artifacts,cli,config,acquisition}` 有寫死 KINGSTONE 的部分，需在 Phase 3 抽成共用元件（金石堂行為不變）。
-- 下一步：Phase 0 E0（已授權：循序、上限約 60 次、不登入、不代解 CAPTCHA、不用 proxy，遇 429／challenge／登入頁即停）。若 HTTP-only 拿不到書目資料，停在 E0 gate 由使用者決定改用公開 JSON API 或 Playwright。
-- E0 後待決定：pacing 區間、`external_id`（URL ID 或誠品貨碼）、列表頁 canonical 規則、soft budget／hard limit、非書商品處理（計畫 §12）。
+- 下一步：Phase 1（`ProviderCode.ESLITE`、provider-aware preflight），可與 Phase 3 共用元件抽離並行。
+- 待決定（計畫 §12）：pacing 區間、清單 canonical 規則、soft budget／hard limit、非書商品、第 1 頁 `total` 0 的分類。
 - 已知限制（計畫 §8）：所有 provider 共用本地 `run.lock` 與 writer 名稱，誠品與金石堂不能同時跑；runner 一般失敗沒有 record 的缺口（CB-07）同樣影響 eslite mode。
+
+### CB-08 來源契約（E0 凍結）
+
+> E0 來源觀察與決策的快照；實作後依實際行為移入 [architecture](architecture.md) 與 [workflow](workflow-diagram.md)。
+> 證據：使用者授權的有限真站抓取，2026-11-10 22:34:57–22:43:39 UTC，25 次循序請求（curl_cffi Chrome、不跟隨 redirect、不登入、不帶 Authorization、3～10 秒隨機等待），沒有 429、403、challenge、Retry-After 或 queue-it 排隊頁。原始回應在 `crawler/artifacts/eslite-e0/`（不 commit）；fixture 見 [eslite fixtures](../tests/fixtures/eslite/README.md)；鎖定於 CR-E01。
+
+- **Acquisition**：`www.eslite.com` 的 `/category/…`、`/product/…` 是同一份 Vue SPA 空殼，沒有書目資料。資料來源是 `https://athena.eslite.com/api/…`（`robots.txt`：`Allow: /api/`；`www.eslite.com/robots.txt` 禁止 `/member*`、`/search`）。回應經 Cloudflare，content type `application/json; charset=utf-8`，回應時間 0.1～0.3 秒。頁面含 queue-it 排隊腳本，E0 沒有被導入排隊。使用者決定採用 JSON API（計畫決定 #5）。
+- **列表 API**：`GET /api/v1/categories/<id>/products?page_no=<n>&sort_type=date&sort_order=desc&page_size=40&is_available=true`（前端分類頁的預設參數，前端 page_size 只用 20 或 40）。回應頂層 `{total, page_no, page_size, products}`。卡片鍵：`guid`、`name`、`description`、`image_url`、`button_status`、`manufacturer_sn`、`manufacturer`、`manufacturer_date`、`is_book`、`is_ebook`、`is_age_restricted`、`has_trial`、`category_ids`、`brand`、`author`、`compiler`、`translator`、`painter`；**沒有 ISBN**，New Source 一定要抓詳細 API。`category_ids` 可能另含促銷分類。
+- **分類層級**：網頁網址 `/category/<depth>/<id>`；只有第 3 層會列出商品，第 2 層（例：28 文學館）回 HTTP 200、`total` 0。分類樹在 `GET /api/v1/categories`（848 KB），只供使用者挑選網址。
+- **空頁與錯誤**：超過最後一頁回 `total` > 0、`products` 空陣列（合法零列頁）；不存在的分類回 HTTP 200、`total` 0（與無商品分類無法區分）；不存在的商品，詳細 API 回 HTTP 404 `{"message":"Product not found","code":"404"}`。
+- **詳細 API**：`GET /api/v4/products/<guid>/description`。欄位：`product_guid`、`eslite_sn`（誠品貨碼，13 位）、`product_name`、`sub_title`、`original_name`、`author`、`author_orig`、`translator`、`compiler`、`painter`、`manufacturer`（出版社）、`manufacturer_date`（`YYYY-MM-DDT00:00:00.000+08:00`）、`isbn13`、`isbn10`、`ean`、`product_type`（E0 全為 `book`）、`restricted`、`is_ebook`、`product_specifications`（`tag`／`tag_name`／`name`：`pages`、`language`（如 `1:中文/繁體`）、`rating`（`N:無`）、`coverType` 等）、`descriptions`（`name` 為「內容簡介」「作者介紹」「產品目錄」等，`description` 為 HTML）、`photos`（`default_product_photo_id` 對應的 `original_path` 在 `https://s.eslite.com/`）、`level1`～`level3` 與名稱、`categories`。
+- **Identity**：guid 為 16～23 位數字（16 位為舊格式），列表與詳細都有；`eslite_sn` 多半是 guid 的後綴，但 16 位 guid 不是，無法互推。`external_id` 用 guid；`source_url` 用 `https://www.eslite.com/product/<guid>`。初步規劃裡的 16 位 ID `1002146932202681` 在價格服務回 `[]`。
+- **ISBN**：一般書 `isbn13` 有值（`ean` 與它相同）；字典類可能 `isbn13` 為空字串、`isbn10` null、`ean` 是 471 開頭的一般條碼（不是 ISBN）。
+- **作者欄格式**：多人以「/ 」分隔（「謝敏華/ Favre, David」）；角色可能接在名字後（「吳美玉/ 編」）；譯者多人以「/ 」分隔並可能以「等」結尾。拆解規則在 Phase 2 依 fixture 定。
+- **不使用的 endpoint**：`/api/v3/products/<ids>`（價格與圖片）、`/api/v2/search`（以猜測參數呼叫回 1 byte 非 JSON；www 的 `/search` 被 robots.txt 禁止）。
+- **未觀察到**：非書商品、電子書、限制級、429／5xx、queue-it 排隊頁、出版日精度不是日期。出現時先收錄 fixture。
 
 ## 已處理
 

@@ -411,6 +411,14 @@ migration 011 的 schema 由 test_db_integration.py 在 011 上檢查（無 `sou
 - **Then**：touch 重連後成功、`last_seen_at` 前進、第 2 次嘗試成功；寫入重連後 Source 只插入一次；commit-then-drop 不重複插入，回報 EXISTING，只有一筆 source；三次斷線後該列為 FAILED `database_error`（attempts 3），daily 為 ERROR_SKIP、first_book 為 FAILED exit 1；讀取既有 Source 斷線則 run FAILED。另有 `DatabaseSession` 的單元測試（替換 closed／broken 連線、關閉錯誤被忽略、重連失敗可再試）。
 - **來源與狀態**：[test_reconnect_integration.py](../tests/test_reconnect_integration.py)、[test_session.py](../tests/test_session.py)、[test_first_book.py](../tests/test_first_book.py)（重試不重抓 detail，lookup 在寫入重試前重新解析）。
 
+### CR-E01 — 誠品 fixture contract（E0，CB-08）
+
+- **責任／規格**：[backlog](backlog.md)「CB-08 來源契約（E0 凍結）」；風險 L2；狀態：已有測試，2026-11-11 執行 86 passed。誠品 parser 尚未存在，這組測試直接以 `json` 讀 fixture，固定 fixture 的解讀；之後的 parser 測試要沿用同一批 fixture。
+- **Given**：[eslite fixtures](../tests/fixtures/eslite/README.md) 的 5 個列表 API 回應（兩個 40 張卡、超過最後一頁、不存在的分類、第 2 層分類）、5 個詳細 API 回應、1 個 404。
+- **When**：依 E0 契約的鍵名與型別讀取每份 fixture。
+- **Then**：列表頂層恰為 `total`／`page_no`／`page_size`／`products`，數值與卡數符合表格；卡片有必要欄位、沒有 ISBN／EAN／`eslite_sn`；guid 為 16～23 位數字、頁內唯一，101 第 1 頁長度為 {16, 22, 23}；卡片 `category_ids` 含所屬分類；詳細的 `product_guid` 等於檔名，`eslite_sn`／`isbn13`／`isbn10`／`ean`、規格頁數與語言、級別 `N:無`、`descriptions` 名稱順序、譯者、`level3` 符合表格；出版日為 `T00:00:00.000+08:00` 形式；預設封面在 `s.eslite.com`；`eslite_sn` 是 guid 後綴，但 16 位 guid 那本不是（guid 無法由貨碼推出）；字典 `isbn13` 為空、`ean` 為 471 開頭；404 內容完全相等；README 與檔案一一對應。
+- **來源與狀態**：[test_eslite_fixture_contract.py](../tests/test_eslite_fixture_contract.py)。之後各 Phase 的必測行為見 [誠品計畫](../../Docs/plans/eslite-category-crawler.md) §10。
+
 ## 文件流程與案例對照（2026-10-26）
 
 以下命令在 `crawler/` 執行，僅列為後續入口，本次沒有執行：
