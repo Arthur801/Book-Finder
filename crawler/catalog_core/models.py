@@ -18,6 +18,7 @@ class ProviderCode(StrEnum):
 
     BOOKS_COM_TW = "BOOKS_COM_TW"
     KINGSTONE = "KINGSTONE"
+    ESLITE = "ESLITE"
 
 
 class PublishedDatePrecision(StrEnum):
@@ -138,3 +139,27 @@ class SourceRecord:
     source_id: UUID
     book_id: UUID
     external_id: str | None
+
+
+@dataclass(frozen=True)
+class ListedItem:
+    """One product card on a provider's category list page.
+
+    ``external_id`` is the provider's product id (Kingstone km_code, Eslite guid); ``source_url`` is the canonical
+    product page URL; ``list_url`` is the canonical list page the card was read from.
+    """
+
+    external_id: str
+    source_url: str
+    list_url: str
+
+
+@dataclass(frozen=True)
+class ListPage:
+    """A parsed category list page. ``total_pages`` and ``total_count`` are None when the page does not show them."""
+
+    url: str
+    items: tuple[ListedItem, ...]
+    total_pages: int | None
+    total_count: int | None
+    empty: bool
