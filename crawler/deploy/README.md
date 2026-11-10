@@ -227,7 +227,7 @@ v12 計畫（`Docs/plans/kingstone-category-crawler.md` §8）改由使用者的
 | `DB_SECRET_SOURCE` | 是 | `ssm` 或 `file` |
 | `AWS_PROFILE`／`AWS_REGION`／`DATABASE_URL_PARAMETER` | ssm 時 | 讀取 SSM 參數 |
 | `DB_SECRET_FILE` | file 時 | 600 權限的 secret 檔 |
-| `CRAWLER_RUN_HARD_LIMIT_SECONDS` | 否 | 金石堂的 hard limit（預設 9000）；同時以 `--env` 傳給 container，須大於 container 的 soft budget（預設 7200） |
+| `CRAWLER_RUN_HARD_LIMIT_SECONDS` | 否 | 金石堂的 hard limit（預設 79200）；同時以 `--env` 傳給 container，須大於 container 的 soft budget（預設 72000）。設定檔若仍是 9000 等較小的值，crawler 會以 exit 2 拒絕 |
 | `BOOKS_RUN_HARD_LIMIT_SECONDS` | 否 | 博客來的 hard limit（預設 3600，見 backlog） |
 | `CRAWLER_STOP_GRACE_SECONDS` | 否 | watchdog 的 `docker stop -t`（預設 30） |
 | `TUNNEL_WAIT_SECONDS` | 否 | 等待隧道埠可連的上限（預設 20） |

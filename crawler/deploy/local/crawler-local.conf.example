@@ -35,8 +35,8 @@ DATABASE_URL_PARAMETER=/book-finder/prod/crawler-database-url
 # DB_SECRET_FILE=/home/<user>/.config/book-finder/crawler-database-url
 
 # Hard run limit enforced by the watchdog. The kingstone value is also passed to the container, where it must stay
-# above its soft budget (7200 by default). Books keeps its own limit.
-CRAWLER_RUN_HARD_LIMIT_SECONDS=9000
+# above its soft budget (72000 by default). Books keeps its own limit.
+CRAWLER_RUN_HARD_LIMIT_SECONDS=79200
 BOOKS_RUN_HARD_LIMIT_SECONDS=3600
 # Seconds docker waits after SIGTERM before it kills the container.
 CRAWLER_STOP_GRACE_SECONDS=30

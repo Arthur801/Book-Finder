@@ -37,16 +37,16 @@ def test_defaults_when_nothing_is_set():
     assert config == KingstoneConfig(
         pages_file=DEFAULT_PAGES_FILE,
         write_policy=WritePolicy.NORMAL,
-        soft_budget_seconds=7200.0,
-        hard_limit_seconds=9000.0,
+        soft_budget_seconds=72000.0,
+        hard_limit_seconds=79200.0,
         http_timeout_seconds=float(acquisition.REQUEST_TIMEOUT_SECONDS),
         http_max_attempts=acquisition.MAX_ATTEMPTS,
         max_response_bytes=acquisition.MAX_RESPONSE_BYTES,
         artifacts_dir=DEFAULT_ARTIFACTS_DIR,
         diagnostic_max_bytes=2 * 1024 * 1024,
     )
-    assert DEFAULT_SOFT_BUDGET_SECONDS == 7200
-    assert DEFAULT_HARD_LIMIT_SECONDS == 9000
+    assert DEFAULT_SOFT_BUDGET_SECONDS == 72000
+    assert DEFAULT_HARD_LIMIT_SECONDS == 79200
 
 
 def test_the_config_is_frozen():
@@ -151,7 +151,7 @@ def test_soft_budget_must_be_below_the_hard_limit():
 
 def test_soft_budget_above_the_default_hard_limit_is_rejected():
     with pytest.raises(KingstoneConfigError):
-        load_config({"KINGSTONE_SOFT_RUN_BUDGET_SECONDS": "9001"})
+        load_config({"KINGSTONE_SOFT_RUN_BUDGET_SECONDS": "79201"})
 
 
 def test_soft_budget_below_a_lowered_hard_limit_is_accepted():
