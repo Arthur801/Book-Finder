@@ -1,7 +1,8 @@
-# 誠品（Eslite）分類頁 crawler — v1 實作計畫
+# 誠品（Eslite）分類頁 crawler — v2 實作計畫（JSON API）
 
 > Baseline：`origin/main @ 99f65d4`（2026-11-11）。來源：使用者提供的初步規劃，經 repo 現況核對與使用者決定（下表）整理成本版。
-> **尚未實作任何部分**；本文件是實作計畫，不代表功能已實作、測試已通過或取得 production 授權。追蹤條目：`crawler/docs/backlog.md` CB-08。
+> 2026-11-11 改為 v2：E0 證實網站是 Vue SPA，HTML 沒有書目資料；使用者在 E0 gate 決定改用前端自己呼叫的 `athena.eslite.com` JSON API（決定 #5）。變更見文末「設計變更紀錄」。
+> **E0 已完成；Phase 1 以後尚未實作**；本文件是實作計畫，不代表功能已實作、測試已通過或取得 production 授權。追蹤條目：`crawler/docs/backlog.md` CB-08。
 
 ## Context
 
@@ -25,36 +26,28 @@
 | 2 | 只規劃 HTTP-only。若 E0 證實 HTTP-only 拿不到書目資料，停在 E0 gate，帶著證據回報，由使用者在「頁面自己呼叫的公開 JSON API」和「Playwright browser」之間選擇，再修改計畫。 |
 | 3 | 分類頁清單由使用者提供（`crawler/eslite-pages.txt`），只抓清單列出的頁，不探索分類樹、不跟分頁；上限 400 筆。budget 與 hard limit 在清單長度確定後再訂（§7 待決定）。 |
 | 4 | 首次 production canary 直接用 `normal`（1 頁）；程式預設值也是 `normal`。 |
+| 5 | （E0 gate，2026-11-11）採用 JSON API：列表 `GET https://athena.eslite.com/api/v1/categories/<id>/products`、詳細 `GET https://athena.eslite.com/api/v4/products/<guid>/description`。維持 HTTP-only image；`athena.eslite.com/robots.txt` 為 `Allow: /api/`。這是沒有公開文件的前端 API，schema 不符一律 fail closed。 |
 
 ## 1. 範圍
 
 **In scope**：`ProviderCode.ESLITE`、provider-aware schema preflight；`crawler/eslite/` adapter（清單、URL grammar、列表頁／詳細頁 parser、acquisition policy、config、cli）；把金石堂的逐頁 run、ledger、acquisition 引擎、artifacts／alerts／diagnostics 抽成 provider-neutral 的共用元件（金石堂行為不變）；HTTP-only Docker target `eslite`；本地 runner 的 `eslite` mode；離線測試、disposable DB integration；文件；1 頁 production canary。
 
-**Out of scope**：分類樹 discovery、自動跟分頁、進度狀態檔、DDL／migration、誠品 Bestseller、`book_offers`（價格、庫存）、登入與 cookies、CAPTCHA 代解、proxy、平行爬取、Playwright（除非 E0 gate 改決定）、排程、CD 推送 image（沿用 CB-07 backlog）、ASP.NET API／Razor 變更。
+**Out of scope**：分類樹 discovery、自動跟分頁、進度狀態檔、DDL／migration、誠品 Bestseller、`book_offers`（價格、庫存）、登入與 cookies、CAPTCHA 代解、proxy、平行爬取、Playwright、網頁 HTML 解析（決定 #5）、排程、CD 推送 image（沿用 CB-07 backlog）、ASP.NET API／Razor 變更。
 
-## 2. Phase 0 — E0 來源證據（真站，已授權）
+## 2. Phase 0 — E0 來源證據（已完成，2026-11-10 UTC）
 
-在授權範圍內蒐集：
+授權範圍內共 25 次請求（上限 60 次），沒有 429、403、challenge、Retry-After 或 queue-it 排隊頁。凍結結果寫在 `crawler/docs/backlog.md` CB-08「來源契約（E0 凍結）」；fixture 在 `crawler/tests/fixtures/eslite/`（README 說明來源與時間），`test_eslite_fixture_contract.py`（CR-E01）鎖定這些觀察。重點：
 
-- 分類列表頁：2 個不同分類的第 1 頁、一個 `?page=3`、一個超過總頁數的頁、一個不存在的分類。
-- 詳細頁：5～7 本（含多作者、有譯者、無 ISBN 或非書商品各一本，如果找得到）、一個不存在的商品 ID。
-- `robots.txt` 當下版本（記錄 `/category`、`/product` 未被禁止）。
-
-每個 fixture 都要回答以下問題，並寫進 `crawler/docs/backlog.md` CB-08「來源契約（E0 凍結）」：
-
-1. **取得方式**：curl_cffi（Chrome impersonate、不跟隨 redirect）拿到的 HTML 是否包含商品卡與書目欄位（SSR／`__NUXT__` 等內嵌 state／JSON-LD），還是只有前端空殼。**若是空殼 → 停在 E0 gate（決定 #2）。**
-2. **列表頁**：商品卡容器的 selector、每頁卡數、卡上是否有 ISBN；`page` 參數的語意、合法空頁長什麼樣子、排序參數有哪些、預設排序是否穩定。
-3. **商品 identity**：URL 裡的 16 位數 ID 與頁面上「誠品貨碼」是否相同；`external_id` 採用哪一個（預設候選為 URL ID，因為卡片上就拿得到）；canonical 詳細頁 URL 的形式。
-4. **詳細頁欄位**：`BookDraft` 每個欄位的來源（HTML 或 JSON-LD 哪個可靠）、作者／譯者標籤、出版日期精度、語言、頁數、目錄、封面、分類麵包屑；推薦商品、相關書籍區塊如何排除。
-5. **錯誤形態**：分類不存在、商品不存在（HTTP status 或 soft 404）、redirect 目標；有無 Retry-After、challenge。
-6. **Pacing**：觀察到的回應時間，提出 pacing 區間（預設沿用金石堂的 3～10 秒），交使用者確認。
-
-產出：`crawler/tests/fixtures/eslite/`（含 README 說明來源與時間）、CB-08 來源契約、`test_eslite_fixture_contract.py`（只讀 fixture，鎖定上面的觀察）。**E0 gate**：使用者 review 來源契約後才開始 Phase 1 以後的程式。
+- **網頁沒有資料**：`/category/…` 與 `/product/…` 回傳同一份 Vue SPA 空殼，資料來自 `athena.eslite.com`。
+- **列表 API**：`/api/v1/categories/<id>/products?page_no=<n>&sort_type=date&sort_order=desc&page_size=40&is_available=true`（前端分類頁的預設參數）；回應 `{total, page_no, page_size, products}`。卡片有 `guid`、書名、作者、譯者、出版社、出版日、`is_book`，**沒有 ISBN**，New Source 一定要抓詳細 API。只有第 3 層分類會列出商品（第 2 層回 `total` 0）。超過最後一頁回空 `products`（合法零列頁）；不存在的分類也回 HTTP 200、`total` 0。
+- **詳細 API**：`/api/v4/products/<guid>/description`；有 `product_guid`、`eslite_sn`（誠品貨碼）、`isbn13`、`isbn10`、`ean`、作者、譯者、原文書名、出版社、出版日、規格（頁數、語言、級別）、簡介與作者介紹 HTML、目錄（「產品目錄」）、封面、三層分類。不存在的商品回 HTTP 404 `{"message":"Product not found","code":"404"}`。
+- **Identity**：guid 是 16～23 位數字，列表與詳細都有；`eslite_sn` 不一定是 guid 的後綴，無法互推。`external_id` 用 guid，`source_url` 用 `https://www.eslite.com/product/<guid>`。
+- **ISBN**：一般書 `isbn13` 有值；字典類可能 `isbn13` 為空、`ean` 是 471 開頭的一般條碼（不是 ISBN），依 §5 屬「無 ISBN」。
 
 ## 3. 模組邊界
 
 ```text
-eslite/{urls,page_list,parse_list,parse_detail,acquisition,config,cli}   kingstone/（同樣的檔案，改為呼叫共用元件）
+eslite/{urls,page_list,parse_list,parse_detail,acquisition,config,cli}（parse_* 解析 JSON）   kingstone/（同樣的檔案，改為呼叫共用元件）
                          ↓ CategoryAdapter（provider 專屬的 parse／URL／錯誤分類）
 catalog_core/category_run   逐頁 orchestration、SoftBudget、ledger、terminal status
 catalog_core/http_acquisition   Transport、CurlTransport、重試、Retry-After、pacing、budget、size 上限
@@ -74,15 +67,16 @@ catalog_core/service.resolve_item → SessionCatalogStore → PostgreSQL（不�
 | `catalog_core/run_artifacts.py` 等（新） | 從 `kingstone/{artifacts,alerts,diagnostics}.py` 抽出，以 provider 目錄名（`kingstone`／`eslite`）參數化；alert 規則（含 `pages_not_reached` 3 次 streak）不變 |
 | `catalog_core/run_config.py`（新） | 共用的 budget／HTTP／size／write policy 驗證，以 env 前綴（`KINGSTONE_`／`ESLITE_`）參數化；soft < hard 檢查保留 |
 | `kingstone/*` | 改成薄的接線層：保留所有現有模組、類別名（`KingstoneLedger`、`KingstoneFetcher`、`KingstoneReport` 為別名或子類）、logger 名稱、env key、CLI、exit code、last-run JSON 欄位與 log 行 |
-| `eslite/*`（新） | `urls`、`page_list`、`models`（`EsliteParseError`、`ProductNotFound`）、`parse_list`、`parse_detail`、`acquisition`（只有 `FetchPolicy`）、`config`、`cli`、`__main__` |
+| `eslite/*`（新） | `urls`（清單網址 → 列表 API URL、guid → 詳細 API URL 與 `source_url`）、`page_list`、`models`（`EsliteParseError`、`ProductNotFound`）、`parse_list`（列表 JSON → `ListPage`）、`parse_detail`（詳細 JSON → `BookDraft`）、`acquisition`（只有 `FetchPolicy`）、`config`、`cli`、`__main__` |
 
 **抽離原則**：先抽離、再接誠品。抽離 PR 不改任何金石堂行為，驗收方式是「金石堂測試一行不改就全部通過」，再加上一個 golden test：同一組 fake 輸入下，抽離前後的 terminal record JSON 與 `format_report` 輸出完全相同。
 
-## 4. 頁面清單與 URL（E0 後凍結細節）
+## 4. 頁面清單與 URL
 
 - `crawler/eslite-pages.txt` 或 `ESLITE_PAGES_FILE`；檔案規則委派 `catalog_core/page_list.load_url_list`（BOM、註解、空行、trim、canonical 後去重、保留順序）；上限 400 筆；無效、空清單或超過上限 → exit 2，不發任何請求。
-- 暫定列表頁 grammar：`https://www.eslite.com/category/<level>/<id>[?page=<n>]`，`level`、`id` 是十進位整數，`page` 為正整數，`page=1` 的 canonical 形式在 E0 後決定；其他 host、path、query 一律拒絕。允許的排序參數依 E0。
-- 暫定詳細頁：`https://www.eslite.com/product/<16 位數 ID>`；只接受從卡片 href 建出的 canonical URL。
+- **清單寫網頁網址**，方便使用者從瀏覽器複製：`https://www.eslite.com/category/3/<id>[?page=<n>]`。只接受第 3 層（path 第一段固定為 `3`）、`id` 與 `n` 為正整數；其他 host、path、query 一律拒絕。canonical 形式是否省略 `page=1` 待決定（§12）。
+- crawler 把每行轉成列表 API：`https://athena.eslite.com/api/v1/categories/<id>/products?page_no=<n>&sort_type=date&sort_order=desc&page_size=40&is_available=true`（參數固定，與前端分類頁預設相同）。`page=n` 對應 `page_no=n`；每頁 40 本。
+- 詳細 API 由卡片 guid 組出：`https://athena.eslite.com/api/v4/products/<guid>/description`；guid 必須符合 `^[0-9]{16,23}$`。`source_url` 是 `https://www.eslite.com/product/<guid>`（給使用者看的網頁，crawler 不請求它）。
 - 清單順序就是執行順序；每個 URL 只抓那一頁。
 
 ## 5. Catalog 與交易（沿用，不改）
@@ -91,7 +85,7 @@ catalog_core/service.resolve_item → SessionCatalogStore → PostgreSQL（不�
 
 ## 6. Acquisition 與安全
 
-沿用金石堂的界線（由共用引擎提供）：最多 3 次、timeout 30 秒、backoff 最多 60 秒、Retry-After 最多 120 秒、回應最多 5 MiB；只重試 timeout／connection reset／429／500／502／503／504；所有等待受 soft budget 限制；每次請求前驗證 HTTPS、host 只有 `www.eslite.com`、沒有 userinfo、只允許 §4 的 path grammar；不跟隨 redirect；challenge／無法解析的 200 以 parse error fail closed，記為 `unclassified_200` alert。pacing 區間依 E0 決定。被封鎖（403／429 持續出現）→ 停用 ESLITE，不採規避技術。
+沿用金石堂的界線（由共用引擎提供）：最多 3 次、timeout 30 秒、backoff 最多 60 秒、Retry-After 最多 120 秒、回應最多 5 MiB；只重試 timeout／connection reset／429／500／502／503／504；所有等待受 soft budget 限制；每次請求前驗證 HTTPS、host 只有 `athena.eslite.com`（`www.eslite.com` 不請求）、沒有 userinfo、只允許 §4 的兩種 API URL；不跟隨 redirect；回應必須是 `application/json` 且 JSON 結構符合 E0 契約，否則（含 challenge、queue-it 頁、schema 改變）以 parse error fail closed，記為 `unclassified_200` alert。詳細 API 的 404 JSON 是 `ProductNotFound`（不重試、不寫入）。不帶 Authorization、不保存 cookie。pacing 區間依 E0 決定。被封鎖（403／429 持續出現）→ 停用 ESLITE，不採規避技術。
 
 ## 7. 設定、執行與 terminal status
 
@@ -152,6 +146,7 @@ catalog_core/service.resolve_item → SessionCatalogStore → PostgreSQL（不�
 
 ## 11. Production gates 與 rollback
 
+- **G0 E0**：已完成（2026-11-10 UTC，25 次請求）；決定 #5 採用 JSON API。
 - **G1 schema**：本地 runner 經 tunnel 跑 `python -m eslite`，preflight 通過（ESLITE 列存在、post-011 欄位齊全）。
 - **G2 權限**：沿用 `bookfinder_crawler`，已具備所需權限（不需新增 GRANT）；在 canary 前用唯讀 SQL 再確認一次。
 - **G3 啟用**：提供 `crawler/deploy/local/sql/enable-eslite.sql`（比照 `enable-kingstone.sql`），由使用者以主帳號執行（production 寫入，需使用者執行與授權）。
@@ -159,13 +154,14 @@ catalog_core/service.resolve_item → SessionCatalogStore → PostgreSQL（不�
 - 完整清單 run 在 canary 通過後，由使用者手動執行；不加排程。
 - **Rollback**：`source_providers.ESLITE` 設回 disabled → 確認 writer 停止、tunnel 關閉；已 commit 的資料保留，資料修復需另外調查，不做盲目回滾。
 
-## 12. 待決定（E0 後回報，附建議）
+## 12. 待決定（附建議）
 
-1. pacing 區間（預設建議 3～10 秒）。
-2. `external_id`：URL 的 16 位數 ID 或「誠品貨碼」。
-3. 列表頁 canonical 規則：`page=1` 是否省略、允許哪些排序參數。
+1. pacing 區間：E0 回應時間都在 0.3 秒內（大型分類樹 1.2 秒）；建議沿用金石堂的 3～10 秒。
+2. ~~`external_id`~~：E0 已定為 guid（列表上只有 guid，`eslite_sn` 無法推出 guid）。
+3. 清單 canonical 規則：建議 `page=1` 省略（`/category/3/<id>` 與 `?page=1` 視為同一頁）。
 4. 清單長度確定後的 soft budget 與 hard limit。
-5. 非書商品（文具、CD 等）出現在分類頁時的處理：建議 parser 以「沒有 ISBN 且不是書籍規格」略過並計數，E0 確認後定。
+5. 非書商品：建議卡片 `is_book` 為 false 時跳過不抓詳細 API，計入新的 `non_book_skipped` 計數，不算失敗（E0 沒有出現非書商品，收錄 fixture 後確認）。
+6. 第 1 頁 `total` 0（不存在或沒有商品的分類）：建議記為該頁失敗（`empty_category`），不是合法零列頁；超過最後一頁（`total` > 0、`products` 空）才是合法零列頁。
 
 ## 驗證
 
@@ -174,3 +170,4 @@ catalog_core/service.resolve_item → SessionCatalogStore → PostgreSQL（不�
 ## 設計變更紀錄
 
 - v1（2026-11-11）：初版。
+- v2（2026-11-11）：E0 完成。網站是 Vue SPA，改用 `athena.eslite.com` JSON API（決定 #5）；清單仍寫網頁網址，由 crawler 轉成 API；`external_id` 定為 guid；§2、§4、§6、§11、§12 依 E0 證據改寫。
