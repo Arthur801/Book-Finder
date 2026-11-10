@@ -1,6 +1,6 @@
 # Two targets. The Kingstone target (HTTP-only, no Playwright or browser) is built with `--target kingstone`.
 # The last stage is the default target (博客來 image), so a plain `docker build` still produces it.
-FROM python:3.14-slim-bookworm AS kingstone
+FROM python:3.15-slim-bookworm AS kingstone
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
@@ -20,7 +20,7 @@ USER 10001:10001
 ENTRYPOINT ["python", "-m"]
 CMD ["kingstone"]
 
-FROM python:3.14-slim-bookworm
+FROM python:3.15-slim-bookworm
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
