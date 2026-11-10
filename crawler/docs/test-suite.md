@@ -341,14 +341,15 @@ migration 011 的 schema 由 test_db_integration.py 在 011 上檢查（無 `sou
 - **責任／規格**：[architecture](architecture.md)「入口與組裝」步驟 (7)、(8) 與 `catalog_core/persistence` 的 `missing_schema_prerequisites`；Kingstone plan v12 §8 第 3 點（唯讀檢查必要欄位與 `source_providers`；失敗為 `SCHEMA_PREREQUISITE_MISSING`，零 HTTP、零 mutation）；風險 L3（決定是否開始寫入）；狀態：已有測試，本次未執行（2026-10-25 的執行敘述屬先前紀錄）。
 - **Given**：真 PostgreSQL（post-011 schema）；破壞 schema 的變更只在 transaction 內執行（以 `rollback` 還原），或在 CLI 測試中以 commit 完成並於 `finally` 還原。
 - **When／Then**：
-  - 正常 DB → 清單為空。
+  - 正常 DB → 清單為空（KINGSTONE 與 ESLITE 都是）。
+  - provider 隔離（CB-08 Phase 1）：transaction 內刪除 ESLITE 列 → ESLITE 回報 `source_providers row ESLITE`，同一 transaction 內 KINGSTONE 沒有任何 `source_providers row` 項目；rollback 後恢復。
   - 逐項破壞：`book_sources.last_seen_at`、`external_id`、`source_code` 欄位改名；`book_sources` 加回 `source_type`；刪除 KINGSTONE 列；`ck_book_identifiers_identifier_type` 改為允許 `ISBN_10`；`book_subjects.source_code` 改名；`book_subjects` 加回 `source_type`；`book_subjects`、`book_contributors` 表改名（視為缺表）→ 每一項都在清單中回報，rollback 後恢復為空清單。
   - CLI：`book_sources.last_seen_at`、`book_subjects.source_code` 改名、`book_subjects` 加回 `source_type`、`book_subjects`／`book_contributors` 缺表 → 各自 exit 2、log 對應項目、fetcher 未建立、`books` 與 `book_sources` 計數為 0。
   - CLI：schema 缺欄位 → exit 2，log `SCHEMA_PREREQUISITE_MISSING: book_sources.last_seen_at`，fetcher 未建立（`factory_calls == []`），books 計數為 0。
   - CLI：首次連線 busy → exit 1，log `maintenance busy`，fetcher 未建立，計數為 0。Phase 6 M5 起兩者都寫 `last-run.json`（`reason` 為 `SCHEMA_PREREQUISITE_MISSING`／`MAINTENANCE_BUSY`，alert 分別為 `failed` 與 `schema_prerequisite_missing`／`maintenance_busy`）。
-  - 單元：CLI 的 preflight 在 fetcher 建立之前執行，缺項時 exit 2 且不建 fetcher；busy 時 exit 1 且不建 fetcher（[test_kingstone_cli.py](../tests/test_kingstone_cli.py)，session 與 schema 檢查以替身取代）。
+  - 單元：CLI 以 `ProviderCode.KINGSTONE` 呼叫 preflight；preflight 在 fetcher 建立之前執行，缺項時 exit 2 且不建 fetcher；busy 時 exit 1 且不建 fetcher（[test_kingstone_cli.py](../tests/test_kingstone_cli.py)，session 與 schema 檢查以替身取代）。
 - **已知驗證缺口**：`OTHER` 的 identifier type 仍允許（011 保留）；preflight 不檢查 DB 角色的實際 grant（屬部署範圍）。博客來入口未加 preflight（本次只為金石堂，見 [backlog](backlog.md) CB-07）。
-- **來源與狀態**：[test_migration_lock_integration.py](../tests/test_migration_lock_integration.py)（真 DB：正常通過 1 個、逐項破壞 10 個參數化、CLI exit 2 的 5 個參數化與 exit 1 的 1 個，共 17 個）、[test_kingstone_cli.py](../tests/test_kingstone_cli.py)（替身 session，preflight 與 busy 各 1 個單元案例）。（Phase 6 M5：CLI exit 2 與 exit 1 的案例另檢查 `last-run.json` 的 reason 與 alert）
+- **來源與狀態**：[test_migration_lock_integration.py](../tests/test_migration_lock_integration.py)（真 DB：正常通過 1 個、逐項破壞 10 個參數化、CLI exit 2 的 5 個參數化與 exit 1 的 1 個，加上 CB-08 Phase 1 的 ESLITE 正常通過與 provider 隔離各 1 個，共 19 個）、[test_catalog_models.py](../tests/test_catalog_models.py)（`ProviderCode.ESLITE` 值、`kingstone.models` 重新匯出的類別與 `catalog_core.models` 為同一物件）、[test_kingstone_cli.py](../tests/test_kingstone_cli.py)（替身 session，preflight 與 busy 各 1 個單元案例）。（Phase 6 M5：CLI exit 2 與 exit 1 的案例另檢查 `last-run.json` 的 reason 與 alert）
 
 ### CR-K13 — 金石堂 run 產物：last-run、bounded history 與 streak（Phase 6 M5）
 
