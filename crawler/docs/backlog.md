@@ -9,6 +9,7 @@
 | CB-02 | Books 診斷保留政策待決策；CR-T11。Kingstone 已有 20 份上限。 |
 | CB-03 | EC2 舊排程啟用前 live 驗證；L4，CR-T12／CR-T13。 |
 | CB-07 | 金石堂與本地 runner 已實作；剩餘 acceptance、operational failure record、CD image 與真實故障測試；CR-K01～CR-K15、CR-T19／CR-T20。 |
+| CB-08 | 誠品分類頁 crawler：只有計畫，尚未實作；下一步為 E0 真站證據。 |
 | CB-01／04／05／06 | 已處理，保留文末結案記錄，不重開為待辦。 |
 
 ## CB-02 — Books 診斷產物容量與保留期限
@@ -150,6 +151,16 @@
 **背景（不實作）**：E0 也觀察了分類樹：`/book/` 下有 21 個第一層分類，分類頁的 `nav.nav1b_classlevel` 列出直接子分類，代碼長度不代表層級（`nkl` 是 `ssss` 的第二層），子分類的筆數剛好切分父分類。v11 改由使用者提供清單，這些觀察只供使用者挑選網址時參考，不是 crawler 的行為。
 
 相關：[流程](workflow-diagram.md)／[架構](architecture.md)／[待辦](backlog.md)／[歷史](update-history.md)／[案例](test-suite.md)。
+
+## CB-08 — 誠品分類頁 crawler（plan v1）
+
+- P2；L3；狀態：**planned，尚未實作**（2026-11-11）。本節只記未完成工作，不是 current contract。
+- 計畫：[eslite-category-crawler.md](../../Docs/plans/eslite-category-crawler.md)（v1，含使用者決定 #1–#4）。
+- 範圍：比照金石堂，使用者提供 `crawler/eslite-pages.txt`，逐頁讀商品卡、New Source 抓詳細頁、經 `catalog_core.service.resolve_item` 寫入；HTTP-only；首次 canary 直接用 `normal`（1 頁）。
+- 已核對的前提：`ESLITE` registry 列已由 migration seed（disabled），不需 DDL；`bookfinder_crawler` 權限不分 provider，不需新增 GRANT；`ProviderCode` 尚無 `ESLITE`；`catalog_core/persistence.missing_schema_prerequisites` 與 `kingstone/{run,ledger,artifacts,cli,config,acquisition}` 有寫死 KINGSTONE 的部分，需在 Phase 3 抽成共用元件（金石堂行為不變）。
+- 下一步：Phase 0 E0（已授權：循序、上限約 60 次、不登入、不代解 CAPTCHA、不用 proxy，遇 429／challenge／登入頁即停）。若 HTTP-only 拿不到書目資料，停在 E0 gate 由使用者決定改用公開 JSON API 或 Playwright。
+- E0 後待決定：pacing 區間、`external_id`（URL ID 或誠品貨碼）、列表頁 canonical 規則、soft budget／hard limit、非書商品處理（計畫 §12）。
+- 已知限制（計畫 §8）：所有 provider 共用本地 `run.lock` 與 writer 名稱，誠品與金石堂不能同時跑；runner 一般失敗沒有 record 的缺口（CB-07）同樣影響 eslite mode。
 
 ## 已處理
 
