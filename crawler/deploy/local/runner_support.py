@@ -30,7 +30,13 @@ TLS_QUERY_KEYS = frozenset({"host", "hostaddr", "port", "sslmode", "sslrootcert"
 ENDPOINT_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9.-]*")
 
 # Runner terminal records. The provider is fixed by the mode (the same mapping as the runner's case statement).
-RUNNER_PROVIDERS = {"daily": "BOOKS_COM_TW", "first_book": "BOOKS_COM_TW", "pages": "BOOKS_COM_TW", "kingstone": "KINGSTONE"}
+RUNNER_PROVIDERS = {
+    "daily": "BOOKS_COM_TW",
+    "first_book": "BOOKS_COM_TW",
+    "pages": "BOOKS_COM_TW",
+    "kingstone": "KINGSTONE",
+    "eslite": "ESLITE",
+}
 # reason -> (allowed exit codes, allowed alert_reasons); the runner writes a record only for these.
 RUNNER_RULES = {
     "ORPHAN_WRITER": ({13, 14}, {("orphan",), ("orphan", "hard_limit")}),

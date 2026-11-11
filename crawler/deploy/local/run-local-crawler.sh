@@ -1,6 +1,6 @@
 #!/bin/bash
 # Runs one crawler container on this host. The database is reached through an SSH tunnel to RDS via the EC2 host.
-# Usage: run-local-crawler.sh daily|first_book|pages|kingstone
+# Usage: run-local-crawler.sh daily|first_book|pages|kingstone|eslite
 # Configuration: CRAWLER_LOCAL_CONF (default ~/.config/book-finder/crawler-local.conf); see README for keys and exit codes.
 #
 # Exit codes: 0, 1, 2 are the container's own. The runner uses:
@@ -52,14 +52,15 @@ fail() {
 }
 
 if [[ $# -ne 1 ]]; then
-    echo 'usage: run-local-crawler.sh daily|first_book|pages|kingstone' >&2
+    echo 'usage: run-local-crawler.sh daily|first_book|pages|kingstone|eslite' >&2
     exit 10
 fi
 case $mode in
     daily | first_book | pages) provider=BOOKS_COM_TW ;;
     kingstone) provider=KINGSTONE ;;
+    eslite) provider=ESLITE ;;
     *)
-        echo 'usage: run-local-crawler.sh daily|first_book|pages|kingstone' >&2
+        echo 'usage: run-local-crawler.sh daily|first_book|pages|kingstone|eslite' >&2
         exit 10
         ;;
 esac
@@ -145,6 +146,7 @@ valid() {
     [[ ${!key-} =~ $pattern ]] || fail 10 "$key is missing or invalid"
 }
 : "${CRAWLER_RUN_HARD_LIMIT_SECONDS:=79200}"
+: "${ESLITE_RUN_HARD_LIMIT_SECONDS:=9000}"
 : "${BOOKS_RUN_HARD_LIMIT_SECONDS:=3600}"
 : "${CRAWLER_STOP_GRACE_SECONDS:=30}"
 : "${TUNNEL_WAIT_SECONDS:=20}"
@@ -156,6 +158,11 @@ if [[ $mode == kingstone ]]; then
     image=$KINGSTONE_CRAWLER_IMAGE
     hard_limit=$CRAWLER_RUN_HARD_LIMIT_SECONDS
     valid CRAWLER_RUN_HARD_LIMIT_SECONDS "$posint_re"
+elif [[ $mode == eslite ]]; then
+    valid ESLITE_CRAWLER_IMAGE "$image_re"
+    image=$ESLITE_CRAWLER_IMAGE
+    valid ESLITE_RUN_HARD_LIMIT_SECONDS "$posint_re"
+    hard_limit=$ESLITE_RUN_HARD_LIMIT_SECONDS
 else
     valid CRAWLER_IMAGE "$image_re"
     image=$CRAWLER_IMAGE
@@ -347,7 +354,7 @@ run_args=(run --rm=false --pull=never --init --network host --name "$name"
     --log-driver=json-file --log-opt max-size=10m --log-opt max-file=3
     --mount "type=bind,src=$CRAWLER_LOCAL_ARTIFACTS_DIR,dst=$artifacts_container_path"
     --mount "type=bind,src=$DB_CA_BUNDLE,dst=$ca_container_path,readonly")
-if [[ $mode == kingstone ]]; then
+if [[ $mode == kingstone || $mode == eslite ]]; then
     run_args+=(--env "CRAWLER_RUN_HARD_LIMIT_SECONDS=$hard_limit")
 else
     run_args+=(--env CRAWLER_FETCHER=curl)

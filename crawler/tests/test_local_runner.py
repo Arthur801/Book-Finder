@@ -1069,3 +1069,180 @@ def test_example_configuration_parses_and_holds_no_secret():
     assert subprocess.run(["bash", "-n", str(example)], check=False).returncode == 0
     text = example.read_text(encoding="utf-8")
     assert "postgresql://" not in text and SECRET not in text
+
+
+# --- eslite mode (CB-08 Phase 5): the same runner paths, its own image, hard limit and provider -----------------
+
+
+def eslite_local(local, **overrides):
+    """The local setup with an Eslite image. The Eslite hard limit is unset unless a test sets it."""
+    local.write_conf(**{"ESLITE_CRAWLER_IMAGE": "eslite:test", **overrides})
+    return local
+
+
+def test_eslite_mode_is_accepted_and_runs_the_eslite_image(local):
+    eslite_local(local)
+    result = local.run("eslite")
+    assert result.returncode == 0, result.stderr
+    assert "mode=eslite" in result.stdout
+    assert "container=end exit_code=0" in result.stdout
+    assert local.run_argv()[-1] == "eslite:test"
+
+
+@pytest.mark.parametrize("value", [None, "", "eslite:test extra", "-bad"])
+def test_eslite_image_missing_or_invalid_exits_10_before_any_external_work(local, value):
+    local.write_conf(ESLITE_CRAWLER_IMAGE=value)
+    result = local.run("eslite")
+    assert result.returncode == 10, result.stderr
+    assert "ESLITE_CRAWLER_IMAGE" in result.stderr
+    assert not (local.fake / "ssh-state-argv").exists()
+    assert_no_docker_or_secret_work(local)
+
+
+@pytest.mark.parametrize("value", ["0", "9000s", "-1", "07", "1.5"])
+def test_invalid_eslite_hard_limit_exits_10_before_any_external_work(local, value):
+    eslite_local(local, ESLITE_RUN_HARD_LIMIT_SECONDS=value)
+    result = local.run("eslite")
+    assert result.returncode == 10, result.stderr
+    assert "ESLITE_RUN_HARD_LIMIT_SECONDS" in result.stderr
+    assert not (local.fake / "ssh-state-argv").exists()
+    assert_no_docker_or_secret_work(local)
+
+
+def test_eslite_container_arguments_default_hard_limit_and_no_books_module(local):
+    eslite_local(local)
+    result = local.run("eslite")
+    assert result.returncode == 0, result.stderr
+    argv = local.run_argv()
+    assert "--rm=false" in argv and "--pull=never" in argv and "--init" in argv
+    assert value_after(argv, "--name") == CONTAINER
+    assert value_after(argv, "--network") == "host"
+    labels = [argv[i + 1] for i, arg in enumerate(argv) if arg == "--label"]
+    assert labels == [
+        "com.bookfinder.role=catalog-crawler",
+        "com.bookfinder.mode=eslite",
+        "com.bookfinder.provider=ESLITE",
+    ]
+    assert value_after(argv, "--cidfile").startswith(str(local.root / "runtime"))
+    assert value_after(argv, "--env-file").startswith(str(local.root / "runtime"))
+    assert f"type=bind,src={local.artifacts},dst=/app/crawler/artifacts" in argv
+    assert f"type=bind,src={local.ca},dst={CA_CONTAINER_PATH},readonly" in argv
+    assert argv.count("--env") == 1
+    assert value_after(argv, "--env") == "CRAWLER_RUN_HARD_LIMIT_SECONDS=9000"
+    assert "CRAWLER_FETCHER=curl" not in argv
+    assert not any("CRAWLER_FETCHER" in arg for arg in argv)
+    assert argv[-1] == "eslite:test"  # the image CMD is `eslite`: no extra container arguments
+    assert not any("books_crawler" in arg or "kingstone" in arg for arg in argv)
+
+
+def test_eslite_hard_limit_is_passed_to_the_container_when_set(local):
+    eslite_local(local, ESLITE_RUN_HARD_LIMIT_SECONDS="8400")
+    result = local.run("eslite")
+    assert result.returncode == 0, result.stderr
+    assert value_after(local.run_argv(), "--env") == "CRAWLER_RUN_HARD_LIMIT_SECONDS=8400"
+
+
+def test_eslite_mode_does_not_use_the_kingstone_image_or_hard_limit_even_when_they_are_invalid(local):
+    eslite_local(local, KINGSTONE_CRAWLER_IMAGE=None, CRAWLER_RUN_HARD_LIMIT_SECONDS="not-a-number")
+    result = local.run("eslite")
+    assert result.returncode == 0, result.stderr
+    argv = local.run_argv()
+    assert argv[-1] == "eslite:test"
+    assert "kingstone:test" not in argv
+    assert value_after(argv, "--env") == "CRAWLER_RUN_HARD_LIMIT_SECONDS=9000"
+
+
+def test_kingstone_mode_does_not_use_the_eslite_image_or_hard_limit_even_when_they_are_invalid(local):
+    eslite_local(local, ESLITE_CRAWLER_IMAGE=None, ESLITE_RUN_HARD_LIMIT_SECONDS="not-a-number")
+    result = local.run("kingstone")
+    assert result.returncode == 0, result.stderr
+    argv = local.run_argv()
+    assert argv[-1] == "kingstone:test"
+    assert "eslite:test" not in argv
+    assert value_after(argv, "--env") == "CRAWLER_RUN_HARD_LIMIT_SECONDS=60"
+    assert "com.bookfinder.provider=KINGSTONE" in argv
+
+
+def test_eslite_mode_with_a_kingstone_limit_still_uses_the_eslite_default(local):
+    # The shared key CRAWLER_RUN_HARD_LIMIT_SECONDS is the Kingstone limit; Eslite reads only its own setting.
+    eslite_local(local, CRAWLER_RUN_HARD_LIMIT_SECONDS="60")
+    result = local.run("eslite")
+    assert result.returncode == 0, result.stderr
+    assert value_after(local.run_argv(), "--env") == "CRAWLER_RUN_HARD_LIMIT_SECONDS=9000"
+
+
+def test_eslite_watchdog_stops_the_container_at_the_hard_limit_and_writes_the_eslite_record(local):
+    eslite_local(local, ESLITE_RUN_HARD_LIMIT_SECONDS="1")
+    started = time.monotonic()
+    result = local.run("eslite", DOCKER_HANG="1")
+    assert result.returncode == 20, result.stderr
+    assert time.monotonic() - started < 30
+    calls = local.calls()
+    assert any(call.startswith("stop ") for call in calls)
+    assert f"rm {CONTAINER}" in calls
+    assert local.runtime_leftovers() == []
+    assert_terminal_record(
+        local,
+        result.stdout,
+        result.stderr,
+        mode="eslite",
+        provider="ESLITE",
+        exit_code=20,
+        reason="HARD_LIMIT",
+        alerts=["hard_limit"],
+        container={"name": CONTAINER, "cid": None},
+    )
+    assert (local.artifacts / "runner" / "eslite-last-run.json").is_file()
+    assert not (local.artifacts / "runner" / "kingstone-last-run.json").exists()
+
+
+def test_eslite_orphan_writer_is_refused_with_the_shared_runner_record(local):
+    eslite_local(local)
+    local.set_container("running")
+    result = local.run("eslite")
+    assert result.returncode == 13, result.stderr
+    assert_terminal_record(
+        local,
+        result.stdout,
+        result.stderr,
+        mode="eslite",
+        provider="ESLITE",
+        exit_code=13,
+        reason="ORPHAN_WRITER",
+        alerts=["orphan"],
+        container={"name": CONTAINER, "cid": None},
+    )
+    assert "run" not in local.calls()
+
+
+def test_eslite_paused_state_skips_before_any_container_or_secret(local):
+    eslite_local(local)
+    local.write_state(paused={"since": "x"})
+    result = local.run("eslite")
+    assert result.returncode == 6, result.stderr
+    assert "skipped=paused" in result.stdout
+    assert_no_docker_or_secret_work(local)
+
+
+def test_unknown_mode_names_still_exit_10_and_the_usage_lists_eslite(local):
+    eslite_local(local)
+    assert local.run("eslite").returncode == 0
+    result = local.run("ESLITE")
+    assert result.returncode == 10
+    assert "daily|first_book|pages|kingstone|eslite" in result.stderr
+
+
+def test_runner_providers_map_eslite_to_the_eslite_provider_and_build_its_record(support_module):
+    assert support_module.RUNNER_PROVIDERS["eslite"] == "ESLITE"
+    assert support_module.RUNNER_PROVIDERS["kingstone"] == "KINGSTONE"
+    record = support_module.build_runner_record(
+        run_id=str(uuid.uuid4()),
+        mode="eslite",
+        exit_code=20,
+        reason="HARD_LIMIT",
+        alert_reasons=["hard_limit"],
+        started_at="2026-10-25T01:00:00Z",
+        container_name=CONTAINER,
+        container_id=None,
+    )
+    assert record["provider"] == "ESLITE" and record["mode"] == "eslite"

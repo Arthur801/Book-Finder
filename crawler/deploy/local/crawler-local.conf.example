@@ -6,9 +6,11 @@
 CRAWLER_ENABLED=true
 
 # Images, pulled with --pull=never: a digest from the release (see README). Books modes use CRAWLER_IMAGE;
-# kingstone uses KINGSTONE_CRAWLER_IMAGE (HTTP-only, no browser).
+# kingstone uses KINGSTONE_CRAWLER_IMAGE and eslite uses ESLITE_CRAWLER_IMAGE (both HTTP-only, no browser).
+# The eslite image holds its page list (crawler/eslite-pages.txt): rebuild and repin it after every change to that list.
 CRAWLER_IMAGE='ghcr.io/arthur801/book-finder-crawler@sha256:<digest>'
 KINGSTONE_CRAWLER_IMAGE='<kingstone-image-with-digest-or-local-tag>'
+ESLITE_CRAWLER_IMAGE='<eslite-image-with-digest-or-local-tag>'
 
 # Host directory mounted at /app/crawler/artifacts. It must be owned by UID 10001 (sudo chown 10001:10001 <dir>)
 # or world-writable, because the container runs as UID 10001.
@@ -34,9 +36,12 @@ DATABASE_URL_PARAMETER=/book-finder/prod/crawler-database-url
 # DB_SECRET_SOURCE=file
 # DB_SECRET_FILE=/home/<user>/.config/book-finder/crawler-database-url
 
-# Hard run limit enforced by the watchdog. The kingstone value is also passed to the container, where it must stay
-# above its soft budget (72000 by default). Books keeps its own limit.
+# Hard run limits enforced by the watchdog. The kingstone and eslite values are also passed to their containers as
+# CRAWLER_RUN_HARD_LIMIT_SECONDS, where each must stay above its soft budget (kingstone 72000 by default). Books keeps its own limit.
 CRAWLER_RUN_HARD_LIMIT_SECONDS=79200
+# Eslite: must stay above the container's soft budget ESLITE_SOFT_RUN_BUDGET_SECONDS (default 7200).
+# Provisional until the page list length is known.
+ESLITE_RUN_HARD_LIMIT_SECONDS=9000
 BOOKS_RUN_HARD_LIMIT_SECONDS=3600
 # Seconds docker waits after SIGTERM before it kills the container.
 CRAWLER_STOP_GRACE_SECONDS=30
