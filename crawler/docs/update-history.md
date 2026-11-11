@@ -6,6 +6,8 @@
 
 > 歷史查核 2026-10-24；當時 HEAD `91333c334148fa5bfe07055d0e799dc13bb0bb4e`。依基準版本靜態閱讀；本次未執行 build、測試、部署、外部服務或真實抓取。
 
+> 2026-11-11（誠品 Phase 4，CB-08，commits `c2e62a8`（先寫的測試）、`c31648e`）：基準 `eslite-p3-m3-artifacts-config @ 433289c`（#173）。新增 `eslite/{acquisition,run,config,artifacts,diagnostics,cli,__main__}.py` 與 `eslite.urls.guid_from_product_url`；`python -m eslite` 以共用元件組成。soft budget／hard limit 暫定 7200／9000 秒；pacing 3～10 秒。新增 5 個測試檔（146 個，含真 DB 整合）；既有測試未修改。完整 crawler pytest 21271 passed、0 skip；ruff check／format 通過。沒有 Docker／runner 變更、沒有部署、沒有真站抓取。
+
 > 2026-11-11（誠品 Phase 3 M3，CB-08，commit `98334ca`）：基準 `eslite-p3-m2-run-ledger @ 7a97df1`（#172）。`kingstone/{alerts,artifacts,diagnostics,config}.py` 的 provider-neutral 部分抽出為 `catalog_core/{run_alerts,run_artifacts,run_diagnostics,run_config}.py`；金石堂模組只留 key、預設值、子類與重新匯出，檔案配置、JSON、env key、錯誤訊息與 logger 不變。既有測試一個檔案都沒有修改，CR-T22 golden 仍通過；新增 3 個測試檔（30 個）。完整 crawler pytest 21125 passed、0 skip；ruff check／format 通過。另記錄使用者決定：誠品 pacing 3～10 秒。沒有部署或真站抓取。
 
 > 2026-11-11（誠品 Phase 3 M2，CB-08，commits `f04fd23`、`b068d94`）：基準 `eslite-p3-m1-http-acquisition @ 6e0b404`（#170）。先在未修改的程式上新增 golden test（report 字串、terminal record、log 行），再把逐頁 run 與帳本自 `kingstone/{run,ledger}.py` 抽出為 `catalog_core/category_run.py`（`CategoryAdapter`、`run_category_pages`）與 `catalog_core/category_ledger.py`；`kingstone/{run,ledger}.py` 只留 `KINGSTONE_ADAPTER`、子類與重新匯出。既有測試一個檔案都沒有修改；新增 `test_category_run.py`（13）、`test_category_ledger.py`（4）、golden（1）。完整 crawler pytest 21095 passed、0 skip；ruff check／format 通過。沒有部署或真站抓取。

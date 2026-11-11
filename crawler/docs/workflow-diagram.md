@@ -12,8 +12,39 @@
 | `python -m books_crawler.first_book` | [first_book](../books_crawler/first_book.py) → `run_first_book`，只匯入第一名 |
 | `python -m books_crawler.pages` | [pages](../books_crawler/pages.py) → `run_pages`，分類補書 |
 | `python -m kingstone` | [cli](../kingstone/cli.py) → `run_pages`，金石堂分類列表頁（KINGSTONE，CB-07 Phase 5）；清單檔 `crawler/kingstone-pages.txt`；流程見下方「金石堂入口」 |
+| `python -m eslite` | [cli](../eslite/cli.py) → `run_pages`（`ESLITE_ADAPTER`），誠品分類列表（ESLITE，CB-08 Phase 4）；清單檔 `crawler/eslite-pages.txt`（使用者提供，寫網頁網址）；流程見下方「誠品入口」 |
 | `python -m books_crawler.inspect_page URL` | [inspect_page](../books_crawler/inspect_page.py)，單頁 browser 診斷，無 DB、不重試 |
 | EC2 wrapper daily／pages／first_book | [EC2 wrapper](../deploy/run-crawler.sh)，serialization／maintenance locks、state gate、SSM、Docker 與排程 |
+
+## 誠品入口（`python -m eslite`，CB-08 Phase 4）
+
+與金石堂入口同一順序；誠品專屬的只有 key、provider、網址轉換與 logger。production 的 ESLITE 仍為 disabled，也還沒有 runner mode（Phase 5）。
+
+```mermaid
+flowchart TD
+ ES_START(["python -m eslite"]) --> ES_UNI{"Unicode 15.1 可用？"}
+ ES_UNI -->|否| ES_X2A["exit 2"]
+ ES_UNI -->|是| ES_DB{"DATABASE_URL？"}
+ ES_DB -->|缺| ES_X2B["exit 2"]
+ ES_DB -->|有| ES_CFG{"ESLITE_* 設定有效？soft < hard"}
+ ES_CFG -->|否| ES_X2C["exit 2"]
+ ES_CFG -->|是| ES_LIST{"清單有效？（網頁網址、第 3 層、≤400）"}
+ ES_LIST -->|否| ES_X2D["exit 2；pre-run record"]
+ ES_LIST -->|是| ES_PROV{"source_providers.ESLITE enabled？"}
+ ES_PROV -->|否／查詢失敗| ES_X2E["exit 2（查詢失敗 exit 1）；record"]
+ ES_PROV -->|是| ES_LOCK{"第一個連線取 shared migration lock；schema preflight(ESLITE)"}
+ ES_LOCK -->|busy| ES_X1["exit 1；MAINTENANCE_BUSY"]
+ ES_LOCK -->|缺項| ES_X2F["exit 2；SCHEMA_PREREQUISITE_MISSING"]
+ ES_LOCK -->|通過| ES_FETCH["建立 EsliteFetcher（此前零 HTTP）"]
+ ES_FETCH --> ES_RUN["run_category_pages(ESLITE_ADAPTER)"]
+ ES_RUN --> ES_REC["stdout 一行 JSON；eslite/last-run.json＋history；alert 非空時 eslite.cli ALERT"]
+```
+
+逐頁流程與金石堂相同（見下方金石堂 run 的流程圖），差別：
+
+- 列表：run 傳入 canonical 網頁網址，`EsliteFetcher` 改請求 `api/v1/categories/<id>/products?page_no=<n>&sort_type=date&sort_order=desc&page_size=40&is_available=true`。第 1 頁 `total` 0 → `EmptyCategory`，該頁 skipped（原因 `empty_category`）；`EmptyCategory` 是 `EsliteParseError` 子類，所以共用 run 也會存一份診斷檔。`total` > 0 但沒有商品 → 完成的零卡頁。
+- 卡片：Existing（ESLITE＋guid／URL 命中）只 touch、不抓詳細；New 抓 `api/v4/products/<guid>/description`。詳細 404 → `http_status` 失敗（不重試、不寫入）；200 但 404 形態 → `product_not_found`；其他結構錯誤 → `parse_error`＋診斷檔。
+- 寫入：`catalog_core.service.resolve_item`，與金石堂相同的交易、ISBN 比對與寫入政策。
 
 ## 每日總榜（現行實作）
 

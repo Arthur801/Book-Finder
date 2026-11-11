@@ -2,7 +2,7 @@
 
 > Baseline：`origin/main @ 99f65d4`（2026-11-11）。來源：使用者提供的初步規劃，經 repo 現況核對與使用者決定（下表）整理成本版。
 > 2026-11-11 改為 v2：E0 證實網站是 Vue SPA，HTML 沒有書目資料；使用者在 E0 gate 決定改用前端自己呼叫的 `athena.eslite.com` JSON API（決定 #5）。變更見文末「設計變更紀錄」。
-> **E0、Phase 1–3 已完成；Phase 4 以後尚未實作**；本文件是實作計畫，不代表功能已實作、測試已通過或取得 production 授權。追蹤條目：`crawler/docs/backlog.md` CB-08。
+> **E0、Phase 1–4 已完成；Phase 5 以後尚未實作**；本文件是實作計畫，不代表功能已實作、測試已通過或取得 production 授權。追蹤條目：`crawler/docs/backlog.md` CB-08。
 
 ## Context
 
@@ -85,7 +85,7 @@ catalog_core/service.resolve_item → SessionCatalogStore → PostgreSQL（不�
 
 ## 6. Acquisition 與安全
 
-沿用金石堂的界線（由共用引擎提供）：最多 3 次、timeout 30 秒、backoff 最多 60 秒、Retry-After 最多 120 秒、回應最多 5 MiB；只重試 timeout／connection reset／429／500／502／503／504；所有等待受 soft budget 限制；每次請求前驗證 HTTPS、host 只有 `athena.eslite.com`（`www.eslite.com` 不請求）、沒有 userinfo、只允許 §4 的兩種 API URL；不跟隨 redirect；回應必須是 `application/json` 且 JSON 結構符合 E0 契約，否則（含 challenge、queue-it 頁、schema 改變）以 parse error fail closed，記為 `unclassified_200` alert。詳細 API 的 404 JSON 是 `ProductNotFound`（不重試、不寫入）。不帶 Authorization、不保存 cookie。pacing：每次請求（含重試）前隨機等待 3～10 秒（使用者決定，2026-11-11）。被封鎖（403／429 持續出現）→ 停用 ESLITE，不採規避技術。
+沿用金石堂的界線（由共用引擎提供）：最多 3 次、timeout 30 秒、backoff 最多 60 秒、Retry-After 最多 120 秒、回應最多 5 MiB；只重試 timeout／connection reset／429／500／502／503／504；所有等待受 soft budget 限制；每次請求前驗證 HTTPS、host 只有 `athena.eslite.com`（`www.eslite.com` 不請求）、沒有 userinfo、只允許 §4 的兩種 API URL；不跟隨 redirect；回應必須是 `application/json` 且 JSON 結構符合 E0 契約，否則（含 challenge、queue-it 頁、schema 改變）以 parse error fail closed，記為 `unclassified_200` alert。詳細 API 的 HTTP 404（E0：`{"message":"Product not found"}`）由共用引擎回報為 `HTTP_STATUS`（status 404），該本以 `http_status` 失敗、不重試、不寫入；引擎不保留 404 的 body，所以不另外分類為 `product_not_found`（Phase 4 實作決定）。`ProductNotFound` 只在 200 回應帶有 404 形態時出現。不帶 Authorization、不保存 cookie。pacing：每次請求（含重試）前隨機等待 3～10 秒（使用者決定，2026-11-11）。被封鎖（403／429 持續出現）→ 停用 ESLITE，不採規避技術。
 
 ## 7. 設定、執行與 terminal status
 
@@ -93,8 +93,8 @@ catalog_core/service.resolve_item → SessionCatalogStore → PostgreSQL（不�
 |---|---|
 | `ESLITE_PAGES_FILE` | `crawler/eslite-pages.txt` |
 | `ESLITE_WRITE_POLICY` | `normal` |
-| `ESLITE_SOFT_RUN_BUDGET_SECONDS` | **待決定**（依清單長度與 pacing 計算） |
-| `CRAWLER_RUN_HARD_LIMIT_SECONDS`（container 內） | runner 以 `ESLITE_RUN_HARD_LIMIT_SECONDS` 傳入；**待決定**，必須大於 soft budget |
+| `ESLITE_SOFT_RUN_BUDGET_SECONDS` | 7200（暫定，使用者同意；清單長度確定後再訂） |
+| `CRAWLER_RUN_HARD_LIMIT_SECONDS`（container 內） | 9000（暫定）；runner 以 `ESLITE_RUN_HARD_LIMIT_SECONDS` 傳入（Phase 5），必須大於 soft budget |
 | `ESLITE_HTTP_TIMEOUT_SECONDS` / `ESLITE_HTTP_MAX_ATTEMPTS` | 30 / 3 |
 | `ESLITE_MAX_RESPONSE_BYTES` / `ESLITE_DIAGNOSTIC_MAX_BYTES` | 5 MiB / 2 MiB |
 | `ESLITE_ARTIFACTS_DIR` | `crawler/artifacts`（產物在 `eslite/` 子目錄） |
@@ -166,7 +166,7 @@ catalog_core/service.resolve_item → SessionCatalogStore → PostgreSQL（不�
 
 仍待決定（附建議）：
 
-1. 清單長度確定後的 soft budget 與 hard limit。
+1. 清單長度確定後的 soft budget 與 hard limit（目前暫定 7200／9000 秒，與金石堂 v12 相同；1 頁 canary 用不到這麼久）。
 
 ## 驗證
 
@@ -175,6 +175,7 @@ catalog_core/service.resolve_item → SessionCatalogStore → PostgreSQL（不�
 ## 設計變更紀錄
 
 - v1（2026-11-11）：初版。
+- v2.3（2026-11-11）：Phase 4。§6 改寫詳細 API 404 的處理（`http_status` 失敗，不另外分類）；§7 soft budget／hard limit 暫定 7200／9000 秒（使用者同意）。
 - v2.2（2026-11-11）：§6、§12 記錄使用者對 pacing 的決定（3～10 秒，沿用金石堂）。
 - v2.1（2026-11-11）：§12 記錄使用者對 `page=1`、非書商品、`total` 0 的決定。
 - v2（2026-11-11）：E0 完成。網站是 Vue SPA，改用 `athena.eslite.com` JSON API（決定 #5）；清單仍寫網頁網址，由 crawler 轉成 API；`external_id` 定為 guid；§2、§4、§6、§11、§12 依 E0 證據改寫。
