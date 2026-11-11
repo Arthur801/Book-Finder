@@ -143,6 +143,7 @@ class CategoryReport:
     http_attempts: int = 0  # requests the fetcher actually sent, retries included
     http_failures: int = 0  # sent requests that gave no usable 200 body
     parse_error_200_count: int = 0  # list pages skipped and failed detail cards with reason parse_error (unclassified_200)
+    items_excluded: int = 0  # cards skipped by a provider exclusion rule (list stage + detail stage); not failures
 
     def __post_init__(self) -> None:
         if self.provider_code is None:
@@ -190,11 +191,14 @@ class CategoryLedger:
         self._identity_warnings = 0
         self._failed_items: list[FailedItem] = []
         self._parse_error_200 = 0
+        self._items_excluded = 0
+        self._open_excluded = 0  # excluded cards of the open page, list stage and detail stage
 
-    def page_started(self, url: str, *, items_listed: int = 0) -> None:
+    def page_started(self, url: str, *, items_listed: int = 0, items_excluded: int = 0) -> None:
         """The page was fetched and parsed; its cards are recorded next. One page is open at a time.
 
         ``items_listed`` is the number of cards the list parser returned for the page (counted for the report).
+        ``items_excluded`` is the number of cards the list parser dropped by a provider rule (counted for the report).
         """
         self._require_listed(url)
         if self._budget_exhausted:
@@ -206,7 +210,9 @@ class CategoryLedger:
         self._started.add(url)
         self._open = url
         self._open_items = 0
+        self._open_excluded = items_excluded
         self._items_listed += items_listed
+        self._items_excluded += items_excluded
 
     def record_detail_fetch(self) -> None:
         """The run asked the fetcher for one detail page (counted whether or not the fetch succeeded)."""
@@ -251,11 +257,22 @@ class CategoryLedger:
         if result.identity_warning is not None:
             self._identity_warnings += 1
 
+    def record_excluded(self, url: str, *, source_url: str, external_id: str) -> None:
+        """One card of the open page was excluded by a provider rule (detail stage). Not a failure, not an outcome.
+
+        It is not counted in ``items_seen``, ``failed`` or ``parse_error_200_count``; it is logged at INFO.
+        """
+        if url != self._open:
+            raise ValueError(f"items must be recorded for the open page, not {url}")
+        self._items_excluded += 1
+        self._open_excluded += 1
+        self._log.info("%s item excluded by the provider rule: %s (%s)", url, source_url, external_id)
+
     def page_completed(self, url: str) -> None:
         """Every card of the open page has its outcome."""
         if url != self._open:
             raise ValueError(f"{url} is not the open page")
-        if self._open_items == 0:
+        if self._open_items == 0 and self._open_excluded == 0:
             self._zero_card_pages += 1
         self._completed += 1
         self._open = None
@@ -337,6 +354,7 @@ class CategoryLedger:
             http_attempts=http_attempts,
             http_failures=http_failures,
             parse_error_200_count=self._parse_error_200,
+            items_excluded=self._items_excluded,
         )
 
     def _require_listed(self, url: str) -> None:

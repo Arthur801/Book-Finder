@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from catalog_core.models import ListedItem, ListPage
 
-__all__ = ["EmptyCategory", "EsliteParseError", "ListPage", "ListedItem", "ProductNotFound"]
+__all__ = ["EmptyCategory", "EsliteParseError", "ListPage", "ListedItem", "ProductNotFound", "RestrictedProduct"]
 
 
 class EsliteParseError(ValueError):
@@ -21,3 +21,7 @@ class EmptyCategory(EsliteParseError):
 
 class ProductNotFound(Exception):
     """The detail API answered with the 404 body: the product does not exist. Not a parse error."""
+
+
+class RestrictedProduct(Exception):
+    """An age-restricted (限制級) product: the provider rule excludes it. Not a parse error: skipped silently and counted."""

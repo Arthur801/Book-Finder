@@ -27,7 +27,7 @@ from bs4 import BeautifulSoup
 from catalog_core.html_text import text_with_line_breaks
 from catalog_core.models import BookDraft, Contributor, ContributorRole, Identifier, PublishedDatePrecision
 from catalog_core.normalize import clean_text, normalize_isbn
-from eslite.models import EsliteParseError, ProductNotFound
+from eslite.models import EsliteParseError, ProductNotFound, RestrictedProduct
 from eslite.urls import GUID_RE, product_url
 
 log = logging.getLogger("eslite.parse_detail")
@@ -59,7 +59,7 @@ def parse_detail_json(text: str, guid: str) -> BookDraft:
         if not isinstance(restricted, bool):
             raise EsliteParseError("detail restricted is not a boolean")
         if restricted:
-            raise EsliteParseError("restricted product is not supported")
+            raise RestrictedProduct(guid)
 
     title = _required_text(body, "product_name")
     publisher = _optional_text(body, "manufacturer")

@@ -272,3 +272,75 @@ def test_a_card_that_is_not_a_book_is_still_listed_because_is_book_is_not_used_t
 
     assert len(page.items) == 40
     assert page.items[0].external_id == _body("list_101_p1.json")["products"][0]["guid"]
+
+
+# ---------------------------------------------------------------------------
+# Age-restricted cards (is_age_restricted): skipped and counted, never items
+# ---------------------------------------------------------------------------
+
+
+def _set_restricted(body: dict, flags: list) -> None:
+    for card, flag in zip(body["products"], flags, strict=False):
+        card["is_age_restricted"] = flag
+
+
+def test_a_card_flagged_restricted_is_not_an_item_and_is_counted():
+    def mutate(body):
+        _set_restricted(body, [True] + [False] * 39)
+
+    page = _with("list_101_p1.json", mutate)
+    cards = _body("list_101_p1.json")["products"]
+
+    assert page.excluded_count == 1
+    assert len(page.items) == 39
+    assert cards[0]["guid"] not in [item.external_id for item in page.items]
+
+
+def test_a_card_flagged_not_restricted_is_kept():
+    def mutate(body):
+        _set_restricted(body, [False] * 40)
+
+    page = _with("list_101_p1.json", mutate)
+
+    assert page.excluded_count == 0
+    assert len(page.items) == 40
+
+
+def test_a_card_without_the_flag_is_kept():
+    page = parse_list_json(_text("list_101_p1.json"), WWW_101)
+
+    assert page.excluded_count == 0
+    assert len(page.items) == 40
+
+
+@pytest.mark.parametrize("value", ["true", 1, 0, None, "false"])
+def test_a_restricted_flag_that_is_not_a_bool_is_a_parse_error(value):
+    def mutate(body):
+        body["products"][2]["is_age_restricted"] = value
+
+    with pytest.raises(EsliteParseError, match="product card 3 has an is_age_restricted that is not a boolean"):
+        _with("list_101_p1.json", mutate)
+
+
+def test_a_page_whose_every_card_is_restricted_has_no_items_and_is_not_empty():
+    def mutate(body):
+        _set_restricted(body, [True] * 40)
+
+    page = _with("list_101_p1.json", mutate)
+
+    assert page.items == ()
+    assert page.empty is False
+    assert page.excluded_count == 40
+    assert page.total_count == 188
+
+
+def test_restricted_cards_are_dropped_and_the_rest_keep_their_order():
+    def mutate(body):
+        _set_restricted(body, [False, True, False, True, False] + [False] * 35)
+
+    page = _with("list_101_p1.json", mutate)
+    cards = _body("list_101_p1.json")["products"]
+    expected = [card["guid"] for index, card in enumerate(cards) if index not in (1, 3)]
+
+    assert page.excluded_count == 2
+    assert [item.external_id for item in page.items] == expected

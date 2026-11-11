@@ -42,14 +42,27 @@ class FakeEmptyCategory(FakeParseError):
     """A list page that is an empty category: its skip reason is decided by the adapter, not by the run."""
 
 
+class FakeExcluded(Exception):
+    """The fake provider's excluded product (Eslite: age-restricted). Not a parse error."""
+
+
 def fake_parse_list(text: str, url: str) -> ListPage:
+    """Codes are comma separated. A code starting with ``R`` is a card the list stage drops (a provider exclusion)."""
     if text == "bad":
         raise FakeParseError("bad list page")
     if text == "empty":
         raise FakeEmptyCategory("no products in this category")
     codes = [code for code in text.split(",") if code]
-    items = tuple(ListedItem(external_id=code, source_url=item_url(code), list_url=url) for code in codes)
-    return ListPage(url=url, items=items, total_pages=None, total_count=None, empty=not items)
+    kept = [code for code in codes if not code.startswith("R")]
+    items = tuple(ListedItem(external_id=code, source_url=item_url(code), list_url=url) for code in kept)
+    return ListPage(
+        url=url,
+        items=items,
+        total_pages=None,
+        total_count=None,
+        empty=not codes,
+        excluded_count=len(codes) - len(kept),
+    )
 
 
 @dataclass
@@ -64,9 +77,11 @@ class FakeProvider:
             raise FakeNotFound(item.source_url)
         if text == "bad":
             raise FakeParseError(f"bad detail {item.external_id}")
+        if text == "restricted":
+            raise FakeExcluded(item.source_url)
         return BookDraft(source_url=item.source_url, title=f"Book {item.external_id}", external_id=item.external_id)
 
-    def adapter(self) -> CategoryAdapter:
+    def adapter(self, excluded: type[Exception] | None = FakeExcluded) -> CategoryAdapter:
         return CategoryAdapter(
             provider=ProviderCode.ESLITE,
             mode="fake",
@@ -78,6 +93,7 @@ class FakeProvider:
             not_found=FakeNotFound,
             list_page_code=lambda url: url.rsplit("/", 1)[-1],
             list_skip_reason=lambda exc: "empty_category" if isinstance(exc, FakeEmptyCategory) else PARSE_ERROR_REASON,
+            excluded=excluded,
         )
 
 
@@ -167,6 +183,10 @@ def make_deps(
 
 def run(fetcher: FakeFetcher, store: FakeStore, provider: FakeProvider, page_urls: Sequence[str], **kwargs):
     return run_category_pages(provider.adapter(), make_deps(fetcher, store, **kwargs), page_urls, run_id="fake-run")
+
+
+def run_with_adapter(adapter: CategoryAdapter, fetcher: FakeFetcher, store: FakeStore, page_urls: Sequence[str], **kwargs):
+    return run_category_pages(adapter, make_deps(fetcher, store, **kwargs), page_urls, run_id="fake-run")
 
 
 def test_the_report_and_the_catalog_items_carry_the_adapter_provider():
@@ -325,3 +345,95 @@ def test_an_adapter_without_a_provider_is_refused_when_the_report_is_built():
 
     with pytest.raises(ValueError, match="needs a provider_code"):
         run_category_pages(broken, make_deps(FakeFetcher({LIST_A: "K1"}), FakeStore()), [LIST_A])
+
+
+# ---------------------------------------------------------------------------
+# Excluded cards (a provider rule): skipped, counted in items_excluded, never a failure, never a diagnostic
+# ---------------------------------------------------------------------------
+
+
+def test_a_list_level_exclusion_is_counted_and_never_fetched():
+    provider = FakeProvider()
+    fetcher = FakeFetcher({LIST_A: "K1,R1,K2", item_url("K1"): "ok", item_url("K2"): "ok"})
+
+    report = run(fetcher, FakeStore(), provider, [LIST_A])
+
+    assert report.items_excluded == 1
+    assert report.items_listed == 2
+    assert report.status is RunStatus.SUCCESS
+    assert report.failed == 0
+    assert item_url("R1") not in fetcher.calls
+    assert [item.external_id for item in provider.detail_calls] == ["K1", "K2"]
+
+
+def test_a_detail_level_exclusion_is_not_a_failure_and_writes_no_diagnostic():
+    sink = FakeSink()
+    store = FakeStore()
+    report = run(
+        FakeFetcher({LIST_A: "K1,K2", item_url("K1"): "restricted", item_url("K2"): "ok"}),
+        store,
+        FakeProvider(),
+        [LIST_A],
+        diagnostics=sink,
+    )
+
+    assert report.items_excluded == 1
+    assert report.failed == 0
+    assert report.failed_items == ()
+    assert report.parse_error_200_count == 0
+    assert report.items_seen == 1
+    assert report.imported == 1
+    assert [draft.external_id for draft in store.persisted] == ["K2"]
+    assert sink.saved == []
+    assert report.status is RunStatus.SUCCESS
+    assert report.pages_completed == 1
+
+
+def test_a_page_whose_every_card_is_excluded_is_completed_and_not_a_zero_card_page():
+    report = run(FakeFetcher({LIST_A: "R1,R2"}), FakeStore(), FakeProvider(), [LIST_A])
+
+    assert report.pages_completed == 1
+    assert report.zero_card_pages == 0
+    assert report.items_excluded == 2
+    assert report.status is RunStatus.SUCCESS
+
+
+def test_a_page_of_detail_level_exclusions_only_is_completed_and_not_a_zero_card_page():
+    report = run(FakeFetcher({LIST_A: "K1", item_url("K1"): "restricted"}), FakeStore(), FakeProvider(), [LIST_A])
+
+    assert report.pages_completed == 1
+    assert report.zero_card_pages == 0
+    assert report.items_excluded == 1
+    assert report.failed == 0
+
+
+def test_the_excluded_check_comes_before_the_parse_error_check():
+    # The adapter's excluded type is also a parse error here: the card is excluded, not a parse failure.
+    sink = FakeSink()
+    report = run_with_adapter(
+        FakeProvider().adapter(excluded=FakeParseError),
+        FakeFetcher({LIST_A: "K1", item_url("K1"): "bad"}),
+        FakeStore(),
+        [LIST_A],
+        diagnostics=sink,
+    )
+
+    assert report.items_excluded == 1
+    assert report.failed == 0
+    assert sink.saved == []
+
+
+def test_an_adapter_without_an_excluded_type_fails_a_parse_error_as_before():
+    sink = FakeSink()
+    report = run_with_adapter(
+        FakeProvider().adapter(excluded=None),
+        FakeFetcher({LIST_A: "K1", item_url("K1"): "bad"}),
+        FakeStore(),
+        [LIST_A],
+        diagnostics=sink,
+    )
+
+    assert report.failed == 1
+    assert report.parse_error_200_count == 1
+    assert report.items_excluded == 0
+    assert [(kind, code) for kind, code, _ in sink.saved] == [("detail", "K1")]

@@ -20,6 +20,8 @@ from catalog_core.category_run import CategoryAdapter
 from catalog_core.http_acquisition import AcquisitionError, AcquisitionFailure
 from catalog_core.identity import IdentityKind, SourceIdentity
 from catalog_core.models import ProviderCode, SourceRef, WritePolicy
+from catalog_core.run_alerts import alert_reasons
+from eslite.artifacts import record_from_report
 from eslite.run import ESLITE_ADAPTER, EsliteRunDependencies, SoftBudget, run_pages
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "eslite"
@@ -387,3 +389,61 @@ def test_the_run_and_the_ledger_log_on_the_eslite_loggers(caplog):
     names = {record.name for record in caplog.records}
     assert {"eslite.run", "eslite.ledger"} <= names  # the skipped page is a ledger warning
     assert not {name for name in names if name.startswith("kingstone")}
+
+
+# ---------------------------------------------------------------------------
+# Age-restricted products: skipped and counted, no failure, no alert, no diagnostic
+# ---------------------------------------------------------------------------
+
+
+def _list_with_flagged_card(guids: Sequence[str], flagged: str) -> str:
+    body = json.loads(list_body(guids))
+    for card in body["products"]:
+        if card["guid"] == flagged:
+            card["is_age_restricted"] = True
+    return json.dumps(body, ensure_ascii=False)
+
+
+def _detail_restricted(guid: str) -> str:
+    body = json.loads(detail_body(guid))
+    body["restricted"] = True
+    return json.dumps(body, ensure_ascii=False)
+
+
+def test_a_restricted_card_on_the_list_and_one_at_the_detail_stage_are_skipped_without_alerts():
+    fetcher = FakeFetcher(
+        {
+            LIST_101: _list_with_flagged_card([G_DICTIONARY, G_16, G_TRANSLATION_ISBN], flagged=G_16),
+            product(G_DICTIONARY): detail_body(G_DICTIONARY),
+            product(G_TRANSLATION_ISBN): _detail_restricted(G_TRANSLATION_ISBN),
+        }
+    )
+    store = MemoryStore()
+
+    report = run_pages(make_deps(fetcher, store), [LIST_101], run_id="run-r")
+
+    assert report.status is RunStatus.SUCCESS
+    assert report.exit_code == 0
+    assert report.error is None
+    assert report.failed == 0
+    assert report.failed_items == ()
+    assert report.parse_error_200_count == 0
+    assert report.items_excluded == 2
+    assert report.imported == 1
+    assert fetcher.detail_calls() == [product(G_DICTIONARY), product(G_TRANSLATION_ISBN)]
+    assert product(G_16) not in fetcher.calls
+    assert [guid for _, guid in store.persisted] == [G_DICTIONARY]
+
+    record = record_from_report(report)
+    assert record["restricted_skipped"] == 2
+    assert (
+        alert_reasons(
+            status=record["status"],
+            reason=record["reason"],
+            pages_completed=record["pages_completed"],
+            zero_card_pages=record["zero_card_pages"],
+            streak_reached=False,
+            parse_error_200_count=record["parse_error_200_count"],
+        )
+        == []
+    )

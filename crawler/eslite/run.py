@@ -4,7 +4,8 @@ The run logic (list page, cards, detail, catalog write, budget, retries, failure
 diagnostics) lives in ``catalog_core.category_run``. This module supplies the Eslite adapter only:
 
 - ``ESLITE_ADAPTER``: the provider, the ``eslite.run`` / ``eslite.ledger`` logger names, the mode ``eslite``, the list and
-  detail parsers, the exception types, the diagnostic file code of a list page, and the skip reason of a list parse error
+  detail parsers, the exception types (``RestrictedProduct`` is the excluded type: age-restricted products are skipped and
+  counted, not failed), the diagnostic file code of a list page, and the skip reason of a list parse error
   (``empty_category`` for a first page whose ``total`` is 0, ``parse_error`` for the rest);
 - ``run_pages(deps, page_urls, run_id=None) -> CategoryReport``: ``run_category_pages`` with that adapter.
 
@@ -33,7 +34,7 @@ from catalog_core.category_run import (
     run_category_pages,
 )
 from catalog_core.models import ListedItem, ProviderCode
-from eslite.models import EmptyCategory, EsliteParseError, ProductNotFound
+from eslite.models import EmptyCategory, EsliteParseError, ProductNotFound, RestrictedProduct
 from eslite.parse_detail import parse_detail_json
 from eslite.parse_list import parse_list_json
 from eslite.urls import category_and_page
@@ -89,6 +90,7 @@ ESLITE_ADAPTER = CategoryAdapter(
     list_page_code=_list_page_code,
     list_skip_reason=_list_skip_reason,
     report_class=CategoryReport,
+    excluded=RestrictedProduct,
 )
 
 

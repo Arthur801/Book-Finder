@@ -1,8 +1,9 @@
 """Eslite category list API parser (CB-08 列表 API): one JSON response per listed page.
 
-Reads ``{total, page_no, page_size, products}`` and the ``guid`` of each card. Other card fields are not read: the
-detail API is the source of truth. ``is_book`` is not used to filter (CB-08 decision: non-book products are treated as
-books). Nothing here touches the network.
+Reads ``{total, page_no, page_size, products}``, the ``guid`` of each card and its ``is_age_restricted`` flag. A card flagged
+``true`` is an age-restricted product: it is dropped from ``items`` and counted in ``excluded_count`` (no detail fetch, not
+a failure). Other card fields are not read: the detail API is the source of truth. ``is_book`` is not used to filter
+(CB-08 decision: non-book products are treated as books). Nothing here touches the network.
 """
 
 from __future__ import annotations
@@ -45,13 +46,24 @@ def parse_list_json(text: str, url: str) -> ListPage:
 
     items: list[ListedItem] = []
     seen: set[str] = set()
+    excluded = 0
     for index, card in enumerate(products, start=1):
         guid = _card_guid(card, index)
         if guid in seen:
             continue
         seen.add(guid)
+        if _is_age_restricted(card, index):
+            excluded += 1
+            continue
         items.append(ListedItem(external_id=guid, source_url=product_url(guid), list_url=url))
-    return ListPage(url=url, items=tuple(items), total_pages=total_pages, total_count=total, empty=False)
+    return ListPage(
+        url=url,
+        items=tuple(items),
+        total_pages=total_pages,
+        total_count=total,
+        empty=False,
+        excluded_count=excluded,
+    )
 
 
 def _json_object(text: str) -> dict[str, Any]:
@@ -80,3 +92,13 @@ def _card_guid(card: Any, index: int) -> str:
     if not isinstance(guid, str) or GUID_RE.fullmatch(guid) is None:
         raise EsliteParseError(f"product card {index} has a guid that is not 16 to 23 digits")
     return guid
+
+
+def _is_age_restricted(card: dict[str, Any], index: int) -> bool:
+    """The card's ``is_age_restricted`` flag; a missing flag means not restricted. A non-bool flag is a parse error."""
+    if "is_age_restricted" not in card:
+        return False
+    flag = card["is_age_restricted"]
+    if not isinstance(flag, bool):
+        raise EsliteParseError(f"product card {index} has an is_age_restricted that is not a boolean")
+    return flag

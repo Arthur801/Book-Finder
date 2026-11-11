@@ -55,8 +55,11 @@ class EsliteArtifacts(_generic.CategoryArtifacts):
 
 
 def record_from_report(report: CategoryReport) -> dict[str, Any]:
-    """The terminal record of a run that went through ``run_pages``. ``alert_reasons`` is added by ``finalize``."""
-    return _generic.record_from_report(report)
+    """The terminal record of a run that went through ``run_pages``. ``alert_reasons`` is added by ``finalize``.
+
+    ``restricted_skipped`` is the age-restricted cards skipped at the list and detail stages (not failures).
+    """
+    return _with_restricted_skipped(_generic.record_from_report(report), report.items_excluded)
 
 
 def record_pre_run(
@@ -71,17 +74,30 @@ def record_pre_run(
     error: str | None = None,
 ) -> dict[str, Any]:
     """The minimal terminal record of a result before or instead of the run: every count is 0, the page count is unknown."""
-    return _generic.record_pre_run(
-        provider=PROVIDER,
-        run_id=run_id,
-        status=status,
-        exit_code=exit_code,
-        reason=reason,
-        write_policy=write_policy,
-        started_at=started_at,
-        finished_at=finished_at,
-        error=error,
+    return _with_restricted_skipped(
+        _generic.record_pre_run(
+            provider=PROVIDER,
+            run_id=run_id,
+            status=status,
+            exit_code=exit_code,
+            reason=reason,
+            write_policy=write_policy,
+            started_at=started_at,
+            finished_at=finished_at,
+            error=error,
+        ),
+        0,
     )
+
+
+def _with_restricted_skipped(record: dict[str, Any], restricted_skipped: int) -> dict[str, Any]:
+    """The record with ``restricted_skipped`` placed right after ``policy_skipped`` (the key order is part of the record)."""
+    ordered: dict[str, Any] = {}
+    for key, value in record.items():
+        ordered[key] = value
+        if key == "policy_skipped":
+            ordered["restricted_skipped"] = restricted_skipped
+    return ordered
 
 
 def read_history(history_dir: Path) -> list[dict[str, Any]]:

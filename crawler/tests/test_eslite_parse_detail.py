@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from catalog_core.models import BookDraft, Contributor, ContributorRole, Identifier, IdentifierType, PublishedDatePrecision
-from eslite.models import EsliteParseError, ProductNotFound
+from eslite.models import EsliteParseError, ProductNotFound, RestrictedProduct
 from eslite.parse_detail import parse_detail_json
 from eslite.urls import product_url
 
@@ -492,12 +492,14 @@ def test_a_missing_product_name_is_a_parse_error():
         _mutated(G_TRANS, mutate)
 
 
-def test_a_restricted_product_is_a_parse_error_and_not_a_product_not_found():
+def test_a_restricted_product_raises_restricted_product_and_is_not_a_parse_error():
     def mutate(body):
         body["restricted"] = True
 
-    with pytest.raises(EsliteParseError, match="restricted"):
+    with pytest.raises(RestrictedProduct) as info:
         _mutated(G_TRANS, mutate)
+    assert not isinstance(info.value, EsliteParseError)
+    assert not isinstance(info.value, ProductNotFound)
 
 
 @pytest.mark.parametrize("value", ["false", 0, None])

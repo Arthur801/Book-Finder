@@ -87,3 +87,92 @@ def test_the_kingstone_ledger_builds_kingstone_reports():
 
     assert isinstance(report, KingstoneReport)
     assert report.provider_code is ProviderCode.KINGSTONE
+
+
+# ---------------------------------------------------------------------------
+# Excluded cards (a provider rule): counted in items_excluded, never a failure, never a zero-card page
+# ---------------------------------------------------------------------------
+
+
+def _ledger(*urls: str) -> CategoryLedger:
+    return CategoryLedger(urls or (P1,), WritePolicy.NORMAL, provider_code=ProviderCode.ESLITE, logger=logging.getLogger("fake.ledger"))
+
+
+def test_report_counts_items_excluded_from_page_started_and_record_excluded():
+    ledger = _ledger()
+    ledger.page_started(P1, items_listed=1, items_excluded=1)  # one card dropped at the list stage
+    ledger.record_excluded(P1, source_url="https://fake.test/item/R1", external_id="R1")  # one at the detail stage
+    ledger.page_completed(P1)
+
+    report = ledger.report(run_id="r", started_at=START, finished_at=END)
+
+    assert report.items_excluded == 2
+    assert report.items_seen == 0
+    assert report.failed == 0
+    assert report.failed_items == ()
+    assert report.parse_error_200_count == 0
+    assert report.status is RunStatus.SUCCESS
+
+
+def test_a_page_whose_every_card_is_excluded_is_completed_and_not_a_zero_card_page():
+    ledger = _ledger()
+    ledger.page_started(P1, items_listed=0, items_excluded=3)
+    ledger.page_completed(P1)
+
+    report = ledger.report(run_id="r", started_at=START, finished_at=END)
+
+    assert report.pages_completed == 1
+    assert report.zero_card_pages == 0
+    assert report.items_excluded == 3
+    assert report.status is RunStatus.SUCCESS
+
+
+def test_a_page_with_no_cards_and_no_exclusions_is_still_a_zero_card_page():
+    ledger = _ledger()
+    ledger.page_started(P1, items_listed=0, items_excluded=0)
+    ledger.page_completed(P1)
+
+    report = ledger.report(run_id="r", started_at=START, finished_at=END)
+
+    assert report.zero_card_pages == 1
+    assert report.items_excluded == 0
+
+
+def test_a_detail_level_exclusion_counts_once_and_the_page_is_not_a_zero_card_page():
+    ledger = _ledger()
+    ledger.page_started(P1, items_listed=1)
+    ledger.record_excluded(P1, source_url="https://fake.test/item/R1", external_id="R1")
+    ledger.page_completed(P1)
+
+    report = ledger.report(run_id="r", started_at=START, finished_at=END)
+
+    assert report.items_excluded == 1
+    assert report.zero_card_pages == 0
+
+
+def test_record_excluded_needs_the_open_page():
+    ledger = _ledger()
+    with pytest.raises(ValueError, match="open page"):
+        ledger.record_excluded(P1, source_url="https://fake.test/item/R1", external_id="R1")
+
+    ledger.page_started(P1)
+    with pytest.raises(ValueError, match="open page"):
+        ledger.record_excluded("https://fake.test/list/other", source_url="https://fake.test/item/R1", external_id="R1")
+
+
+def test_record_excluded_logs_one_info_line_with_the_source_url(caplog):
+    caplog.set_level(logging.INFO, logger="fake.ledger")
+    ledger = _ledger()
+    ledger.page_started(P1)
+    ledger.record_excluded(P1, source_url="https://fake.test/item/R1", external_id="R1")
+
+    lines = [record for record in caplog.records if record.name == "fake.ledger" and record.levelno == logging.INFO]
+    assert len(lines) == 1
+    assert "https://fake.test/item/R1" in lines[0].getMessage()
+    assert [record for record in caplog.records if record.levelno >= logging.WARNING] == []
+
+
+def test_the_kingstone_report_defaults_items_excluded_to_zero():
+    report = KingstoneReport(**report_kwargs())
+
+    assert report.items_excluded == 0
