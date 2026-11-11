@@ -477,7 +477,7 @@ CR-T20 待補強：operational failure（12、15～18）目前沒有 record／AL
 - **When／Then**：
   - Acquisition：網頁網址正確轉成列表／詳細 API URL；非 canonical 網址、非 `athena.eslite.com` → `ValueError` 且零請求；pacing 落在 3～10 秒；送出 JSON headers；詳細 404 → `HTTP_STATUS` 404、1 次、不重試；503 重試；`guid_from_product_url` 只接受精確形式。
   - Run：report 與 `CatalogItem` 的 provider 是 ESLITE；第 1 頁 `total` 0 → skipped `empty_category`；超過最後一頁 → 完成的零卡頁；詳細 404 → `http_status` 失敗且未寫入；Existing → touch、不抓詳細；log 在 `eslite.run`／`eslite.ledger`。
-  - 設定：預設值（7200／9000／normal／30／3／5 MiB／2 MiB）、soft ≥ hard 錯誤、不讀 `KINGSTONE_*`。
+  - 設定：預設值（72000／79200／normal／30／3／5 MiB／2 MiB；2026-11-11 由 7200／9000 改為比照金石堂）、soft ≥ hard 錯誤、不讀 `KINGSTONE_*`。
   - CLI：缺 `DATABASE_URL`、設定錯誤、清單缺少或空白、provider disabled → exit 2 且 fetcher 未建立；schema 缺項 → exit 2；busy → exit 1；正常路徑 stdout 一行 JSON 且等於 `<tmp>/eslite/last-run.json`、provider ESLITE；有 skipped 頁時一行 ALERT。
   - 真 DB：新書建立 ESLITE Source（`external_id` = guid、`source_url` = 網頁商品網址）、ISBN 與作者；`normal` 下 ISBN 命中唯一既有 Book 時附加 ESLITE Source、不建新 Book；第二次 run 全為 Existing（只 touch、零詳細請求、無新列）；KINGSTONE／BOOKS_COM_TW 的列不變。
 - **來源與狀態**：[test_eslite_acquisition.py](../tests/test_eslite_acquisition.py)（59）、[test_eslite_run.py](../tests/test_eslite_run.py)（17）、[test_eslite_config.py](../tests/test_eslite_config.py)（19）、[test_eslite_cli.py](../tests/test_eslite_cli.py)（36）、[test_eslite_db_integration.py](../tests/test_eslite_db_integration.py)（15）。
@@ -488,13 +488,13 @@ CR-T20 待補強：operational failure（12、15～18）目前沒有 record／AL
 - **Given**：Dockerfile、`.dockerignore`、CI workflow 的靜態內容；runner 以假的 docker／ssh／aws 執行（同 CR-T20）。
 - **When／Then**：
   - Image（靜態）：`eslite` stage 存在且不是最後一階；沒有 Playwright／browser；只複製 `catalog_core/`、`eslite/`、`eslite-pages.txt`；UID 10001；`CMD ["eslite"]`；`.dockerignore` 白名單；CI 會 build `eslite` target 並跑離線 smoke；repo 的清單若有內容，每行必須是 canonical 誠品網址且不超過 400（目前只有註解，`load_page_urls` 回報空清單錯誤）。
-  - Runner：接受 `eslite` mode；`ESLITE_CRAWLER_IMAGE` 缺少或不合法、`ESLITE_RUN_HARD_LIMIT_SECONDS` 不合法 → exit 10 且沒有外部動作；container argv 含 `com.bookfinder.mode=eslite`、`com.bookfinder.provider=ESLITE`、`--env CRAWLER_RUN_HARD_LIMIT_SECONDS=9000`（預設）、沒有 `CRAWLER_FETCHER`、image 在最後、沒有 books module；金石堂與誠品的 image／hard limit 設定互不讀取；hard limit 停止時寫 `runner/eslite-last-run.json`；orphan、paused；`RUNNER_PROVIDERS["eslite"]`。
+  - Runner：接受 `eslite` mode；`ESLITE_CRAWLER_IMAGE` 缺少或不合法、`ESLITE_RUN_HARD_LIMIT_SECONDS` 不合法 → exit 10 且沒有外部動作；container argv 含 `com.bookfinder.mode=eslite`、`com.bookfinder.provider=ESLITE`、`--env CRAWLER_RUN_HARD_LIMIT_SECONDS=79200`（預設；2026-11-11 由 9000 改）、沒有 `CRAWLER_FETCHER`、image 在最後、沒有 books module；金石堂與誠品的 image／hard limit 設定互不讀取；hard limit 停止時寫 `runner/eslite-last-run.json`；orphan、paused；`RUNNER_PROVIDERS["eslite"]`。
   - 實際 build（本機，2026-11-11，非自動測試）：`docker build --target eslite` 成功；`--network none` 下可 import `eslite.cli`、清單檔存在、`import playwright` 為 `ModuleNotFoundError`、UID 10001、沒有環境變數時 exit 2。
 - **來源與狀態**：[test_eslite_image.py](../tests/test_eslite_image.py)（9）、[test_local_runner.py](../tests/test_local_runner.py)（新增 13 個函式，既有案例未修改）。
 
 ### CR-E05 — 誠品清單產生工具（`deploy/local/eslite_category_pages.py`）
 
 - **責任／規格**：[architecture](architecture.md) 的 `deploy/local/eslite_category_pages.py`；[deploy README](../deploy/README.md) §9.5.2；風險 L2（產生 crawler 的輸入，不寫 DB）；狀態：已有測試，2026-11-11 執行通過（完整 suite 21339 passed）。全部離線：合成的小分類樹、假 fetch。
-- **Then**：只保留 top id 子樹的第 3 層；其他頂層忽略；外部 `link`、`is_brand`、`--exclude-level2` 排除；重複 id 保留第一個；top id 不存在 → exit 1、不寫檔；輸出經 `load_page_urls` 讀回與選出的網址同序且皆為 canonical；超過 400 → exit 2、檔案不變；`--dry-run` 不寫檔；已有網址的檔案沒有 `--force` → exit 2 且零請求，有 `--force` 才取代；只有註解的檔案可直接取代；403、非 JSON、過大、頂層不是 list、連線例外 → exit 1 且檔案不變；`--from-file`；每次執行恰好 1 次 fetch。
+- **Then**：只保留 top id 子樹的第 3 層；其他頂層忽略；外部 `link`、`is_brand`、`--exclude-level2` 排除；CLI 預設另排除第 2 層 `44444`、`1582`，`--exclude-level2` 會疊加，`--no-default-excludes` 關閉預設排除，檔頭列出被排除的第 2 層；重複 id 保留第一個；top id 不存在 → exit 1、不寫檔；輸出經 `load_page_urls` 讀回與選出的網址同序且皆為 canonical；超過 400 → exit 2、檔案不變；`--dry-run` 不寫檔；已有網址的檔案沒有 `--force` → exit 2 且零請求，有 `--force` 才取代；只有註解的檔案可直接取代；403、非 JSON、過大、頂層不是 list、連線例外 → exit 1 且檔案不變；`--from-file`；每次執行恰好 1 次 fetch。
 - **離線 smoke（非自動測試）**：以 E0 的分類樹（2026-11-10）`--dry-run`：第 3 層 282、外部連結 21、保留 261。
 - **來源與狀態**：[test_eslite_category_pages.py](../tests/test_eslite_category_pages.py)（39）。
