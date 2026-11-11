@@ -7,8 +7,8 @@ Eslite keys, defaults and error class, and keeps every name the CLI and the test
 - ``EsliteConfig`` is the generic ``CategoryRunConfig`` (the same fields);
 - ``EsliteConfigError`` is a ``CategoryConfigError`` (still a ``ValueError``): the caller maps it to exit code 2.
 
-Defaults (provisional, user-approved until the page list exists, CB-08 §7): soft budget 7200 seconds, hard limit 9000
-seconds (``CRAWLER_RUN_HARD_LIMIT_SECONDS``, shared with the other providers). ``ESLITE_WRITE_POLICY`` defaults to
+Defaults (user decision 2026-11-11: the same as Kingstone): soft budget 72000 seconds, hard limit 79200 seconds
+(``CRAWLER_RUN_HARD_LIMIT_SECONDS``, shared with the other providers). ``ESLITE_WRITE_POLICY`` defaults to
 ``normal``. ``ESLITE_ARTIFACTS_DIR`` (default ``crawler/artifacts``) holds ``eslite/last-run.json``, ``eslite/history/`` and
 ``eslite/diagnostics/``. ``ESLITE_DIAGNOSTIC_MAX_BYTES`` (default 2 MiB) caps one saved diagnostic HTML file.
 """
@@ -38,8 +38,8 @@ MAX_RESPONSE_BYTES_ENV = "ESLITE_MAX_RESPONSE_BYTES"
 ARTIFACTS_DIR_ENV = "ESLITE_ARTIFACTS_DIR"
 DIAGNOSTIC_MAX_BYTES_ENV = "ESLITE_DIAGNOSTIC_MAX_BYTES"
 
-DEFAULT_SOFT_BUDGET_SECONDS = 7200  # provisional (user-approved, 2026-11-11): revisit once the page list exists
-DEFAULT_HARD_LIMIT_SECONDS = 9000  # provisional; must stay above the soft budget
+DEFAULT_SOFT_BUDGET_SECONDS = 72000  # user decision 2026-11-11: the same as Kingstone
+DEFAULT_HARD_LIMIT_SECONDS = 79200  # user decision 2026-11-11: the same as Kingstone; must stay above the soft budget
 # crawler/artifacts, located relative to the package, not the working directory (same rule as the other providers).
 DEFAULT_ARTIFACTS_DIR = Path(__file__).resolve().parent.parent / "artifacts"
 DEFAULT_DIAGNOSTIC_MAX_BYTES = 2 * 1024 * 1024

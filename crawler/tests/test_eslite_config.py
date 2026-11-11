@@ -24,15 +24,15 @@ def test_defaults_when_nothing_is_set():
     assert config == EsliteConfig(
         pages_file=DEFAULT_PAGES_FILE,
         write_policy=WritePolicy.NORMAL,
-        soft_budget_seconds=7200.0,
-        hard_limit_seconds=9000.0,
+        soft_budget_seconds=72000.0,
+        hard_limit_seconds=79200.0,
         http_timeout_seconds=30.0,
         http_max_attempts=3,
         max_response_bytes=5 * 1024 * 1024,
         artifacts_dir=DEFAULT_ARTIFACTS_DIR,
         diagnostic_max_bytes=2 * 1024 * 1024,
     )
-    assert (DEFAULT_SOFT_BUDGET_SECONDS, DEFAULT_HARD_LIMIT_SECONDS) == (7200, 9000)
+    assert (DEFAULT_SOFT_BUDGET_SECONDS, DEFAULT_HARD_LIMIT_SECONDS) == (72000, 79200)
     assert DEFAULT_DIAGNOSTIC_MAX_BYTES == 2 * 1024 * 1024
 
 
@@ -132,7 +132,7 @@ def test_a_blank_value_counts_as_unset():
 
     assert config.write_policy is WritePolicy.NORMAL
     assert config.pages_file == DEFAULT_PAGES_FILE
-    assert config.soft_budget_seconds == 7200.0
+    assert config.soft_budget_seconds == 72000.0
 
 
 def test_the_write_policy_error_never_echoes_the_value():

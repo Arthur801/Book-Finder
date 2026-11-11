@@ -1128,7 +1128,7 @@ def test_eslite_container_arguments_default_hard_limit_and_no_books_module(local
     assert f"type=bind,src={local.artifacts},dst=/app/crawler/artifacts" in argv
     assert f"type=bind,src={local.ca},dst={CA_CONTAINER_PATH},readonly" in argv
     assert argv.count("--env") == 1
-    assert value_after(argv, "--env") == "CRAWLER_RUN_HARD_LIMIT_SECONDS=9000"
+    assert value_after(argv, "--env") == "CRAWLER_RUN_HARD_LIMIT_SECONDS=79200"
     assert "CRAWLER_FETCHER=curl" not in argv
     assert not any("CRAWLER_FETCHER" in arg for arg in argv)
     assert argv[-1] == "eslite:test"  # the image CMD is `eslite`: no extra container arguments
@@ -1149,7 +1149,7 @@ def test_eslite_mode_does_not_use_the_kingstone_image_or_hard_limit_even_when_th
     argv = local.run_argv()
     assert argv[-1] == "eslite:test"
     assert "kingstone:test" not in argv
-    assert value_after(argv, "--env") == "CRAWLER_RUN_HARD_LIMIT_SECONDS=9000"
+    assert value_after(argv, "--env") == "CRAWLER_RUN_HARD_LIMIT_SECONDS=79200"
 
 
 def test_kingstone_mode_does_not_use_the_eslite_image_or_hard_limit_even_when_they_are_invalid(local):
@@ -1168,7 +1168,7 @@ def test_eslite_mode_with_a_kingstone_limit_still_uses_the_eslite_default(local)
     eslite_local(local, CRAWLER_RUN_HARD_LIMIT_SECONDS="60")
     result = local.run("eslite")
     assert result.returncode == 0, result.stderr
-    assert value_after(local.run_argv(), "--env") == "CRAWLER_RUN_HARD_LIMIT_SECONDS=9000"
+    assert value_after(local.run_argv(), "--env") == "CRAWLER_RUN_HARD_LIMIT_SECONDS=79200"
 
 
 def test_eslite_watchdog_stops_the_container_at_the_hard_limit_and_writes_the_eslite_record(local):
