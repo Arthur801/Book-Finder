@@ -160,8 +160,11 @@
 - 已核對的前提：`ESLITE` registry 列已由 migration seed（disabled），不需 DDL；`bookfinder_crawler` 權限不分 provider，不需新增 GRANT。
 - Phase 1 已完成：`ProviderCode.ESLITE`、`missing_schema_prerequisites(conn, provider)`、`ListedItem`／`ListPage` 移入 `catalog_core/models`（見 [architecture](architecture.md)）。
 - 仍寫死 KINGSTONE、待 Phase 3 抽成共用元件的部分：`kingstone/{run,ledger,artifacts,cli,config,acquisition}`（金石堂行為不變）。
-- 下一步：Phase 2（誠品 URL、清單、列表與詳細 JSON parser，全離線）與 Phase 3（共用元件抽離）可並行。
-- 待決定（計畫 §12）：pacing 區間、清單 canonical 規則、soft budget／hard limit、非書商品、第 1 頁 `total` 0 的分類。
+- Phase 2 已完成（分支 `eslite-p2-adapter`）：`eslite/{urls,page_list,models,parse_list,parse_detail}`，全離線（CR-E02）；尚未接上 acquisition、run、CLI。
+- 下一步：Phase 3 M2／M3（共用 ledger、run、artifacts 抽離），之後 Phase 4 接上誠品的 acquisition、run 與 CLI。
+- Phase 2 的實作選擇（可再調整）：作者欄的角色詞套用到前面所有尚未指定角色的名字；角色詞前沒有名字時整本解析失敗；嵌在名字裡的「等」保留；分類只取第 3 層名稱；`restricted` 為 true 時解析失敗。
+- 使用者決定（2026-11-11）：清單 `page=1` 省略；非書商品當書處理（不依 `is_book` 過濾）；第 1 頁 `total` 0 記為該頁失敗（`EmptyCategory`）。
+- 待決定（計畫 §12）：pacing 區間、soft budget／hard limit。
 - 已知限制（計畫 §8）：所有 provider 共用本地 `run.lock` 與 writer 名稱，誠品與金石堂不能同時跑；runner 一般失敗沒有 record 的缺口（CB-07）同樣影響 eslite mode。
 
 ### CB-08 來源契約（E0 凍結）

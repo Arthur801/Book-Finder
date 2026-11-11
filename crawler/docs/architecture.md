@@ -43,6 +43,29 @@
 | [EC2 wrapper](../deploy/run-crawler.sh) | host scheduling、SSM secret retrieval、daily/pages serialization、DB maintenance coordination、deployment state gate、Docker execution 與 pages schedule state |
 | [deploy/local/run-local-crawler.sh](../deploy/local/run-local-crawler.sh)、[runner_support](../deploy/local/runner_support.py) | 本地 runner（Phase 6 M4，v12 §8）：在使用者本機以 `daily`、`pages`、`first_book`、`kingstone` 啟動一個 crawler container；經 SSH 以 `sudo -n cat` 唯讀讀取 EC2 deploy state（檔案為 root 0600）；經 SSH 本地轉發連 RDS（`host` 為 RDS endpoint、`hostaddr=127.0.0.1`、`sslmode=verify-full`）；DB secret 來自 SSM 或 600 檔；本地 `run.lock`；orphan check；writer watchdog（hard limit → stop → kill → inspect，無法確認則 `ORPHAN_WRITER`）；exit code 表、ALERT 與 terminal record 見 [deploy README](../deploy/README.md) §9.4.1。`runner_support.py` 為標準函式庫的 state 判定、URL 改寫、埠檢查，以及 terminal record 的建立與原子寫入，以 `python3 -I` 呼叫 |
 
+## 誠品 adapter（eslite/）— 已實作的解析契約（CB-08 Phase 2）
+
+現況：只有純函式（URL、清單、列表與詳細 JSON parser），**尚未接上 acquisition、run 或 CLI**（Phase 3／4），所以 production 上沒有誠品的執行路徑。來源契約見 [backlog](backlog.md)「CB-08 來源契約（E0 凍結）」；計畫 [eslite-category-crawler.md](../../Docs/plans/eslite-category-crawler.md) v2。
+
+| 模組 | 契約 |
+|---|---|
+| [eslite/urls](../eslite/urls.py) | `canonical_list_url`：只接受 `https://www.eslite.com/category/3/<id>[?page=<n>]`（第 3 層；`id`、`n` 為正整數、無前導零；無其他 query、fragment、userinfo、port、結尾斜線）；canonical 形式省略 `page=1`（使用者決定）。`list_api_url` → `https://athena.eslite.com/api/v1/categories/<id>/products?page_no=<n>&sort_type=date&sort_order=desc&page_size=40&is_available=true`（參數固定）；`is_list_api_url`、`detail_api_url(guid)`／`guid_from_detail_api_url`（`/api/v4/products/<guid>/description`）、`product_url(guid)`（`https://www.eslite.com/product/<guid>`，即 Source 的 `source_url`，crawler 不請求）。guid 為 `^[0-9]{16,23}$` |
+| [eslite/page_list](../eslite/page_list.py) | `ESLITE_PAGES_FILE`，預設 `crawler/eslite-pages.txt`（檔案尚未建立，由使用者提供），上限 400；檔案規則委派 `catalog_core/page_list`；canonical 後重複的行（如 `/category/3/101` 與 `?page=1`）只留一次，INFO 記在 `eslite.page_list` |
+| [eslite/models](../eslite/models.py) | `EsliteParseError`、`EmptyCategory`（`EsliteParseError` 子類）、`ProductNotFound`；`ListedItem`／`ListPage` 自 `catalog_core/models` 重新匯出 |
+| [eslite/parse_list](../eslite/parse_list.py) | `parse_list_json(text, url) -> ListPage`（`url` 為 canonical 網頁網址）：JSON 結構或型別不符、`page_no` 與網址的頁碼不同、guid 不合格 → `EsliteParseError`；`total` 為 0 → `EmptyCategory`（使用者決定：記為該頁失敗）；`total` > 0 且 `products` 空 → 合法零列頁（`empty=True`）；同頁重複 guid 只留第一個；`is_book` 不過濾（使用者決定：非書商品當書處理）；`total_pages = ceil(total / page_size)` |
+| [eslite/parse_detail](../eslite/parse_detail.py) | `parse_detail_json(text, guid) -> BookDraft`：404 形態（`message` 為 `Product not found` 且無 `product_guid`）→ `ProductNotFound`；`product_guid` 不符、書名空白、型別錯誤 → `EsliteParseError`；`restricted` 為 true → `EsliteParseError`（E0 未觀察到，fail closed）。欄位規則見下方 |
+
+詳細 JSON → `BookDraft`：
+
+- `external_id` = guid；`source_url` = `product_url(guid)`；`title` = `product_name`（不接 `sub_title`）；`publisher` = `manufacturer`。
+- 出版日：`YYYY-MM-DDT00:00:00.000+08:00` 且日期合法 → 該日（DAY 精度）；其他形式 → None（記 WARNING）。
+- ISBN（經 `catalog_core.normalize`，去重）：`isbn13`（空白時，若 `ean` 為 978／979 開頭的 13 位數字則改用 `ean`），再加 `isbn10`。471 等一般商品條碼不會成為 ISBN。
+- 作者欄：以「;」分組、組內以「/」切開；組內的角色詞（「編」「主編」「編著」「編者」→ EDITOR；「策劃」「策畫」「總策劃」「總策畫」→ OTHER）把它前面尚未指定角色的名字都設成該角色，其餘名字為 AUTHOR；角色詞前面沒有名字 → `EsliteParseError`。`translator` → TRANSLATOR、`compiler` → EDITOR、`painter` → ILLUSTRATOR；單獨的「等」一律捨棄（嵌在名字裡的「等」保留）。順序：作者、譯者、編者、繪者；完全相同的（名字、角色）去重。
+- 語言（規格 `language`，去掉 `<n>:` 前綴）：「中文/繁體」→ `zh-TW`、「中文/簡體」→ `zh-CN`，其他 → None（記 WARNING）。頁數：規格 `pages` 為正整數，否則 None。
+- 簡介：`descriptions` 中「內容簡介」的 HTML 經 `catalog_core.html_text.text_with_line_breaks`，沒有文字時改用 `short_description`；目錄：「產品目錄」或「目錄」。
+- 封面：`default_product_photo_id` 對應照片的 `original_path`（沒有對應時用第一張），必須是 `https://`，否則 None。
+- 分類：只取 `level3_name`（第 2 層名稱含促銷字樣，例如「📌文學館79折起」，不使用）。
+
 ## 金石堂 adapter（kingstone/）— 已實作的解析契約
 
 現況：清單檔讀取、URL grammar、列表頁與詳細頁 parser 是純函式，不連網、不寫 DB；acquisition 經 transport 連網但不寫 DB；run 已把它們串成逐頁流程，經注入的 store 寫入 DB；入口 `python -m kingstone` 組裝真 fetcher 與 DB store 後呼叫它（Phase 5 M2）。資料流：
