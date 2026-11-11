@@ -78,6 +78,7 @@ catalog_core/service.resolve_item → SessionCatalogStore → PostgreSQL（不�
 - crawler 把每行轉成列表 API：`https://athena.eslite.com/api/v1/categories/<id>/products?page_no=<n>&sort_type=date&sort_order=desc&page_size=40&is_available=true`（參數固定，與前端分類頁預設相同）。`page=n` 對應 `page_no=n`；每頁 40 本。
 - 詳細 API 由卡片 guid 組出：`https://athena.eslite.com/api/v4/products/<guid>/description`；guid 必須符合 `^[0-9]{16,23}$`。`source_url` 是 `https://www.eslite.com/product/<guid>`（給使用者看的網頁，crawler 不請求它）。
 - 清單順序就是執行順序；每個 URL 只抓那一頁。
+- 清單可用操作工具 `crawler/deploy/local/eslite_category_pages.py` 從分類樹產生（使用者決定：中文書第 3 層、只列第 1 頁）；工具不在 crawler 套件內，crawler 本身仍不探索分類樹（§1 out of scope 不變）。
 
 ## 5. Catalog 與交易（沿用，不改）
 
@@ -175,6 +176,7 @@ catalog_core/service.resolve_item → SessionCatalogStore → PostgreSQL（不�
 ## 設計變更紀錄
 
 - v1（2026-11-11）：初版。
+- v2.6（2026-11-11）：§4 記錄清單產生工具（中文書第 3 層、第 1 頁）。
 - v2.5（2026-11-11）：Phase 6 canary 通過；§11 G1～G4 記錄結果。
 - v2.4（2026-11-11）：Phase 5。`crawler/eslite-pages.txt` 在使用者提供前只有註解（空清單 exit 2，零請求）；runner `ESLITE_RUN_HARD_LIMIT_SECONDS` 預設 9000（暫定）。
 - v2.3（2026-11-11）：Phase 4。§6 改寫詳細 API 404 的處理（`http_status` 失敗，不另外分類）；§7 soft budget／hard limit 暫定 7200／9000 秒（使用者同意）。

@@ -331,6 +331,25 @@ crawler/deploy/local/run-local-crawler.sh daily
 5. 以唯讀 SQL 核對 production 的新資料：[`local/sql/verify-eslite-canary.sql`](local/sql/verify-eslite-canary.sql)，以主帳號執行（要讀 `book_subjects`、`bestsellers`），時段以 `psql -v t0='<UTC>' -v t1='<UTC>'` 傳入。它核對 ESLITE Source 數與 guid／網址格式、掛到既有書與新建書的分布、新書欄位覆蓋、半寫入、重複，以及博客來、金石堂與 Bestseller 未變動。
 6. 出現 429、403、challenge 或 queue-it 排隊頁就停止，依 §9.6 停用，不採取規避技術。
 
+### 9.5.2 產生完整清單（誠品）
+
+[`local/eslite_category_pages.py`](local/eslite_category_pages.py) 從誠品的分類樹產生 `crawler/eslite-pages.txt`：中文書（id 3）底下所有第 3 層分類，每個分類只列第 1 頁（使用者決定）。它是操作工具，不在 crawler 套件內；crawler 本身不探索分類樹（`ESLITE_POLICY` 也不允許抓分類樹的網址）。
+
+```bash
+cd ~/Documents/vs_repos/Book-Finder/crawler
+# 先看統計，不寫檔（會對 athena.eslite.com/api/v1/categories 發 1 次請求）
+../.venv/bin/python deploy/local/eslite_category_pages.py --dry-run
+# 寫入；清單已有網址（例如 canary 那一行）時要加 --force
+../.venv/bin/python deploy/local/eslite_category_pages.py --force
+```
+
+- 只發 1 次請求，不跟隨 redirect、不重試；回應必須是 200、JSON、5 MiB 以內，否則 exit 1，不寫檔。`--from-file <json>` 改讀已存的分類樹，不連網。
+- 排除：有外部 `link` 的節點（展覽、品牌頁，不是商品列表）與 `is_brand`；重複的 id 只留第一個。`--exclude-level2 <id>`（可重複）排除整個第 2 層，例如促銷分類。
+- 寫入前檢查：不超過 400 筆（超過 exit 2，不寫檔）；以 crawler 的 `load_page_urls` 讀回並比對網址與順序，通過後才以原子方式取代原檔。目標檔已有網址且沒有 `--force` → exit 2，不發請求、不寫檔。
+- 每筆網址前有一行註解寫出分類路徑（`# 中文書 › 第 2 層 › 第 3 層`）。清單順序就是執行順序（分類樹的順序）。
+- 2026-11-10 的分類樹：第 3 層 282 個，排除外部連結 21 個後為 261 筆。
+- 改清單後要重新 build image（清單隨 image 發布）。
+
 ### 9.6 停止與 rollback
 
 依計畫 v12 §10：先停止 writer、確認 tunnel 已關閉，最後才停用。順序不可對調：`CRAWLER_ENABLED=false` 只影響**下一次** invocation，不會停止正在執行的 writer。
