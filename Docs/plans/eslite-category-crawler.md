@@ -94,8 +94,8 @@ catalog_core/service.resolve_item → SessionCatalogStore → PostgreSQL（不�
 |---|---|
 | `ESLITE_PAGES_FILE` | `crawler/eslite-pages.txt` |
 | `ESLITE_WRITE_POLICY` | `normal` |
-| `ESLITE_SOFT_RUN_BUDGET_SECONDS` | 7200（暫定，使用者同意；清單長度確定後再訂） |
-| `CRAWLER_RUN_HARD_LIMIT_SECONDS`（container 內） | 9000（暫定）；runner 以 `ESLITE_RUN_HARD_LIMIT_SECONDS` 傳入（Phase 5），必須大於 soft budget |
+| `ESLITE_SOFT_RUN_BUDGET_SECONDS` | 72000（使用者決定 2026-11-11，比照金石堂；原暫定 7200） |
+| `CRAWLER_RUN_HARD_LIMIT_SECONDS`（container 內） | 79200（使用者決定 2026-11-11，比照金石堂；原暫定 9000）；runner 以 `ESLITE_RUN_HARD_LIMIT_SECONDS` 傳入（Phase 5），必須大於 soft budget |
 | `ESLITE_HTTP_TIMEOUT_SECONDS` / `ESLITE_HTTP_MAX_ATTEMPTS` | 30 / 3 |
 | `ESLITE_MAX_RESPONSE_BYTES` / `ESLITE_DIAGNOSTIC_MAX_BYTES` | 5 MiB / 2 MiB |
 | `ESLITE_ARTIFACTS_DIR` | `crawler/artifacts`（產物在 `eslite/` 子目錄） |
@@ -164,10 +164,10 @@ catalog_core/service.resolve_item → SessionCatalogStore → PostgreSQL（不�
 - 非書商品：當書處理，不依 `is_book` 過濾（照常抓詳細 API；沒有 ISBN 就建新 Book）。
 - 第 1 頁 `total` 0（分類不存在、沒有商品或貼成第 2 層）：記為該頁失敗（`EmptyCategory`）；`total` > 0 但超過最後一頁才是合法零列頁。
 - pacing：沿用金石堂，每次請求（含重試）前隨機等待 3～10 秒（E0 回應時間都在 0.3 秒內）。
+- soft budget 72000 秒、hard limit 79200 秒，完全比照金石堂。清單 254 頁時，第一次 run 若幾乎全是新書，約 10,400 次請求 × 約 7.2 秒（canary 實測）≈ 75,000 秒，可能略超過 soft budget；超過時乾淨停止，剩下的頁以 `pages_not_reached` 回報，下一次 run replay 補上。之後的 run 大多是 Existing（只 touch），約 254 次列表請求、30 分鐘左右。
+- 清單工具預設排除促銷類第 2 層 `44444`（雙11強檔推薦）、`1582`（編輯推薦）。
 
-仍待決定（附建議）：
-
-1. 清單長度確定後的 soft budget 與 hard limit（目前暫定 7200／9000 秒，與金石堂 v12 相同；1 頁 canary 用不到這麼久）。
+仍待決定：無。
 
 ## 驗證
 
@@ -176,6 +176,7 @@ catalog_core/service.resolve_item → SessionCatalogStore → PostgreSQL（不�
 ## 設計變更紀錄
 
 - v1（2026-11-11）：初版。
+- v2.7（2026-11-11）：§7、§12 記錄使用者決定：budget 72000／79200 秒（比照金石堂）；清單工具預設排除促銷類第 2 層。
 - v2.6（2026-11-11）：§4 記錄清單產生工具（中文書第 3 層、第 1 頁）。
 - v2.5（2026-11-11）：Phase 6 canary 通過；§11 G1～G4 記錄結果。
 - v2.4（2026-11-11）：Phase 5。`crawler/eslite-pages.txt` 在使用者提供前只有註解（空清單 exit 2，零請求）；runner `ESLITE_RUN_HARD_LIMIT_SECONDS` 預設 9000（暫定）。

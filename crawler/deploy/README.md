@@ -229,7 +229,7 @@ v12 計畫（`Docs/plans/kingstone-category-crawler.md` §8）改由使用者的
 | `AWS_PROFILE`／`AWS_REGION`／`DATABASE_URL_PARAMETER` | ssm 時 | 讀取 SSM 參數 |
 | `DB_SECRET_FILE` | file 時 | 600 權限的 secret 檔 |
 | `CRAWLER_RUN_HARD_LIMIT_SECONDS` | 否 | 金石堂的 hard limit（預設 79200）；同時以 `--env` 傳給 container，須大於 container 的 soft budget（預設 72000）。設定檔若仍是 9000 等較小的值，crawler 會以 exit 2 拒絕 |
-| `ESLITE_RUN_HARD_LIMIT_SECONDS` | 否 | 誠品的 hard limit（預設 9000，暫定）；以 `--env CRAWLER_RUN_HARD_LIMIT_SECONDS=<值>` 傳給 container，須大於 container 的 `ESLITE_SOFT_RUN_BUDGET_SECONDS`（預設 7200，暫定）。清單長度確定後再調整 |
+| `ESLITE_RUN_HARD_LIMIT_SECONDS` | 否 | 誠品的 hard limit（預設 79200，比照金石堂）；以 `--env CRAWLER_RUN_HARD_LIMIT_SECONDS=<值>` 傳給 container，須大於 container 的 `ESLITE_SOFT_RUN_BUDGET_SECONDS`（預設 72000）。設定檔若仍是 9000 等較小的值，crawler 會以 exit 2 拒絕 |
 | `BOOKS_RUN_HARD_LIMIT_SECONDS` | 否 | 博客來的 hard limit（預設 3600，見 backlog） |
 | `CRAWLER_STOP_GRACE_SECONDS` | 否 | watchdog 的 `docker stop -t`（預設 30） |
 | `TUNNEL_WAIT_SECONDS` | 否 | 等待隧道埠可連的上限（預設 20） |
@@ -344,10 +344,10 @@ cd ~/Documents/vs_repos/Book-Finder/crawler
 ```
 
 - 只發 1 次請求，不跟隨 redirect、不重試；回應必須是 200、JSON、5 MiB 以內，否則 exit 1，不寫檔。`--from-file <json>` 改讀已存的分類樹，不連網。
-- 排除：有外部 `link` 的節點（展覽、品牌頁，不是商品列表）與 `is_brand`；重複的 id 只留第一個。`--exclude-level2 <id>`（可重複）排除整個第 2 層，例如促銷分類。
+- 排除：有外部 `link` 的節點（展覽、品牌頁，不是商品列表）與 `is_brand`；重複的 id 只留第一個。**預設排除促銷類第 2 層** `44444`（📢雙11強檔推薦）與 `1582`（編輯推薦）：它們的書也在一般分類裡，促銷結束後分類可能清空而變成 `empty_category`（使用者決定）。`--exclude-level2 <id>`（可重複）再加排除，`--no-default-excludes` 關閉預設排除。
 - 寫入前檢查：不超過 400 筆（超過 exit 2，不寫檔）；以 crawler 的 `load_page_urls` 讀回並比對網址與順序，通過後才以原子方式取代原檔。目標檔已有網址且沒有 `--force` → exit 2，不發請求、不寫檔。
 - 每筆網址前有一行註解寫出分類路徑（`# 中文書 › 第 2 層 › 第 3 層`）。清單順序就是執行順序（分類樹的順序）。
-- 2026-11-10 的分類樹：第 3 層 282 個，排除外部連結 21 個後為 261 筆。
+- 2026-11-10 的分類樹：第 3 層 282 個，排除外部連結 21 個、預設排除的促銷類 7 個後為 254 筆。
 - 改清單後要重新 build image（清單隨 image 發布）。
 
 ### 9.6 停止與 rollback

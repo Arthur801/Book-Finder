@@ -39,9 +39,8 @@ DATABASE_URL_PARAMETER=/book-finder/prod/crawler-database-url
 # Hard run limits enforced by the watchdog. The kingstone and eslite values are also passed to their containers as
 # CRAWLER_RUN_HARD_LIMIT_SECONDS, where each must stay above its soft budget (kingstone 72000 by default). Books keeps its own limit.
 CRAWLER_RUN_HARD_LIMIT_SECONDS=79200
-# Eslite: must stay above the container's soft budget ESLITE_SOFT_RUN_BUDGET_SECONDS (default 7200).
-# Provisional until the page list length is known.
-ESLITE_RUN_HARD_LIMIT_SECONDS=9000
+# Eslite: must stay above the container's soft budget ESLITE_SOFT_RUN_BUDGET_SECONDS (default 72000; same as Kingstone).
+ESLITE_RUN_HARD_LIMIT_SECONDS=79200
 BOOKS_RUN_HARD_LIMIT_SECONDS=3600
 # Seconds docker waits after SIGTERM before it kills the container.
 CRAWLER_STOP_GRACE_SECONDS=30
