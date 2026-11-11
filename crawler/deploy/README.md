@@ -328,7 +328,7 @@ crawler/deploy/local/run-local-crawler.sh daily
 2. 清單只放 1 頁：把 `crawler/eslite-pages.txt` 改為一行第 3 層分類網址（例 `https://www.eslite.com/category/3/101`），`docker build --target eslite -t eslite:canary crawler`，設定 `ESLITE_CRAWLER_IMAGE=eslite:canary`。repo 內的清單在使用者提供之前只有註解，空清單會讓 crawler 在送出任何請求前以 exit 2 結束。
 3. 啟用 ESLITE：以主帳號執行 [`local/sql/enable-eslite.sql`](local/sql/enable-eslite.sql)；回復即改回 `false`。未啟用時 crawler 以 exit 2 拒絕（`source provider ESLITE is disabled or not registered`），不發出請求。
 4. 執行 `run-local-crawler.sh eslite`，確認 exit code、`artifacts/eslite/last-run.json`（`status`、`failed`、`skipped_pages`、`http_failures`、`alert_reasons`）與 log 中的 `container=end exit_code=...`。
-5. 以唯讀 SQL 核對 production 的新資料（以金石堂的 [`local/sql/verify-normal-2026-10-25.sql`](local/sql/verify-normal-2026-10-25.sql) 為範本，改成 ESLITE 與該次 run 的時段）。
+5. 以唯讀 SQL 核對 production 的新資料：[`local/sql/verify-eslite-canary.sql`](local/sql/verify-eslite-canary.sql)，以主帳號執行（要讀 `book_subjects`、`bestsellers`），時段以 `psql -v t0='<UTC>' -v t1='<UTC>'` 傳入。它核對 ESLITE Source 數與 guid／網址格式、掛到既有書與新建書的分布、新書欄位覆蓋、半寫入、重複，以及博客來、金石堂與 Bestseller 未變動。
 6. 出現 429、403、challenge 或 queue-it 排隊頁就停止，依 §9.6 停用，不採取規避技術。
 
 ### 9.6 停止與 rollback
