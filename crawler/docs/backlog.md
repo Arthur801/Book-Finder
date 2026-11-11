@@ -159,7 +159,8 @@
 - 範圍：比照金石堂，使用者提供 `crawler/eslite-pages.txt`（寫網頁網址，由 crawler 轉成列表 API），逐頁讀商品卡、New Source 抓詳細 API、經 `catalog_core.service.resolve_item` 寫入；HTTP-only；首次 canary 直接用 `normal`（1 頁）。
 - 已核對的前提：`ESLITE` registry 列已由 migration seed（disabled），不需 DDL；`bookfinder_crawler` 權限不分 provider，不需新增 GRANT。
 - Phase 1 已完成：`ProviderCode.ESLITE`、`missing_schema_prerequisites(conn, provider)`、`ListedItem`／`ListPage` 移入 `catalog_core/models`（見 [architecture](architecture.md)）。
-- 仍寫死 KINGSTONE、待 Phase 3 抽成共用元件的部分：`kingstone/{run,ledger,artifacts,cli,config,acquisition}`（金石堂行為不變）。
+- Phase 3 M1 已完成：HTTP acquisition 引擎抽成 `catalog_core/http_acquisition`（`FetchPolicy`、`PacedFetcher`），`kingstone/acquisition` 改為 policy＋薄的一層，既有測試未修改（CR-T21）。
+- 仍寫死 KINGSTONE、待 Phase 3 M2／M3 抽成共用元件的部分：`kingstone/{run,ledger,artifacts,alerts,diagnostics,cli,config}`（金石堂行為不變）。
 - 下一步：Phase 2（誠品 URL、清單、列表與詳細 JSON parser，全離線）與 Phase 3（共用元件抽離）可並行。
 - 待決定（計畫 §12）：pacing 區間、清單 canonical 規則、soft budget／hard limit、非書商品、第 1 頁 `total` 0 的分類。
 - 已知限制（計畫 §8）：所有 provider 共用本地 `run.lock` 與 writer 名稱，誠品與金石堂不能同時跑；runner 一般失敗沒有 record 的缺口（CB-07）同樣影響 eslite mode。

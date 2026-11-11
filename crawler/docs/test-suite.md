@@ -267,6 +267,14 @@ migration 011 的 schema 由 test_db_integration.py 在 011 上檢查（無 `sou
 - **Then**：真實頁各欄位符合 fixture 的已知值；description 與目錄保留換行、無相鄰區塊文字外漏（活動、相關主題、作者介紹不被讀）；soft 404 為 `ProductNotFound` 而非 parse error；損壞 JSON 或 sku 不符、name 缺少為 `KingstoneParseError`；日期無效與語言未知為 None（後者記 WARNING）；ISBN 只來自 `isbn` 或 `gtin13` 並經共用正規化；作者與譯者的角色與順序依規則；譯者列排除「追蹤」「?」；subjects 去掉「中文書」並去重；非 canonical URL 為 `ValueError`。
 - **來源與狀態**：[test_kingstone_parse_detail.py](../tests/test_kingstone_parse_detail.py)（74 個測試）。
 
+### CR-T21 — 共用 HTTP acquisition 引擎（CB-08 Phase 3 M1）
+
+- **責任／規格**：[architecture](architecture.md) 的 `catalog_core/http_acquisition`；[誠品計畫](../../Docs/plans/eslite-category-crawler.md) §3、§6；風險 L3（URL 守門與重送決定是否對外發出請求）；狀態：已有測試，2026-11-11 執行通過（完整 suite 20742 passed）。
+- **Given**：一個非金石堂的假 `FetchPolicy`（host `api.example.test`、自訂 predicate、1～2 秒 pacing、自訂 logger），fake transport／clock／sleep。
+- **When**：`PacedFetcher.fetch_list_page`、`fetch_detail_page`。
+- **Then**：不符 policy 的 URL、錯誤 host、http、userinfo、port → `ValueError` 且零請求；pacing 落在 policy 區間；503 重試一次並套用 backoff；404 為 `HTTP_STATUS` 且不重試；3xx 為 `REDIRECT`；budget 不足時在送出前失敗；request headers 來自 policy；log 寫在 policy 的 logger。金石堂行為由 CR-K05 以**未修改的**既有測試覆蓋。
+- **來源與狀態**：[test_http_acquisition.py](../tests/test_http_acquisition.py)（28 個測試）。
+
 ### CR-K05 — 金石堂 HTTP acquisition
 
 - **責任／規格**：[architecture](architecture.md)「金石堂 adapter」的 Acquisition 段落（來源：backlog CB-07「Acquisition」）與計畫 §6、§9 Phase 3；風險 L3（URL 守門、重送與 budget 決定是否對外發出請求）；狀態：已有測試，本次未執行（2026-10-25 的執行敘述屬先前紀錄）。全部離線：fake transport、fake clock、記錄型 fake sleep 與 fake curl session，不連網。
