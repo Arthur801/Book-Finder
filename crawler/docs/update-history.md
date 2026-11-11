@@ -6,6 +6,8 @@
 
 > 歷史查核 2026-10-24；當時 HEAD `91333c334148fa5bfe07055d0e799dc13bb0bb4e`。依基準版本靜態閱讀；本次未執行 build、測試、部署、外部服務或真實抓取。
 
+> 2026-11-11（誠品 Phase 6 canary，CB-08）：基準 `origin/main @ 048ce83`（#176）。使用者在本機執行 1 頁 `normal` canary（run `5a1deb91`，10:56:38～11:01:35 UTC；`/category/3/101`）：exit 0、SUCCESS、41 次請求全部 200、`imported` 29、`isbn_attached` 11、`failed` 0；唯讀核對全部符合。新增 `Docs/Implementation-Report/eslite-phase6-canary.md`，更新 backlog CB-08 與計畫 §11。沒有程式變更；production 變更（啟用 ESLITE、canary 寫入）由使用者執行。
+
 > 2026-11-11（誠品 Phase 6 準備，CB-08）：基準 `eslite-p5-ops @ 12bfedd`（#175）。新增 `crawler/deploy/local/sql/verify-eslite-canary.sql`（唯讀、以 `psql -v t0／t1` 傳入時段，不寫死日期）；已在 EF schema 的 disposable PostgreSQL 上以暫時測試完整執行一次（10 段全部成功，空資料），暫時測試未 commit。`crawler/deploy/README.md` §9.5.1 改為指向它。沒有程式變更、沒有 production 操作。
 
 > 2026-11-11（誠品 Phase 5，CB-08，commits `7bb0618`、`bf3e521`）：基準 `eslite-p4-run-cli @ 77c4617`（#174）。Dockerfile 新增 HTTP-only `eslite` target、`.dockerignore`、只有註解的 `crawler/eslite-pages.txt`、CI 的 eslite image build 與離線 smoke；本地 runner 新增 `eslite` mode（`ESLITE_CRAWLER_IMAGE`、`ESLITE_RUN_HARD_LIMIT_SECONDS` 預設 9000）、`RUNNER_PROVIDERS`、conf 範例；`crawler/deploy/README.md` §9 與 `local/sql/enable-eslite.sql`。新增 `test_eslite_image.py`（9）與 `test_local_runner.py` 的 13 個新函式（既有案例未修改）。完整 crawler pytest 21300 passed、0 skip；ruff、shellcheck 通過；本機 build `eslite` target 並離線 smoke 通過。沒有部署、沒有 production 變更、沒有真站抓取。

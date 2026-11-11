@@ -9,7 +9,7 @@
 | CB-02 | Books 診斷保留政策待決策；CR-T11。Kingstone 已有 20 份上限。 |
 | CB-03 | EC2 舊排程啟用前 live 驗證；L4，CR-T12／CR-T13。 |
 | CB-07 | 金石堂與本地 runner 已實作；剩餘 acceptance、operational failure record、CD image 與真實故障測試；CR-K01～CR-K15、CR-T19／CR-T20。 |
-| CB-08 | 誠品分類頁 crawler：E0 完成、改用 JSON API（plan v2）；Phase 1（core）完成；Phase 2 以後尚未實作；CR-E01、CR-K12。 |
+| CB-08 | 誠品分類頁 crawler（JSON API，plan v2.5）：Phase 0～6 完成，1 頁 production canary 通過；剩完整清單、budget 與 CD image；CR-E01～CR-E04、CR-T21～CR-T23。 |
 | CB-01／04／05／06 | 已處理，保留文末結案記錄，不重開為待辦。 |
 
 ## CB-02 — Books 診斷產物容量與保留期限
@@ -154,7 +154,7 @@
 
 ## CB-08 — 誠品分類頁 crawler（plan v2）
 
-- P2；L3；狀態：**E0、Phase 1 完成；Phase 2 以後 planned，尚未實作**（2026-11-11）。本節只記未完成工作與 E0 凍結的來源觀察，不是 current contract。
+- P2；L3；狀態：**Phase 0～6 完成，production canary 通過**（2026-11-11）；完整清單 run 待使用者提供清單。本節只記未完成工作與 E0 凍結的來源觀察，不是 current contract。
 - 計畫：[eslite-category-crawler.md](../../Docs/plans/eslite-category-crawler.md)（v2，含使用者決定 #1–#5）。
 - 範圍：比照金石堂，使用者提供 `crawler/eslite-pages.txt`（寫網頁網址，由 crawler 轉成列表 API），逐頁讀商品卡、New Source 抓詳細 API、經 `catalog_core.service.resolve_item` 寫入；HTTP-only；首次 canary 直接用 `normal`（1 頁）。
 - 已核對的前提：`ESLITE` registry 列已由 migration seed（disabled），不需 DDL；`bookfinder_crawler` 權限不分 provider，不需新增 GRANT。
@@ -166,7 +166,9 @@
 - Phase 4 已完成：`eslite/{acquisition,run,config,artifacts,diagnostics,cli,__main__}`，`python -m eslite` 可在本機以 fake 或真 DB 測試執行（CR-E03）；production 尚未啟用。
 - Phase 4 的實作選擇（可再調整）：詳細 API 404 記為 `http_status`（共用引擎不保留 404 body，不另外分類為 `product_not_found`）；第 1 頁 `total` 0 的 `EmptyCategory` 是 `EsliteParseError` 子類，所以也會存一份診斷檔（內容是很小的 JSON）；`kingstone/cli.py` 與 `eslite/cli.py` 結構重複，之後可再抽成共用入口。
 - Phase 5 已完成：Docker `eslite` target、CI 離線 smoke、本地 runner `eslite` mode（`ESLITE_CRAWLER_IMAGE`、`ESLITE_RUN_HARD_LIMIT_SECONDS`）、conf 範例、[deploy README](../deploy/README.md) §9.5.1、`local/sql/enable-eslite.sql`（CR-E04）。`crawler/eslite-pages.txt` 目前只有註解。
-- 下一步：Phase 6 canary（使用者）：提供 1 頁清單並 build `eslite:canary`、以主帳號執行 `enable-eslite.sql`、本機執行 `run-local-crawler.sh eslite`、以 `local/sql/verify-eslite-canary.sql`（唯讀、主帳號、`-v t0／t1`）核對；之後提供完整清單並訂定 budget。CD 推送 `ESLITE_CRAWLER_IMAGE` 與金石堂一樣未做（CB-07）。
+- **Phase 6 canary 通過（2026-11-11）**：run `5a1deb91`，1 頁（`/category/3/101`）、`normal`，10:56:38～11:01:35 UTC；exit 0、SUCCESS、41 次請求全部 200、`imported` 29、`isbn_attached` 11（11 本都已有金石堂 Source）、`failed` 0；唯讀核對：半寫入、重複、ISBN 共用皆 0，博客來、金石堂、Bestseller 未變動；1 本在 attach 時補了 NULL 欄位（第一次在真實資料上觸發）。ESLITE 維持 enabled。報告：[eslite-phase6-canary.md](../../Docs/Implementation-Report/eslite-phase6-canary.md)。
+- canary 觀察（符合現行規則，非錯誤）：29 本新書中 3 本沒有 ISBN（字典類，只有 471 商品條碼）→ 新建 Book，金石堂若有同一本會是不同 Book；2 本沒有 AUTHOR（「X/ 編」記為 EDITOR）；1 本語言為 None。
+- 下一步：使用者提供完整 `eslite-pages.txt` → 訂 soft budget／hard limit（計畫 §12）→ 完整清單 run。CD 推送 `ESLITE_CRAWLER_IMAGE` 與金石堂一樣未做（CB-07）。
 - Phase 2 的實作選擇（可再調整）：作者欄的角色詞套用到前面所有尚未指定角色的名字；角色詞前沒有名字時整本解析失敗；嵌在名字裡的「等」保留；分類只取第 3 層名稱；`restricted` 為 true 時解析失敗。
 - 使用者決定（2026-11-11）：清單 `page=1` 省略；非書商品當書處理（不依 `is_book` 過濾）；第 1 頁 `total` 0 記為該頁失敗（`EmptyCategory`）。
 - 使用者決定（2026-11-11）：pacing 沿用金石堂，每次請求（含重試）前隨機等待 3～10 秒（Phase 4 的誠品 `FetchPolicy` 套用）。
