@@ -165,7 +165,8 @@
 - Phase 3 M3 已完成：run 產物、alert、診斷檔與設定驗證抽成 `catalog_core/{run_artifacts,run_alerts,run_diagnostics,run_config}`，`kingstone/{artifacts,alerts,diagnostics,config}` 改為薄的一層；既有測試未修改（CR-T23）。Phase 3 完成。
 - Phase 4 已完成：`eslite/{acquisition,run,config,artifacts,diagnostics,cli,__main__}`，`python -m eslite` 可在本機以 fake 或真 DB 測試執行（CR-E03）；production 尚未啟用。
 - Phase 4 的實作選擇（可再調整）：詳細 API 404 記為 `http_status`（共用引擎不保留 404 body，不另外分類為 `product_not_found`）；第 1 頁 `total` 0 的 `EmptyCategory` 是 `EsliteParseError` 子類，所以也會存一份診斷檔（內容是很小的 JSON）；`kingstone/cli.py` 與 `eslite/cli.py` 結構重複，之後可再抽成共用入口。
-- 下一步：Phase 5（Docker `eslite` target、本地 runner `eslite` mode 與 `ESLITE_CRAWLER_IMAGE`／`ESLITE_RUN_HARD_LIMIT_SECONDS`、conf 範例、`crawler/deploy/README.md` §9）。
+- Phase 5 已完成：Docker `eslite` target、CI 離線 smoke、本地 runner `eslite` mode（`ESLITE_CRAWLER_IMAGE`、`ESLITE_RUN_HARD_LIMIT_SECONDS`）、conf 範例、[deploy README](../deploy/README.md) §9.5.1、`local/sql/enable-eslite.sql`（CR-E04）。`crawler/eslite-pages.txt` 目前只有註解。
+- 下一步：Phase 6 canary（使用者）：提供 1 頁清單並 build `eslite:canary`、以主帳號執行 `enable-eslite.sql`、本機執行 `run-local-crawler.sh eslite`、唯讀 SQL 核對；之後提供完整清單並訂定 budget。CD 推送 `ESLITE_CRAWLER_IMAGE` 與金石堂一樣未做（CB-07）。
 - Phase 2 的實作選擇（可再調整）：作者欄的角色詞套用到前面所有尚未指定角色的名字；角色詞前沒有名字時整本解析失敗；嵌在名字裡的「等」保留；分類只取第 3 層名稱；`restricted` 為 true 時解析失敗。
 - 使用者決定（2026-11-11）：清單 `page=1` 省略；非書商品當書處理（不依 `is_book` 過濾）；第 1 頁 `total` 0 記為該頁失敗（`EmptyCategory`）。
 - 使用者決定（2026-11-11）：pacing 沿用金石堂，每次請求（含重試）前隨機等待 3～10 秒（Phase 4 的誠品 `FetchPolicy` 套用）。

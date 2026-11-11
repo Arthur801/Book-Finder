@@ -189,6 +189,18 @@ jobs:
           fi
           grep -q "ModuleNotFoundError" <<<"$out"
 
+      # The Eslite image is HTTP-only too: build its target and run the same offline checks. The package and the page list
+      # file must be in the image; the page list is an empty placeholder until the user fills it in, so it is not loaded here.
+      - run: docker build --target eslite -t book-finder-eslite:ci crawler
+      - name: Eslite image offline smoke
+        run: |
+          docker run --rm --network none --entrypoint python book-finder-eslite:ci -c "import eslite.cli; from eslite.page_list import DEFAULT_PAGES_FILE; assert DEFAULT_PAGES_FILE.is_file()"
+          if out=$(docker run --rm --network none --entrypoint python book-finder-eslite:ci -c "import playwright" 2>&1); then
+            echo "::error::playwright is importable in the eslite image"
+            exit 1
+          fi
+          grep -q "ModuleNotFoundError" <<<"$out"
+
       # Pushes to main have nothing to compare; PRs run the compat check when migrations or the code that checks them change.
       # Checker-only changes compare equal manifests (in-sync), which still rebuilds, seeds, checks data and schema, and smokes,
       # so a PR that breaks the checker cannot stay green. Dockerfile and .dockerignore change the images the check builds.

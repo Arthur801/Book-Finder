@@ -1,0 +1,13 @@
+# 誠品分類清單頁（eslite mode）— 尚未填入：這是佔位檔，目前沒有任何 URL，因此 `python -m eslite` 會在送出任何請求前以 exit 2 結束。
+#
+# 此清單由使用者提供：每行一個 www.eslite.com 第 3 層分類頁，依使用者給定的順序執行（清單順序即執行順序）。
+# 格式：每行一個 URL；以 # 開頭的行是註解；空行會被忽略；前後空白會被去除。
+# 接受的格式（canonical grammar，見 crawler/eslite/urls.py）：
+#   https://www.eslite.com/category/3/<分類代碼>
+#   https://www.eslite.com/category/3/<分類代碼>?page=<n>
+#   - <分類代碼>、<n>：正整數，不可有前導零或正負號
+#   - ?page=1 與不帶 page 的同一頁相同，比對時會視為同一頁只保留一筆
+#   - 不接受其他查詢參數、片段（#）、其他主機或 http
+# 每個 URL 只讀取一次，不追蹤分頁；重複的 URL 只保留第一筆；最多 400 個 URL。
+# 清單為空時 `python -m eslite` 以 exit 2 結束（PageListError：empty list），不送出任何請求。
+# 修改清單後必須重新建置映像（清單是映像內容的一部分，容器內不會讀取外部檔案）。
