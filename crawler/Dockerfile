@@ -1,5 +1,6 @@
-# Two targets. The Kingstone target (HTTP-only, no Playwright or browser) is built with `--target kingstone`.
-# The last stage is the default target (博客來 image), so a plain `docker build` still produces it.
+# Three targets. The Kingstone and Eslite targets (HTTP-only, no Playwright or browser) are built with
+# `--target kingstone` and `--target eslite`. The last stage is the default target (博客來 image), so a plain
+# `docker build` still produces it.
 FROM python:3.15-slim-bookworm AS kingstone
 
 ENV PYTHONUNBUFFERED=1 \
@@ -19,6 +20,26 @@ COPY kingstone-pages.txt ./kingstone-pages.txt
 USER 10001:10001
 ENTRYPOINT ["python", "-m"]
 CMD ["kingstone"]
+
+FROM python:3.15-slim-bookworm AS eslite
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+WORKDIR /app/crawler
+# Same HTTP-only dependency set as the Kingstone target; no browser stack is installed.
+COPY requirements-runtime.txt ./
+RUN pip install --no-cache-dir -r requirements-runtime.txt \
+    && groupadd --gid 10001 crawler \
+    && useradd --uid 10001 --gid crawler --no-create-home crawler
+
+COPY catalog_core/ ./catalog_core/
+COPY eslite/ ./eslite/
+COPY eslite-pages.txt ./eslite-pages.txt
+
+USER 10001:10001
+ENTRYPOINT ["python", "-m"]
+CMD ["eslite"]
 
 FROM python:3.15-slim-bookworm
 
