@@ -297,7 +297,29 @@ def test_a_reconnect_while_a_migration_holds_the_lock_writes_nothing_more(db_url
 
 def test_the_schema_preflight_passes_on_the_post_011_database(db_url):
     with psycopg.connect(db_url, autocommit=True) as conn:
-        assert persistence.missing_schema_prerequisites(conn) == []
+        assert persistence.missing_schema_prerequisites(conn, KINGSTONE) == []
+
+
+def test_the_schema_preflight_passes_for_eslite_on_the_post_011_database(db_url):
+    # The EF migration seeds the ESLITE row (disabled); the preflight checks that row, not the KINGSTONE one.
+    with psycopg.connect(db_url, autocommit=True) as conn:
+        assert persistence.missing_schema_prerequisites(conn, ProviderCode.ESLITE) == []
+
+
+def test_the_schema_preflight_checks_only_the_given_providers_row(db_url):
+    conn = psycopg.connect(db_url)  # one transaction: the DELETE is rolled back below
+    try:
+        conn.execute("DELETE FROM source_providers WHERE code = 'ESLITE'")  # no book_sources row refers to it: no FK blocks it
+        eslite = persistence.missing_schema_prerequisites(conn, ProviderCode.ESLITE)
+        kingstone = persistence.missing_schema_prerequisites(conn, KINGSTONE)
+    finally:
+        conn.rollback()
+        conn.close()
+
+    assert "source_providers row ESLITE" in eslite
+    assert not any(item.startswith("source_providers row") for item in kingstone), kingstone
+    with psycopg.connect(db_url, autocommit=True) as check:
+        assert persistence.missing_schema_prerequisites(check, ProviderCode.ESLITE) == []
 
 
 @pytest.mark.parametrize(
@@ -325,14 +347,14 @@ def test_the_schema_preflight_reports_each_missing_prerequisite(db_url, statemen
     conn = psycopg.connect(db_url)  # autocommit off: the change lives in one transaction until it is rolled back
     try:
         conn.execute(statement)
-        missing = persistence.missing_schema_prerequisites(conn)
+        missing = persistence.missing_schema_prerequisites(conn, KINGSTONE)
     finally:
         conn.rollback()
         conn.close()
 
     assert any(expected in item for item in missing), missing
     with psycopg.connect(db_url, autocommit=True) as check:
-        assert persistence.missing_schema_prerequisites(check) == []  # the rollback restored the schema
+        assert persistence.missing_schema_prerequisites(check, KINGSTONE) == []  # the rollback restored the schema
 
 
 @pytest.mark.parametrize(

@@ -9,7 +9,7 @@
 | CB-02 | Books 診斷保留政策待決策；CR-T11。Kingstone 已有 20 份上限。 |
 | CB-03 | EC2 舊排程啟用前 live 驗證；L4，CR-T12／CR-T13。 |
 | CB-07 | 金石堂與本地 runner 已實作；剩餘 acceptance、operational failure record、CD image 與真實故障測試；CR-K01～CR-K15、CR-T19／CR-T20。 |
-| CB-08 | 誠品分類頁 crawler：E0 完成、改用 JSON API（plan v2）；Phase 1 以後尚未實作；CR-E01。 |
+| CB-08 | 誠品分類頁 crawler：E0 完成、改用 JSON API（plan v2）；Phase 1（core）完成；Phase 2 以後尚未實作；CR-E01、CR-K12。 |
 | CB-01／04／05／06 | 已處理，保留文末結案記錄，不重開為待辦。 |
 
 ## CB-02 — Books 診斷產物容量與保留期限
@@ -154,11 +154,13 @@
 
 ## CB-08 — 誠品分類頁 crawler（plan v2）
 
-- P2；L3；狀態：**E0 完成；Phase 1 以後 planned，尚未實作**（2026-11-11）。本節只記未完成工作與 E0 凍結的來源觀察，不是 current contract。
+- P2；L3；狀態：**E0、Phase 1 完成；Phase 2 以後 planned，尚未實作**（2026-11-11）。本節只記未完成工作與 E0 凍結的來源觀察，不是 current contract。
 - 計畫：[eslite-category-crawler.md](../../Docs/plans/eslite-category-crawler.md)（v2，含使用者決定 #1–#5）。
 - 範圍：比照金石堂，使用者提供 `crawler/eslite-pages.txt`（寫網頁網址，由 crawler 轉成列表 API），逐頁讀商品卡、New Source 抓詳細 API、經 `catalog_core.service.resolve_item` 寫入；HTTP-only；首次 canary 直接用 `normal`（1 頁）。
-- 已核對的前提：`ESLITE` registry 列已由 migration seed（disabled），不需 DDL；`bookfinder_crawler` 權限不分 provider，不需新增 GRANT；`ProviderCode` 尚無 `ESLITE`；`catalog_core/persistence.missing_schema_prerequisites` 與 `kingstone/{run,ledger,artifacts,cli,config,acquisition}` 有寫死 KINGSTONE 的部分，需在 Phase 3 抽成共用元件（金石堂行為不變）。
-- 下一步：Phase 1（`ProviderCode.ESLITE`、provider-aware preflight），可與 Phase 3 共用元件抽離並行。
+- 已核對的前提：`ESLITE` registry 列已由 migration seed（disabled），不需 DDL；`bookfinder_crawler` 權限不分 provider，不需新增 GRANT。
+- Phase 1 已完成：`ProviderCode.ESLITE`、`missing_schema_prerequisites(conn, provider)`、`ListedItem`／`ListPage` 移入 `catalog_core/models`（見 [architecture](architecture.md)）。
+- 仍寫死 KINGSTONE、待 Phase 3 抽成共用元件的部分：`kingstone/{run,ledger,artifacts,cli,config,acquisition}`（金石堂行為不變）。
+- 下一步：Phase 2（誠品 URL、清單、列表與詳細 JSON parser，全離線）與 Phase 3（共用元件抽離）可並行。
 - 待決定（計畫 §12）：pacing 區間、清單 canonical 規則、soft budget／hard limit、非書商品、第 1 頁 `total` 0 的分類。
 - 已知限制（計畫 §8）：所有 provider 共用本地 `run.lock` 與 writer 名稱，誠品與金石堂不能同時跑；runner 一般失敗沒有 record 的缺口（CB-07）同樣影響 eslite mode。
 

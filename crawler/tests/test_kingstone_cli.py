@@ -78,9 +78,14 @@ class StubSession:
 @pytest.fixture(autouse=True)
 def stub_database(monkeypatch):
     """Replaces the session and the schema check. ``state["missing"]`` is what the schema check reports."""
-    state = {"missing": []}
+    state = {"missing": [], "preflight_providers": []}
+
+    def fake_preflight(conn, provider):
+        state["preflight_providers"].append(provider)
+        return list(state["missing"])
+
     monkeypatch.setattr(cli, "DatabaseSession", StubSession)
-    monkeypatch.setattr(cli.persistence, "missing_schema_prerequisites", lambda conn: list(state["missing"]))
+    monkeypatch.setattr(cli.persistence, "missing_schema_prerequisites", fake_preflight)
     return state
 
 
@@ -232,6 +237,7 @@ def test_a_missing_schema_prerequisite_exits_2_before_the_fetcher_and_is_logged(
 
     assert harness.factory_calls == []
     assert harness.fetcher.calls == []
+    assert stub_database["preflight_providers"] == [ProviderCode.KINGSTONE]
     assert "SCHEMA_PREREQUISITE_MISSING: book_sources.last_seen_at" in capsys.readouterr().out
 
 

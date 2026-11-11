@@ -199,7 +199,7 @@ def main(
     with DatabaseSession(lambda: persistence.connect(database_url)) as session:
         # The first connection takes the shared migration lock; the schema is checked before anything is fetched.
         try:
-            missing = persistence.missing_schema_prerequisites(session.conn)
+            missing = persistence.missing_schema_prerequisites(session.conn, PROVIDER)
         except MigrationLockBusy:
             log.error("maintenance busy: a database migration holds the Catalog lock; nothing was crawled")
             return recorder.pre_run(status=RunStatus.FAILED.value, exit_code=EXIT_FAILED, reason=BUSY_REASON)
