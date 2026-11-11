@@ -275,6 +275,14 @@ migration 011 的 schema 由 test_db_integration.py 在 011 上檢查（無 `sou
 - **Then**：不符 policy 的 URL、錯誤 host、http、userinfo、port → `ValueError` 且零請求；pacing 落在 policy 區間；503 重試一次並套用 backoff；404 為 `HTTP_STATUS` 且不重試；3xx 為 `REDIRECT`；budget 不足時在送出前失敗；request headers 來自 policy；log 寫在 policy 的 logger。金石堂行為由 CR-K05 以**未修改的**既有測試覆蓋。
 - **來源與狀態**：[test_http_acquisition.py](../tests/test_http_acquisition.py)（28 個測試）。
 
+### CR-T22 — 共用逐頁 run 與帳本（CB-08 Phase 3 M2）
+
+- **責任／規格**：[architecture](architecture.md) 的 `catalog_core/category_run`、`catalog_core/category_ledger`；[誠品計畫](../../Docs/plans/eslite-category-crawler.md) §3；風險 L3（run 決定寫入與 terminal status）；狀態：已有測試，2026-11-11 執行通過（完整 suite 21095 passed）。
+- **Given**：(1) golden：金石堂 fake fetcher／記憶體 store／固定 clock 與 run_id，涵蓋 Existing touch、新匯入、ISBN attach、詳細頁 parse_error、列表頁 acquisition 失敗、budget 停止留下未處理頁；(2) 一個非金石堂的假 `CategoryAdapter`（provider ESLITE、mode `fake`、logger `fake.run`／`fake.ledger`、自訂 `list_skip_reason`）。
+- **When**：(1) `kingstone.run.run_pages`；(2) `run_category_pages`。
+- **Then**：(1) `format_report` 字串、`kingstone.artifacts.record_from_report` 的 dict，以及 `kingstone.run`／`kingstone.ledger` 的 INFO 以上 log（名稱、等級、訊息）與固定 literal 完全相同；這組 literal 在抽離**之前**的程式上產生並 commit（`f04fd23`），抽離前後都通過。(2) report 與 `CatalogItem` 的 provider 是 ESLITE；log 寫在假 adapter 的 logger；`list_skip_reason` 決定 skipped 原因；`parse_detail` 收到 `ListedItem`；`not_found` → `product_not_found`；`parse_error` → 存診斷檔並記 `parse_error`；沒有 provider 的 report 無法建立。金石堂行為另由 CR-K07、CR-K08 以**未修改的**既有測試覆蓋。
+- **來源與狀態**：[test_kingstone_report_golden.py](../tests/test_kingstone_report_golden.py)（1 個）、[test_category_run.py](../tests/test_category_run.py)（13 個）、[test_category_ledger.py](../tests/test_category_ledger.py)（4 個）。
+
 ### CR-K05 — 金石堂 HTTP acquisition
 
 - **責任／規格**：[architecture](architecture.md)「金石堂 adapter」的 Acquisition 段落（來源：backlog CB-07「Acquisition」）與計畫 §6、§9 Phase 3；風險 L3（URL 守門、重送與 budget 決定是否對外發出請求）；狀態：已有測試，本次未執行（2026-10-25 的執行敘述屬先前紀錄）。全部離線：fake transport、fake clock、記錄型 fake sleep 與 fake curl session，不連網。

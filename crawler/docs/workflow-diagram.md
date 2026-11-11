@@ -318,7 +318,7 @@ flowchart TD
 
 ## 金石堂逐頁 run（Phase 4 M2）
 
-caller：`kingstone.cli.main`（Phase 5 M2），組裝見上節。詳見 [architecture](architecture.md)「Run（逐頁流程）」。
+caller：`kingstone.cli.main`（Phase 5 M2），組裝見上節。詳見 [architecture](architecture.md)「Run（逐頁流程）」。CB-08 Phase 3 M2 起，下圖的流程實作在 `catalog_core.category_run.run_category_pages`，`kingstone.run.run_pages` 以 `KINGSTONE_ADAPTER` 呼叫它；流程、log 與 report 不變。
 
 ```mermaid
 flowchart TD

@@ -6,6 +6,8 @@
 
 > 歷史查核 2026-10-24；當時 HEAD `91333c334148fa5bfe07055d0e799dc13bb0bb4e`。依基準版本靜態閱讀；本次未執行 build、測試、部署、外部服務或真實抓取。
 
+> 2026-11-11（誠品 Phase 3 M2，CB-08，commits `f04fd23`、`b068d94`）：基準 `eslite-p3-m1-http-acquisition @ 6e0b404`（#170）。先在未修改的程式上新增 golden test（report 字串、terminal record、log 行），再把逐頁 run 與帳本自 `kingstone/{run,ledger}.py` 抽出為 `catalog_core/category_run.py`（`CategoryAdapter`、`run_category_pages`）與 `catalog_core/category_ledger.py`；`kingstone/{run,ledger}.py` 只留 `KINGSTONE_ADAPTER`、子類與重新匯出。既有測試一個檔案都沒有修改；新增 `test_category_run.py`（13）、`test_category_ledger.py`（4）、golden（1）。完整 crawler pytest 21095 passed、0 skip；ruff check／format 通過。沒有部署或真站抓取。
+
 > 2026-11-11（誠品 Phase 3 M1，CB-08）：基準 `eslite-p1-core @ ab59db3`（#169）。HTTP acquisition 引擎自 `kingstone/acquisition.py` 抽出為 `catalog_core/http_acquisition.py`（`FetchPolicy`、`PacedFetcher`）；`kingstone/acquisition.py` 只留金石堂 policy、`KingstoneFetcher` 與重新匯出。既有測試一個檔案都沒有修改；新增 `test_http_acquisition.py`（28 個）。完整 crawler pytest 20742 passed、0 skip；ruff check／format 通過。沒有部署或真站抓取。
 
 > 2026-11-11（誠品 Phase 2，CB-08）：基準 `eslite-p1-core @ ab59db3`（#169）。新增 `crawler/eslite/`（URL、清單、列表與詳細 JSON parser，純函式）與 4 個測試檔（335 個）；依使用者決定：`page=1` 省略、非書商品當書處理、`total` 0 為 `EmptyCategory`。完整 crawler pytest 21049 passed、0 skip；ruff check／format 通過。尚未接上 run 或 CLI；沒有部署或真站抓取。
