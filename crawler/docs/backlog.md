@@ -168,7 +168,8 @@
 - Phase 5 已完成：Docker `eslite` target、CI 離線 smoke、本地 runner `eslite` mode（`ESLITE_CRAWLER_IMAGE`、`ESLITE_RUN_HARD_LIMIT_SECONDS`）、conf 範例、[deploy README](../deploy/README.md) §9.5.1、`local/sql/enable-eslite.sql`（CR-E04）。`crawler/eslite-pages.txt` 目前只有註解。
 - **Phase 6 canary 通過（2026-11-11）**：run `5a1deb91`，1 頁（`/category/3/101`）、`normal`，10:56:38～11:01:35 UTC；exit 0、SUCCESS、41 次請求全部 200、`imported` 29、`isbn_attached` 11（11 本都已有金石堂 Source）、`failed` 0；唯讀核對：半寫入、重複、ISBN 共用皆 0，博客來、金石堂、Bestseller 未變動；1 本在 attach 時補了 NULL 欄位（第一次在真實資料上觸發）。ESLITE 維持 enabled。報告：[eslite-phase6-canary.md](../../Docs/Implementation-Report/eslite-phase6-canary.md)。
 - canary 觀察（符合現行規則，非錯誤）：29 本新書中 3 本沒有 ISBN（字典類，只有 471 商品條碼）→ 新建 Book，金石堂若有同一本會是不同 Book；2 本沒有 AUTHOR（「X/ 編」記為 EDITOR）；1 本語言為 None。
-- 下一步：使用者提供完整 `eslite-pages.txt` → 訂 soft budget／hard limit（計畫 §12）→ 完整清單 run。CD 推送 `ESLITE_CRAWLER_IMAGE` 與金石堂一樣未做（CB-07）。
+- 清單產生工具已完成：`deploy/local/eslite_category_pages.py`（中文書第 3 層、第 1 頁；2026-11-10 的分類樹為 261 筆；CR-E05）。促銷類第 2 層（例：44444 雙11強檔推薦、1582 編輯推薦）是否用 `--exclude-level2` 排除，待使用者決定。
+- 下一步：使用者以工具產生完整 `eslite-pages.txt` → 訂 soft budget／hard limit（計畫 §12）→ 完整清單 run。CD 推送 `ESLITE_CRAWLER_IMAGE` 與金石堂一樣未做（CB-07）。
 - Phase 2 的實作選擇（可再調整）：作者欄的角色詞套用到前面所有尚未指定角色的名字；角色詞前沒有名字時整本解析失敗；嵌在名字裡的「等」保留；分類只取第 3 層名稱；`restricted` 為 true 時解析失敗。
 - 使用者決定（2026-11-11）：清單 `page=1` 省略；非書商品當書處理（不依 `is_book` 過濾）；第 1 頁 `total` 0 記為該頁失敗（`EmptyCategory`）。
 - 使用者決定（2026-11-11）：pacing 沿用金石堂，每次請求（含重試）前隨機等待 3～10 秒（Phase 4 的誠品 `FetchPolicy` 套用）。

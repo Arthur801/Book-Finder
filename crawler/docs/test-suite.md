@@ -491,3 +491,10 @@ CR-T20 待補強：operational failure（12、15～18）目前沒有 record／AL
   - Runner：接受 `eslite` mode；`ESLITE_CRAWLER_IMAGE` 缺少或不合法、`ESLITE_RUN_HARD_LIMIT_SECONDS` 不合法 → exit 10 且沒有外部動作；container argv 含 `com.bookfinder.mode=eslite`、`com.bookfinder.provider=ESLITE`、`--env CRAWLER_RUN_HARD_LIMIT_SECONDS=9000`（預設）、沒有 `CRAWLER_FETCHER`、image 在最後、沒有 books module；金石堂與誠品的 image／hard limit 設定互不讀取；hard limit 停止時寫 `runner/eslite-last-run.json`；orphan、paused；`RUNNER_PROVIDERS["eslite"]`。
   - 實際 build（本機，2026-11-11，非自動測試）：`docker build --target eslite` 成功；`--network none` 下可 import `eslite.cli`、清單檔存在、`import playwright` 為 `ModuleNotFoundError`、UID 10001、沒有環境變數時 exit 2。
 - **來源與狀態**：[test_eslite_image.py](../tests/test_eslite_image.py)（9）、[test_local_runner.py](../tests/test_local_runner.py)（新增 13 個函式，既有案例未修改）。
+
+### CR-E05 — 誠品清單產生工具（`deploy/local/eslite_category_pages.py`）
+
+- **責任／規格**：[architecture](architecture.md) 的 `deploy/local/eslite_category_pages.py`；[deploy README](../deploy/README.md) §9.5.2；風險 L2（產生 crawler 的輸入，不寫 DB）；狀態：已有測試，2026-11-11 執行通過（完整 suite 21339 passed）。全部離線：合成的小分類樹、假 fetch。
+- **Then**：只保留 top id 子樹的第 3 層；其他頂層忽略；外部 `link`、`is_brand`、`--exclude-level2` 排除；重複 id 保留第一個；top id 不存在 → exit 1、不寫檔；輸出經 `load_page_urls` 讀回與選出的網址同序且皆為 canonical；超過 400 → exit 2、檔案不變；`--dry-run` 不寫檔；已有網址的檔案沒有 `--force` → exit 2 且零請求，有 `--force` 才取代；只有註解的檔案可直接取代；403、非 JSON、過大、頂層不是 list、連線例外 → exit 1 且檔案不變；`--from-file`；每次執行恰好 1 次 fetch。
+- **離線 smoke（非自動測試）**：以 E0 的分類樹（2026-11-10）`--dry-run`：第 3 層 282、外部連結 21、保留 261。
+- **來源與狀態**：[test_eslite_category_pages.py](../tests/test_eslite_category_pages.py)（39）。
