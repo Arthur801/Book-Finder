@@ -43,7 +43,7 @@ flowchart TD
 逐頁流程與金石堂相同（見下方金石堂 run 的流程圖），差別：
 
 - 列表：run 傳入 canonical 網頁網址，`EsliteFetcher` 改請求 `api/v1/categories/<id>/products?page_no=<n>&sort_type=date&sort_order=desc&page_size=40&is_available=true`。第 1 頁 `total` 0 → `EmptyCategory`，該頁 skipped（原因 `empty_category`）；`EmptyCategory` 是 `EsliteParseError` 子類，所以共用 run 也會存一份診斷檔。`total` > 0 但沒有商品 → 完成的零卡頁。
-- 卡片：Existing（ESLITE＋guid／URL 命中）只 touch、不抓詳細；New 抓 `api/v4/products/<guid>/description`。詳細 404 → `http_status` 失敗（不重試、不寫入）；200 但 404 形態 → `product_not_found`；其他結構錯誤 → `parse_error`＋診斷檔。
+- 卡片：Existing（ESLITE＋guid／URL 命中）只 touch、不抓詳細；New 抓 `api/v4/products/<guid>/description`。詳細 404 → `http_status` 失敗（不重試、不寫入）；200 但 404 形態 → `product_not_found`；其他結構錯誤 → `parse_error`＋診斷檔。限制級（使用者決定 2026-11-12）：列表卡片 `is_age_restricted` true → 不抓詳細頁；詳細 `restricted` true → `RestrictedProduct`；兩者都略過、不寫入、不存診斷檔、不算失敗、不觸發 `unclassified_200`，計入 record 的 `restricted_skipped`。
 - 寫入：`catalog_core.service.resolve_item`，與金石堂相同的交易、ISBN 比對與寫入政策。
 
 ## 每日總榜（現行實作）
