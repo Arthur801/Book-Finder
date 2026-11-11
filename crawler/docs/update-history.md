@@ -6,6 +6,8 @@
 
 > 歷史查核 2026-10-24；當時 HEAD `91333c334148fa5bfe07055d0e799dc13bb0bb4e`。依基準版本靜態閱讀；本次未執行 build、測試、部署、外部服務或真實抓取。
 
+> 2026-11-11（誠品 Phase 2，CB-08）：基準 `eslite-p1-core @ ab59db3`（#169）。新增 `crawler/eslite/`（URL、清單、列表與詳細 JSON parser，純函式）與 4 個測試檔（335 個）；依使用者決定：`page=1` 省略、非書商品當書處理、`total` 0 為 `EmptyCategory`。完整 crawler pytest 21049 passed、0 skip；ruff check／format 通過。尚未接上 run 或 CLI；沒有部署或真站抓取。
+
 > 2026-11-11（誠品 Phase 1，CB-08，commit `71853da`）：基準 `origin/main @ 3c833c4`。`ProviderCode.ESLITE`；`missing_schema_prerequisites` 改為接收 provider（金石堂 CLI 傳 KINGSTONE，訊息不變）；`ListedItem`／`ListPage` 移入 `catalog_core/models`，`kingstone/models` 重新匯出。新增 ESLITE preflight 與 provider 隔離的 DB 測試、`test_catalog_models.py`。完整 crawler pytest 20714 passed、0 skip（含 DB integration）；ruff check／format 通過。沒有誠品 adapter、沒有部署或真站抓取。
 
 > 2026-11-11（誠品 E0，CB-08）：基準 `origin/main` 含 #167。使用者授權的有限真站抓取 25 次（`www.eslite.com` 與 `athena.eslite.com`）；網站為 Vue SPA，使用者決定改用 JSON API，計畫改為 v2。新增 11 份 JSON fixture、backlog 的 CB-08 來源契約與 CR-E01（`test_eslite_fixture_contract.py`，86 passed）；沒有誠品程式、沒有部署。
