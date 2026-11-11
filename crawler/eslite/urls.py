@@ -29,6 +29,7 @@ _LIST_API = re.compile(
     rf"\?page_no=({_POSITIVE})&sort_type=date&sort_order=desc&page_size={PAGE_SIZE}&is_available=true"
 )
 _DETAIL_API = re.compile(rf"{re.escape(_API_ORIGIN)}/api/v4/products/({_GUID})/description")
+_PRODUCT_URL = re.compile(rf"{re.escape(_SITE_ORIGIN)}/product/({_GUID})")
 
 
 def _parse_list_url(url: str) -> tuple[str, int] | None:
@@ -115,3 +116,11 @@ def guid_from_detail_api_url(url: str) -> str | None:
 def product_url(guid: str) -> str:
     """The web product page of a guid: the Source's ``source_url``. Never requested by the crawler."""
     return f"{_SITE_ORIGIN}/product/{_require_guid(guid)}"
+
+
+def guid_from_product_url(url: str) -> str | None:
+    """The guid of an exact web product page URL (``product_url`` shape), otherwise None. The inverse of ``product_url``."""
+    if not isinstance(url, str):
+        return None
+    match = _PRODUCT_URL.fullmatch(url)
+    return None if match is None else match.group(1)

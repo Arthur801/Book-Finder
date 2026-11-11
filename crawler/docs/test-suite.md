@@ -469,3 +469,15 @@ migration 011 的 schema 由 test_db_integration.py 在 011 上檢查（無 `sou
 | 預設寫入政策 | CR-K06 | `python -m pytest -q tests/test_kingstone_config.py`；未設定／空白為 `normal`，明確 `new-books-only` 仍可選。 |
 
 CR-T20 待補強：operational failure（12、15～18）目前沒有 record／ALERT；CB-07 的驗收要求是後續改進，不能誤認上述現有測試已斷言 terminal JSON。真實 canary、mock、disposable DB 與 production failure injection 的證據分開記錄。
+
+### CR-E03 — 誠品 acquisition、run、設定、CLI 與 DB 整合（CB-08 Phase 4）
+
+- **責任／規格**：[architecture](architecture.md)「誠品 adapter」；[workflow](workflow-diagram.md)「誠品入口」；[誠品計畫](../../Docs/plans/eslite-category-crawler.md) §6、§7、§10；風險 L3（URL 守門、寫入與 terminal status）；狀態：已有測試，2026-11-11 執行通過（完整 suite 21271 passed）。全部離線：fake transport／fake curl session／依 URL 回應的 fake fetcher，不連誠品。
+- **Given**：[eslite fixtures](../tests/fixtures/eslite/README.md)；記憶體 store；EF schema 的 disposable PostgreSQL（測試內啟用 ESLITE）。
+- **When／Then**：
+  - Acquisition：網頁網址正確轉成列表／詳細 API URL；非 canonical 網址、非 `athena.eslite.com` → `ValueError` 且零請求；pacing 落在 3～10 秒；送出 JSON headers；詳細 404 → `HTTP_STATUS` 404、1 次、不重試；503 重試；`guid_from_product_url` 只接受精確形式。
+  - Run：report 與 `CatalogItem` 的 provider 是 ESLITE；第 1 頁 `total` 0 → skipped `empty_category`；超過最後一頁 → 完成的零卡頁；詳細 404 → `http_status` 失敗且未寫入；Existing → touch、不抓詳細；log 在 `eslite.run`／`eslite.ledger`。
+  - 設定：預設值（7200／9000／normal／30／3／5 MiB／2 MiB）、soft ≥ hard 錯誤、不讀 `KINGSTONE_*`。
+  - CLI：缺 `DATABASE_URL`、設定錯誤、清單缺少或空白、provider disabled → exit 2 且 fetcher 未建立；schema 缺項 → exit 2；busy → exit 1；正常路徑 stdout 一行 JSON 且等於 `<tmp>/eslite/last-run.json`、provider ESLITE；有 skipped 頁時一行 ALERT。
+  - 真 DB：新書建立 ESLITE Source（`external_id` = guid、`source_url` = 網頁商品網址）、ISBN 與作者；`normal` 下 ISBN 命中唯一既有 Book 時附加 ESLITE Source、不建新 Book；第二次 run 全為 Existing（只 touch、零詳細請求、無新列）；KINGSTONE／BOOKS_COM_TW 的列不變。
+- **來源與狀態**：[test_eslite_acquisition.py](../tests/test_eslite_acquisition.py)（59）、[test_eslite_run.py](../tests/test_eslite_run.py)（17）、[test_eslite_config.py](../tests/test_eslite_config.py)（19）、[test_eslite_cli.py](../tests/test_eslite_cli.py)（36）、[test_eslite_db_integration.py](../tests/test_eslite_db_integration.py)（15）。
