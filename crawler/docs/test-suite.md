@@ -428,6 +428,17 @@ migration 011 的 schema 由 test_db_integration.py 在 011 上檢查（無 `sou
 - **Then**：列表頂層恰為 `total`／`page_no`／`page_size`／`products`，數值與卡數符合表格；卡片有必要欄位、沒有 ISBN／EAN／`eslite_sn`；guid 為 16～23 位數字、頁內唯一，101 第 1 頁長度為 {16, 22, 23}；卡片 `category_ids` 含所屬分類；詳細的 `product_guid` 等於檔名，`eslite_sn`／`isbn13`／`isbn10`／`ean`、規格頁數與語言、級別 `N:無`、`descriptions` 名稱順序、譯者、`level3` 符合表格；出版日為 `T00:00:00.000+08:00` 形式；預設封面在 `s.eslite.com`；`eslite_sn` 是 guid 後綴，但 16 位 guid 那本不是（guid 無法由貨碼推出）；字典 `isbn13` 為空、`ean` 為 471 開頭；404 內容完全相等；README 與檔案一一對應。
 - **來源與狀態**：[test_eslite_fixture_contract.py](../tests/test_eslite_fixture_contract.py)。之後各 Phase 的必測行為見 [誠品計畫](../../Docs/plans/eslite-category-crawler.md) §10。
 
+### CR-E02 — 誠品 URL、清單與 JSON parser（CB-08 Phase 2）
+
+- **責任／規格**：[architecture](architecture.md)「誠品 adapter」；[誠品計畫](../../Docs/plans/eslite-category-crawler.md) §4、§12；風險 L2（純函式，決定寫進 Catalog 的欄位）；狀態：已有測試，2026-11-11 執行通過（完整 suite 21049 passed）。
+- **Given**：[eslite fixtures](../tests/fixtures/eslite/README.md) 的 5 個列表、5 個詳細、1 個 404 回應；負向案例在測試內改寫載入的 JSON，不另存 fixture。
+- **When／Then**：
+  - URL：合法第 3 層網址與 `page=1` 省略；http、其他 host、結尾斜線、前導零、`page=0`、多餘 query、第 1／2 層 path、fragment 皆拒絕；API URL 的固定參數、guid 格式、`product_url`。
+  - 清單：預設檔路徑與 env、上限 400、canonical 後去重並 log。
+  - 列表：兩個 40 張卡的頁、合法零列頁（101 第 6 頁）、`EmptyCategory`（9999999、第 2 層 28）、`page_no` 不符、結構與型別錯誤、guid 不合格、同頁重複 guid。
+  - 詳細：5 本的書名、出版社、日期、ISBN（字典沒有 ISBN）、作者／譯者／編者／繪者角色與順序、語言（三國語言為 None）、頁數、簡介、目錄、封面、分類；404 → `ProductNotFound`；guid 不符、書名空白、`restricted`、型別錯誤 → `EsliteParseError`。
+- **來源與狀態**：[test_eslite_urls.py](../tests/test_eslite_urls.py)（94）、[test_eslite_page_list.py](../tests/test_eslite_page_list.py)（14）、[test_eslite_parse_list.py](../tests/test_eslite_parse_list.py)（63）、[test_eslite_parse_detail.py](../tests/test_eslite_parse_detail.py)（164），共 335 個。已知驗證缺口：非書商品、限制級、電子書、出版日非日期精度沒有真實 fixture；嵌在名字裡的「等」不會被移除。
+
 ## 文件流程與案例對照（2026-10-26）
 
 以下命令在 `crawler/` 執行，僅列為後續入口，本次沒有執行：
