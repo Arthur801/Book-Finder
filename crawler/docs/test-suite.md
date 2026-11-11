@@ -481,3 +481,13 @@ CR-T20 待補強：operational failure（12、15～18）目前沒有 record／AL
   - CLI：缺 `DATABASE_URL`、設定錯誤、清單缺少或空白、provider disabled → exit 2 且 fetcher 未建立；schema 缺項 → exit 2；busy → exit 1；正常路徑 stdout 一行 JSON 且等於 `<tmp>/eslite/last-run.json`、provider ESLITE；有 skipped 頁時一行 ALERT。
   - 真 DB：新書建立 ESLITE Source（`external_id` = guid、`source_url` = 網頁商品網址）、ISBN 與作者；`normal` 下 ISBN 命中唯一既有 Book 時附加 ESLITE Source、不建新 Book；第二次 run 全為 Existing（只 touch、零詳細請求、無新列）；KINGSTONE／BOOKS_COM_TW 的列不變。
 - **來源與狀態**：[test_eslite_acquisition.py](../tests/test_eslite_acquisition.py)（59）、[test_eslite_run.py](../tests/test_eslite_run.py)（17）、[test_eslite_config.py](../tests/test_eslite_config.py)（19）、[test_eslite_cli.py](../tests/test_eslite_cli.py)（36）、[test_eslite_db_integration.py](../tests/test_eslite_db_integration.py)（15）。
+
+### CR-E04 — 誠品 image 與本地 runner `eslite` mode（CB-08 Phase 5）
+
+- **責任／規格**：[architecture](architecture.md) 的 Dockerfile、`.dockerignore`、本地 runner；[deploy README](../deploy/README.md) §9；[誠品計畫](../../Docs/plans/eslite-category-crawler.md) §8；風險 L3（image 內容與 writer fencing）；狀態：已有測試，2026-11-11 執行通過（完整 suite 21300 passed）。
+- **Given**：Dockerfile、`.dockerignore`、CI workflow 的靜態內容；runner 以假的 docker／ssh／aws 執行（同 CR-T20）。
+- **When／Then**：
+  - Image（靜態）：`eslite` stage 存在且不是最後一階；沒有 Playwright／browser；只複製 `catalog_core/`、`eslite/`、`eslite-pages.txt`；UID 10001；`CMD ["eslite"]`；`.dockerignore` 白名單；CI 會 build `eslite` target 並跑離線 smoke；repo 的清單若有內容，每行必須是 canonical 誠品網址且不超過 400（目前只有註解，`load_page_urls` 回報空清單錯誤）。
+  - Runner：接受 `eslite` mode；`ESLITE_CRAWLER_IMAGE` 缺少或不合法、`ESLITE_RUN_HARD_LIMIT_SECONDS` 不合法 → exit 10 且沒有外部動作；container argv 含 `com.bookfinder.mode=eslite`、`com.bookfinder.provider=ESLITE`、`--env CRAWLER_RUN_HARD_LIMIT_SECONDS=9000`（預設）、沒有 `CRAWLER_FETCHER`、image 在最後、沒有 books module；金石堂與誠品的 image／hard limit 設定互不讀取；hard limit 停止時寫 `runner/eslite-last-run.json`；orphan、paused；`RUNNER_PROVIDERS["eslite"]`。
+  - 實際 build（本機，2026-11-11，非自動測試）：`docker build --target eslite` 成功；`--network none` 下可 import `eslite.cli`、清單檔存在、`import playwright` 為 `ModuleNotFoundError`、UID 10001、沒有環境變數時 exit 2。
+- **來源與狀態**：[test_eslite_image.py](../tests/test_eslite_image.py)（9）、[test_local_runner.py](../tests/test_local_runner.py)（新增 13 個函式，既有案例未修改）。

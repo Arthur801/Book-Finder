@@ -18,7 +18,7 @@
 
 ## 誠品入口（`python -m eslite`，CB-08 Phase 4）
 
-與金石堂入口同一順序；誠品專屬的只有 key、provider、網址轉換與 logger。production 的 ESLITE 仍為 disabled，也還沒有 runner mode（Phase 5）。
+與金石堂入口同一順序；誠品專屬的只有 key、provider、網址轉換與 logger。production 的 ESLITE 仍為 disabled；本地 runner 的 `eslite` mode 與 Docker `eslite` target 見上方本地 runner（Phase 5）。
 
 ```mermaid
 flowchart TD
@@ -174,7 +174,7 @@ Fetcher 每次含首次／重試以 3～30 秒目標循序節流，解析／DB�
 
 ## 本地 runner（`deploy/local/`，Phase 6 M4）
 
-入口：`deploy/local/run-local-crawler.sh daily|first_book|pages|kingstone`（使用者在本機手動執行，不經 cron）。順序與 exit code 的完整說明見 [deploy README](../deploy/README.md) §9。
+入口：`deploy/local/run-local-crawler.sh daily|first_book|pages|kingstone|eslite`（使用者在本機手動執行，不經 cron）。順序與 exit code 的完整說明見 [deploy README](../deploy/README.md) §9。
 
 ```mermaid
 flowchart TD
@@ -232,7 +232,7 @@ Invocation order（本地）：
 5. DB secret：`DB_SECRET_SOURCE=ssm`（`aws ssm get-parameter --with-decryption --profile`）或 `file`（600、owner 為自己、非 symlink）；空值 → exit 15。secret 只經 stdin 與 bash 變數傳遞，不進 argv、log 或 env。
 6. 改寫連線字串（`runner_support.py rewrite-url`）：保留 userinfo 與 path（不解碼），host 必須等於 `RDS_ENDPOINT`（否則 exit 17），port 換成 `LOCAL_DB_PORT`，加上 `hostaddr=127.0.0.1`、`sslmode=verify-full`、`sslrootcert=/etc/book-finder/rds-ca-bundle.pem`；寫入 600 的 env file（只含 `DATABASE_URL`，mktemp 建立）。
 7. 開 tunnel：`ssh -N -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o BatchMode=yes -L 127.0.0.1:<port>:<RDS>:5432 <alias>`（背景）；以 `python3 -I` 檢查本機埠，上限 `TUNNEL_WAIT_SECONDS`；ssh 先退出或逾時 → exit 16。
-8. 啟動 container：`docker run --rm=false --pull=never --init --network host --name book-finder-crawler-active`，labels `com.bookfinder.role`／`mode`／`provider`，`--cidfile`、`--env-file`，artifacts 與 CA 的 bind mount（CA 唯讀）。kingstone 使用 `KINGSTONE_CRAWLER_IMAGE`、預設 CMD，並傳入 `CRAWLER_RUN_HARD_LIMIT_SECONDS`；博客來使用 `CRAWLER_IMAGE` 與對應 module，傳入 `CRAWLER_FETCHER=curl`。
+8. 啟動 container：`docker run --rm=false --pull=never --init --network host --name book-finder-crawler-active`，labels `com.bookfinder.role`／`mode`／`provider`，`--cidfile`、`--env-file`，artifacts 與 CA 的 bind mount（CA 唯讀）。kingstone 使用 `KINGSTONE_CRAWLER_IMAGE`、預設 CMD，並傳入 `CRAWLER_RUN_HARD_LIMIT_SECONDS`；eslite 使用 `ESLITE_CRAWLER_IMAGE`、預設 CMD，並以 `CRAWLER_RUN_HARD_LIMIT_SECONDS` 傳入 `ESLITE_RUN_HARD_LIMIT_SECONDS`（預設 9000）；博客來使用 `CRAWLER_IMAGE` 與對應 module，傳入 `CRAWLER_FETCHER=curl`。
 9. Watchdog：`docker run` 客戶端存活期間每秒檢查，觸發條件為超過 hard limit、收到 INT／TERM，或客戶端已結束但 container 仍在運作。流程為 `docker stop -t <grace>`（paused 先 `docker unpause`）→ 仍在運作則 `docker kill` → 以 `docker ps` 確認；absent、exited、dead、created 才算已停止。確認失敗 → `ORPHAN_WRITER`、exit 14，不 `rm`，下一次啟動於步驟 4 被擋下。確認停止 → exit 20（hard limit）、21（signal）或 22（客戶端已結束而 container 仍運作，`CLIENT_LOST`）。
 10. 正常結束：確認 container 已非運作後 `docker rm`，回傳 container 的 exit code（0、1、2，或 Docker 自身的其他值原樣傳回）。
 11. 清理（EXIT trap，所有路徑含錯誤與 signal）：關閉 tunnel（kill 後 wait）、刪除 env file 與 cidfile；fd 9 關閉即放鎖。子程序以 `9>&-` 不繼承鎖。

@@ -193,7 +193,7 @@ Cloudflare／非 200 等診斷 HTML、JSON 經 bind mount 留在主機 artifacts
 - **暫停後續排程**：可執行 `sudo mv /etc/cron.d/book-finder-crawler /opt/book-finder/crawler.cron.disabled`；已開始的 container 仍會執行。恢復時將檔案放回 `/etc/cron.d`。注意：CD 下次部署若附上 `crawler.cron`，會重新安裝它。
 - 不要透過刪除資料庫或 schema 停止爬蟲。要阻止爬蟲執行，使用 paused（由 CD 或 `deploy/README.md` 的人工程序處理）。
 
-## 9. 本地 runner（Phase 6，金石堂與博客來）
+## 9. 本地 runner（Phase 6，金石堂、誠品與博客來）
 
 v12 計畫（`Docs/plans/kingstone-category-crawler.md` §8）改由使用者的本機（WSL2／Linux＋Docker）手動執行 crawler。`deploy/local/run-local-crawler.sh` 經 SSH 隧道連到 RDS，所有 provider 共用同一把本地 `run.lock`，並套用 writer fencing 與 hard-limit watchdog。這個 runner 不會被 cron 呼叫，也不改變 EC2 上的 `run-crawler.sh`。EC2 的 crawler cron 另案移除，目前維持 `CRAWLER_ENABLED=false`。
 
@@ -218,6 +218,7 @@ v12 計畫（`Docs/plans/kingstone-category-crawler.md` §8）改由使用者的
 | `CRAWLER_ENABLED` | 否 | `true`（未設定即為 true）或 `false`。`false` 時不做任何外部工作，exit 0，log `skipped=disabled`。其他值 exit 10 |
 | `CRAWLER_IMAGE` | 博客來 | 博客來 image（digest）；daily、pages、first_book 使用 |
 | `KINGSTONE_CRAWLER_IMAGE` | 金石堂 | HTTP-only image（`crawler/Dockerfile` 的 `kingstone` target） |
+| `ESLITE_CRAWLER_IMAGE` | 誠品 | HTTP-only image（`crawler/Dockerfile` 的 `eslite` target，CB-08） |
 | `CRAWLER_LOCAL_ARTIFACTS_DIR` | 是 | 絕對路徑；掛到容器內 `/app/crawler/artifacts`（見 §9.1） |
 | `EC2_SSH_HOST` | 是 | EC2 的 SSH alias；用於唯讀讀取 deploy state 與建立隧道 |
 | `EC2_STATE_FILE` | 是 | EC2 上的 deploy `state.json`（與 `BOOKFINDER_STATE_FILE` 相同路徑） |
@@ -228,6 +229,7 @@ v12 計畫（`Docs/plans/kingstone-category-crawler.md` §8）改由使用者的
 | `AWS_PROFILE`／`AWS_REGION`／`DATABASE_URL_PARAMETER` | ssm 時 | 讀取 SSM 參數 |
 | `DB_SECRET_FILE` | file 時 | 600 權限的 secret 檔 |
 | `CRAWLER_RUN_HARD_LIMIT_SECONDS` | 否 | 金石堂的 hard limit（預設 79200）；同時以 `--env` 傳給 container，須大於 container 的 soft budget（預設 72000）。設定檔若仍是 9000 等較小的值，crawler 會以 exit 2 拒絕 |
+| `ESLITE_RUN_HARD_LIMIT_SECONDS` | 否 | 誠品的 hard limit（預設 9000，暫定）；以 `--env CRAWLER_RUN_HARD_LIMIT_SECONDS=<值>` 傳給 container，須大於 container 的 `ESLITE_SOFT_RUN_BUDGET_SECONDS`（預設 7200，暫定）。清單長度確定後再調整 |
 | `BOOKS_RUN_HARD_LIMIT_SECONDS` | 否 | 博客來的 hard limit（預設 3600，見 backlog） |
 | `CRAWLER_STOP_GRACE_SECONDS` | 否 | watchdog 的 `docker stop -t`（預設 30） |
 | `TUNNEL_WAIT_SECONDS` | 否 | 等待隧道埠可連的上限（預設 20） |
@@ -239,6 +241,9 @@ v12 計畫（`Docs/plans/kingstone-category-crawler.md` §8）改由使用者的
 ```bash
 CRAWLER_LOCAL_CONF=~/.config/book-finder/crawler-local.conf \
   crawler/deploy/local/run-local-crawler.sh kingstone
+
+# 誠品（CB-08）
+crawler/deploy/local/run-local-crawler.sh eslite
 
 # 博客來：daily、pages、first_book 與 EC2 相同的模組對應
 crawler/deploy/local/run-local-crawler.sh daily
@@ -253,7 +258,7 @@ crawler/deploy/local/run-local-crawler.sh daily
 5. 取得 DB secret（SSM 或 600 檔），不寫入 argv、log 或 env。
 6. 改寫連線字串，寫入 600 的 env file（只含 `DATABASE_URL`），用後刪除。
 7. 啟動 `ssh -N -o ExitOnForwardFailure=yes ... -L 127.0.0.1:<port>:<RDS>:5432`，等待本機埠可連；失敗 exit 16。
-8. 以 `docker run --network host --pull=never --init` 啟動 container（名稱與 labels 如上，`--cidfile` 指向 runtime 目錄）；kingstone 使用預設 CMD，博客來使用對應 module。
+8. 以 `docker run --network host --pull=never --init` 啟動 container（名稱與 labels 如上，`--cidfile` 指向 runtime 目錄）；kingstone 與 eslite 使用 image 的預設 CMD（並以 `--env CRAWLER_RUN_HARD_LIMIT_SECONDS` 傳入各自的 hard limit），博客來使用對應 module。
 9. watchdog：超過 hard limit、或收到 SIGINT／SIGTERM → `docker stop -t` → 仍 running 則 `docker kill` → 再確認停止。無法確認 → `ORPHAN_WRITER`，exit 14，之後的啟動會被第 4 步擋下。
 10. 正常結束也會確認狀態後 `docker rm`；關閉隧道、刪除 env file、釋放鎖。
 
@@ -284,7 +289,7 @@ crawler/deploy/local/run-local-crawler.sh daily
 
 ### 9.4.1 告警與 runner record（補充）
 
-責任劃分：container 內的結果（exit 0、1、2 與 Docker 回傳的其他值）由 crawler 負責，寫入 `artifacts/kingstone/last-run.json`、stdout JSON 與 `ALERT` 行（#147 合併後才存在）。container 外的 lifecycle failure 由 runner 負責。下表的 exit 會在 stderr 印一行 `ALERT reasons=<reasons> mode=<mode> last_run=<path>`，並寫入 runner 的 terminal record；同一份 record 也印成一行 JSON 在 stdout：
+責任劃分：container 內的結果（exit 0、1、2 與 Docker 回傳的其他值）由 crawler 負責，寫入 `artifacts/kingstone/last-run.json`（誠品為 `artifacts/eslite/last-run.json`）、stdout JSON 與 `ALERT` 行（#147 合併後才存在）。container 外的 lifecycle failure 由 runner 負責。下表的 exit 會在 stderr 印一行 `ALERT reasons=<reasons> mode=<mode> last_run=<path>`，並寫入 runner 的 terminal record；同一份 record 也印成一行 JSON 在 stdout：
 
 | Exit | ALERT reasons | record `reason` |
 |---|---|---|
@@ -296,9 +301,9 @@ crawler/deploy/local/run-local-crawler.sh daily
 
 正常結束（exit 0、1、2）不寫 runner record，也不印 runner 的 `ALERT`。
 
-**Runner record 位置與欄位**：`$CRAWLER_LOCAL_ARTIFACTS_DIR/runner/<mode>-last-run.json`（例如 `artifacts/runner/kingstone-last-run.json`），以暫存檔、fsync、rename 原子寫入。欄位：`run_id`（runner 產生的 UUID）、`provider`（`KINGSTONE` 或 `BOOKS_COM_TW`）、`mode`、`status`（固定 `FAILED`）、`exit_code`、`reason`、`alert_reasons`（陣列）、`started_at`、`finished_at`（ISO8601 UTC，結尾 `Z`）、`container`（`name`、`cid`；未知為 null）、`counts`（null，crawler 計數由 container 的結果負責）、`source`（固定 `runner`）。不含 secret，不寫入 kingstone history，不影響 streak。runner 不寫 `artifacts/kingstone/`。
+**Runner record 位置與欄位**：`$CRAWLER_LOCAL_ARTIFACTS_DIR/runner/<mode>-last-run.json`（例如 `artifacts/runner/kingstone-last-run.json`），以暫存檔、fsync、rename 原子寫入。欄位：`run_id`（runner 產生的 UUID）、`provider`（`KINGSTONE`、`ESLITE` 或 `BOOKS_COM_TW`）、`mode`、`status`（固定 `FAILED`）、`exit_code`、`reason`、`alert_reasons`（陣列）、`started_at`、`finished_at`（ISO8601 UTC，結尾 `Z`）、`container`（`name`、`cid`；未知為 null）、`counts`（null，crawler 計數由 container 的結果負責）、`source`（固定 `runner`）。不含 secret，不寫入 kingstone history，不影響 streak。runner 不寫 `artifacts/kingstone/` 與 `artifacts/eslite/`。
 
-**最新結果**（僅 kingstone）：`artifacts/kingstone/last-run.json` 與 `artifacts/runner/kingstone-last-run.json` 中 `finished_at` 較新的一份。兩者的時間格式可能不同，比較時請解析 ISO8601 後比時間，不要直接比字串。runner record 只在 lifecycle failure 時產生，因此它可能比 container 的結果舊。
+**最新結果**（kingstone 與 eslite）：`artifacts/<mode>/last-run.json` 與 `artifacts/runner/<mode>-last-run.json` 中 `finished_at` 較新的一份。兩者的時間格式可能不同，比較時請解析 ISO8601 後比時間，不要直接比字串。runner record 只在 lifecycle failure 時產生，因此它可能比 container 的結果舊。
 
 
 ### 9.5 手動 canary（金石堂）
@@ -314,6 +319,17 @@ crawler/deploy/local/run-local-crawler.sh daily
 7. 成功後還原清單與 image tag。
 
 金石堂若封鎖本地 IP，依 rollback 停用（`CRAWLER_ENABLED=false`），不採取規避技術。
+
+### 9.5.1 手動 canary（誠品，CB-08 G4）
+
+誠品的資料來自 `athena.eslite.com` 的 JSON API（計畫 v2 決定 #5）；每次請求（含重試）前隨機等待 3～10 秒。首次 canary 直接用 `normal`（使用者決定）。前置條件與金石堂相同（§9.1；同一把 `run.lock`，所以誠品與金石堂不能同時跑）。
+
+1. 確認 EC2 deploy state 沒有 paused 或 dirty，避開部署窗口（同 §9.5 第 1 點）。
+2. 清單只放 1 頁：把 `crawler/eslite-pages.txt` 改為一行第 3 層分類網址（例 `https://www.eslite.com/category/3/101`），`docker build --target eslite -t eslite:canary crawler`，設定 `ESLITE_CRAWLER_IMAGE=eslite:canary`。repo 內的清單在使用者提供之前只有註解，空清單會讓 crawler 在送出任何請求前以 exit 2 結束。
+3. 啟用 ESLITE：以主帳號執行 [`local/sql/enable-eslite.sql`](local/sql/enable-eslite.sql)；回復即改回 `false`。未啟用時 crawler 以 exit 2 拒絕（`source provider ESLITE is disabled or not registered`），不發出請求。
+4. 執行 `run-local-crawler.sh eslite`，確認 exit code、`artifacts/eslite/last-run.json`（`status`、`failed`、`skipped_pages`、`http_failures`、`alert_reasons`）與 log 中的 `container=end exit_code=...`。
+5. 以唯讀 SQL 核對 production 的新資料（以金石堂的 [`local/sql/verify-normal-2026-10-25.sql`](local/sql/verify-normal-2026-10-25.sql) 為範本，改成 ESLITE 與該次 run 的時段）。
+6. 出現 429、403、challenge 或 queue-it 排隊頁就停止，依 §9.6 停用，不採取規避技術。
 
 ### 9.6 停止與 rollback
 
