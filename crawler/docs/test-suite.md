@@ -283,6 +283,14 @@ migration 011 的 schema 由 test_db_integration.py 在 011 上檢查（無 `sou
 - **Then**：(1) `format_report` 字串、`kingstone.artifacts.record_from_report` 的 dict，以及 `kingstone.run`／`kingstone.ledger` 的 INFO 以上 log（名稱、等級、訊息）與固定 literal 完全相同；這組 literal 在抽離**之前**的程式上產生並 commit（`f04fd23`），抽離前後都通過。(2) report 與 `CatalogItem` 的 provider 是 ESLITE；log 寫在假 adapter 的 logger；`list_skip_reason` 決定 skipped 原因；`parse_detail` 收到 `ListedItem`；`not_found` → `product_not_found`；`parse_error` → 存診斷檔並記 `parse_error`；沒有 provider 的 report 無法建立。金石堂行為另由 CR-K07、CR-K08 以**未修改的**既有測試覆蓋。
 - **來源與狀態**：[test_kingstone_report_golden.py](../tests/test_kingstone_report_golden.py)（1 個）、[test_category_run.py](../tests/test_category_run.py)（13 個）、[test_category_ledger.py](../tests/test_category_ledger.py)（4 個）。
 
+### CR-T23 — 共用 run 產物、診斷檔與設定（CB-08 Phase 3 M3）
+
+- **責任／規格**：[architecture](architecture.md) 的 `catalog_core/run_artifacts`、`run_diagnostics`、`run_config`、`run_alerts`；[誠品計畫](../../Docs/plans/eslite-category-crawler.md) §3、§7；風險 L2；狀態：已有測試，2026-11-11 執行通過（完整 suite 21125 passed）。
+- **Given**：非金石堂的設定：目錄 `eslite`、provider `ESLITE`、env 前綴 `ESLITE_`、logger `fake.*`；暫存目錄、固定 clock。
+- **When**：`CategoryArtifacts.publish`、`record_pre_run`、`DiagnosticWriter.save_html`、`load_category_config`。
+- **Then**：record 的 provider 是 ESLITE；檔案寫在 `<root>/eslite/…`；log 寫在指定 logger；`ESLITE_*` key 被讀取與驗證（soft 必須小於 hard、數字格式、寫入政策錯誤 → 指定的錯誤類別，訊息含 key 名稱）；誠品 loader 不讀 `KINGSTONE_*`，金石堂 loader 也不讀 `ESLITE_*`。金石堂行為另由 CR-K06、CR-K13～CR-K15 與 CR-T22 golden 以**未修改的**既有測試覆蓋。
+- **來源與狀態**：[test_run_artifacts.py](../tests/test_run_artifacts.py)、[test_run_config.py](../tests/test_run_config.py)、[test_run_diagnostics.py](../tests/test_run_diagnostics.py)（共 30 個）。
+
 ### CR-K05 — 金石堂 HTTP acquisition
 
 - **責任／規格**：[architecture](architecture.md)「金石堂 adapter」的 Acquisition 段落（來源：backlog CB-07「Acquisition」）與計畫 §6、§9 Phase 3；風險 L3（URL 守門、重送與 budget 決定是否對外發出請求）；狀態：已有測試，本次未執行（2026-10-25 的執行敘述屬先前紀錄）。全部離線：fake transport、fake clock、記錄型 fake sleep 與 fake curl session，不連網。

@@ -162,11 +162,13 @@
 - Phase 2 已完成（#171）：`eslite/{urls,page_list,models,parse_list,parse_detail}`，全離線（CR-E02）；尚未接上 acquisition、run、CLI。
 - Phase 3 M1 已完成：HTTP acquisition 引擎抽成 `catalog_core/http_acquisition`（`FetchPolicy`、`PacedFetcher`），`kingstone/acquisition` 改為 policy＋薄的一層，既有測試未修改（CR-T21）。
 - Phase 3 M2 已完成：逐頁 run 與帳本抽成 `catalog_core/category_run`（`CategoryAdapter`、`run_category_pages`）與 `catalog_core/category_ledger`，`kingstone/{run,ledger}` 改為 adapter＋薄的一層；既有測試未修改，另有抽離前產生的 golden test（CR-T22）。
-- 仍寫死 KINGSTONE、待 Phase 3 M3 抽成共用元件的部分：`kingstone/{artifacts,alerts,diagnostics,cli,config}`（金石堂行為不變）。
-- 下一步：Phase 3 M3（artifacts、alerts、diagnostics、config 抽離），之後 Phase 4 接上誠品的 acquisition、run 與 CLI。
+- Phase 3 M3 已完成：run 產物、alert、診斷檔與設定驗證抽成 `catalog_core/{run_artifacts,run_alerts,run_diagnostics,run_config}`，`kingstone/{artifacts,alerts,diagnostics,config}` 改為薄的一層；既有測試未修改（CR-T23）。Phase 3 完成。
+- 仍是金石堂專屬的接線：`kingstone/cli.py`（Phase 4 另寫 `eslite/cli.py`，共用上述元件）。
+- 下一步：Phase 4（誠品 `FetchPolicy`、`CategoryAdapter`、config、CLI、`python -m eslite`；fake transport 的 run 測試與 disposable DB integration）。
 - Phase 2 的實作選擇（可再調整）：作者欄的角色詞套用到前面所有尚未指定角色的名字；角色詞前沒有名字時整本解析失敗；嵌在名字裡的「等」保留；分類只取第 3 層名稱；`restricted` 為 true 時解析失敗。
 - 使用者決定（2026-11-11）：清單 `page=1` 省略；非書商品當書處理（不依 `is_book` 過濾）；第 1 頁 `total` 0 記為該頁失敗（`EmptyCategory`）。
-- 待決定（計畫 §12）：pacing 區間、soft budget／hard limit。
+- 使用者決定（2026-11-11）：pacing 沿用金石堂，每次請求（含重試）前隨機等待 3～10 秒（Phase 4 的誠品 `FetchPolicy` 套用）。
+- 待決定（計畫 §12）：soft budget／hard limit（清單長度確定後）。
 - 已知限制（計畫 §8）：所有 provider 共用本地 `run.lock` 與 writer 名稱，誠品與金石堂不能同時跑；runner 一般失敗沒有 record 的缺口（CB-07）同樣影響 eslite mode。
 
 ### CB-08 來源契約（E0 凍結）
