@@ -6,6 +6,8 @@
 
 > 歷史查核 2026-10-24；當時 HEAD `91333c334148fa5bfe07055d0e799dc13bb0bb4e`。依基準版本靜態閱讀；本次未執行 build、測試、部署、外部服務或真實抓取。
 
+> 2026-11-12（誠品限制級略過，CB-08，commit `6840b2b`）：基準 `origin/main @ c009966`（#179）。第一次完整清單 run（`b76a23d9`）有 92 本限制級被當成 parse error（`unclassified_200`）；使用者決定直接略過。`eslite/parse_list` 依卡片 `is_age_restricted` 排除（`ListPage.excluded_count`）、`eslite/parse_detail` 的 `restricted` true 改拋 `RestrictedProduct`；共用 `CategoryAdapter.excluded`、`CategoryLedger.record_excluded`、`CategoryReport.items_excluded`；誠品 record 多 `restricted_skipped`。`format_report` 與金石堂 record 不變，金石堂 golden 與既有測試未修改；既有斷言只改 1 個（`restricted` 原斷言 `EsliteParseError`），`test_category_run.py` 的假 adapter 與假列表 parser 擴充了排除參數（既有案例語意不變）。完整 crawler pytest 21375 passed、0 skip；ruff check／format 通過。沒有部署、沒有真站抓取。
+
 > 2026-11-11（誠品 budget 與促銷分類，CB-08，commits `856f027`、`83dffbf`）：基準 `eslite-category-pages-tool`（#178）。使用者決定：`ESLITE_SOFT_RUN_BUDGET_SECONDS` 預設 7200 → 72000、hard limit 9000 → 79200（`eslite/config.py`、runner 的 `ESLITE_RUN_HARD_LIMIT_SECONDS`、conf 範例），比照金石堂；清單工具預設排除第 2 層 `44444`、`1582`（`--no-default-excludes` 可關閉）。既有測試中 8 行舊預設值斷言改為新值；新增 13 個工具測試。以 E0 分類樹離線 dry-run 得 254 筆。完整 crawler pytest 21349 passed、0 skip；ruff、shellcheck 通過。沒有部署、沒有真站抓取。
 
 > 2026-11-11（誠品清單產生工具，CB-08，commit `1ca965b`）：基準 `eslite-p6-report @ 04c9244`（#177）。新增 `crawler/deploy/local/eslite_category_pages.py`（從 `athena.eslite.com/api/v1/categories` 產生中文書第 3 層、第 1 頁的清單；使用者決定範圍與頁數）與 `test_eslite_category_pages.py`（39）；`crawler/deploy/README.md` §9.5.2。完整 crawler pytest 21339 passed、0 skip；ruff 通過；以 E0 分類樹離線 dry-run 得 261 筆。沒有 crawler 行為變更、沒有部署、沒有真站抓取。

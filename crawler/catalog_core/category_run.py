@@ -10,7 +10,9 @@ The run takes a list of canonical category list page URLs. For each page, in lis
 
 Provider points. Everything provider-specific comes from a ``CategoryAdapter`` passed to ``run_category_pages``: the
 provider code, the log mode and logger names, the list and detail parsers, the parse and not-found exception types, the
-diagnostic file code of a list page, and the skip reason of a list parse error. The run itself never imports a provider.
+diagnostic file code of a list page, the skip reason of a list parse error, and the exception type of a provider exclusion.
+An excluded card (Eslite: age-restricted) is skipped, not failed: no diagnostic, no catalog write, counted in
+``items_excluded``. The run itself never imports a provider.
 
 Budget (plan §7). Before every request the run checks ``deps.budget``: the soft budget is spent in steps, and when it
 runs out no further request is sent. The check is made before each list page and before each card. The fetcher's own
@@ -27,6 +29,8 @@ the HTTP layer, so the service never fetches again: the card is failed with the 
 The backoff before attempt n is ``BACKOFF_BASE_SECONDS * 2**(n-2)``.
 
 Failure scope. A card failure (soft 404, parse error, fetch error, exhausted database retries) fails that card only. A
+provider exclusion (the adapter's ``excluded``, detail stage; list stage cards are dropped by ``parse_list`` through
+``ListPage.excluded_count``) skips that card only and is counted in ``items_excluded``, never in ``failed``. A
 page failure skips that page. Anything else escaping (a store exception from identity lookup, a ``ValueError`` from a URL
 outside the grammar, an unexpected error) is fatal: the run stops and the report carries ``error``. The fatal message and
 every message that reaches the ledger or the log pass through ``catalog_core.redact.redact``.
@@ -75,6 +79,7 @@ from catalog_core.service import (
 
 MAX_ITEM_ATTEMPTS = 3  # database attempts per card, the first try included
 BACKOFF_BASE_SECONDS = 1.0  # sleep before attempt n (n = 2, 3) is 1s, then 2s
+EXCLUDED_REASON = "excluded"  # the DraftFailure reason of a card the provider rule excludes (no diagnostic, no write)
 
 
 class SoftBudget:
@@ -151,6 +156,8 @@ class CategoryAdapter:
     - ``parse_detail(text, item)``: a detail page body to ``BookDraft`` for the card; it raises ``not_found`` for a soft 404
       and ``parse_error`` for a rejected body.
     - ``parse_error`` / ``not_found``: the exception types of the two cases above.
+    - ``excluded``: the exception type ``parse_detail`` raises for a product the provider rule excludes (Eslite: age-restricted);
+      such a card is skipped, not failed, with no diagnostic. ``None`` (default): the provider has no exclusion rule.
     - ``list_page_code(url)``: the code in the diagnostic file name of a list page that failed to parse.
     - ``list_skip_reason(exc)``: the skipped-page reason of a list parse error (default: ``parse_error``).
     - ``report_class``: the report class built by the ledger; it must accept the ``CategoryReport`` fields.
@@ -169,6 +176,7 @@ class CategoryAdapter:
     list_page_code: Callable[[str], str]
     list_skip_reason: Callable[[Exception], str] = _default_list_skip_reason
     report_class: type[CategoryReport] = CategoryReport
+    excluded: type[Exception] | None = None
 
 
 def backoff_seconds(attempt: int) -> float:
@@ -256,13 +264,16 @@ def _run_page(adapter: CategoryAdapter, deps: CategoryRunDependencies, ledger: C
         ledger.record_page_skipped(SkippedPage(url=url, reason=adapter.list_skip_reason(exc), message=redact(str(exc)), attempts=1))
         return True
 
-    ledger.page_started(url, items_listed=len(page.items))
+    ledger.page_started(url, items_listed=len(page.items), items_excluded=page.excluded_count)
     for item in page.items:
         if deps.budget.exhausted():
             ledger.stop_for_budget()  # the open page is interrupted
             return False
         result, budget_hit = _resolve_card(adapter, deps, ledger, run_log, item)
-        ledger.record_item(url, result, source_url=item.source_url, external_id=item.external_id)
+        if isinstance(result, ItemFailed) and result.reason == EXCLUDED_REASON:
+            ledger.record_excluded(url, source_url=item.source_url, external_id=item.external_id)
+        else:
+            ledger.record_item(url, result, source_url=item.source_url, external_id=item.external_id)
         if budget_hit:
             ledger.stop_for_budget()
             return False
@@ -279,6 +290,7 @@ def _resolve_card(
 ) -> tuple[ItemResolved | ItemFailed | ItemPolicySkipped, bool]:
     """One card through the shared resolver. Returns the outcome and whether the detail fetch hit the budget."""
     budget_hit = False
+    excluded_types: tuple[type[Exception], ...] = () if adapter.excluded is None else (adapter.excluded,)
 
     def on_attempt_failed(attempt: int, reason: str, message: str) -> None:
         run_log.warning("card %s attempt %d/%d failed (%s): %s", item.source_url, attempt, deps.max_item_attempts, reason, redact(message))
@@ -298,6 +310,8 @@ def _resolve_card(
             draft = adapter.parse_detail(html, item)
         except adapter.not_found:
             return DraftFailure("product_not_found", "the detail page is a soft 404: no product", retryable=False)
+        except excluded_types:
+            return DraftFailure(EXCLUDED_REASON, "the product is excluded by the provider rule", retryable=False)
         except adapter.parse_error as exc:
             _diagnose(deps, run_log, kind="detail", code=item.external_id, html=html)
             return DraftFailure(PARSE_ERROR_REASON, redact(str(exc)), retryable=False)

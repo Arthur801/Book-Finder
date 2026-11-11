@@ -452,8 +452,8 @@ migration 011 的 schema 由 test_db_integration.py 在 011 上檢查（無 `sou
   - URL：合法第 3 層網址與 `page=1` 省略；http、其他 host、結尾斜線、前導零、`page=0`、多餘 query、第 1／2 層 path、fragment 皆拒絕；API URL 的固定參數、guid 格式、`product_url`。
   - 清單：預設檔路徑與 env、上限 400、canonical 後去重並 log。
   - 列表：兩個 40 張卡的頁、合法零列頁（101 第 6 頁）、`EmptyCategory`（9999999、第 2 層 28）、`page_no` 不符、結構與型別錯誤、guid 不合格、同頁重複 guid。
-  - 詳細：5 本的書名、出版社、日期、ISBN（字典沒有 ISBN）、作者／譯者／編者／繪者角色與順序、語言（三國語言為 None）、頁數、簡介、目錄、封面、分類；404 → `ProductNotFound`；guid 不符、書名空白、`restricted`、型別錯誤 → `EsliteParseError`。
-- **來源與狀態**：[test_eslite_urls.py](../tests/test_eslite_urls.py)（94）、[test_eslite_page_list.py](../tests/test_eslite_page_list.py)（14）、[test_eslite_parse_list.py](../tests/test_eslite_parse_list.py)（63）、[test_eslite_parse_detail.py](../tests/test_eslite_parse_detail.py)（164），共 335 個。已知驗證缺口：非書商品、限制級、電子書、出版日非日期精度沒有真實 fixture；嵌在名字裡的「等」不會被移除。
+  - 詳細：5 本的書名、出版社、日期、ISBN（字典沒有 ISBN）、作者／譯者／編者／繪者角色與順序、語言（三國語言為 None）、頁數、簡介、目錄、封面、分類；404 → `ProductNotFound`；guid 不符、書名空白、型別錯誤（含非 bool 的 `restricted`）→ `EsliteParseError`；`restricted` true → `RestrictedProduct`（2026-11-12 起，見 CR-E06）。
+- **來源與狀態**：[test_eslite_urls.py](../tests/test_eslite_urls.py)（94）、[test_eslite_page_list.py](../tests/test_eslite_page_list.py)（14）、[test_eslite_parse_list.py](../tests/test_eslite_parse_list.py)（63；CR-E06 後 73）、[test_eslite_parse_detail.py](../tests/test_eslite_parse_detail.py)（164），Phase 2 時共 335 個。已知驗證缺口：非書商品、限制級、電子書、出版日非日期精度沒有真實 fixture；嵌在名字裡的「等」不會被移除。
 
 ## 文件流程與案例對照（2026-10-26）
 
@@ -498,3 +498,16 @@ CR-T20 待補強：operational failure（12、15～18）目前沒有 record／AL
 - **Then**：只保留 top id 子樹的第 3 層；其他頂層忽略；外部 `link`、`is_brand`、`--exclude-level2` 排除；CLI 預設另排除第 2 層 `44444`、`1582`，`--exclude-level2` 會疊加，`--no-default-excludes` 關閉預設排除，檔頭列出被排除的第 2 層；重複 id 保留第一個；top id 不存在 → exit 1、不寫檔；輸出經 `load_page_urls` 讀回與選出的網址同序且皆為 canonical；超過 400 → exit 2、檔案不變；`--dry-run` 不寫檔；已有網址的檔案沒有 `--force` → exit 2 且零請求，有 `--force` 才取代；只有註解的檔案可直接取代；403、非 JSON、過大、頂層不是 list、連線例外 → exit 1 且檔案不變；`--from-file`；每次執行恰好 1 次 fetch。
 - **離線 smoke（非自動測試）**：以 E0 的分類樹（2026-11-10）`--dry-run`：第 3 層 282、外部連結 21、保留 261。
 - **來源與狀態**：[test_eslite_category_pages.py](../tests/test_eslite_category_pages.py)（39）。
+
+### CR-E06 — 誠品限制級商品略過（CB-08，使用者決定 2026-11-12）
+
+- **責任／規格**：[architecture](architecture.md) 的 `eslite/parse_list`、`eslite/parse_detail`、`catalog_core/category_run`、`catalog_core/category_ledger`、`eslite/artifacts`；[workflow](workflow-diagram.md)「誠品入口」；風險 L3（改變共用 run 的 outcome 分類與 terminal record）；狀態：已有測試，2026-11-12 執行通過（完整 suite 見 update-history）。全部離線。
+- **Given**：[eslite fixtures](../tests/fixtures/eslite/README.md) 載入後在測試內改寫 `is_age_restricted`／`restricted`（沒有真實限制級 fixture）；假 `CategoryAdapter`；誠品 fake transport。
+- **When／Then**：
+  - 列表：`is_age_restricted` true → 不在 `items`、計入 `excluded_count`；false 或缺少 → 保留；非 bool（`"true"`、`1`、`None`）→ `EsliteParseError`；整頁 40 張都是限制級 → `items` 空、`empty` false、`excluded_count` 40；其他卡片順序不變。
+  - 詳細：`restricted` true → `RestrictedProduct`，且不是 `EsliteParseError`；非 bool 仍是 `EsliteParseError`。
+  - 共用 run／帳本：列表階段排除的卡片不抓詳細頁、計入 `items_excluded`；詳細階段排除 → 不在 `failed`／`failed_items`、`parse_error_200_count` 0、不存診斷檔、status SUCCESS；整頁被排除的頁算完成、不算 `zero_card_pages`；`excluded=None` 的 adapter 行為不變；`KingstoneReport.items_excluded` 預設 0。
+  - 誠品 run：一張限制級卡片＋一本詳細 `restricted` true → SUCCESS、exit 0、record 的 `restricted_skipped` 2、沒有 `unclassified_200`、少一次詳細請求。
+  - Record：`restricted_skipped` 在 `record_from_report` 與 `record_pre_run` 都緊接在 `policy_skipped` 之後。
+  - 金石堂：golden（CR-T22）與既有測試未修改即通過。
+- **來源與狀態**：[test_eslite_parse_list.py](../tests/test_eslite_parse_list.py)（73）、[test_eslite_parse_detail.py](../tests/test_eslite_parse_detail.py)（164）、[test_category_run.py](../tests/test_category_run.py)（18）、[test_category_ledger.py](../tests/test_category_ledger.py)（12）、[test_eslite_run.py](../tests/test_eslite_run.py)（18）、新增 [test_eslite_artifacts.py](../tests/test_eslite_artifacts.py)（2）。已知驗證缺口：列表旗標與詳細旗標是否一致沒有真實 fixture 證明。

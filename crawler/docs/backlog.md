@@ -9,7 +9,7 @@
 | CB-02 | Books 診斷保留政策待決策；CR-T11。Kingstone 已有 20 份上限。 |
 | CB-03 | EC2 舊排程啟用前 live 驗證；L4，CR-T12／CR-T13。 |
 | CB-07 | 金石堂與本地 runner 已實作；剩餘 acceptance、operational failure record、CD image 與真實故障測試；CR-K01～CR-K15、CR-T19／CR-T20。 |
-| CB-08 | 誠品分類頁 crawler（JSON API，plan v2.5）：Phase 0～6 完成，1 頁 production canary 通過；剩完整清單、budget 與 CD image；CR-E01～CR-E04、CR-T21～CR-T23。 |
+| CB-08 | 誠品分類頁 crawler（JSON API，plan v2.5）：Phase 0～6 完成，1 頁 production canary 通過；第一次完整 run 中斷於第 115 頁（DB 逾時），限制級改為略過；剩補跑與 CD image；CR-E01～CR-E06、CR-T21～CR-T23。 |
 | CB-01／04／05／06 | 已處理，保留文末結案記錄，不重開為待辦。 |
 
 ## CB-02 — Books 診斷產物容量與保留期限
@@ -154,7 +154,7 @@
 
 ## CB-08 — 誠品分類頁 crawler（plan v2）
 
-- P2；L3；狀態：**Phase 0～6 完成，production canary 通過**（2026-11-11）；完整清單 run 待使用者提供清單。本節只記未完成工作與 E0 凍結的來源觀察，不是 current contract。
+- P2；L3；狀態：**Phase 0～6 完成，production canary 通過**（2026-11-11）；第一次完整清單 run 跑到第 115 頁因 DB 連線逾時停止（2026-11-11），限制級略過已實作，待使用者補跑。本節只記未完成工作與 E0 凍結的來源觀察，不是 current contract。
 - 計畫：[eslite-category-crawler.md](../../Docs/plans/eslite-category-crawler.md)（v2，含使用者決定 #1–#5）。
 - 範圍：比照金石堂，使用者提供 `crawler/eslite-pages.txt`（寫網頁網址，由 crawler 轉成列表 API），逐頁讀商品卡、New Source 抓詳細 API、經 `catalog_core.service.resolve_item` 寫入；HTTP-only；首次 canary 直接用 `normal`（1 頁）。
 - 已核對的前提：`ESLITE` registry 列已由 migration seed（disabled），不需 DDL；`bookfinder_crawler` 權限不分 provider，不需新增 GRANT。
@@ -169,8 +169,11 @@
 - **Phase 6 canary 通過（2026-11-11）**：run `5a1deb91`，1 頁（`/category/3/101`）、`normal`，10:56:38～11:01:35 UTC；exit 0、SUCCESS、41 次請求全部 200、`imported` 29、`isbn_attached` 11（11 本都已有金石堂 Source）、`failed` 0；唯讀核對：半寫入、重複、ISBN 共用皆 0，博客來、金石堂、Bestseller 未變動；1 本在 attach 時補了 NULL 欄位（第一次在真實資料上觸發）。ESLITE 維持 enabled。報告：[eslite-phase6-canary.md](../../Docs/Implementation-Report/eslite-phase6-canary.md)。
 - canary 觀察（符合現行規則，非錯誤）：29 本新書中 3 本沒有 ISBN（字典類，只有 471 商品條碼）→ 新建 Book，金石堂若有同一本會是不同 Book；2 本沒有 AUTHOR（「X/ 編」記為 EDITOR）；1 本語言為 None。
 - 清單產生工具已完成：`deploy/local/eslite_category_pages.py`（中文書第 3 層、第 1 頁；2026-11-10 的分類樹為 261 筆；CR-E05）。促銷類第 2 層 `44444`（雙11強檔推薦）、`1582`（編輯推薦）預設排除（使用者決定）。
-- 下一步：使用者以工具產生完整 `eslite-pages.txt` → 訂 soft budget／hard limit（計畫 §12）→ 完整清單 run。CD 推送 `ESLITE_CRAWLER_IMAGE` 與金石堂一樣未做（CB-07）。
-- Phase 2 的實作選擇（可再調整）：作者欄的角色詞套用到前面所有尚未指定角色的名字；角色詞前沒有名字時整本解析失敗；嵌在名字裡的「等」保留；分類只取第 3 層名稱；`restricted` 為 true 時解析失敗。
+- **第一次完整清單 run（2026-11-11）**：run `b76a23d9`，254 頁（工具產生、未 commit 的清單）、`normal`，11:49:41～20:38:41 UTC（約 31,740 秒，未用完 budget）。**FAILED、exit 1**：fatal `ConnectionTimeout: connection timeout expired`（一本書的 3 次 DB 嘗試都逾時，下一本的 identity 查詢再逾時 → run 停止；原因推測是 SSH tunnel 或網路中斷，未確認）。完成 114 頁、中斷 1 頁、未到 139 頁；4595 次請求、`http_failures` 0（沒有 403／429）；`imported` 2411、`isbn_attached` 1976、`existing_source` 42、`ambiguous_created` 0；`failed` 93（限制級 92、`database_error` 1）；alert `failed`、`unclassified_200`。DB 的 ESLITE Source 總數 4427 = canary 40 + 4387，重複 0、格式錯誤 0。此 run 時段的完整唯讀核對尚未執行。
+- 使用者決定（2026-11-12）：限制級商品直接略過（不抓、不寫、不算失敗、不發 alert），計數放在 record 的 `restricted_skipped`。列表卡片 `is_age_restricted` true 時不抓詳細頁；詳細 `restricted` true 時（`RestrictedProduct`）也略過。共用 core 的 `CategoryAdapter.excluded`、`ListPage.excluded_count`、`CategoryReport.items_excluded` 對金石堂沒有影響（`format_report` 與金石堂 record 不變）。
+- 已知驗證缺口：列表 `is_age_restricted` 與詳細 `restricted` 是否一致，沒有真實 fixture 可證明（E0 的 80 張卡都是 false）；不一致時由詳細階段的略過兜底，但會多一次詳細請求。補跑後以 `restricted_skipped` 與 `details_fetched` 觀察。
+- 下一步：使用者 rebuild `eslite:full` → 補跑（Existing 只 touch，剩約 139 頁）→ 唯讀核對 → 完整 run 實作報告。CD 推送 `ESLITE_CRAWLER_IMAGE` 與金石堂一樣未做（CB-07）。DB 逾時導致整個 run 停止是共用 run 的現行規則（identity 查詢例外為 fatal），是否改為重連或略過待定。
+- Phase 2 的實作選擇（可再調整）：作者欄的角色詞套用到前面所有尚未指定角色的名字；角色詞前沒有名字時整本解析失敗；嵌在名字裡的「等」保留；分類只取第 3 層名稱；`restricted` 為 true 時解析失敗（2026-11-12 起改為略過，見上方使用者決定）。
 - 使用者決定（2026-11-11）：清單 `page=1` 省略；非書商品當書處理（不依 `is_book` 過濾）；第 1 頁 `total` 0 記為該頁失敗（`EmptyCategory`）。
 - 使用者決定（2026-11-11）：pacing 沿用金石堂，每次請求（含重試）前隨機等待 3～10 秒（Phase 4 的誠品 `FetchPolicy` 套用）。
 - 使用者決定（2026-11-11）：soft budget 72000 秒、hard limit 79200 秒，完全比照金石堂（254 頁的第一次 run 估計約 75,000 秒，可能略超過 soft budget，剩下的頁由下一次 run replay 補上）；清單工具預設排除促銷類第 2 層 `44444`、`1582`。計畫 §12 已無待決定事項。
@@ -190,7 +193,7 @@
 - **ISBN**：一般書 `isbn13` 有值（`ean` 與它相同）；字典類可能 `isbn13` 為空字串、`isbn10` null、`ean` 是 471 開頭的一般條碼（不是 ISBN）。
 - **作者欄格式**：多人以「/ 」分隔（「謝敏華/ Favre, David」）；角色可能接在名字後（「吳美玉/ 編」）；譯者多人以「/ 」分隔並可能以「等」結尾。拆解規則在 Phase 2 依 fixture 定。
 - **不使用的 endpoint**：`/api/v3/products/<ids>`（價格與圖片）、`/api/v2/search`（以猜測參數呼叫回 1 byte 非 JSON；www 的 `/search` 被 robots.txt 禁止）。
-- **未觀察到**：非書商品、電子書、限制級、429／5xx、queue-it 排隊頁、出版日精度不是日期。出現時先收錄 fixture。
+- **未觀察到**：非書商品、電子書、限制級、429／5xx、queue-it 排隊頁、出版日精度不是日期。出現時先收錄 fixture。（限制級於第一次完整 run 觀察到 92 本，詳細 `restricted` 為 true，分布在 16 個分類；fixture 未收錄。）
 
 ## 已處理
 

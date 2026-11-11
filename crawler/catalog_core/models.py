@@ -156,10 +156,15 @@ class ListedItem:
 
 @dataclass(frozen=True)
 class ListPage:
-    """A parsed category list page. ``total_pages`` and ``total_count`` are None when the page does not show them."""
+    """A parsed category list page. ``total_pages`` and ``total_count`` are None when the page does not show them.
+
+    ``excluded_count`` is the number of cards the adapter dropped by a provider rule (Eslite: age-restricted). Those
+    cards are not in ``items``: they get no detail fetch and no outcome, and are not failures.
+    """
 
     url: str
     items: tuple[ListedItem, ...]
     total_pages: int | None
     total_count: int | None
     empty: bool
+    excluded_count: int = 0
