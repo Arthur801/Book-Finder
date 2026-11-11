@@ -409,6 +409,110 @@ def test_the_tool_runs_from_any_working_directory(tmp_path):
     assert f"{BASE}101" in result.stdout
 
 
+# --- default level-2 excludes (promotion lists) -------------------------------------------------------------------
+
+PROMO_KEPT = [101, 104, 201, 202]  # sample_tree() without the promotion level-2 categories
+PROMO_NO_DEFAULTS_KEPT = [101, 104, 201, 202, 44445, 15821, 15822]
+
+
+def promo_tree():
+    """The sample tree plus the two promotion level-2 categories under 中文書 (44444 and 1582)."""
+    tree = sample_tree()
+    top = next(item for item in tree if item["id"] == 3)
+    top["children"] += [
+        node(44444, 2, "📢雙11強檔推薦", [node(44445, 3, "雙11一")]),
+        node(1582, 2, "編輯推薦", [node(15821, 3, "編推一"), node(15822, 3, "編推二")]),
+    ]
+    return tree
+
+
+def test_the_default_excludes_are_the_two_promotion_level2_ids():
+    assert tool.DEFAULT_EXCLUDED_LEVEL2 == (44444, 1582)
+
+
+def test_the_default_excludes_are_applied_by_the_cli(tmp_path):
+    tree = write_tree(tmp_path, promo_tree())
+    out = tmp_path / "out.txt"
+
+    assert tool.main(["--from-file", str(tree), "--output", str(out)]) == 0
+
+    assert load_page_urls(out) == urls_of(PROMO_KEPT)
+
+
+def test_exclude_level2_adds_to_the_default_excludes(tmp_path):
+    tree = write_tree(tmp_path, promo_tree())
+    out = tmp_path / "out.txt"
+
+    assert tool.main(["--from-file", str(tree), "--output", str(out), "--exclude-level2", "200"]) == 0
+
+    assert load_page_urls(out) == urls_of([101, 104])
+
+
+def test_no_default_excludes_turns_the_default_excludes_off(tmp_path):
+    tree = write_tree(tmp_path, promo_tree())
+    out = tmp_path / "out.txt"
+
+    assert tool.main(["--from-file", str(tree), "--output", str(out), "--no-default-excludes"]) == 0
+
+    assert load_page_urls(out) == urls_of(PROMO_NO_DEFAULTS_KEPT)
+
+
+def test_no_default_excludes_keeps_only_the_explicit_excludes(tmp_path):
+    tree = write_tree(tmp_path, promo_tree())
+    out = tmp_path / "out.txt"
+
+    code = tool.main(["--from-file", str(tree), "--output", str(out), "--no-default-excludes", "--exclude-level2", "200"])
+
+    assert code == 0
+    assert load_page_urls(out) == urls_of([101, 104, 44445, 15821, 15822])
+
+
+def test_the_summary_says_which_level2_ids_were_excluded_by_default_and_which_explicitly(tmp_path, capsys):
+    tree = write_tree(tmp_path, promo_tree())
+
+    assert tool.main(["--from-file", str(tree), "--dry-run", "--exclude-level2", "200"]) == 0
+
+    stdout = capsys.readouterr().out
+    assert "excluded level-2 by default: 44444, 1582" in stdout
+    assert "excluded level-2 by --exclude-level2: 200" in stdout
+
+
+def test_the_summary_says_no_default_excludes_when_they_are_turned_off(tmp_path, capsys):
+    tree = write_tree(tmp_path, promo_tree())
+
+    assert tool.main(["--from-file", str(tree), "--dry-run", "--no-default-excludes"]) == 0
+
+    stdout = capsys.readouterr().out
+    assert "excluded level-2 by default: none" in stdout
+    assert "excluded level-2 by --exclude-level2: none" in stdout
+
+
+def test_the_written_header_lists_the_excluded_level2_ids(tmp_path):
+    tree = write_tree(tmp_path, promo_tree())
+    out = tmp_path / "out.txt"
+
+    assert tool.main(["--from-file", str(tree), "--output", str(out), "--exclude-level2", "200"]) == 0
+
+    header = [line for line in out.read_text(encoding="utf-8").splitlines() if "Excluded level-2" in line]
+    assert header == ["# Excluded level-2 ids: 44444, 1582, 200"]
+
+
+def test_the_header_says_none_when_no_level2_is_excluded(tmp_path):
+    tree = write_tree(tmp_path, promo_tree())
+    out = tmp_path / "out.txt"
+
+    assert tool.main(["--from-file", str(tree), "--output", str(out), "--no-default-excludes"]) == 0
+
+    assert "# Excluded level-2 ids: none" in out.read_text(encoding="utf-8").splitlines()
+
+
+def test_render_lists_the_given_excluded_level2_ids_in_the_header():
+    categories = tool.select_categories(sample_tree())
+    text = tool.render(categories, generated_at="x", source="y", excluded_level2=(44444, 1582))
+
+    assert "# Excluded level-2 ids: 44444, 1582" in text.splitlines()
+
+
 # --- fetch failures: exit 1, nothing written, exactly one request ------------------------------------------------
 
 
