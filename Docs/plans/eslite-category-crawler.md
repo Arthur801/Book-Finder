@@ -2,7 +2,7 @@
 
 > Baseline：`origin/main @ 99f65d4`（2026-11-11）。來源：使用者提供的初步規劃，經 repo 現況核對與使用者決定（下表）整理成本版。
 > 2026-11-11 改為 v2：E0 證實網站是 Vue SPA，HTML 沒有書目資料；使用者在 E0 gate 決定改用前端自己呼叫的 `athena.eslite.com` JSON API（決定 #5）。變更見文末「設計變更紀錄」。
-> **E0、Phase 1–6 已完成；production canary 通過（2026-11-11）**；完整清單 run 待使用者提供清單；本文件是實作計畫，不代表功能已實作、測試已通過或取得 production 授權。追蹤條目：`crawler/docs/backlog.md` CB-08。
+> **E0、Phase 1–6 已完成；production canary 通過（2026-11-11）；完整清單 run 與補跑完成（2026-11-12，報告 `Docs/Implementation-Report/eslite-full-run.md`）**；本文件是實作計畫，不代表功能已實作、測試已通過或取得 production 授權。追蹤條目：`crawler/docs/backlog.md` CB-08。
 
 ## Context
 
