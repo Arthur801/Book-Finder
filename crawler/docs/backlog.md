@@ -9,7 +9,7 @@
 | CB-02 | Books 診斷保留政策待決策；CR-T11。Kingstone 已有 20 份上限。 |
 | CB-03 | EC2 舊排程啟用前 live 驗證；L4，CR-T12／CR-T13。 |
 | CB-07 | 金石堂與本地 runner 已實作；剩餘 acceptance、operational failure record、CD image 與真實故障測試；CR-K01～CR-K15、CR-T19／CR-T20。 |
-| CB-08 | 誠品分類頁 crawler（JSON API，plan v2.5）：Phase 0～6 完成，1 頁 production canary 通過；第一次完整 run 中斷於第 115 頁（DB 逾時），限制級改為略過；剩補跑與 CD image；CR-E01～CR-E06、CR-T21～CR-T23。 |
+| CB-08 | 誠品分類頁 crawler（JSON API，plan v2.5）：Phase 0～6 完成，1 頁 production canary 通過；完整清單 run 與補跑完成（254 頁、8324 個 Source），限制級略過；剩 12 位數 guid（維持現狀）、無 ISBN 規則、DB 逾時規則與 CD image；CR-E01～CR-E06、CR-T21～CR-T23。 |
 | CB-01／04／05／06 | 已處理，保留文末結案記錄，不重開為待辦。 |
 
 ## CB-02 — Books 診斷產物容量與保留期限
@@ -154,7 +154,7 @@
 
 ## CB-08 — 誠品分類頁 crawler（plan v2）
 
-- P2；L3；狀態：**Phase 0～6 完成，production canary 通過**（2026-11-11）；第一次完整清單 run 跑到第 115 頁因 DB 連線逾時停止（2026-11-11），限制級略過已實作，待使用者補跑。本節只記未完成工作與 E0 凍結的來源觀察，不是 current contract。
+- P2；L3；狀態：**Phase 0～6 完成，production canary 通過**（2026-11-11）；**完整清單 run 完成**（2026-11-11 run 1 因 DB 逾時中斷，2026-11-12 補跑完成 254 頁）；剩 2 頁 12 位數 guid（使用者決定維持現狀）、無 ISBN 規則與 CD image。報告：[eslite-full-run.md](../../Docs/Implementation-Report/eslite-full-run.md)。本節只記未完成工作與 E0 凍結的來源觀察，不是 current contract。
 - 計畫：[eslite-category-crawler.md](../../Docs/plans/eslite-category-crawler.md)（v2，含使用者決定 #1–#5）。
 - 範圍：比照金石堂，使用者提供 `crawler/eslite-pages.txt`（寫網頁網址，由 crawler 轉成列表 API），逐頁讀商品卡、New Source 抓詳細 API、經 `catalog_core.service.resolve_item` 寫入；HTTP-only；首次 canary 直接用 `normal`（1 頁）。
 - 已核對的前提：`ESLITE` registry 列已由 migration seed（disabled），不需 DDL；`bookfinder_crawler` 權限不分 provider，不需新增 GRANT。
@@ -171,8 +171,11 @@
 - 清單產生工具已完成：`deploy/local/eslite_category_pages.py`（中文書第 3 層、第 1 頁；2026-11-10 的分類樹為 261 筆；CR-E05）。促銷類第 2 層 `44444`（雙11強檔推薦）、`1582`（編輯推薦）預設排除（使用者決定）。
 - **第一次完整清單 run（2026-11-11）**：run `b76a23d9`，254 頁（工具產生、未 commit 的清單）、`normal`，11:49:41～20:38:41 UTC（約 31,740 秒，未用完 budget）。**FAILED、exit 1**：fatal `ConnectionTimeout: connection timeout expired`（一本書的 3 次 DB 嘗試都逾時，下一本的 identity 查詢再逾時 → run 停止；原因推測是 SSH tunnel 或網路中斷，未確認）。完成 114 頁、中斷 1 頁、未到 139 頁；4595 次請求、`http_failures` 0（沒有 403／429）；`imported` 2411、`isbn_attached` 1976、`existing_source` 42、`ambiguous_created` 0；`failed` 93（限制級 92、`database_error` 1）；alert `failed`、`unclassified_200`。DB 的 ESLITE Source 總數 4427 = canary 40 + 4387，重複 0、格式錯誤 0。唯讀核對（主帳號，t0 `2026-11-11T11:48:30Z`、t1 `20:40:00Z`，2026-11-12）全部符合：`created_in_run` 4387、`touched_in_run` 40（canary 那頁的 40 本）；新建 2411、掛到既有書 1976（全部已有博客來或金石堂 Source）；半寫入、重複、ISBN 共用皆 0；博客來、金石堂、Bestseller 未變動。新書欄位：ISBN 2027／2411（**384 本沒有 ISBN**，約 16%，依規則新建 Book，金石堂若有同一本會是不同 Book）、AUTHOR 2360、語言 2387、頁數 2384、封面 2410，ESLITE subject、出版社、出版日、簡介皆 2411。
 - 使用者決定（2026-11-12）：限制級商品直接略過（不抓、不寫、不算失敗、不發 alert），計數放在 record 的 `restricted_skipped`。列表卡片 `is_age_restricted` true 時不抓詳細頁；詳細 `restricted` true 時（`RestrictedProduct`）也略過。共用 core 的 `CategoryAdapter.excluded`、`ListPage.excluded_count`、`CategoryReport.items_excluded` 對金石堂沒有影響（`format_report` 與金石堂 record 不變）。
-- 已知驗證缺口：列表 `is_age_restricted` 與詳細 `restricted` 是否一致，沒有真實 fixture 可證明（E0 的 80 張卡都是 false）；不一致時由詳細階段的略過兜底，但會多一次詳細請求。補跑後以 `restricted_skipped` 與 `details_fetched` 觀察。
-- 下一步：使用者 rebuild `eslite:full` → 補跑（Existing 只 touch，剩約 139 頁）→ 唯讀核對 → 完整 run 實作報告。CD 推送 `ESLITE_CRAWLER_IMAGE` 與金石堂一樣未做（CB-07）。DB 逾時導致整個 run 停止是共用 run 的現行規則（identity 查詢例外為 fatal），是否改為重連或略過待定。
+- 列表 `is_age_restricted` 與詳細 `restricted` 的一致性：補跑的 `details_fetched` 3897 = `imported`＋`isbn_attached`，508 本限制級全部在列表階段擋下，詳細階段的兜底沒有觸發（真實資料佐證，fixture 仍未收錄）。
+- **補跑（2026-11-12）**：run `3ac1fd22`（含 #180 的 `eslite:full`），2026-11-11T22:19:32～2026-11-12T07:13:22 UTC（32,029 秒，未用完 budget）。**PARTIAL_SUCCESS、exit 0**：完成 242 頁、跳過 12 頁、未到 0；4151 次請求、`http_failures` 0；`existing_source` 4511、`imported` 2412、`isbn_attached` 1485、`ambiguous_created` 0、`failed` 0、`restricted_skipped` 508；alert `unclassified_200`（下方 12 位數 guid）。唯讀核對（主帳號）全部符合：`created_in_run` 3897、`touched_in_run` 4411、total 8324 = 4427＋3897；半寫入、重複、ISBN 共用皆 0；博客來、金石堂、Bestseller 未變動。新書 ISBN 2179／2412（233 本沒有）。兩次合計新建 4823 本、掛到既有書 3461 本。
+- **12 位數 guid**：`/3/165`（`100602589297`）與 `/3/170`（`100602410024`）各有 1 張卡片的 guid 只有 12 位（簡體書），列表 parser 只接受 16～23 位，所以整頁 `parse_error`（同頁其他 17 本也不處理），每次 run 都有 `unclassified_200`。使用者決定（2026-11-12）：**維持現狀**。放寬前要先以真站請求證明詳細 API 接受 12 位 guid（需另外授權）。
+- **empty_category 頁**：補跑時 10 頁 `total` 為 0（`/3/50818`、`50821`、`50822`、`50823`、`57`、`60`、`50832`、`50834`、`50844`、`6562`）；依決定記為跳過，不發 alert，每頁 1 次請求；重新產生清單時再檢視。
+- 待決定：(1) 沒有 ISBN 的新書兩次合計 617 本（約 13%），依「無 ISBN → 新建」規則與金石堂的同一本會是不同 Book，是否另定比對規則；(2) DB 逾時讓整個 run 停止是共用 run 的現行規則（identity 查詢例外為 fatal，金石堂相同），是否改為重連或略過該書；(3) 254 頁清單是否 commit。CD 推送 `ESLITE_CRAWLER_IMAGE` 與金石堂一樣未做（CB-07）。
 - Phase 2 的實作選擇（可再調整）：作者欄的角色詞套用到前面所有尚未指定角色的名字；角色詞前沒有名字時整本解析失敗；嵌在名字裡的「等」保留；分類只取第 3 層名稱；`restricted` 為 true 時解析失敗（2026-11-12 起改為略過，見上方使用者決定）。
 - 使用者決定（2026-11-11）：清單 `page=1` 省略；非書商品當書處理（不依 `is_book` 過濾）；第 1 頁 `total` 0 記為該頁失敗（`EmptyCategory`）。
 - 使用者決定（2026-11-11）：pacing 沿用金石堂，每次請求（含重試）前隨機等待 3～10 秒（Phase 4 的誠品 `FetchPolicy` 套用）。
