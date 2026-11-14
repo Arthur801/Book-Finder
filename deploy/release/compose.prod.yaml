@@ -22,11 +22,32 @@ services:
       # (Docs/plans/async-recommendation-jobs.md). The host injects only secrets, so this switch ships with the release;
       # to turn it off, release without this line or redeploy the previous release (deploy backlog DEP-B26).
       RecommendationJobs__Enabled: "true"
+      # Turns on the MCP server at /mcp and the same-site OAuth server (/oauth/*, /.well-known/*); Mcp:PublicBaseUrl stays the
+      # appsettings value https://khwebsc.com. Like the job switch, it ships with the release; to turn it off, release without
+      # these lines or redeploy the previous release (Docs/Implementation-Report/book-finder-mcp-server.md, rollout runbook).
+      Mcp__Enabled: "true"
+      # Signing and encryption keys (D-11, D-12): unencrypted PKCS#12 files in the external oauth-certs volume,
+      # created on the host before this release; the files are owned by the container user (UID 1654) with mode 0400.
+      OAuth__SigningCertificatePath: /oauth-certs/signing.pfx
+      OAuth__EncryptionCertificatePath: /oauth-certs/encryption.pfx
+      # Pre-registered public clients (PKCE, no secret; MCP-ADR-007). Redirect URIs match exactly, so each one is listed as
+      # the client sends it; VS Code and ChatGPT URIs are confirmed by the real-client test (MCP-203).
+      OAuth__Clients__0__ClientId: claude
+      OAuth__Clients__0__DisplayName: Claude
+      OAuth__Clients__0__RedirectUris__0: https://claude.ai/api/mcp/auth_callback
+      OAuth__Clients__1__ClientId: vscode
+      OAuth__Clients__1__DisplayName: Visual Studio Code
+      OAuth__Clients__1__RedirectUris__0: http://127.0.0.1:33418
+      OAuth__Clients__1__RedirectUris__1: https://vscode.dev/redirect
+      OAuth__Clients__2__ClientId: chatgpt
+      OAuth__Clients__2__DisplayName: ChatGPT
+      OAuth__Clients__2__RedirectUris__0: https://chatgpt.com/connector_platform_oauth_redirect
     # Loopback only: nginx on the host is the only client, and TLS terminates there.
     ports:
       - "127.0.0.1:5000:8080"
     volumes:
       - dp-keys:/data-protection-keys
+      - oauth-certs:/oauth-certs:ro
     restart: unless-stopped
     logging:
       driver: json-file
@@ -44,3 +65,8 @@ networks:
 
 volumes:
   dp-keys:
+  # Created by the operator before the first MCP release; external, so compose stops instead of mounting an empty volume
+  # when it is missing, and a rollback or "down" never removes it.
+  oauth-certs:
+    external: true
+    name: book-finder-oauth-certs

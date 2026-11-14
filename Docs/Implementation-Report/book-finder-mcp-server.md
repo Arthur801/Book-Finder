@@ -4,7 +4,7 @@
 >
 > 本報告是實作紀錄，不是規格；current contract 以各模組 `docs/` 為準（AGENTS.md §3.2），特別是 [Mcp/docs/](../../Mcp/docs/architecture.md) 與 Infrastructure docs 的「MCP OAuth Authorization Server」一節。
 >
-> **production 狀態（2026-11-14）：尚未開啟。** 程式已隨 PR 合併，但 `Mcp:Enabled` 預設 `false`；production 只會套用 migration `20261114082838_AddOpenIddict`（四張空表），`/mcp`、`/oauth/*`、`/.well-known/oauth-*` 都不存在。開啟步驟見文末「上線手冊」，每一步都需要使用者授權。
+> **production 狀態（2026-11-15）：** v0.0.12 已帶 migration `20261114082838_AddOpenIddict`（開關關閉，上線手冊步驟 1）；開啟 MCP 的 compose 變更已備妥（步驟 3），部署前必須先完成步驟 2 的憑證 volume。開啟步驟見文末「上線手冊」，每一步都需要使用者授權。
 
 ## 變更檔案
 
@@ -72,7 +72,7 @@ M5 完整驗證（2026-11-14，分支 `mcp-m5-report`）：
 | MCP-203 真實 Client 實測（D-01、D-08） | 待 production 授權；見上線手冊 |
 | ChatGPT 的連結帳號 UI 由 Tool 錯誤 `_meta["mcp/www_authenticate"]` 觸發，不是 HTTP 401；授權後是否重送原請求未記載（MCP-B12） | MCP-203 實測後決定 |
 | ChatGPT 預註冊介面不明，可能需要 allowlist 版 CIMD（MCP-B11） | MCP-203 |
-| 憑證密碼的注入方式 | 已決定（D-12）：不設密碼，root-only volume；host 不需改動 |
+| 憑證密碼的注入方式 | 已決定（D-12）：不設密碼，external volume `book-finder-oauth-certs`（檔案屬 container 使用者 UID 1654、權限 0400）；host 不需新增 secret |
 | 全站 framing 政策（MCP-B16） | 待使用者決定 |
 | OAuth endpoint 防暴力嘗試（MCP-B20，與 CTL-02 一起） | 待決策 |
 | 撤銷授權管理頁（D-10） | 本期不做 |
@@ -112,8 +112,8 @@ M5 完整驗證（2026-11-14，分支 `mcp-m5-report`）：
    - 打 tag，CD 部署。這個 release 帶 migration `20261114082838_AddOpenIddict`（只新增四張表），`Mcp:Enabled` 為 false，網站行為不變。
    - 部署前在 EC2 執行 `df -h /`（DEP-B24）；plan 應為 `pending` 含 `20261114082838_AddOpenIddict`，compat 載入 `20261114032619_AddRecommendationJobs.sql`。
    - Smoke：網站首頁、搜尋、登入、`/ai` 正常；`/mcp`、`/oauth/authorize`、`/.well-known/oauth-authorization-server` 都是未 map（404／405）。
-2. **在 EC2 建立 OpenIddict 憑證**（D-12；`wizard` 帶步驟）：產生簽章與加密兩張**不設密碼**的 PKCS#12 憑證，放進新的 named volume（例如 `oauth-certs`，檔案 root-only 權限），container 唯讀掛載；憑證不進 repo、不進 image；記錄備份方式與輪替程序（MCP-B13）。
-3. **開啟 MCP 的 release**（PR 修改 `deploy/release/compose.prod.yaml`）：
+2. **在 EC2 建立 OpenIddict 憑證**（D-12；`wizard` 帶步驟）：產生簽章與加密兩張**不設密碼**的 PKCS#12 憑證，放進 external named volume `book-finder-oauth-certs`（host 上只有 root 進得去；檔案擁有者必須是 container 使用者 UID 1654、權限 0400，否則非 root 的 container 讀不到），container 唯讀掛載於 `/oauth-certs`；憑證要帶 keyUsage（簽章 `digitalSignature`、加密 `keyEncipherment`），以 `X509CertificateLoader` 不帶密碼載入（本機以 OpenIddict 7.8.0 驗證過）；憑證不進 repo、不進 image；記錄備份方式與輪替程序（MCP-B13）。
+3. **開啟 MCP 的 release**（PR 修改 `deploy/release/compose.prod.yaml`；`Mcp:PublicBaseUrl` 沿用 appsettings 的 `https://khwebsc.com`，client_id 為 `claude`、`vscode`、`chatgpt`；VS Code redirect URI 先列 `http://127.0.0.1:33418` 與 `https://vscode.dev/redirect`）：
    - `environment`：`Mcp__Enabled: "true"`、`Mcp__PublicBaseUrl: "https://khwebsc.com"`、`OAuth__SigningCertificatePath`、`OAuth__EncryptionCertificatePath`（指向唯讀掛載的 volume；不設 `OAuth__CertificatePassword`）；
    - `OAuth__Clients__N__ClientId／DisplayName／RedirectUris__M`：Claude（`https://claude.ai/api/mcp/auth_callback`）、VS Code（實測確認 redirect URI）、ChatGPT（`https://chatgpt.com/connector_platform_oauth_redirect`，或改 CIMD）；
    - `volumes`：唯讀掛載憑證 volume；
