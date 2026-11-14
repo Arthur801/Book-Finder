@@ -72,6 +72,10 @@ public class OAuthController(IUserStore users, IConfiguration configuration) : C
             return SignIn(new ClaimsPrincipal(identity), OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
         }
 
+        // The consent page must never be framed: a hidden "allow" click on a framed page would grant access (clickjacking, RFC 6819
+        // 4.4.1.9). The site sets no framing policy of its own, so this page sets both the legacy header and the CSP directive.
+        Response.Headers.XFrameOptions = "DENY";
+        Response.Headers.ContentSecurityPolicy = "frame-ancestors 'none'";
         return View("Consent", new OAuthConsentViewModel
         {
             ClientName = await Applications.GetDisplayNameAsync(application, cancellationToken) ?? request.ClientId!,

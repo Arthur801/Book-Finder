@@ -68,6 +68,25 @@ public sealed class OAuthFlowTests(WebFixture fixture)
         Assert.False(string.IsNullOrEmpty(AntiforgeryToken(page)));
     }
 
+    // The consent page must not be framed by another site, or a hidden "allow" click could grant access (clickjacking, RFC 6819
+    // 4.4.1.9). The site has no framing policy, so the consent action sets one itself.
+    [Fact]
+    public async Task Consent_page_cannot_be_framed_by_another_site()
+    {
+        await fixture.ResetDatabaseAsync();
+        await using var app = CreateOAuthFactory();
+        await AccountFlow.RegisterAsync(app.CreateClient(ClientOptions), "frame@x.com", Password, "Frame");
+        var browser = app.CreateClient(ClientOptions);
+        var returnUrl = "/oauth/authorize?" + Query(AuthorizeParams());
+        await AccountFlow.LoginAsync(browser, "frame@x.com", Password, returnUrl);
+
+        var response = await browser.GetAsync(returnUrl);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("DENY", Assert.Single(response.Headers.GetValues("X-Frame-Options")));
+        Assert.Equal("frame-ancestors 'none'", Assert.Single(response.Headers.GetValues("Content-Security-Policy")));
+    }
+
     [Fact]
     public async Task Approving_consent_redirects_to_the_callback_with_code_state_and_iss()
     {
