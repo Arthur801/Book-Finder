@@ -38,6 +38,11 @@
             return;
         }
 
+        // The buttons only work with JavaScript, so they are shown only now.
+        browser.querySelectorAll('.js-only').forEach(function (element) {
+            element.classList.remove('js-only');
+        });
+
         applyState(browser, button, readPreference());
         button.addEventListener('click', function () {
             var collapsed = !browser.classList.contains(COLLAPSED_CLASS);

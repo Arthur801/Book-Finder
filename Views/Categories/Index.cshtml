@@ -24,12 +24,13 @@
 
     <div class="category-browser-main">
         <div class="d-flex align-items-center gap-2 mb-3">
-            <button class="btn btn-outline-secondary d-lg-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#category-sidebar" aria-controls="category-sidebar">分類</button>
-            <button id="category-sidebar-toggle" class="btn btn-outline-secondary d-none d-lg-inline-block" type="button" aria-controls="category-sidebar" aria-expanded="true">隱藏分類</button>
+            <button class="btn btn-outline-secondary d-lg-none js-only" type="button" data-bs-toggle="offcanvas" data-bs-target="#category-sidebar" aria-controls="category-sidebar">分類</button>
+            <button id="category-sidebar-toggle" class="btn btn-outline-secondary d-none d-lg-inline-block js-only" type="button" aria-controls="category-sidebar" aria-expanded="true">隱藏分類</button>
         </div>
 
         @*
-            Without JavaScript the drawer stays hidden below lg, so this list gives the same links there.
+            Without JavaScript the drawer stays hidden below lg, so this list gives the same links there. The two buttons above
+            need JavaScript, so they carry js-only and category-sidebar.js reveals them.
         *@
         <noscript>
             <nav aria-label="分類" class="d-lg-none mb-3">
