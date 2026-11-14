@@ -1,6 +1,6 @@
 # Mcp 流程
 
-> 建立：2026-11-14（MCP-001）；MCP-002 加入授權閘門。app 目前仍沒有 Tool（`tools/list` 回空陣列）；三支 Tool 的流程在之後的票加入。
+> 建立：2026-11-14（MCP-001）；MCP-002 加入授權閘門。M1 加入 `search_books`；兩支 AI Tool 在之後的票加入。
 
 ## 1. 啟動
 
@@ -24,7 +24,7 @@ sequenceDiagram
     Client->>Mcp: POST initialize（Accept: application/json, text/event-stream）
     Mcp-->>Client: 200 SSE：serverInfo、capabilities.tools
     Client->>Mcp: POST tools/list
-    Mcp-->>Client: 200 SSE：{"tools": []}
+    Mcp-->>Client: 200 SSE：{"tools": [search_books]}
 ```
 
 - `Accept` 必須同時包含 `application/json` 與 `text/event-stream`，只給一種會回 406。
@@ -66,3 +66,27 @@ sequenceDiagram
     Note over Client: 之後的 OAuth 流程由 M2（OpenIddict）提供
 ```
 
+## 4. `search_books`（公開）
+
+```mermaid
+sequenceDiagram
+    participant Client as MCP Client
+    participant Gate as 授權閘門
+    participant Tool as BookSearchTools
+    participant Svc as McpBookSearchService
+    participant Port as IBookSearch（EfBookSearch）
+    Client->>Gate: tools/call search_books {query}
+    Gate->>Tool: 公開 Tool，放行（帶無效 Bearer 則 401）
+    Tool->>Svc: SearchAsync(query)
+    alt SearchQuery.Parse 為 Empty
+        Svc-->>Tool: VALIDATION_FAILED（不碰 DB）
+        Tool-->>Client: isError true、errorCode VALIDATION_FAILED
+    else 關鍵字或 ISBN
+        Svc->>Port: SearchAsync(q, page 1, pageSize 50)
+        Port-->>Svc: Hits（≤50）、TotalCount
+        Svc-->>Tool: totalCount、returnedCount、hasMore、searchUrl、books[bookUrl]
+        Tool-->>Client: structuredContent + 文字摘要
+    end
+```
+
+- 只查本地 DB，沒有外部 fallback；0 本時 `books = []`，仍有 `searchUrl`。
