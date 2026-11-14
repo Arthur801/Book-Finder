@@ -1,6 +1,8 @@
 # Application 文字測試案例庫
 
+
 > 非同步推薦 Job M2 補記：2026-11-14 更新；程式變更以 `6717d8f` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+> 非同步推薦 Job M3 補記：2026-11-14 更新；程式變更以 `b81a322`、`dc2d903` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR4 M1（#120）補記：2026-10-25 更新；程式變更以 `5052361`、`d864acc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > Canonical Category P4 補記：2026-11-14 更新；程式變更以 `c2e5324`、`cec6bd7` 記入 update-history。原查核基準保留，未重新審查其餘內容。
@@ -239,3 +241,17 @@ Auth的Google登入/email驗證/忘記密碼/個資修改/refresh token依identi
   - 頁碼小於 1 時改為 1，pageSize 為 20；
   - 分類清單以來源篩選查詢；查書時傳的是分類 Id（不是 slug）與來源；Found 的每個欄位都有值。
 - 測試來源：[CategoryBrowseServiceTests.cs](../../tests/UnitTests/CategoryBrowseServiceTests.cs)。
+
+### APP-T25 — 推薦流程的保存步驟與預算
+
+- 風險／狀態：L2；**測試實作：Implemented；執行：2026-11-14 UnitTests 873、WebIntegration 293 項通過（`dc2d903`）**。規格：[Job 計畫](../../Docs/plans/async-recommendation-jobs.md) §3.3。
+- **Given**：`tests/Shared` 的 fake parser／embedding／ranker、測試內的 fake candidate search 與 fake save、`FakeTimeProvider`。
+- **When**：`RecommendationPipeline.RunAsync(requirementText, save, ct)`。
+- **Then**：
+  - `save` 收到的正是驗證後的結果；沒有候選時收到空清單，ranker 不被呼叫；
+  - `save` 卡到 60 秒預算之後 → `AiTimeoutException`，沒有保存；
+  - `save` 拋出的例外原樣往外傳（同一個 instance），不轉成 timeout；
+  - 呼叫端取消 → `OperationCanceledException`，不是 `AiTimeoutException`；
+  - 回傳值帶著保存結果與推薦結果。
+- 回歸：`RecommendationServiceTests` 只改建構方式（以同一組 fake 組出 pipeline，pipeline 的 log 轉進同一個 recording logger），斷言全部未改、全綠（APP-T07～T17）。
+- 測試來源：[RecommendationPipelineTests.cs](../../tests/UnitTests/RecommendationPipelineTests.cs)、[RecommendationServiceTests.cs](../../tests/UnitTests/RecommendationServiceTests.cs)。

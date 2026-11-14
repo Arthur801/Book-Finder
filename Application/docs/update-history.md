@@ -1,6 +1,7 @@
 # Application Git 修改歷史
 
 > 非同步推薦 Job M2 補記：2026-11-14 更新；程式變更以 `6717d8f` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+> 非同步推薦 Job M3 補記：2026-11-14 更新；程式變更以 `b81a322`、`dc2d903` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR4 M1（#120）補記：2026-10-25 更新；程式變更以 `5052361`、`d864acc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
@@ -140,6 +141,15 @@ git show --format= --numstat <sha> -- Application ':(exclude)Application/docs'
 | 提交 | Subject | 影響 |
 |---|---|---|
 | `6717d8f` | feat(rec-jobs): count jobs in the daily recommendation usage | `Recommendation/IRecommendationUsage.cs` 只改註解，說明新的計數規則；實作見 Infrastructure |
+
+## 非同步推薦 Job M3 Pipeline 切分（新增紀錄）
+
+| 提交 | Subject | 影響 |
+|---|---|---|
+| `b81a322` | refactor(recommendation): extract the AI pipeline into RecommendationPipeline | 新增 `Recommendation/RecommendationPipeline.cs`（含 RecommendationPipelineResult）；`RecommendationService.cs` 改為額度檢查 → pipeline → difficulty／Profile，建構子改收 pipeline；`Program.cs` 註冊 scoped pipeline |
+| `dc2d903` | test(recommendation): cover the pipeline save, budget and cancellation contract | 新增 `tests/UnitTests/RecommendationPipelineTests.cs`（6 項）；`RecommendationServiceTests.cs` 只改建構方式 |
+
+驗證（2026-11-14，主 agent 重跑）：`dotnet build` 0 warning；UnitTests 873、WebIntegration 293 通過；diff 確認流程程式碼原樣搬移，只把保存改為呼叫 `save(results, token)`。
 
 ## 導覽
 
