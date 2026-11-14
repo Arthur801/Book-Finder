@@ -61,6 +61,8 @@ builder.Services.AddScoped<CategoryBrowseService>();
 // AI recommendation: one Recommendation Search per request, EF candidate search and store (recommendation.md §3).
 builder.Services.AddScoped<ICandidateSearch, EfCandidateSearch>();
 builder.Services.AddScoped<IRecommendationStore, EfRecommendationStore>();
+// Recommendation Job lease, fencing and recovery (plan section 3.5); the async job path uses it, not the synchronous store.
+builder.Services.AddScoped<IRecommendationJobLeaseStore, EfRecommendationJobLeaseStore>();
 builder.Services.AddScoped<IRecommendationUsage, EfRecommendationUsage>();
 // AI search history (#16): read-only port for the user's own saved searches (recommendation.md §12).
 builder.Services.AddScoped<IRecommendationHistory, EfRecommendationHistory>();
