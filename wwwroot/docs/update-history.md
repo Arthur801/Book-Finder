@@ -60,3 +60,9 @@ git show 66ecf55 f0e1f0f b2c72a0 -- wwwroot/js
 | 提交 | Subject | 影響 |
 |---|---|---|
 | `5559870` | feat(rec-jobs): submit through the job API and poll the job page | `js/ai.js`（Job 送出分支）、`js/ai-job.js`（新增） |
+
+## 2026-11-15 MCP 操作手冊頁（新增紀錄）
+
+| 提交 | Subject | 影響 |
+|---|---|---|
+| 本 PR | feat(mcp): public MCP guide page linked from the navbar | `css/site.css`：`.mcp-guide` 限制內文寬度（52rem） |

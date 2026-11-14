@@ -226,3 +226,8 @@ dotnet test tests/WebIntegration/WebIntegration.csproj
 - 測試控制：WebFixture 的 `JobsEnabled`（預設 false）、`RunJobWorker`（預設 false，會移除 Worker 這個 hosted service）、`JobPollInterval`。
 - 狀態：2026-11-14 主 agent 重跑 UnitTests 982、DatabaseIntegration 248、WebIntegration 337 全數通過。mutation：拿掉提交端點的開關判斷 → `With_the_flag_off_every_job_endpoint_returns_404…` 失敗，已還原。
 - 未驗證：瀏覽器實際執行 JS（TEST-B03 網站 E2E 仍暫緩）。
+
+## 14. MCP 操作手冊頁
+
+- `GET /mcp-guide` 匿名 200，`Mcp:Enabled` 開或關結果相同（路徑不在 `/mcp` 之下，閘門與 `MapMcp` 都不處理）。
+- 由 WebIntegration [McpGuidePageTests](../../tests/WebIntegration/McpGuidePageTests.cs) 驗證；2026-11-15 通過。

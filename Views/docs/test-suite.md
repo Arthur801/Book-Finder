@@ -81,3 +81,9 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter 'FullyQualifiedN
 ### VIEW-T14
 
 推薦工作頁面（Job 計畫 M7）。由 WebIntegration [AiJobPageTests](../../tests/WebIntegration/AiJobPageTests.cs) 驗證，見 Controllers JOB-02。2026-11-14 通過；JS 未在瀏覽器執行。
+
+### VIEW-T15 — MCP 操作手冊頁與導覽連結
+
+- 狀態：WebIntegration [McpGuidePageTests](../../tests/WebIntegration/McpGuidePageTests.cs) 已有測試（2026-11-15 通過）。
+- 驗證：匿名 `GET /mcp-guide` 200，標題「MCP 操作手冊 - 好想找書」，含 MCP 網址、ChatGPT plugins 網址、三個 client_id 與錯誤碼；`Mcp:Enabled` 開關兩種情況結果相同；未登入時連結在登入、註冊之後，登入後仍顯示。
+- 未驗證：瀏覽器版面（窄螢幕的表格與程式碼區塊捲動）。

@@ -62,9 +62,11 @@ Mcp → Infrastructure/Identity（只有 `CurrentUser.CurrentUserId()`，與 Con
 ## 5. 執行環境
 
 - 設定預設值在 `appsettings.json`：`Mcp:Enabled = false`、`Mcp:PublicBaseUrl = https://khwebsc.com`。
-- production 尚未開啟（`deploy/release/compose.prod.yaml` 沒有 `Mcp__Enabled`）。開啟須隨 release，並取得使用者授權。
+- production 自 v0.0.13 開啟（#214：`deploy/release/compose.prod.yaml` 的 `Mcp__Enabled`、OAuth 憑證路徑與三個預註冊 Client）；2026-11-15 使用者以 ChatGPT、Claude、VS Code 實測通過（MCP-203）。開關只能隨 release 改變。
 - `/mcp` POST 不經 MVC，所以不受全域 antiforgery filter 影響，也不設 cookie。
 - 2026-07-28 協定的 request 必須帶 `Mcp-Method`、`Mcp-Name` header，且 `params._meta` 含 protocolVersion、clientInfo、clientCapabilities；SDK 檢查 header 與 body 一致。2025-11-25 在 stateless 下不經 initialize 也能直接 `tools/call`。
+
+- 使用者文件：網站的 `/mcp-guide`（[Views/McpGuide/Index.cshtml](../../Views/McpGuide/Index.cshtml)）寫給終端使用者，列出 MCP 網址、三個預註冊 client_id、Tool 用途、500 字與 50 本上限、每日額度、token 效期與錯誤碼。這些值改變時（Tool、錯誤碼、OAuth Client、額度、效期）要同步修改該頁。
 
 ## 6. MCP-ADR-007：OpenIddict 與 Client Registration（MCP-003，2026-11-14）
 
