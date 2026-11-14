@@ -21,6 +21,7 @@
 ## 執行紀錄
 
 - 2026-11-14（`deb899f`，主 agent 重跑）：103 passed、0 skipped；ruff check／format 通過。
+- 注意：本機 `.venv` 的 ruff 是 0.17.2，CI 釘 0.17.4（`crawler/requirements.txt`）；第一次 CI 因 EXE001 失敗。本機請用 `uvx ruff@0.17.4` 檢查，與 CI 一致。
 - Mutation 抽查（2026-11-14）：拿掉 Mapping UPSERT 的 `IS DISTINCT FROM` 條件 → SC-T06 的兩個冪等測試失敗；把 AMBIGUOUS 判斷改成永不成立 → SC-T03～SC-T06 共 4 個測試失敗。兩者都已還原。
 
 ## 已知缺口
