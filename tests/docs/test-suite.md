@@ -236,3 +236,11 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter FullyQualifiedNa
 - **來源**：[CategoryPageTests](../WebIntegration/CategoryPageTests.cs)（WebIntegration，分類與 Mapping 的 seed 在測試內的私有 helper）、[NavbarTests](../WebIntegration/NavbarTests.cs)（導覽列「分類」）、[CategoryBrowseViewModelTests](../UnitTests/CategoryBrowseViewModelTests.cs)、[CachedCategoryBrowseTests](../UnitTests/CachedCategoryBrowseTests.cs)（以手動時鐘的 MemoryCache 推進時間）。
 - **案例**：見 Controllers CAT-01～05、Models M-T14、Views VIEW-T13、Infrastructure INF-T21。
 - **狀態**：2026-11-14 code review 修正後主 agent 重跑 UnitTests 867、DatabaseIntegration 174、WebIntegration 293 全數通過；`WebFixture` 每個測試建立新的 host，所以快取不會在測試之間殘留。瀏覽器檢查為一次性本機 Playwright（20／20）。
+
+### TEST-26：AddCanonicalCategories 的 compat seed
+
+- **Given**：空 DB，以 MigrationServer migrate 到 `20261114003848_AddCanonicalCategories`。
+- **When**：載入 `deploy/migration-test/seeds/20261114003848_AddCanonicalCategories.sql`。
+- **Then**：可以載入；books 4 本、canonical_categories 3 筆（1 筆停用、1 筆 100 字 slug）、provider_category_mappings 4 筆（三家來源、MANUAL 與 VERIFIED_RULE、255 字 subject）；文學分類經兩家來源分到 2 本書。
+- **來源與狀態**：[CanonicalCategorySeedTests](../DatabaseIntegration/CanonicalCategorySeedTests.cs)，2026-11-14 通過。背景見 deploy backlog DEP-B25。
+

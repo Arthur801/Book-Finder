@@ -342,3 +342,10 @@ git log --reverse --no-merges --format='@@%h' --numstat -- <同上路徑>
 
 - 重跑命令見 §1。以 `git cat-file -t <sha>` 可確認本文件中每個 SHA 都能解析。
 - 本文件的所有 SHA 已在寫入前後以 `git cat-file -t` 核對（見交付說明）。
+
+## 2026-11-14 AddCanonicalCategories 的 compat seed（新增紀錄）
+
+| 日期 | commit | subject | 變更 |
+|---|---|---|---|
+| 2026-11-14 | 本 PR | test(compat): seed for AddCanonicalCategories, the applied head since v0.0.8 | `deploy/migration-test/seeds/20261114003848_AddCanonicalCategories.sql`（新增）；v0.0.9 CD 的 compat 因缺此檔失敗（run `43547981502`），見 backlog DEP-B25 |
+
