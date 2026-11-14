@@ -1,5 +1,6 @@
 # Domain 架構與映射
 
+> 非同步推薦 Job M1 補記：2026-11-14 更新；程式變更以 `ad398b8`、`904baca`、`0a11483` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR4 M1（#120）補記：2026-10-25 更新；程式變更以 `5052361`、`d864acc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > Canonical Category P1 補記：2026-11-14 更新；程式變更以 `e7a105b` 記入 update-history。原查核基準保留，未重新審查其餘內容。
@@ -27,6 +28,7 @@ Domain/Entities 有 16 個資料類別、7 個 enum 與常數類別 SourceCodes�
 | [Bestseller](../Entities/Bestseller.cs) | short rank/book/source/captured time | rank PK、book unique；crawler 寫、Web 讀 |
 | [RecommendationSearch](../Entities/RecommendationSearch.cs) | 非 nullable user UUID、requirement、fallback/time | recommendation_searches；成功含零結果 |
 | [RecommendationResult](../Entities/RecommendationResult.cs) | search/book/rank/nullable decimal score/reason | search/rank PK、search/book unique；score numeric(6,5) |
+| [RecommendationJob](../Entities/RecommendationJob.cs)、[RecommendationJobStatus](../Entities/RecommendationJobStatus.cs) | user、requirement、status、search?、attempt、run_after、lease token／expiry?、idempotency key?、request hash、error code?、時間 | recommendation_jobs；狀態 `QUEUED`／`RUNNING`／`SUCCEEDED`／`FAILED`。DB CHECK 保證：只有 `RUNNING` 有 lease；`SUCCEEDED` 必有 search 且無 error code；`FAILED` 必有 error code、無 search；未終態無 search 與 completed_at。`search_id` UNIQUE，`(user_id, idempotency_key)` 部分 UNIQUE；兩個 FK 皆 Cascade。M1 只有 schema，尚無 reader／writer（[Job 計畫](../../Docs/plans/async-recommendation-jobs.md) M4 起） |
 | [BookAiProfile](../Entities/BookAiProfile.cs) | nullable JsonDocument/string[]/difficulty；hash/model/prompt/time | 每 Book 一列，jsonb/text[]，只供推薦內部 |
 | [BookEmbedding](../Entities/BookEmbedding.cs) | Pgvector.Vector、hash/model/time | 每 Book 一列 vector(1536) |
 

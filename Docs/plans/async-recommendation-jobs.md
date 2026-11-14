@@ -1,10 +1,10 @@
-# 非同步 AI 推薦 Job（Recommendation Job）— v1.0 實作計畫
+# 非同步 AI 推薦 Job（Recommendation Job）— v1.1 實作計畫
 
 > Baseline：`origin/main @ 80f558b`（2026-11-14）。
 >
 > 來源：使用者提供的「Book-Finder 非同步 AI 推薦工作系統：實作規劃 v1.0（Proposed）」，經 repo 現況核對與使用者決定（下表）整理成本版。
 >
-> **狀態：未實作。** 沒有程式變更、沒有 migration、沒有執行任何測試或部署。
+> **狀態：M1、M3 已實作，PR 審核中（2026-11-14）**：M1 新增 `recommendation_jobs` 與 migration `20261114032619_AddRecommendationJobs`；M3 抽出 `RecommendationPipeline`。兩者都還沒部署；其餘模組未實作。
 >
 > 本文件是實作計畫，不代表功能已實作、測試已通過或取得 production 授權。技術 authority 仍是各模組的 `docs/`（`AGENTS.md` §3.2）；實作時把定案的 contract 寫進 owning module 的 docs，不只寫在這裡。變更記在文末「設計變更紀錄」。
 
@@ -146,16 +146,17 @@ Search 與 Job 的 `user_id` 必須一致：由 fenced commit 在同一交易內
 
 ### 3.3 推薦流程切分（M3）
 
-從 `RecommendationService` 抽出 `RecommendationPipeline.ComputeAsync(requirementText, ct)`：
+從 `RecommendationService` 抽出 `RecommendationPipeline.RunAsync(requirementText, save, ct)`（v1.1 改版，見設計變更紀錄）：
 
-- 內容：60 秒預算內的 parse → sanitize → embed → candidate search → rank → validate，以及現有的 summary log 欄位；
-- **不含**額度檢查與保存；
-- 回傳 `RankedCandidate` 清單與 telemetry。
+- 內容：60 秒預算內的 parse → sanitize → embed → candidate search → rank → validate → **save**，以及現有的 summary log；
+- `save` 是呼叫端傳入的保存步驟（`Func<IReadOnlyList<RankedCandidate>, CancellationToken, Task<SavedRecommendationSearch>>`），在預算內以預算 token 執行；
+- **不含**額度檢查與 difficulty／Profile；
+- 回傳 `RecommendationPipelineResult(Saved, Results)`。
 
 使用方式：
 
-- 舊路徑 `RecommendAsync` = 額度檢查 → `ComputeAsync` → `IRecommendationStore.SaveAsync` → difficulty／Profile。**對外行為不變**：保存仍在 60 秒預算內（現有 `RecommendationServiceTests` 全部不改、全綠即為證據）。
-- Job 路徑 = `ComputeAsync` → fenced commit（§3.5）→ best-effort Profile 排程。Job 路徑的 60 秒預算不含 commit；逾時或失去 lease 的結果由 fencing 擋下，不會寫入。
+- 舊路徑 `RecommendAsync` = 額度檢查 → `RunAsync`（`save` = `IRecommendationStore.SaveAsync`）→ difficulty／Profile。**對外行為不變**：既有 `RecommendationServiceTests` 的斷言全部未改、全綠。
+- Job 路徑 = `RunAsync`（`save` = fenced commit，§3.5）→ best-effort Profile 排程。commit 和舊路徑一樣在 60 秒預算內，所以兩條路徑的逾時語意相同：逾時不會留下已保存的 Search；失去 lease 時 fenced commit 會拋出例外，原樣往外傳。
 
 逾時判斷沿用現有規則：只有計時器的取消才是 `AiTimeoutException`；外部 token 取消原樣往外傳。
 
@@ -275,7 +276,7 @@ loop until stoppingToken:
 
 ## 4. 模組（每模組一分支一 PR）
 
-一律照 [README §3](README.md) 的流程：worktree `~/Documents/vs_repos/Book-Finder-wt/rec-jobs`，分支 `rec-jobs-m<k>-<name>` 一層疊一層，PR base 一律 `main`；Haiku subagent 以 TDD 寫程式；主 agent 驗收（build 0 warning、受影響測試、L3 模組做 mutation 抽查）並寫該模組的五份 `docs/`。
+一律照 [README §3](README.md) 的流程：每個模組一個 worktree `~/Documents/vs_repos/Book-Finder-wt/rec-jobs-m<k>`，分支 `rec-jobs-m<k>-<name>`。依賴鏈上的模組一層疊一層；彼此無依賴的模組（M1 與 M3）從同一個 commit 並行開發，後面的模組再把兩條分支 merge 進來（不 rebase），PR base 一律 `main`；Haiku subagent 以 TDD 寫程式；主 agent 驗收（build 0 warning、受影響測試、L3 模組做 mutation 抽查）並寫該模組的五份 `docs/`。
 
 | 模組 | 內容 | 風險 | 主要檔案 | 依賴 |
 |---|---|---|---|---|
@@ -363,3 +364,4 @@ loop until stoppingToken:
 | 版本 | 日期 | 變更 |
 |---|---|---|
 | v1.0 | 2026-11-14 | 由使用者原稿 v1.0（Proposed）整理；記錄決定 #1～#4；補充本計畫的工程假設：Pipeline 切分、usage 公式、DB 時鐘 fencing、shutdown 釋放不扣次數、固定 error_code、Idempotency-Key 格式、flag 關閉時 Job API 回 404、指標以 log 輸出。 |
+| v1.1 | 2026-11-14 | §3.3：Pipeline 改為接受呼叫端的 `save` 步驟、保存仍在 60 秒預算內（原為不含保存的 `ComputeAsync`），讓 Job 的 fenced commit 與舊路徑逾時語意相同（M3）。M1 的 compat seed 在新增 migration 的同一個 PR 提供（deploy DEP-B25 方向 (b)）；129 字元的 idempotency key 先被 varchar(128) 拒絕（22001），CHECK 是第二層。M1 與 M3 並行開發。 |

@@ -1,5 +1,6 @@
 # Infrastructure AI 文字測試案例庫
 
+> 非同步推薦 Job M1 補記：2026-11-14 更新；程式變更以 `ad398b8`、`904baca`、`0a11483` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR4 M1（#120）補記：2026-10-25 更新；程式變更以 `5052361`、`d864acc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > Canonical Category P5 補記：2026-11-14 更新；程式變更以 `a9b7ad1`、`c2d68a1`、`d43ea57` 記入 update-history。原查核基準保留，未重新審查其餘內容。
@@ -28,6 +29,7 @@ Authority：[test plan](../../Docs/testing/test-plan.md)、[data model](../../Do
 - Then：12 application tables、vector extension、vector(1536)、required／expression indexes、enum／range／NULL／unique／FK／cascade-restrict 均符合；錯誤維度或 rating 越界寫入被拒；不存在 model snapshot drift。Expression indexes 需 constraints.sql，不能只驗 snapshot。
 - 入口：[SchemaTests](../../tests/DatabaseIntegration/SchemaTests.cs)、[constraints.sql](../../tests/DatabaseIntegration/constraints.sql)、[ModelSnapshotTests](../../tests/DatabaseIntegration/ModelSnapshotTests.cs)。
 - 分類 schema（2026-11-14，`e7a105b`，DatabaseIntegration 162 項通過）：[CanonicalCategorySchemaTests](../../tests/DatabaseIntegration/CanonicalCategorySchemaTests.cs) 驗證 slug CHECK／UNIQUE、`(source_code, subject)` PK、兩個 FK（Restrict）、`mapping_method` 詞彙、三個 index 與 EF enum 讀回；constraints.sql 的必要資料表清單納入兩張新表。案例細節見 Domain DOM-T11。
+- Recommendation Job schema（2026-11-14，`ad398b8`、`904baca`，DatabaseIntegration 197 項通過）：[RecommendationJobSchemaTests](../../tests/DatabaseIntegration/RecommendationJobSchemaTests.cs) 驗證 5 個 CHECK、兩個 UNIQUE、兩個 FK 與刪除使用者時的 cascade、EF enum 讀回；constraints.sql 的必要資料表清單納入 `recommendation_jobs`。案例細節見 Domain DOM-T12。
 
 ## INF-T02 — Cookie JWT、雜湊與使用者 lookup
 

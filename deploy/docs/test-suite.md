@@ -1,5 +1,6 @@
 # deploy/ 測試案例庫（AI 可操作的文字案例）
 
+> 非同步推薦 Job M1 補記：2026-11-14 更新；程式變更以 `ad398b8`、`904baca`、`0a11483` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR4 M3（#120）補記：2026-10-25 更新；程式變更以 `d249c07`、`6e70e93`、`b99b368` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
@@ -64,6 +65,7 @@
 | `deploy/migration-test/preflight/20261025120000_ContractMultiSourceCatalog.sql`（011 gate 7，唯讀） | production 在 010 時由操作者執行（`deploy/README.md` §4.4）。不由 CI 執行 | `ContractMigration011PreflightTests`（test-plan row 20） |
 | `deploy/migration-test/seeds/20261024160045_MultiSourceCatalog.sql`（010 head seed）| compat 在 applied 為 010 時必須有此 seed；本次只以 Testcontainers 驗證可載入並列數（`book_sources` 5 筆、`book_subjects` 3 筆、`book_offers` 2 筆） | 待 CI compat 證據 |
 | `deploy/migration-test/seeds/20261114003848_AddCanonicalCategories.sql`（AddCanonicalCategories head seed） | v0.0.8 部署後 production 的 applied head；compat 載入此 seed（缺檔時 v0.0.9 的 compat 以 `missing seed file` 失敗，2026-11-14）。內容為 011 seed 加上 canonical_categories 3 筆（含停用、100 字 slug）、provider_category_mappings 4 筆（三家來源、兩種 method、255 字 subject） | DatabaseIntegration `CanonicalCategorySeedTests` 驗證可載入（2026-11-14 通過）；CI compat 待 dispatch 證據 |
+| `deploy/migration-test/seeds/20261114032619_AddRecommendationJobs.sql`（AddRecommendationJobs head seed） | 含此 migration 的 release 部署後，下一次 CD 的 compat 載入此 seed。依 DEP-B25 方向 (b) 在新增 migration 的 PR 一併提供；compat 只讀 applied head 的 seed，提早放入不影響目前的 head。內容為 AddCanonicalCategories seed 原樣加上 recommendation_jobs 5 筆（四種狀態、128 字元 key、`SUCCEEDED` 連到同一使用者的 Search） | DatabaseIntegration `RecommendationJobSeedTests` 驗證可載入（2026-11-14 通過）；CI compat 待部署後證據 |
 | `bash deploy/migration-test/compat.sh --rebuild-image IMG --target-image IMG [--runtime-image IMG\|none] --applied FILE --seeds-dir DIR --report OUT.json` | CD `compat` job；`ci.yml` 在 PR 條件下執行 | 需 Docker 與 GHCR digest；拋棄式 DB | 已有測試但本次未執行 |
 | `BOOKFINDER_IT=1 python -m pytest deploy/tests/integration/test_prev_release_on_contract.py -m integration -q -s`，或 `bash deploy/migration-test/prev-release-on-contract.sh --target-image IMG --prev-web-image IMG --prev-crawler-image IMG` | gate 9 與 manual recovery（`deploy/README.md` §4.5）；不在 CI | 需 Docker；建立並移除 `bf-prev-*` 的容器、內部網路與 volume；離線（不連博客來）；前一個 release 的 image 以 digest 指定 | 本次已執行（M4，見 update-history §3.14） |
 | `ssh -i <plan key> -o IdentitiesOnly=yes deployer@<EC2_HOST> "status 1-1"`（預期 `not-started`，exit 0） | runbook §2.6（上線前驗證） | 只讀；不改變 state | 營運觀察（上線前驗證的結果未記錄） |

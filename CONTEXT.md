@@ -60,6 +60,10 @@ _Avoid_: AI 查詢、搜尋歷史（泛稱時）
 一次 Recommendation Search 中被推薦的一本 Book，附排序與推薦理由。
 _Avoid_: AI 結果
 
+**Recommendation Job**／推薦工作：
+使用者送出、在背景執行的一次 AI 推薦請求，狀態為排隊、執行中、成功或失敗；成功時產生一筆 Recommendation Search。失敗的 Job 會保留，但不產生 Recommendation Search。
+_Avoid_: 推薦任務、AI 佇列（指單筆時）
+
 ## 個人書單（Library）
 
 **Library**／個人書單：

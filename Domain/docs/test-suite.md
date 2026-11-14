@@ -1,5 +1,6 @@
 # Domain 文字測試案例庫
 
+> 非同步推薦 Job M1 補記：2026-11-14 更新；程式變更以 `ad398b8`、`904baca`、`0a11483` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR4 M1（#120）補記：2026-10-25 更新；程式變更以 `5052361`、`d864acc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > Canonical Category P1 補記：2026-11-14 更新；程式變更以 `e7a105b` 記入 update-history。原查核基準保留，未重新審查其餘內容。
@@ -65,6 +66,10 @@ dotnet test tests/UnitTests/UnitTests.csproj --filter 'FullyQualifiedName~BookDe
 ### DOM-T11 — Canonical Category 與 Mapping 約束
 
 風險 L3；已有測試，2026-11-14 執行通過（`e7a105b`）。來源：[分類計畫 §2](../../Docs/plans/canonical-category-browse.md)、[CanonicalCategorySchemaTests](../../tests/DatabaseIntegration/CanonicalCategorySchemaTests.cs)、[StoredEnumTests](../../tests/DatabaseIntegration/StoredEnumTests.cs)。Given 已套全部 migration 的 DB；When 寫入 category 與 mapping；Then 不合法 slug（大寫、連續或首尾連字號、底線、空字串）被 CHECK 拒絕，`comics-light-novels`、`a1` 可寫入；slug 重複、`(source_code, subject)` 重複被 UNIQUE／PK 拒絕，但同名 Subject 換來源可寫入；未知 source_code、未知 category 被 FK 拒絕；`mapping_method` 只接受 `MANUAL`、`VERIFIED_RULE`；有 Mapping 的 category 不能刪；三個 index 與兩個 FK 存在；EF 讀回 `MappingMethod` enum。
+
+### DOM-T12 — Recommendation Job 狀態約束
+
+風險 L3；已有測試，2026-11-14 執行通過（`ad398b8`、`904baca`）。來源：[Job 計畫 §3.1、§3.2](../../Docs/plans/async-recommendation-jobs.md)、[RecommendationJobSchemaTests](../../tests/DatabaseIntegration/RecommendationJobSchemaTests.cs)、[StoredEnumTests](../../tests/DatabaseIntegration/StoredEnumTests.cs)。Given 已套全部 migration 的 DB；When 寫入各狀態的 Job；Then 四種合法狀態可寫入並以 EF 讀回 enum；詞彙外的 status、負的 attempt_count、非小寫 hex 的 request_hash、含非法字元的 idempotency key、`RUNNING` 無 lease、`QUEUED` 有 lease、`SUCCEEDED` 無 search、`FAILED` 有 search 或無 error code、`QUEUED` 有 completed_at 都被 CHECK 拒絕（23514）；129 字元的 key 先被 varchar(128) 拒絕（22001）；同一 search 兩個 Job、同一使用者同一 key 被 UNIQUE 拒絕（23505），不同使用者同 key 與多個 NULL key 可寫入；未知 user／search 被 FK 拒絕（23503）；刪除使用者時連同 Search 與 Job 一起刪除。
 
 明確暫緩：ANN 索引與 Work/Edition 雙層不是本次驗收，也沒有授權壓測。靜態、mock、disposable integration 與 production 證據須分開，本文件沒有 live 結果。
 
