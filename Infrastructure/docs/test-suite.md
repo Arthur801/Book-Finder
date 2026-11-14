@@ -1,5 +1,6 @@
 # Infrastructure AI 文字測試案例庫
 
+> 非同步推薦 Job M4 補記：2026-11-14 更新；程式變更以 `4b31184`、`5d143b4`、`08d8c9a`、`1f36620`、`ef89755` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M2 補記：2026-11-14 更新；程式變更以 `6717d8f` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M1 補記：2026-11-14 更新；程式變更以 `ad398b8`、`904baca`、`0a11483` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
@@ -199,6 +200,20 @@ dotnet test tests/WebIntegration/WebIntegration.csproj
 ## 文件導航
 
 [流程](workflow-diagram.md) · [架構](architecture.md) · [待辦](backlog.md) · [歷史](update-history.md) · [案例](test-suite.md)
+
+## INF-T22 — 推薦工作提交、並行與查詢（Job 計畫 M4）
+
+- 責任／風險／狀態：EF store，L3，已有測試；2026-11-14 DatabaseIntegration 220 項通過（`ef89755`）。
+- Given：共用 PostgreSQL fixture；每個測試以新 id 建立使用者。
+- When／Then：
+  - 提交建立 `QUEUED`，各欄位符合規格；
+  - 同 key 同內容 → 回同一個 JobId，不新增列；同 key 不同內容 → 衝突，不新增列；不同使用者用同 key 可各自建立；
+  - 已達上限時，同 key 重送仍回原 Job（idempotency 在額度之前）；
+  - 上限 2、今天已有 1 筆一般 Search → 第一次建立、第二次拒絕；今天 FAILED 的 Job 不佔額度；日界前的 Job 不計；
+  - 並行：上限 3、8 個不同 key 的提交各用自己的 DbContext，以 TaskCompletionSource 同時放行 → 剛好 3 建立、5 拒絕、表內 3 列；5 個同 key 同內容的並行提交 → 1 列，全部拿到同一個 JobId；
+  - 列表只含本人、新到舊、id 決定同時間順序、分頁與總數正確；Get 本人可見，他人與不存在回 null。
+- mutation：subagent 拿掉 `FOR UPDATE` → 兩個並行測試 3／3 次失敗；主 agent 把 `>=` 改成 `>` → 2 項失敗。皆已還原。
+- 入口：[EfRecommendationJobStoreTests](../../tests/DatabaseIntegration/EfRecommendationJobStoreTests.cs)。
 
 ## INF-T18 — Detail reader 的 ISBN 順序
 
