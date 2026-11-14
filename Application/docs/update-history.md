@@ -1,5 +1,6 @@
 # Application Git 修改歷史
 
+> 非同步推薦 Job M2 補記：2026-11-14 更新；程式變更以 `6717d8f` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR4 M1（#120）補記：2026-10-25 更新；程式變更以 `5052361`、`d864acc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
@@ -133,6 +134,12 @@ git show --format= --numstat <sha> -- Application ':(exclude)Application/docs'
 |---|---|---|
 | `c2e5324` | feat(categories): add the category browse application service | 新增 `Catalog/CategoryFilter.cs`（CategorySummary、SourceOption）、`ICategoryBrowse.cs`、`CategoryBrowsePage.cs`（CategoryBrowseOutcome、CategoryBrowseResult）、`CategoryBrowseService.cs` |
 | `cec6bd7` | feat(categories): query the category browse from the local database | Application 無變更（EF 實作與 DI 註冊，見 Infrastructure） |
+
+## 非同步推薦 Job M2 用量計數（新增紀錄）
+
+| 提交 | Subject | 影響 |
+|---|---|---|
+| `6717d8f` | feat(rec-jobs): count jobs in the daily recommendation usage | `Recommendation/IRecommendationUsage.cs` 只改註解，說明新的計數規則；實作見 Infrastructure |
 
 ## 導覽
 

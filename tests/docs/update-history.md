@@ -1,5 +1,6 @@
 # tests 修改歷史
 
+> 非同步推薦 Job M2 補記：2026-11-14 更新；程式變更以 `6717d8f` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M1 補記：2026-11-14 更新；程式變更以 `ad398b8`、`904baca`、`0a11483` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR4 M1（#120）補記：2026-10-25 更新；程式變更以 `5052361`、`d864acc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
@@ -200,3 +201,4 @@ Git 歷史不證明 runtime 或 CI 已通過。
 | 2026-11-14 | 本 PR | test(compat): seed for AddCanonicalCategories | `tests/DatabaseIntegration/CanonicalCategorySeedTests.cs`（新增）、`MigrationServer.cs`（`MigrationIds.AddCanonicalCategories`） | TEST-26 |
 | 2026-11-14 | `904baca` | test(rec-jobs): cover recommendation_jobs checks, keys, FKs and cascade | `tests/DatabaseIntegration/RecommendationJobSchemaTests.cs`（新增）、`StoredEnumTests.cs`（`RecommendationJobStatus`）、`constraints.sql`（必要資料表加入 `recommendation_jobs`） | TEST-27 |
 | 2026-11-14 | `0a11483` | test(rec-jobs): compat seed for AddRecommendationJobs | `tests/DatabaseIntegration/RecommendationJobSeedTests.cs`（新增）、`MigrationServer.cs`（`MigrationIds.AddRecommendationJobs`） | TEST-28 |
+| 2026-11-14 | `6717d8f` | feat(rec-jobs): count jobs in the daily recommendation usage | `tests/DatabaseIntegration/EfRecommendationUsageTests.cs`（新增 `SeedJobAsync` 與 7 項 Job 用量測試） | INF-T15 |

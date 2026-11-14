@@ -1,5 +1,6 @@
 # Application 架構選型
 
+> 非同步推薦 Job M2 補記：2026-11-14 更新；程式變更以 `6717d8f` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR4 M1（#120）補記：2026-10-25 更新；程式變更以 `5052361`、`d864acc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > Canonical Category P4 補記：2026-11-14 更新；程式變更以 `c2e5324`、`cec6bd7` 記入 update-history。原查核基準保留，未重新審查其餘內容。
@@ -44,6 +45,7 @@ Application-level policy 包含 [LibraryService.AddPendingAsync](../Library/Libr
 | Candidate | 結構化filters與向量交ICandidateSearch | LLM產SQL違反invariant | sanitizer不能證明條件真為使用者明示；parser也須受測 |
 | 時間 | TimeProvider與[台北時間helper](../Common/TaipeiTimeZone.cs) | DateTime.Now難以測試日界線 | UTC保存；date precision缺失不猜 |
 | 配額 | count後save無鎖，規格§11接受少量並行超額 | 嚴格reservation需改規則與交易 | 不當作已確認race bug |
+| 配額計數（M2） | Search 與 Job 共用一個計數，Job 依提交日、`FAILED` 不計 | 只數 Search：Job 排隊期間不佔額度，可無限排隊 | 舊同步路徑仍是 count 後 save 無鎖；Job 路徑的嚴格預約在 M4 |
 | 交易邊界與機制 | Application 的 IRecommendationStore 定義 Search 與全部 Results 原子保存；Infrastructure 用單次 EF SaveChanges／DB transaction 實現 | 將 Search／Results 分開保存會違反 port contract，留下半成品 | Application 定義 policy/boundary，不直接操作 EF transaction；零結果仍保存，保存後 enrichment 不回滾 |
 | Timeout | 固定60秒linked token，保存後profile在預算外 | 每步獨立timeout不能保證總預算 | adapters須合作取消；commit邊界待補證據 |
 | Cache | reader decorator在Infrastructure，依ADR-005 | use case內cache增加耦合 | Bestseller正常1小時、空榜5分鐘；Book cache不含個人Library |
@@ -74,6 +76,7 @@ Application-level policy 包含 [LibraryService.AddPendingAsync](../Library/Libr
 **AI 推薦**
 
 - 必須登入；每位使用者每日上限 20 次，達上限時不呼叫任何外部服務。
+  - 用量計數（2026-11-14 使用者決定 D-01／D-02，[Job 計畫 §3.4](../../Docs/plans/async-recommendation-jobs.md)）：已保存且不是由 Job 產生的 Search（`created_at` ≥ 日界）＋ 同一使用者 `created_at` ≥ 日界、狀態不是 `FAILED` 的 Recommendation Job。Job 的額度算在提交日；Job 產生的 Search 只透過 Job 計一次；`FAILED` 的 Job 退還額度。舊同步 API 與之後的 Job API 共用這個計數。M2 只改計數；提交時鎖住使用者再計數的預約流程在 M4。
 - Local DB 為優先候選來源。硬條件過濾只來自使用者明確提到的條件，不確定就不加。LLM 只輸出結構化 filter，不產生或執行 SQL。
 - Candidate Set = 通過硬條件**且** similarity ≥ 門檻的書；不相關的書不得成為候選。
 - Candidate Set `< 5` 才允許 Google Books fallback。Google Books 結果必須 normalize 並寫入系統資料模型、產生 embedding、通過同樣的過濾與門檻後才能成為 Candidate（目前未實作，見 APP-B01）。
