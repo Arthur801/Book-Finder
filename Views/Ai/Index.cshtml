@@ -1,12 +1,13 @@
 @model Book_Finder.Models.AiHistoryListViewModel
 @{
     ViewData["Title"] = "AI 推薦";
+    var jobsEnabled = ViewData["RecommendationJobsEnabled"] is true;
 }
 
 <section class="mb-4">
     <h1 class="h3 mb-3">AI 推薦</h1>
 
-    <form id="ai-form" class="mb-3">
+    <form id="ai-form" class="mb-3" data-recommendation-jobs="@(jobsEnabled ? "true" : "false")">
         @Html.AntiForgeryToken()
         <label for="ai-requirement" class="form-label">用一句話描述你想讀的書</label>
         <textarea id="ai-requirement" maxlength="500" class="form-control mb-2" rows="2" placeholder="例：想學資料庫入門，最好有實作練習"></textarea>
@@ -16,6 +17,11 @@
     <p id="ai-status" class="text-muted" role="status" aria-live="polite"></p>
     <ol id="ai-results" class="list-unstyled mb-0"></ol>
 </section>
+
+@if (ViewData["JobList"] is AiJobListViewModel jobList)
+{
+    <partial name="_AiJobList" model="jobList" />
+}
 
 <partial name="_AiHistoryList" model="Model" />
 
