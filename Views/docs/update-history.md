@@ -1,5 +1,7 @@
 # Views Git 修改歷史
 
+> Canonical Category P5 補記：2026-11-14 更新；程式變更以 `a9b7ad1`、`c2d68a1`、`d43ea57` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
 查核基準 `91333c3` 的 source history 如下；`Views/docs` 明確排除，不將 PR #100 新增或後續修正的文件 commits 計入 source history。
 
 查核日期：2026-10-24；HEAD `91333c3`。直接來源範圍：`Views`，排除 `Views/docs`；完整可達歷史共 22 筆，非 shallow。排序為 `git log --reverse` 的反向 log 次序；日期欄是 author date（`%ad --date=short`），不是 committer／部署／測試日期。全部 author 為 Arthur801；co-author trailers 不改 author 欄位。
@@ -73,3 +75,10 @@ git show 894883b -- Views
 | `2642182` | test(web): cover 書庫 paging, home sample and the /bestsellers redirect | 無 View 行為變更；Web 測試改驗書庫與首頁 markup，刪除 BestsellerPageTests |
 | 本 M2 docs commit | docs(web): record 書庫 Web presentation in folder docs | 更新 Views 文件的路由表、流程與案例 |
 | 本次 backlog 整理 commit | docs(backlog): tidy views backlog after #113 PR2 | `docs/backlog.md`：VIEW-B05 移出表格至「已處理」；補記標頭；未改程式 |
+
+## Canonical Category P5 分類頁（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-14 | `a9b7ad1` | feat(categories): add the 分類 browse page with sidebar and source filter | `Categories/Index.cshtml`、`Categories/_CategorySidebar.cshtml`、`Categories/NotFound.cshtml`（新增）；`Shared/_Layout.cshtml`（`Styles` section、導覽列「分類」）；目錄外：`wwwroot/js/category-sidebar.js`、`wwwroot/css/category-browser.css` |
+| 2026-11-14 | `d43ea57` | fix(categories): show the sidebar buttons only when JavaScript runs | `Categories/Index.cshtml`（兩個按鈕加 `js-only`）；目錄外：JS 與 CSS 對應修改。瀏覽器檢查發現 |

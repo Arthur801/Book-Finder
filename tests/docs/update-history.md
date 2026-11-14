@@ -194,3 +194,5 @@ Git 歷史不證明 runtime 或 CI 已通過。
 | 2026-11-14 | `e7a105b` | feat(categories): add canonical category schema (P1) | `tests/DatabaseIntegration/CanonicalCategorySchemaTests.cs`（新增）、`StoredEnumTests.cs`（`MappingMethod`）、`constraints.sql`（必要資料表加入兩張新表） | TEST-23 |
 | 2026-11-14 | `920dc2c` | ci: categories-tool job for the canonical category tool (P2) | `.github/workflows/ci.yml`（新增 `categories-tool` job；測試本身在 `scripts/categories/tests`） | TEST-11 補記 |
 | 2026-11-14 | `c2e5324`、`cec6bd7` | feat(categories): category browse service and EF query (P4) | `tests/UnitTests/CategoryBrowseServiceTests.cs`、`tests/DatabaseIntegration/EfCategoryBrowseTests.cs`（新增） | TEST-24 |
+| 2026-11-14 | `a9b7ad1`、`c2d68a1` | feat(categories): 分類 page and the sidebar count cache (P5) | `tests/WebIntegration/CategoryPageTests.cs`、`tests/UnitTests/CategoryBrowseViewModelTests.cs`、`tests/UnitTests/CachedCategoryBrowseTests.cs`（新增）；`tests/WebIntegration/NavbarTests.cs` | TEST-25 |
+| 2026-11-14 | `b73f23c`、`ec42a67` | code review fixes (P5) | `tests/UnitTests/CategoryBrowseViewModelTests.cs`（空狀態文案）、`tests/WebIntegration/CategoryPageTests.cs`（側邊欄書數） | TEST-25 |

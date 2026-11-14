@@ -1,5 +1,7 @@
 # wwwroot 架構與選型
 
+> Canonical Category P5 補記：2026-11-14 更新；程式變更以 `a9b7ad1`、`d43ea57` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
 > 查核：2026-10-24；HEAD `91333c334148fa5bfe07055d0e799dc13bb0bb4e`。當前工作樹靜態證據；本次未執行 build、測試、瀏覽器、網路或發布。只新增本目錄五份文件。
 
 [UI authority](../../Docs/ui/ui-flow.md)、[API](../../Docs/api/api-spec.md)、[Library](../../Docs/modules/user-library.md)、[Recommendation](../../Docs/modules/recommendation.md)、[Identity](../../Docs/modules/identity-auth.md)。名詞沿用 [CONTEXT](../../CONTEXT.md)；Bestseller、Library Entry、Recommendation Search 不在前端重定義。
@@ -10,9 +12,10 @@
 |---|---|
 | ai.js | Home／Ai View scripts section 載入；POST /api/recommendations；GET /ai/history-list?page=1；sessionStorage 一次交接 |
 | library.js | Book／Library View 載入；PUT／PATCH／DELETE /api/library/{encodedBookId}；WeakMap 保存每組 server 確認值 |
+| category-sidebar.js | [Categories/Index](../../Views/Categories/Index.cshtml) 的 Scripts section 載入；不發 request。移除 `.js-only` 顯示兩個需要 JS 的按鈕；桌面版切換 `.category-browser.is-sidebar-collapsed`、同步 `aria-expanded` 與按鈕文字；偏好存在 localStorage `bookfinder.categorySidebarCollapsed`，讀寫都包 try/catch，失敗只是不記得。手機抽屜由 Bootstrap offcanvas 負責，不經這支 JS |
 | Razor DOM | ai-form 等 ID；data-library-controls、book-id、login-url、status、rating、clear-rating、unrated、remove、error、failed-text、add、add-error；[Controls](../../Views/Shared/_LibraryControls.cshtml) 與 [Book section](../../Views/Books/_LibrarySection.cshtml) 必須同步修改 |
-| CSS | [site.css](../css/site.css) 基礎樣式，768px 字級 14→16；library-star 依 aria-pressed 著色；ai-history-requirement 截兩行且 title 保全文 |
-| Layout | [Layout](../../Views/Shared/_Layout.cshtml) 使用 Bootstrap、jQuery、site.js 與版本化 site.css；頁面按責任再載 ai／library |
+| CSS | [site.css](../css/site.css) 基礎樣式，768px 字級 14→16；library-star 依 aria-pressed 著色；ai-history-requirement 截兩行且 title 保全文。[category-browser.css](../css/category-browser.css) 只給分類頁：`.js-only` 預設隱藏（選擇器權重高於 Bootstrap 的 display utility）；≥992px 時側邊欄 14rem、sticky，收合 class 只在這個寬度生效 |
+| Layout | [Layout](../../Views/Shared/_Layout.cshtml) 使用 Bootstrap、jQuery、site.js 與版本化 site.css；`<head>` 有 `Styles` section 讓頁面載入自己的 CSS（目前只有分類頁）；頁面按責任再載 ai／library／category-sidebar |
 | lib vendor | Bootstrap／jQuery／jquery-validation／unobtrusive 的 distribution、map、license；不屬自有業務程式，更新需保留授權與相依關係 |
 | 靜態發布 | [Program](../../Program.cs) MapStaticAssets；[Web csproj](../../Book-Finder.csproj) 沒有 wwwroot/docs 專用排除 |
 

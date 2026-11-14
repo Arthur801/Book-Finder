@@ -1,0 +1,34 @@
+/* The 分類 page (Views/Categories/Index.cshtml). Below lg the sidebar is Bootstrap's offcanvas drawer, so these rules only lay out the lg+ columns. */
+/* Buttons that need JavaScript (the drawer opener and the collapse toggle) stay hidden until category-sidebar.js runs.
+   The selector outranks Bootstrap's display utilities, which are also !important. */
+.category-browser .js-only {
+  display: none !important;
+}
+
+.category-link.active {
+  font-weight: 600;
+}
+
+@media (min-width: 992px) {
+  .category-browser {
+    display: flex;
+    align-items: flex-start;
+    gap: 1.5rem;
+  }
+
+  .category-browser .category-sidebar {
+    flex: 0 0 14rem;
+    position: sticky;
+    top: 1rem;
+  }
+
+  .category-browser-main {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  /* Collapsed on desktop only: the mobile drawer is never hidden by this class. */
+  .category-browser.is-sidebar-collapsed .category-sidebar {
+    display: none;
+  }
+}

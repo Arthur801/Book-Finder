@@ -1,5 +1,7 @@
 # Views 頁面與互動流程
 
+> Canonical Category P5 補記：2026-11-14 更新；程式變更以 `a9b7ad1`、`c2d68a1`、`d43ea57` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
 查核：2026-10-24；HEAD `91333c3`。範圍是 Views 原始 Razor／scoped CSS；Controller、Models、JavaScript 是定位呼叫及呈現責任的依賴來源。Authority：[UI Flow](../../Docs/ui/ui-flow.md)、[API](../../Docs/api/api-spec.md)、[Catalog](../../Docs/modules/book-catalog.md)、[Library](../../Docs/modules/user-library.md)、[Identity](../../Docs/modules/identity-auth.md)、[Recommendation](../../Docs/modules/recommendation.md)。沒有本次執行或瀏覽器證據。
 
 ## 入口與呈現單元
@@ -9,6 +11,7 @@
 | GET `/` | [Home/Index](../Home/Index.cshtml)、_SearchForm、_BookList | HomeController；BookBrowseService.SampleHomeAsync 隨機 10 本，不依 rank；空庫顯示「書庫還沒有書」 |
 | GET `/books?page=` | [Books/Index](../Books/Index.cshtml)、_BookList、_Pager | BooksController；書庫分頁，超頁 302 至最後一頁；空庫無摘要、無分頁 |
 | GET `/bestsellers` | 無 View；301 至 `/books` | BestsellersController；舊連結保留 |
+| GET `/categories?category=&source=&page=` | [Categories/Index](../Categories/Index.cshtml)、[_CategorySidebar](../Categories/_CategorySidebar.cshtml)、_BookList、_Pager；404 用 [Categories/NotFound](../Categories/NotFound.cshtml) | CategoriesController；未知或停用的分類、未知來源 404；超頁 302 至最後一頁並保留條件；空分類 200 空狀態；導覽列「分類」在「書庫」之後 |
 | GET `/search?q=&page=` | [Search/Index](../Search/Index.cshtml)、_SearchForm、_Pager | SearchController／SearchResultsViewModel；只有 local DB |
 | GET `/books/{id}` | [Books/Detail](../Books/Detail.cshtml)、_LibrarySection、_LibraryControls | catalog read model + 每次獨立 user Library 查詢 |
 | GET/POST `/account/login`、`/account/register` | [Login](../Account/Login.cshtml)、[Register](../Account/Register.cshtml) | AccountController；POST token、成功 cookie/redirect、失敗表單 |

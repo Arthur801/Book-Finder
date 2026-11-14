@@ -1,0 +1,19 @@
+@model IReadOnlyList<Book_Finder.Models.FilterLinkViewModel>
+@*
+    The category links of the 分類 sidebar. The offcanvas drawer and the no-JavaScript list both render this partial,
+    so the two show the same links. The selected link carries aria-current="page".
+*@
+<ul class="list-unstyled category-list mb-0">
+    @foreach (var link in Model)
+    {
+        <li>
+            <a class="category-link d-flex justify-content-between align-items-center gap-2 py-1 @(link.IsCurrent ? "active" : null)" href="@link.Url" aria-current="@(link.IsCurrent ? "page" : null)">
+                <span>@link.Label</span>
+                @if (link.Count is { } count)
+                {
+                    <span class="badge rounded-pill text-bg-secondary">@count</span>
+                }
+            </a>
+        </li>
+    }
+</ul>

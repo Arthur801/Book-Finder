@@ -1,5 +1,7 @@
 # Models 資料生命週期
 
+> Canonical Category P5 補記：2026-11-14 更新；程式變更以 `a9b7ad1`、`c2d68a1`、`d43ea57` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
 > 查核日期：2026-10-24；基準：`91333c3`；目標：`Models/`。本次只做靜態閱讀，未執行 build、測試、Mermaid renderer、資料庫或外部服務。開始時來源無未提交修改；其他代理既有的 `Controllers/docs/` 不屬本文件範圍。
 
 ## 範圍與入口
@@ -11,6 +13,7 @@
 | [AccountController](../../Controllers/AccountController.cs) | [LoginForm](../LoginForm.cs)、[RegisterForm](../RegisterForm.cs)：binding、錯誤後重顯 | [identity-auth](../../Docs/modules/identity-auth.md) §3–6 |
 | [RecommendationsController](../../Controllers/RecommendationsController.cs) | [RecommendationRequest](../RecommendationRequest.cs)、[RecommendationResponse](../RecommendationResponse.cs)：JSON 邊界 | [API](../../Docs/api/api-spec.md) §3 |
 | [LibraryApiController](../../Controllers/LibraryApiController.cs) | [LibraryPatchParser](../LibraryPatchParser.cs)、[LibraryEntryResponse](../LibraryEntryResponse.cs) | API §4 |
+| [CategoriesController](../../Controllers/CategoriesController.cs) | [CategoryBrowseViewModel](../CategoryBrowseViewModel.cs)、[BookListItemViewModel](../BookListItemViewModel.cs)、[PagerViewModel](../PagerViewModel.cs) | [分類計畫](../../Docs/plans/canonical-category-browse.md) §4.2、§4.3 |
 | [BooksController](../../Controllers/BooksController.cs) | [BookDetailViewModel](../BookDetailViewModel.cs)、[BookBrowseViewModel](../BookBrowseViewModel.cs)、[BookListItemViewModel](../BookListItemViewModel.cs)、[ContributorDisplay](../ContributorDisplay.cs)、[LibrarySectionViewModel](../LibrarySectionViewModel.cs) | [Catalog](../../Docs/modules/book-catalog.md) §4、[Library](../../Docs/modules/user-library.md) §5 |
 | [SearchController](../../Controllers/SearchController.cs) | [SearchResultsViewModel](../SearchResultsViewModel.cs)、[PageNumber](../PageNumber.cs) | Catalog §3 |
 | [AiController](../../Controllers/AiController.cs) | [AiHistoryListViewModel](../AiHistoryListViewModel.cs)、[AiHistoryDetailViewModel](../AiHistoryDetailViewModel.cs) | [Recommendation](../../Docs/modules/recommendation.md) §12、[UI](../../Docs/ui/ui-flow.md) §3.4 |

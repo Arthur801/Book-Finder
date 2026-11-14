@@ -1,10 +1,10 @@
-# Canonical Category 分類瀏覽 — v2.4 實作計畫
+# Canonical Category 分類瀏覽 — v2.5 實作計畫
 
 > Baseline：`origin/main @ 6ef2cd6`（2026-11-14）。
 >
 > 來源：使用者提供的 v2.0 提案（Proposed），經 repo 現況核對與使用者決定（下表）整理成本版。
 >
-> **狀態：P0～P3 完成（2026-11-14）**：Mapping 已匯入 production，23,491 本中 23,486 本有分類（[實作報告](../Implementation-Report/canonical-category-p0-p3.md)）；P4（分類查詢）已實作，PR 審核中。production 盤點結果與使用者審核過的分類集合見 §5「P0 結果」；工具用法見 [scripts/categories/README.md](../../scripts/categories/README.md)。
+> **狀態：P0～P3 完成（2026-11-14）**：Mapping 已匯入 production，23,491 本中 23,486 本有分類（[實作報告](../Implementation-Report/canonical-category-p0-p3.md)）；P4（分類查詢）、P5（`/categories` 頁面與書數快取）已實作，PR 審核中。production 盤點結果與使用者審核過的分類集合見 §5「P0 結果」；工具用法見 [scripts/categories/README.md](../../scripts/categories/README.md)。
 >
 > 本文件是實作計畫，不代表功能已實作、測試已通過或取得 production 授權。變更記在文末「設計變更紀錄」。
 
@@ -58,7 +58,7 @@
 
 - 修改 crawler 的寫入契約（例如保存完整分類路徑）；
 - 文字相似度或 LLM 自動分類；
-- 分類頁快取（先量 baseline）；
+- 書單本身的快取（側邊欄書數、來源清單、全部書籍數已快取 10 分鐘，見 v2.5）；
 - 子分類（第二層 Canonical Category）導覽；
 - 管理後台 UI；
 - 自動刪除規則檔已移除的 Mapping。
@@ -361,6 +361,7 @@ crawler 的寫入契約沒有改變，`crawler/docs` 不需要更新。
 
 | 日期 | 版本 | 變更 |
 |---|---|---|
+| 2026-11-14 | v2.5 | P4、P5：<br>- 依 production EXPLAIN（側邊欄 25 ms、全部書籍數＋來源 38 ms），使用者決定把側邊欄書數、來源清單、全部書籍數快取 10 分鐘（取代原「分類書數不做快取」，Infrastructure INF-B09）；<br>- 附帶影響：slug／source 是否存在也依快取判斷，分類停用或新來源加入後，404 判斷最多延遲 10 分鐘（code review 指出）；<br>- 需要 JS 的按鈕在無 JS 時隱藏。 |
 | 2026-11-14 | v2.4 | P3 dry-run 審核：誠品兩個宗教命理名稱改歸 `religion`（決定 #8）；P1 migration 隨 v0.0.8 部署（部署前清理 EC2 磁碟，見 deploy backlog DEP-B24）。 |
 | 2026-11-14 | v2.3 | P2 完成：<br>- 誠品兩個同名第 3 層歸簡體書（決定 #7）；<br>- 分類樹存檔由使用者以既有清單工具取得，不需要新增 crawler 選項；<br>- 工具另有 `eslite-import`（產生 `config/eslite_level3.tsv`）與 `--config-dir`；`--apply` 先鎖表再計算計畫；orphan 只回報不刪除。 |
 | 2026-11-14 | v2.2 | P0 完成：<br>- 記錄 production 盤點結果；<br>- 18 類 Canonical Category 與各來源頂層對照（決定 #4）；<br>- 誠品「簡體書」獨立成一類（決定 #5）；<br>- 誠品第 2 層 id 改從分類樹存檔取得，展開結果 commit 為 `config/eslite_level3.tsv`（決定 #6）。 |

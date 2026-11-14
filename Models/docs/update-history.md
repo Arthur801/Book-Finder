@@ -2,6 +2,7 @@
 
 > PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR4 M1（#120）補記：2026-10-25 更新；程式變更以 `5052361`、`d864acc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+> Canonical Category P5 補記：2026-11-14 更新；程式變更以 `a9b7ad1`、`c2d68a1`、`d43ea57` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 查核基準 `91333c3` 的 source history 如下；`Models/docs` 明確排除，不將 PR #100 新增或後續修正的文件 commits 計入 source history。
 
@@ -89,3 +90,10 @@ git show cda623f -- Models
 | 2026-10-25 | `c3021e3` | fix(catalog): make the detail reader own ISBN identifier order | `BookDetailViewModel.cs`：註解改為 reader 擁有排序，view model 只做同值去重（行為不變） |
 | 2026-10-25 | `5052361` | feat(catalog): contract migration 011 and read only the ISBN type | `BookDetailViewModel.cs`：`IdentifierLabel` 移除 `Isbn13`／`Isbn10`；`IdentifierRows` 改為只取 `Isbn` 並依值排序，移除同值去重與 `IsbnIdentifierTypes` 依賴 |
 | 2026-10-25 | 本次 backlog 整理 commit | docs(backlog): tidy models backlog after #113 PR2 and PR4 | `docs/backlog.md`：M-B05 移出表格至「已處理」；補記標頭；未改程式 |
+
+## Canonical Category P5 分類頁（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-14 | `a9b7ad1` | feat(categories): add the 分類 browse page with sidebar and source filter | `CategoryBrowseViewModel.cs`（新增，含 FilterLinkViewModel） |
+| 2026-11-14 | `b73f23c` | fix(categories): name the source in the empty text when only a source is selected | `CategoryBrowseViewModel.cs`：只選來源且沒有書時顯示「這個來源目前沒有書」（Spec review） |

@@ -51,7 +51,11 @@ builder.Services.AddScoped<IBookBrowse, EfBookBrowse>();
 builder.Services.AddScoped<BookBrowseService>();
 
 // 分類瀏覽 (Canonical Category browse): categories, sources and the books of one category, local database only.
-builder.Services.AddScoped<ICategoryBrowse, EfCategoryBrowse>();
+// Sidebar counts and the source list are cached for 10 minutes (process-local); the book list is read through every time.
+builder.Services.AddScoped<EfCategoryBrowse>();
+builder.Services.AddScoped<ICategoryBrowse>(provider => new CachedCategoryBrowse(
+    provider.GetRequiredService<EfCategoryBrowse>(),
+    provider.GetRequiredService<IMemoryCache>()));
 builder.Services.AddScoped<CategoryBrowseService>();
 
 // AI recommendation: one Recommendation Search per request, EF candidate search and store (recommendation.md §3).

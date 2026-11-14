@@ -1,5 +1,7 @@
 # Controllers 修改歷史
 
+> Canonical Category P5 補記：2026-11-14 更新；程式變更以 `a9b7ad1`、`c2d68a1`、`d43ea57` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
 查核基準 `91333c3` 的 source history 如下；`Controllers/docs` 明確排除，不將 PR #100 新增或後續修正的文件 commits 計入 source history。
 
 整理日期：2026-10-24；Git 查核基準：`91333c3`。下表列出此基準可達歷史中，**直接修改 `Controllers/*.cs`** 的全部 27 筆 commit，依 `git log --reverse` 順序呈現，不將整個 commit 的所有變更都歸入 Controller。
@@ -78,3 +80,10 @@ git show <commit> -- Controllers
 | `7c14b09` | docs(browse): sync specs to 書庫 and suspended Bestseller Web | 規格同步；Controllers 程式無變更 |
 | 本 M3 baseline commit | docs(browse): record 書庫 query plan baseline and implementation report | CTL-11 補上量測結果（見實作報告）；待辦狀態不變（仍待 Catalog 增長後觀察） |
 | 本次 backlog 整理 commit | docs(backlog): tidy controllers backlog after #113 PR2 | `docs/backlog.md`：CTL-12 移至「已處理」；補記標頭；其餘狀態未變；未改程式 |
+
+## Canonical Category P5 分類頁（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-14 | `a9b7ad1` | feat(categories): add the 分類 browse page with sidebar and source filter | `CategoriesController.cs`（新增） |
+| 2026-11-14 | `ec42a67` | test(categories): cover the sidebar count badges over HTTP | Controllers 無程式變更；CategoryPageTests 新增 CAT-06（Spec review） |
