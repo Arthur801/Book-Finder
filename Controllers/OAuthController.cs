@@ -47,7 +47,7 @@ public class OAuthController(IUserStore users, IConfiguration configuration) : C
         {
             if (request.HasPromptValue(PromptValues.None))
                 return Reject(Errors.LoginRequired, "The user is not logged in.");
-            return Redirect(LoginRedirect(LocalRequestUrl()));
+            return LocalRedirect(LoginRedirect(LocalRequestUrl()));
         }
 
         // Re-authentication is not offered, so prompt=login is answered with login_required instead of a login loop.
@@ -104,7 +104,7 @@ public class OAuthController(IUserStore users, IConfiguration configuration) : C
         // An expired session returns to the authorize request this form carried (rebuilt without the token and submit fields).
         var user = await SignedInUserAsync(cancellationToken);
         if (user is null)
-            return Redirect(LoginRedirect(FormAuthorizeUrl()));
+            return LocalRedirect(LoginRedirect(FormAuthorizeUrl()));
 
         if (!RequestsOnlyRecommendScope(request))
             return Reject(Errors.InvalidScope, "Only the books:recommend scope can be requested.");
@@ -250,6 +250,7 @@ public class OAuthController(IUserStore users, IConfiguration configuration) : C
         AuthorizePath + QueryString.Create(Request.Form.Where(field =>
             field.Key != "__RequestVerificationToken" && field.Key != AcceptSubmit && field.Key != DenySubmit));
 
-    // Sends the user to login and back to this same local URL afterwards (SafeReturnUrl accepts it).
+    // Sends the user to login and back to this same local URL afterwards (SafeReturnUrl accepts it). Callers use LocalRedirect,
+    // so even a value built from form fields can only ever leave the server as a local path.
     private static string LoginRedirect(string returnUrl) => $"{LoginPath}?returnUrl={Uri.EscapeDataString(returnUrl)}";
 }
