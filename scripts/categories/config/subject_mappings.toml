@@ -1,3 +1,19 @@
 # Subject 例外對應（MANUAL）。格式：[[mapping]] 含 source_code、subject、slug、root（記入 provider_root_subject）、note（選填）。
 # 同一個 (source_code, subject) 只能出現一次。這裡的規則會覆蓋推導出的對應，也能解決 AMBIGUOUS 名稱。
-# 目前沒有例外；需要時經使用者審核後再加入。
+# 每一筆都要經使用者審核後才加入。
+
+# 誠品這兩個第 3 層名稱同時在「青少年」（334 → children-teens）與「簡體書」（162 → simplified-chinese）下；
+# 書上只存名稱，無法分辨來自哪一組。使用者 2026-11-14 決定都歸簡體書（Docs/plans/canonical-category-browse.md 決定 #7）。
+[[mapping]]
+source_code = "ESLITE"
+subject = "繪本／插畫／漫畫"
+slug = "simplified-chinese"
+root = "eslite-l2:162"
+note = "與青少年（334）同名；使用者決定歸簡體書"
+
+[[mapping]]
+source_code = "ESLITE"
+subject = "語言考用"
+slug = "simplified-chinese"
+root = "eslite-l2:162"
+note = "與青少年（334）同名；使用者決定歸簡體書"

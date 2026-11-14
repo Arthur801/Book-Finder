@@ -11,29 +11,27 @@ import psycopg
 import pytest
 from category_config import load_rules
 from category_mapper import build_plan
-from eslite_tree import DEFAULT_TSV, read_level3_tsv, write_level3_tsv
+from eslite_tree import DEFAULT_TSV, read_level3_tsv
 from manage_categories import main
 
 SHIPPED_CONFIG = Path(__file__).resolve().parents[1] / "config"
 CONFIG_FILES = ("canonical_categories.toml", "provider_roots.toml", "subject_mappings.toml")
 
 
-def temp_config(tmp_path: Path, *, rename_literature: str | None = None) -> Path:
-    """A copy of the shipped rules whose Eslite list drops the two ambiguous names, so --apply is allowed."""
+def temp_config(tmp_path: Path, *, rename_literature: str | None = None, without_manual: bool = False) -> Path:
+    """A copy of the shipped rules and Eslite list. ``without_manual`` empties subject_mappings.toml, which brings back
+    the two ambiguous Eslite names that the shipped manual rules resolve."""
     config = tmp_path / "config"
     config.mkdir(parents=True)
-    for name in CONFIG_FILES:
+    for name in (*CONFIG_FILES, DEFAULT_TSV.name):
         shutil.copy(SHIPPED_CONFIG / name, config / name)
     if rename_literature is not None:
         path = config / "canonical_categories.toml"
         text = path.read_text(encoding="utf-8")
         text = text.replace('display_name = "文學小說"', f'display_name = "{rename_literature}"', 1)
         path.write_text(text, encoding="utf-8")
-    rules = load_rules(SHIPPED_CONFIG)
-    rows = read_level3_tsv(SHIPPED_CONFIG / DEFAULT_TSV.name)
-    plan = build_plan(rules, rows, db_categories=[], db_mappings=[])
-    ambiguous = {a.subject for a in plan.ambiguous}
-    write_level3_tsv(config / DEFAULT_TSV.name, [r for r in rows if r.level3_name not in ambiguous])
+    if without_manual:
+        (config / "subject_mappings.toml").write_text("# no manual rules\n", encoding="utf-8")
     return config
 
 
@@ -212,8 +210,9 @@ def test_orphan_mapping_is_reported_and_kept(fresh_db: str, monkeypatch: pytest.
     assert scalar(fresh_db, "SELECT count(*) FROM provider_category_mappings WHERE subject = '已移除的名稱'") == 1
 
 
-def test_apply_is_refused_while_names_are_ambiguous(fresh_db: str, monkeypatch: pytest.MonkeyPatch, capsys) -> None:
-    code, out = run(monkeypatch, capsys, fresh_db, "sync", "--apply", "--config-dir", str(SHIPPED_CONFIG))
+def test_apply_is_refused_while_names_are_ambiguous(fresh_db: str, monkeypatch: pytest.MonkeyPatch, capsys, tmp_path: Path) -> None:
+    config = temp_config(tmp_path, without_manual=True)
+    code, out = run(monkeypatch, capsys, fresh_db, "sync", "--apply", "--config-dir", str(config))
 
     assert code == 2
     assert "ambiguous" in out.lower()

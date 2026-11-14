@@ -102,9 +102,12 @@ def test_sync_with_broken_config_is_exit_2_before_connecting(tmp_path: Path, unr
     assert "canonical_categories.toml" in capsys.readouterr().err
 
 
-def test_apply_is_refused_while_names_are_ambiguous_without_connecting(unreachable_database: None, capsys) -> None:
-    # The shipped rules have two ambiguous Eslite names, so --apply must refuse before any connection is attempted.
-    assert main(["sync", "--apply", "--config-dir", str(SHIPPED_CONFIG)]) == 2
+def test_apply_is_refused_while_names_are_ambiguous_without_connecting(unreachable_database: None, capsys, tmp_path: Path) -> None:
+    # Without the shipped manual rules two Eslite names are ambiguous, so --apply must refuse before any connection is attempted.
+    config = tmp_path / "config"
+    shutil.copytree(SHIPPED_CONFIG, config)
+    (config / "subject_mappings.toml").write_text("# no manual rules\n", encoding="utf-8")
+    assert main(["sync", "--apply", "--config-dir", str(config)]) == 2
     err = capsys.readouterr().err
     assert "ambiguous" in err.lower()
     assert "not-a-real-pw" not in err
