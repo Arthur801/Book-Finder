@@ -105,3 +105,4 @@ git show cda623f -- Models
 |---|---|---|---|
 | 2026-11-14 | `4db0c98` | feat(rec-jobs): add the job submit, list and get API | `RecommendationJobResponse.cs`（新增） |
 | 2026-11-14 | `e00cbb5` | feat(rec-jobs): show the job list on /ai and the job status page | `AiJobListViewModel.cs`、`AiJobViewModel.cs`（新增） |
+| 2026-11-14 | `48b2edd` | feat(mcp): OAuth consent page (MCP-201b) | `OAuthConsentViewModel.cs`（新增） |

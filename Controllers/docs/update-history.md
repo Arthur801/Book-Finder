@@ -95,3 +95,4 @@ git show <commit> -- Controllers
 |---|---|---|---|
 | 2026-11-14 | `4db0c98` | feat(rec-jobs): add the job submit, list and get API | `RecommendationJobsController.cs`（新增） |
 | 2026-11-14 | `e00cbb5` | feat(rec-jobs): show the job list on /ai and the job status page | `AiController.cs`（`jobsPage`、`/ai/jobs/{id}`） |
+| 2026-11-14 | `48b2edd`、`3a41690`、`a93db00` | feat／fix(mcp): OAuth authorize, consent and token endpoints (MCP-201b) | `OAuthController.cs`（新增）；consent 回應加 `X-Frame-Options: DENY` 與 `frame-ancestors 'none'` |

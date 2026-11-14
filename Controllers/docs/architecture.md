@@ -57,6 +57,8 @@ Controller 不寫 SQL、不直接呼叫 OpenAI／Google Books、不持有推薦�
 | Account.Login | GET、POST `/account/login` | 否 | `AccountService`；成功由共用 SignInAndRedirect 寫 cookie、執行待辦與 Redirect |
 | Account.Register | GET、POST `/account/register` | 否 | 同上；註冊成功直接登入 |
 | Account.Logout | POST `/account/logout` | 是 | `AuthCookie.Delete` → Redirect `/` |
+| OAuth.Authorize | GET、POST `/oauth/authorize` | 讀 `bf_auth`；未登入導向 `/account/login?returnUrl=` | OpenIddict passthrough（MCP-201b）：GET 顯示 consent 或依 permanent authorization 直接核准；POST 為 consent 表單（antiforgery）；只用 OpenIddict scheme SignIn／Forbid；`Mcp:Enabled = false` 時 404 |
+| OAuth.Token | POST `/oauth/token` | 否（`[IgnoreAntiforgeryToken]`，public client + PKCE） | code／refresh_token grant；確認使用者仍存在後 SignIn；其他 grant `unsupported_grant_type` |
 | Library.Index | GET `/library` | 是 | `LibraryService.ListAsync` → 書單 View |
 | LibraryApi.Add | PUT `/api/library/{bookId}` | 是 | `LibraryService.AddAsync`、`ProblemDetailsFactory` → 200 / 404 |
 | LibraryApi.Update | PATCH `/api/library/{bookId}` | 是 | JSON reader、`LibraryPatchParser`、`LibraryService.UpdateAsync` → 200 / 400 / 404 |
