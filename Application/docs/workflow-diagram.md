@@ -1,5 +1,6 @@
 # Application 流程與責任
 
+> 非同步推薦 Job M3 補記：2026-11-14 更新；程式變更以 `b81a322`、`dc2d903` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > Canonical Category P4 補記：2026-11-14 更新；程式變更以 `c2e5324`、`cec6bd7` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 > 查核日期：2026-10-24；Git 基準 `91333c3`。目標 `Application/`；本次僅靜態查核，未執行 build、測試、資料庫或外部服務。規格、實作與測試證據分開記錄。
@@ -160,6 +161,8 @@ flowchart TD
 ```
 
 parser/embedding/search/ranker 失敗不進保存。Application 透過 [IRecommendationStore.SaveAsync](../Recommendation/IRecommendationStore.cs) 定義 Search 與全部 Results 必須一起保存的 atomic boundary，零結果也保存 Search；[EfRecommendationStore](../../Infrastructure/Persistence/EfRecommendationStore.cs) 用單次 EF SaveChanges／DB transaction 實現此 contract，保存失敗不留半成品。Application 不直接操作 DbContext 或 EF transaction mechanics。所有 ports 須配合 cancellation，傳 token 不等於強制中斷。timer 的60秒不包含 quota query，也不包含保存後 enrichment。
+
+**切分（M3，`b81a322`）**：上述 parsing 到 saving 的步驟由 [RecommendationPipeline](../Recommendation/RecommendationPipeline.cs) 執行，保存是呼叫端傳入的 `save` delegate。RecommendationService 負責額度檢查與保存後的 difficulty／Profile，傳入 `IRecommendationStore.SaveAsync` 當 `save`；對外行為與切分前相同。之後的 Job runner 會傳入 fenced commit，因此兩條路徑的逾時語意相同（[Job 計畫 §3.3](../../Docs/plans/async-recommendation-jobs.md)）。`save` 拋出的例外原樣往外傳，不轉成 timeout。
 
 **保存後與保存前必須分開**：difficulty一般讀取失敗回空字典，scheduler一般失敗只記 warning；兩者使用 caller token，若 caller 在此取消，OperationCanceledException 仍可傳遞，但 search 已保存。不得概括為「所有失敗不保存」。保存後 timer 觸發不將已保存搜尋改為 timeout。見 APP-T10、T11、T17。
 
