@@ -17,5 +17,10 @@ public class BookSubjectConfiguration : IEntityTypeConfiguration<BookSubject>
         builder.Property(x => x.SourceCode).HasColumnType("varchar(64)").IsRequired();
         builder.HasOne<Book>().WithMany().HasForeignKey(x => x.BookId).OnDelete(DeleteBehavior.Cascade);
         builder.HasOne<SourceProvider>().WithMany().HasForeignKey(x => x.SourceCode).OnDelete(DeleteBehavior.Restrict);
+        // Joins book_subjects to provider_category_mappings on (source_code, subject) for the category browse.
+        builder.HasIndex(x => new { x.SourceCode, x.Subject });
+        // Kept on purpose: the index for the source_code foreign key (see the 011 contract migration). Declared explicitly
+        // so EF does not treat it as redundant now that the composite index above starts with source_code.
+        builder.HasIndex(x => x.SourceCode);
     }
 }

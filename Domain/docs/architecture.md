@@ -2,12 +2,13 @@
 
 > PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR4 M1（#120）補記：2026-10-25 更新；程式變更以 `5052361`、`d864acc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+> Canonical Category P1 補記：2026-11-14 更新；程式變更以 `e7a105b` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 查核：2026-10-24；HEAD `91333c3`。Authority：[資料模型](../../Docs/data/data-model.md)、[CONTEXT](../../CONTEXT.md)、[產品 BOOK-05](../../Docs/requirements/product-requirements.md)。流程細節分別由 [書單](../../Docs/modules/user-library.md)、[推薦](../../Docs/modules/recommendation.md)、[crawler](../../Docs/modules/crawler.md) 管理。實作報告不是規格。
 
 ## 責任與 contract
 
-Domain/Entities 有 12 個資料類別、5 個 enum，全部公開可變 setter；無 navigation、行為方法、event 或專屬 csproj，由根 [專案](../../Book-Finder.csproj) 編譯。依 [system architecture §4.1](../../Docs/architecture/system-architecture.md)，Domain 在架構上擁有核心 business rules／invariants；Application 負責 use case orchestration、application-level policy／validation 與 atomic boundary，Infrastructure 負責 EF mapping、查詢投影及 transaction mechanics。目前 Domain 偏 anemic model，規則的實際 enforcement 分散於 Application helpers 與 DB constraints；這個實作現況不代表規則 ownership 移交 Application。
+Domain/Entities 有 16 個資料類別、7 個 enum 與常數類別 SourceCodes，全部公開可變 setter；無 navigation、行為方法、event 或專屬 csproj，由根 [專案](../../Book-Finder.csproj) 編譯。依 [system architecture §4.1](../../Docs/architecture/system-architecture.md)，Domain 在架構上擁有核心 business rules／invariants；Application 負責 use case orchestration、application-level policy／validation 與 atomic boundary，Infrastructure 負責 EF mapping、查詢投影及 transaction mechanics。目前 Domain 偏 anemic model，規則的實際 enforcement 分散於 Application helpers 與 DB constraints；這個實作現況不代表規則 ownership 移交 Application。
 
 | 型別 | 輸入／表示 | 映射與 consumer |
 |---|---|---|
@@ -17,6 +18,8 @@ Domain/Entities 有 12 個資料類別、5 個 enum，全部公開可變 setter�
 | [BookContributor](../Entities/BookContributor.cs) | BookId/order/name/role | BookId/order PK；來源名稱，無全域 Person |
 | [BookSubject](../Entities/BookSubject.cs) | BookId/subject/SourceCode | EF key 三欄；011 後實體 PK 同為 `(book_id, subject, source_code)` |
 | [SourceProvider](../Entities/SourceProvider.cs) | Code、DisplayName、ProviderKind、BaseUrl?、Enabled、CreatedAt | source_providers registry；`enabled` 只控制主動 acquisition，不影響讀取 |
+| [CanonicalCategory](../Entities/CanonicalCategory.cs) | UUID、Slug、DisplayName、SortOrder、IsActive、timestamps | canonical_categories；slug UNIQUE 且 CHECK 小寫單字以單一連字號相接；網站分類，見 [CONTEXT](../../CONTEXT.md) |
+| [ProviderCategoryMapping](../Entities/ProviderCategoryMapping.cs) | SourceCode、Subject、ProviderRootSubject、CanonicalCategoryId、MappingMethod、UpdatedAt | provider_category_mappings；PK `(source_code, subject)`，FK 至 source_providers 與 canonical_categories（皆 Restrict）；與 book_subjects 以同兩欄邏輯 JOIN，無 FK |
 | [BookOffer](../Entities/BookOffer.cs) | SourceId、Currency?、Price?、ListPrice?、Availability、CapturedAt | book_offers current snapshot；尚無 writer |
 | [SourceCodes](../Entities/SourceCodes.cs) | BOOKS_COM_TW、GOOGLE_BOOKS、KINGSTONE、ESLITE 常數 | 與 registry seed 對應；不是 enum，新增 provider 不改 DB |
 | [User](../Entities/User.cs) | email/hash/display name/time | users；認證 store |
@@ -27,7 +30,7 @@ Domain/Entities 有 12 個資料類別、5 個 enum，全部公開可變 setter�
 | [BookAiProfile](../Entities/BookAiProfile.cs) | nullable JsonDocument/string[]/difficulty；hash/model/prompt/time | 每 Book 一列，jsonb/text[]，只供推薦內部 |
 | [BookEmbedding](../Entities/BookEmbedding.cs) | Pgvector.Vector、hash/model/time | 每 Book 一列 vector(1536) |
 
-六組 enum 為 IdentifierType（`Isbn`、`Other`；011 移除 ISBN_10／ISBN_13）、ContributorRole、PublishedDatePrecision、ReadingStatus、ProviderKind、OfferAvailability。[StoredEnum](../../Infrastructure/Persistence/StoredEnum.cs) 將 C# PascalCase 映射 UPPER_SNAKE，並產生相同詞彙 CHECK；未知 persisted value 讀取時丟 InvalidOperationException。欄名由 [AppDbContext](../../Infrastructure/Persistence/AppDbContext.cs) 統一 snake_case，型別、鍵、關聯在 [Configurations](../../Infrastructure/Persistence/Configurations/BookConfiguration.cs)。
+七組 enum 為 IdentifierType（`Isbn`、`Other`；011 移除 ISBN_10／ISBN_13）、ContributorRole、PublishedDatePrecision、ReadingStatus、ProviderKind、OfferAvailability、MappingMethod（`Manual`、`VerifiedRule`）。[StoredEnum](../../Infrastructure/Persistence/StoredEnum.cs) 將 C# PascalCase 映射 UPPER_SNAKE，並產生相同詞彙 CHECK；未知 persisted value 讀取時丟 InvalidOperationException。欄名由 [AppDbContext](../../Infrastructure/Persistence/AppDbContext.cs) 統一 snake_case，型別、鍵、關聯在 [Configurations](../../Infrastructure/Persistence/Configurations/BookConfiguration.cs)。
 
 ## 選型、替代與代價
 
@@ -40,6 +43,7 @@ Domain/Entities 有 12 個資料類別、5 個 enum，全部公開可變 setter�
 | UUID FK、無 navigation | source 可見選擇，理由未記錄 | navigation 易用但可能意外載入；現況明確 join/projection |
 | Profile JSON/array | data-model §6.8 | 強型別可減無效 shape；現況 Application rules/store 保護，DB 只保證 jsonb 類型 |
 | Pgvector 在 Domain | BookEmbedding 直接依賴套件 | float[] 可減耦合但不自帶維度限制；更換 model 要 migration 與全量重建 |
+| 分類對應鍵 | [分類計畫 §2](../../Docs/plans/canonical-category-browse.md)；book_subjects 不存層級 | Mapping 以 `(source_code, subject)` 為鍵、不對 book_subjects 設 FK：未對應的 Subject 照常存在，crawler 寫入契約不變；代價是同一來源同名、不同層級的 Subject 無法區分（由分類工具標為 AMBIGUOUS，不寫入） |
 | exact vector search | data-model §6.9 核准 MVP | HNSW/IVFFlat 要先量測成本與品質，不預加基礎設施 |
 
 ## 一致性、安全與失敗
@@ -54,6 +58,6 @@ Book.Description、TableOfContents 與 User.PasswordHash 是公開 property，�
 
 ## 差距與限制
 
-資料模型 ERD 的 User optional 與 §5.11 非匿名／Guid UserId／NOT NULL 不一致（DOM-B01）。Google Books fallback 的跨層依賴尚未接入，現況 store flag 固定 false（DOM-B02）；此項不是 Domain entity 的 P1 implementation defect。日期與 precision 成對政策未由 DB 保證，須先決策（DOM-B03）。未找到本次動態重現 bug；未驗證 live schema、部署或外部 AI。
+資料模型 ERD 的 User optional 與 §5.11 非匿名／Guid UserId／NOT NULL 不一致（DOM-B01）。Google Books fallback 的跨層依賴尚未接入，現況 store flag 固定 false（DOM-B02）；此項不是 Domain entity 的 P1 implementation defect。日期與 precision 成對政策未由 DB 保證，須先決策（DOM-B03）。Canonical Category 兩張表在 P1（`e7a105b`）只有 schema，尚無 runtime writer 或 reader：writer 是分類計畫 P2 的 `scripts/categories` 工具，reader 是 P4 的分類查詢。未找到本次動態重現 bug；未驗證 live schema、部署或外部 AI。
 
 互參：[流程](workflow-diagram.md)、[待辦](backlog.md)、[歷史](update-history.md)、[案例](test-suite.md)。

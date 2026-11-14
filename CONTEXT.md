@@ -34,6 +34,18 @@ _Avoid_: 排行榜歷史、榜單快照（指歷史時）
 博客來各分類的 7 日暢銷榜頁面，是一種 Discovery Job 的來源。僅用於補充 Catalog（`crawler.md` §15）；不是 Bestseller，不寫入暢銷榜，也不保存分類排名。
 _Avoid_: 分類 Bestseller、分類暢銷榜
 
+**Subject**／來源分類：
+某個 Source Provider 標在一本 Book 上的分類名稱，原樣保存（`book_subjects`），以 `(source_code, subject)` 識別；不同來源的同名 Subject 互不相干。只存名稱，不存它在來源分類樹中的層級。
+_Avoid_: 標籤、分類（單獨使用、指網站分類時）
+
+**Canonical Category**／網站分類：
+全站共用、用來導覽的分類（例如文學小說、商業理財），以穩定的 slug（`literature`）識別；顯示名稱可改，slug 不改。一本 Book 可以屬於多個 Canonical Category，也可以一個都不屬於。
+_Avoid_: 統一分類（作為類別名稱時）、Genre、標準分類
+
+**Provider Category Mapping**／來源分類對應：
+把某個來源的一個 Subject 對應到一個 Canonical Category 的紀錄，以 `(source_code, subject)` 為鍵；Book 的 Canonical Category 由它的 Subject 經 Mapping 推得，不直接存在 Book 上。Mapping 由版本化的規則檔經分類工具寫入。
+_Avoid_: 分類映射表（指規則檔時）、自動分類
+
 ## 推薦（Recommendation）
 
 **Candidate Set**／候選集合：

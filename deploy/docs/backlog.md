@@ -205,6 +205,7 @@
 
 - **狀態**：改善提案（#120 兩軸 review 的判斷題，未在 PR4 處理）。
 - **現況**：`deploy/migration-test/compat.sh` 在 `load_contract_allowances`、`snapshot_contract_tables`、`check_data_preserved` 三處各自解析 `allow.tsv`；`check_data_preserved` 同時處理一般、drop-column、rewrite 三組規則。`prev-release-on-contract.sh` 的 `expected_checks=15`、crawler 6 項、seed 4 本書與 `prev_crawler_driver.py`、011 seed 重複；Detail 檢查與 `expect_body` 邏輯重複。
+- **補記（2026-11-14，分類計畫 P1）**：`prev-release-on-contract.sh` 以不帶參數的 efbundle 套用全部 migration，再斷言最後一筆是 `20261025120000_ContractMultiSourceCatalog`（第 42、143 行）。含 `20261114003848_AddCanonicalCategories` 的 bundle 會讓這項斷言失敗；這支 script 是 011 的一次性證據、不在 CI，因此本次不修改。若之後要重跑 gate 9，需先讓 script 接受「至少到 011」或指定目標 migration。
 - **方向**：在 `deploy/lib/contract_allowance.sh` 提供列出 rewrite 表、drop 欄位的 helper，三處共用；把 `check_data_preserved` 的 allowance 分支抽成函式；gate 9 的檢查數由 driver 回報，不在 script 寫死。
 - **驗收條件**：`deploy/tests` 的 allowance 測試與 gate 9 整合測試不變且通過；shellcheck 通過。
 

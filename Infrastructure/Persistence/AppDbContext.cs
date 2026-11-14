@@ -12,6 +12,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<BookIdentifier> BookIdentifiers => Set<BookIdentifier>();
     public DbSet<BookContributor> BookContributors => Set<BookContributor>();
     public DbSet<BookSubject> BookSubjects => Set<BookSubject>();
+    public DbSet<CanonicalCategory> CanonicalCategories => Set<CanonicalCategory>();
+    public DbSet<ProviderCategoryMapping> ProviderCategoryMappings => Set<ProviderCategoryMapping>();
     public DbSet<User> Users => Set<User>();
     public DbSet<LibraryEntry> LibraryEntries => Set<LibraryEntry>();
     public DbSet<Bestseller> Bestsellers => Set<Bestseller>();
