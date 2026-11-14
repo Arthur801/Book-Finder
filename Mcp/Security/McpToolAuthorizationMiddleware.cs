@@ -42,7 +42,7 @@ public sealed class McpToolAuthorizationMiddleware(RequestDelegate next)
             return;
         }
 
-        if (!IsProtectedToolCall(body))
+        if (!IsProtectedToolCall(body) && !NamesProtectedTool(context.Request.Headers["Mcp-Name"]))
         {
             await next(context);
             return;
@@ -90,9 +90,9 @@ public sealed class McpToolAuthorizationMiddleware(RequestDelegate next)
         return buffer.ToArray();
     }
 
-    // Protected when any JSON-RPC message in the body is a tools/call for a protected name. Anything that is not JSON is not
-    // protected, and the SDK answers it with a parse error. Keys are compared ignoring case and every duplicate key is checked,
-    // so a body cannot show the gate one name and the SDK another.
+    // Protected when any JSON-RPC message in the body is a tools/call for a protected name. A body the gate cannot parse is
+    // treated as protected (fail closed), so a parser more lenient than this one cannot reach a protected tool. Method and keys
+    // are compared ignoring case and every duplicate key is checked, so a body cannot show the gate one name and the SDK another.
     public static bool IsProtectedToolCall(byte[] body)
     {
         JsonDocument document;
@@ -102,7 +102,7 @@ public sealed class McpToolAuthorizationMiddleware(RequestDelegate next)
         }
         catch (JsonException)
         {
-            return false;
+            return true;
         }
 
         using (document)
@@ -128,7 +128,7 @@ public sealed class McpToolAuthorizationMiddleware(RequestDelegate next)
         {
             if (string.Equals(property.Name, "method", StringComparison.OrdinalIgnoreCase)
                 && property.Value.ValueKind == JsonValueKind.String
-                && property.Value.GetString() == "tools/call")
+                && string.Equals(property.Value.GetString(), "tools/call", StringComparison.OrdinalIgnoreCase))
             {
                 isToolsCall = true;
             }
@@ -150,6 +150,11 @@ public sealed class McpToolAuthorizationMiddleware(RequestDelegate next)
 
         return isToolsCall && namesProtectedTool;
     }
+
+    // The 2026-07-28 revision mirrors the tool name in the Mcp-Name header. The SDK rejects a header that differs from the body,
+    // but the gate also checks it, so neither place alone decides that a call is public.
+    public static bool NamesProtectedTool(IEnumerable<string?> headerValues) =>
+        headerValues.Any(value => value is not null && McpAuthSetup.ProtectedToolNames.Contains(value.Trim()));
 
     // The scope claim is a space-separated string. Several scope or scp claims are also accepted, as the SDK and identity providers emit both forms.
     private static bool HasScope(ClaimsPrincipal user, string scope) =>
