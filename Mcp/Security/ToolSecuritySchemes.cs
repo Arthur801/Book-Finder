@@ -9,13 +9,15 @@ namespace Book_Finder.Mcp.Security;
 // Only a tools/list result carries a "tools" array, so no other outgoing message is changed.
 public static class ToolSecuritySchemes
 {
+    private const string RecommendTool = "recommend_books";
+    private const string ResultTool = "get_recommendation_result";
+
     private static readonly IReadOnlyDictionary<string, JsonArray> SchemesByTool = new Dictionary<string, JsonArray>(StringComparer.Ordinal)
     {
         ["search_books"] = Parse("""[{"type":"noauth"}]"""),
         [RecommendTool] = Parse($$"""[{"type":"oauth2","scopes":["{{McpAuthSetup.RecommendScope}}"]}]"""),
+        [ResultTool] = Parse($$"""[{"type":"oauth2","scopes":["{{McpAuthSetup.RecommendScope}}"]}]"""),
     };
-
-    private const string RecommendTool = "recommend_books";
 
     // Registered as an outgoing message filter. It returns the message untouched unless it is a tools/list result.
     public static McpMessageHandler Annotate(McpMessageHandler next) => (context, cancellationToken) =>

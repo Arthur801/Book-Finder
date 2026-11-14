@@ -1,6 +1,6 @@
 # Mcp 流程
 
-> 建立：2026-11-14（MCP-001）；MCP-002 加入授權閘門。M1 加入 `search_books`；M3 加入 `recommend_books`；`get_recommendation_result` 在 M4 加入。
+> 建立：2026-11-14（MCP-001）；MCP-002 加入授權閘門。M1 加入 `search_books`；M3 加入 `recommend_books`；M4 加入 `get_recommendation_result`。
 
 ## 1. 啟動
 
@@ -120,3 +120,23 @@ sequenceDiagram
 
 - 只排入 Job，不同步呼叫 OpenAI；Worker 之後執行（既有 Recommendation Job 流程）。
 - 額度與網站共用（D-07）：網站 `/api/recommendations/jobs` 提交的 Job 與 MCP 的 Job 一起計數。
+
+## 6. `get_recommendation_result`（需要 `books:recommend`）
+
+```mermaid
+flowchart TD
+    A[tools/call get_recommendation_result job_id + Bearer] --> G{閘門}
+    G -- 拒絕 --> X[401／403]
+    G -- 通過 --> E{RecommendationJobs:Enabled?}
+    E -- 否 --> SU[SERVICE_UNAVAILABLE]
+    E -- 是 --> P{job_id 是 GUID 且屬於本人?}
+    P -- 否 --> NF[NOT_FOUND（三種情況回應相同）]
+    P -- 是 --> S{Job 狀態}
+    S -- queued／running --> W[status + statusUrl，無結果]
+    S -- failed --> F[status failed + errorCode + 網站同款訊息]
+    S -- succeeded --> H{IRecommendationHistory 讀得到 search?}
+    H -- 否 --> IE[INTERNAL_ERROR + log job／search id]
+    H -- 是 --> R[books 依 rank、reason、bookUrl + historyUrl]
+```
+
+- Client 自行輪詢：Tool 描述建議 queued／running 時間隔 2～5 秒、總等待約 2 分鐘，超過就把 `statusUrl` 給使用者。

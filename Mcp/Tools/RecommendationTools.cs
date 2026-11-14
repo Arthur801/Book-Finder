@@ -54,6 +54,63 @@ public sealed class RecommendationTools
         };
     }
 
+    [McpServerTool(Name = "get_recommendation_result", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false),
+     Description("查詢 recommend_books 建立的推薦工作的狀態與結果。job_id 只能使用 recommend_books 回傳的 jobId。" +
+                 "status 為 queued 或 running 時請稍候 2～5 秒再查詢，總等待勿超過約 2 分鐘，超過時請提供 statusUrl 給使用者自行查看；" +
+                 "succeeded 時回傳推薦書籍、推薦理由與搜尋紀錄連結；failed 時回傳錯誤原因。需要登入。")]
+    public static Task<CallToolResult> GetRecommendationResult(
+        [Description("recommend_books 回傳的 jobId（GUID）。Only a jobId that recommend_books returned.")] string job_id,
+        RequestContext<CallToolRequestParams> request,
+        McpRecommendationResultService service,
+        CancellationToken cancellationToken) =>
+        GetResultAsync(request.JsonRpcRequest.Context?.User, job_id, service, cancellationToken);
+
+    // Same rule as recommend_books: the user comes from the principal only, and a missing user is refused before the service is called.
+    public static async Task<CallToolResult> GetResultAsync(
+        ClaimsPrincipal? user,
+        string job_id,
+        McpRecommendationResultService service,
+        CancellationToken cancellationToken)
+    {
+        if (user?.Identity?.IsAuthenticated != true)
+        {
+            return Failure(new McpToolError
+            {
+                ErrorCode = McpToolError.Unauthorized,
+                Message = "請先登入 Book-Finder 後再查詢推薦結果",
+                Field = null,
+            });
+        }
+
+        var result = await service.GetResultAsync(user.CurrentUserId(), job_id, cancellationToken);
+        return result switch
+        {
+            // A failed job is still a successful query: the answer is the job's own state, so it is not a tool error.
+            McpRecommendationStatusResult.Found found => Status(found.Result),
+            McpRecommendationStatusResult.Refused refused => Failure(refused.Error),
+            _ => throw new InvalidOperationException("Unknown status result type."),
+        };
+    }
+
+    private static CallToolResult Status(RecommendationStatusToolResult result) => new()
+    {
+        Content = [new TextContentBlock { Text = StatusText(result) }],
+        StructuredContent = JsonSerializer.SerializeToElement(result, McpJsonUtilities.DefaultOptions),
+        IsError = false,
+    };
+
+    // The text repeats the key facts for clients that show text only; the full answer is in structured content.
+    private static string StatusText(RecommendationStatusToolResult result) => result.Status switch
+    {
+        "succeeded" when result.Books is { Count: > 0 } books =>
+            $"推薦完成，共 {books.Count} 本：\n"
+            + string.Join("\n", books.Select(book => $"・{book.Title}（{book.BookUrl}）"))
+            + $"\n搜尋紀錄：{result.HistoryUrl}",
+        "succeeded" => $"推薦完成，這次沒有符合條件的書籍。搜尋紀錄：{result.HistoryUrl}",
+        "failed" => $"推薦工作失敗：{result.Message}（{result.ErrorCode}）。statusUrl：{result.StatusUrl}",
+        _ => $"推薦工作狀態：{result.Status}。{result.Message} statusUrl：{result.StatusUrl}",
+    };
+
     private static CallToolResult Success(RecommendationSubmitToolResult result) => new()
     {
         Content = [new TextContentBlock { Text = $"推薦工作已提交（{result.Status}）。jobId：{result.JobId:D}。請稍後用 get_recommendation_result 查詢；也可開啟 statusUrl：{result.StatusUrl}" }],

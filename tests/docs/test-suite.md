@@ -297,3 +297,7 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter FullyQualifiedNa
 ### TEST-36：MCP `recommend_books`（MCP 計畫 M3）
 
 - `McpRecommendationServiceTests`、`RecommendationToolsTests`（Unit）與 `McpRecommendBooksTests`（WebIntegration）：提交只排 Job、不呼叫 AI；驗證、idempotency、每日額度（與網站共用）、開關關閉、匿名 401。`McpAuthorizationTests` 改用真正的 `recommend_books` 並以 DB Job 筆數斷言；`McpTestTools` 只剩 `public_ping`。
+
+### TEST-37：MCP `get_recommendation_result`（MCP 計畫 M4）
+
+- `McpRecommendationResultServiceTests`（Unit）與 `McpRecommendationResultTests`（WebIntegration，`JobSeed` 建各狀態 Job）：各狀態回應、rank 排序、不存在／他人／非 GUID 回應相同、一致性錯誤、失敗文案與網站一致；端到端提交 → Worker → 輪詢到 succeeded。

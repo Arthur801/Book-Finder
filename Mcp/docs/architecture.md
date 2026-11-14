@@ -19,9 +19,10 @@
 | `Services/McpBookSearchService.cs` | `search_books` 的 adapter：`SearchQuery.Parse`，`Empty` 回 `VALIDATION_FAILED` 且不碰 DB；其他呼叫 `IBookSearch.SearchAsync(q, 1, 50)`，排序與網站相同 |
 | `Tools/BookSearchTools.cs` | `search_books` Tool（公開、`readOnlyHint`）；成功回 structured content + 文字摘要，錯誤 `isError = true` |
 | `Services/McpRecommendationService.cs` | `recommend_books` 的 adapter：依序檢查 `RecommendationJobs:Enabled`（關閉 → `SERVICE_UNAVAILABLE`）、`RecommendationInputRules`（→ `VALIDATION_FAILED`）、再呼叫 `RecommendationJobService.SubmitAsync`；對應 `IDEMPOTENCY_CONFLICT`、`DAILY_LIMIT_REACHED`。額度與 idempotency 完全由 Application 處理 |
-| `Tools/RecommendationTools.cs` | `recommend_books` Tool（需 `books:recommend`）；使用者只取自 `JsonRpcRequest.Context.User`，沒有已認證使用者時回 `UNAUTHORIZED` 且不呼叫 service（閘門之後的第二道防線）；成功回 `queued`、`jobId`、`statusUrl`、`historyListUrl`、`created`，不含推薦結果 |
-| `Security/ToolSecuritySchemes.cs` | outgoing message filter：只改寫 `tools/list` 結果，替每支 Tool 加上 ChatGPT 的 `securitySchemes`（頂層與 `_meta` 各一份）；`search_books` 為 `noauth`，`recommend_books` 為 `oauth2` + `books:recommend`。SDK 2.3.1 的 `Tool` 沒有可放頂層欄位的 extension data，所以用 filter |
-| `Contracts/*.cs` | 對外 DTO（lowerCamelCase）：`BookSearchToolResult`、`RecommendationSubmitToolResult`、`McpToolError` |
+| `Services/McpRecommendationResultService.cs` | `get_recommendation_result` 的 adapter：開關 → `Guid.TryParse`（失敗同 `NOT_FOUND`）→ `RecommendationJobService.GetAsync`（不存在與別人的同 `NOT_FOUND`）→ 依狀態：queued／running 只回狀態與連結；succeeded 以 `IRecommendationHistory.GetAsync` 讀已保存結果（依 rank、最多 10 本）；succeeded 但讀不到 search → `INTERNAL_ERROR` 並 log id（不產生連結）；failed 回 `errorCode` 與網站 Job 頁相同的文案。只讀，不寫入 |
+| `Tools/RecommendationTools.cs` | `recommend_books` 與 `get_recommendation_result` Tool（都需 `books:recommend`）；`failed` 是「查詢成功、工作失敗」，回 `isError = false`，只有 `NOT_FOUND`、`INTERNAL_ERROR`、`UNAUTHORIZED`、`SERVICE_UNAVAILABLE` 回 `isError = true`；使用者只取自 `JsonRpcRequest.Context.User`，沒有已認證使用者時回 `UNAUTHORIZED` 且不呼叫 service（閘門之後的第二道防線）；成功回 `queued`、`jobId`、`statusUrl`、`historyListUrl`、`created`，不含推薦結果 |
+| `Security/ToolSecuritySchemes.cs` | outgoing message filter：只改寫 `tools/list` 結果，替每支 Tool 加上 ChatGPT 的 `securitySchemes`（頂層與 `_meta` 各一份）；`search_books` 為 `noauth`，`recommend_books`、`get_recommendation_result` 為 `oauth2` + `books:recommend`。SDK 2.3.1 的 `Tool` 沒有可放頂層欄位的 extension data，所以用 filter |
+| `Contracts/*.cs` | 對外 DTO（lowerCamelCase）：`BookSearchToolResult`、`RecommendationSubmitToolResult`、`RecommendationStatusToolResult`（null 欄位由 `McpJsonUtilities.DefaultOptions` 省略）、`McpToolError` |
 | `Security/McpAuthSetup.cs` | Bearer scheme 常數（指向 OpenIddict validation 的 scheme，MCP-202）、SDK 的 challenge scheme 與 Protected Resource Metadata；受保護 Tool 名稱、`books:recommend` scope |
 | `Security/McpToolAuthorizationMiddleware.cs` | POST `/mcp` 的授權閘門：在 SDK 讀 body 前決定 401／403／413 或放行 |
 
@@ -42,7 +43,7 @@
 | Resource metadata | 自行 `MapGet` `/.well-known/oauth-protected-resource/mcp`，內容來自設定 | SDK 只有在 `ResourceMetadataUri` 未設定時才自動服務，且那時 URI 取自 request host |
 | Scope 判斷 | `HasScope` 讀 OpenIddict 的 `oi_scp`（每個 scope 一個 claim）以及 `scope`／`scp` 空白分隔字串 | 不依賴 token 用哪一種形式 |
 | Tool 取得使用者 | `RequestContext<CallToolRequestParams>.JsonRpcRequest.Context?.User` | stateless HTTP 下 SDK 帶入閘門設定的 principal |
-| Tool | `WithTools<BookSearchTools>()`、`WithTools<RecommendationTools>()`：`search_books`、`recommend_books` | 選填參數（`idempotency_key`）必須是 nullable 且有預設值 `null`，否則 SDK 把它當必填；inputSchema 為 `["string","null"]` |
+| Tool | `WithTools<BookSearchTools>()`、`WithTools<RecommendationTools>()`：`search_books`、`recommend_books`、`get_recommendation_result` | 選填參數（`idempotency_key`）必須是 nullable 且有預設值 `null`，否則 SDK 把它當必填；inputSchema 為 `["string","null"]` |
 | Tool 輸出 | 手動設定 `CallToolResult.StructuredContent`（`McpJsonUtilities.DefaultOptions`），不宣告 outputSchema | SDK 的 `UseStructuredContent = true` 會產生不準確的通用 outputSchema |
 | 一般搜尋上限 | 最多 50 本；`totalCount` 為實際符合筆數、`hasMore = totalCount > 50`；不另設輸入長度、rate limit、timeout | 比照網站搜尋（D-06）；網站每頁 20 本不變 |
 | 對外連結 | `PublicBaseUrl` 必須是 https 根網址（開發可用 `http://localhost`、`127.0.0.1`），不得有 path、query、fragment；只由 `McpUrlBuilder` 產生 | 連結只從設定產生，不讀 Host header |
