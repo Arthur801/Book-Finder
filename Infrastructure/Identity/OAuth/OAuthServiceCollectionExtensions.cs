@@ -17,9 +17,16 @@ public static class OAuthServiceCollectionExtensions
     public const string RecommendScope = "books:recommend";
 
     public const string AuthorizationPath = "oauth/authorize";
+    // The protected resource path of the MCP endpoint (MCP-ADR-007, RFC 8707). Mapped by the Mcp module; named here only so the
+    // resource indicator is built from the same configured base URL as the issuer.
+    public const string ResourcePath = "/mcp";
     public const string TokenPath = "oauth/token";
     // OpenIddict's default JWKS path, named here so discovery and the endpoint share one value.
     public const string JsonWebKeySetPath = "/.well-known/jwks";
+
+    // The one resource indicator the server accepts and puts in the access token audience (RFC 8707): Mcp:PublicBaseUrl + /mcp.
+    public static string ResourceOf(IConfiguration configuration) =>
+        configuration["Mcp:PublicBaseUrl"]!.TrimEnd('/') + ResourcePath;
 
     public static IServiceCollection AddBookFinderOAuth(this IServiceCollection services, IConfiguration configuration, IHostEnvironment environment)
     {
@@ -56,6 +63,8 @@ public static class OAuthServiceCollectionExtensions
                     .AllowRefreshTokenFlow()
                     .RequireProofKeyForCodeExchange();
                 server.RegisterScopes(RecommendScope);
+                // Only the configured MCP resource is accepted; a request for any other resource is refused with invalid_target.
+                server.RegisterResources(ResourceOf(configuration));
                 // PKCE with plain is not allowed: removing it here also removes it from the discovery metadata and from request validation.
                 server.Configure(o => o.CodeChallengeMethods.Remove(CodeChallengeMethods.Plain));
 
@@ -75,6 +84,15 @@ public static class OAuthServiceCollectionExtensions
                         return default;
                     })
                     .SetOrder(OpenIddictServerHandlers.Discovery.AttachEndpoints.Descriptor.Order + 1));
+                // Only books:recommend is offered (MCP-B14). openid and offline_access stay usable inside the server but are not advertised.
+                server.AddEventHandler<OpenIddictServerEvents.HandleConfigurationRequestContext>(handler => handler
+                    .UseInlineHandler(context =>
+                    {
+                        context.Scopes.Remove(Scopes.OpenId);
+                        context.Scopes.Remove(Scopes.OfflineAccess);
+                        return default;
+                    })
+                    .SetOrder(OpenIddictServerHandlers.Discovery.AttachScopes.Descriptor.Order + 1));
                 // Public clients authenticate at the token endpoint with no secret, which OpenIddict does not advertise by default.
                 // Only the metadata changes; AcceptAnonymousClients stays off because its documentation advises against it.
                 server.AddEventHandler<OpenIddictServerEvents.HandleConfigurationRequestContext>(handler => handler

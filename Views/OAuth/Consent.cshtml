@@ -1,0 +1,34 @@
+@model Book_Finder.Models.OAuthConsentViewModel
+@{
+    ViewData["Title"] = "授權存取";
+}
+
+<section class="col-12 col-md-6 col-lg-5 mx-auto">
+    <h1 class="h3 mb-3">授權存取</h1>
+
+    <p class="mb-3"><strong>@Model.ClientName</strong> 要求存取你的好想找書帳號。</p>
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <p class="mb-1 small text-muted">此授權包含的權限</p>
+            <p class="mb-0">books:recommend：以你的帳號提交 AI 推薦並查看推薦結果（會使用你的每日 AI 推薦額度）</p>
+        </div>
+    </div>
+
+    <p class="mb-3">目前登入的帳號：@Model.Email</p>
+
+    <form method="post" action="/oauth/authorize" asp-antiforgery="true">
+        @foreach (var parameter in Context.Request.Query)
+        {
+            foreach (var value in parameter.Value)
+            {
+                <input type="hidden" name="@parameter.Key" value="@value" />
+            }
+        }
+
+        <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-primary" name="submit.Accept" value="Accept">允許</button>
+            <button type="submit" class="btn btn-outline-secondary" name="submit.Deny" value="Deny">拒絕</button>
+        </div>
+    </form>
+</section>

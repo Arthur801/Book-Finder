@@ -212,6 +212,9 @@ public sealed class AccountServiceTests
             return Task.FromResult(user);
         }
 
+        public Task<User?> FindByIdAsync(Guid userId, CancellationToken cancellationToken) =>
+            Task.FromResult(_users.FirstOrDefault(u => u.Id == userId));
+
         public Task<AddUserResult> AddAsync(User user, CancellationToken cancellationToken)
         {
             AddCallCount++;
