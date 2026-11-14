@@ -42,7 +42,8 @@
    - dispatch v0.0.8 → `completed:success`。詳見 deploy backlog DEP-B24。
 3. **init**：10 項全部 PASS。
 4. **第一次 `sync --dry-run`**：categories insert 18、mappings insert 283，沒有 orphan、AMBIGUOUS、unruled。逐行審核時發現誠品「宗教」→ humanities、「命理占星／風水」→ lifestyle，結果「宗教命理」類沒有誠品的書。使用者決定改歸 religion（#187）。
-5. **`sync --apply`**：使用者以 #187 的規則執行（apply 與 verify 的輸出沒有貼回）。
+5. **`sync --apply`**：使用者以 #187 的規則執行（apply 本身的輸出沒有貼回）。
+7. **`verify`**（apply 之後）：`init` 10 項 PASS；`categories: insert 0, update 0, unchanged 18, orphan 0`；`mappings: insert 0, update 0, unchanged 283, orphan 0`；`verify: the database matches the rules.`。
 6. **`audit`**：結果如下。
 
 ## 驗證結果
@@ -71,7 +72,7 @@ production `audit`（apply 之後，唯讀）：
 ## 未解決事項
 
 - **5 本沒有分類的書**：推測是完全沒有 Subject 的書，例如詳細頁沒有分類資料的書，但沒有逐本核對。它們仍可在「全部書籍」中看到。如果要確認，可以用唯讀 SQL 列出書名和來源。
-- **apply、verify 的輸出沒有貼回**：`audit` 的數字顯示 Mapping 已生效，但 `categories written 18, mappings written 283` 與 `verify: the database matches the rules.` 沒有書面證據。下次執行 `verify` 時補上即可。
+- **apply 的輸出沒有貼回**：`verify` 已證明 production 的 18 類與 283 筆 Mapping 和規則完全一致（unchanged 18／283），所以不影響結果。
 - **DEP-B24**：host 從不刪除舊 image，root 磁碟只有 6.7 GB，下一次發布前可能又會滿。可以由 host 自動清理、擴大 EBS，或兩者都做，由使用者決定。
 - **分類頁**：P4（Application／EF 查詢）與 P5（Controller／Razor UI）尚未開始；網站目前還不會讀這兩張表。
 - **舊的 gate 9 腳本**：`deploy/migration-test/prev-release-on-contract.sh` 寫死只到 011，含新 migration 的 bundle 會讓它失敗（DEP-B19 補記）。
