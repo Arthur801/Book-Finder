@@ -42,6 +42,7 @@
 | DEP-B23 | P1 | L3 | 大部分已驗證；未驗證項保留 | 真 lock holder 與拋棄式 PG 17 的整合測試已執行（test-suite §3.22）；efbundle 的 SIGTERM／kill 與 RDS 版本仍未驗證 |
 | DEP-B24 | P1 | L3（程式）／L4（擴大 EBS、host 清理） | 已發生（營運觀察，2026-11-14） | EC2 root 磁碟只有 6.7 GB，host 從不刪除舊 image；v0.0.8 的 plan 因 `no space left on device` 失敗 |
 | DEP-B25 | P2 | L2 | 已發生（2026-11-14）；本次已補 seed | 新 migration 部署後沒有補 compat seed，下一次 CD 在 compat 失敗；缺少提醒或檢查 |
+| DEP-B26 | P3 | L3（host 機制）／L4（production） | 待決策（2026-11-14，推薦 Job M8） | 網站的非 secret 設定只能隨 release 改變；推薦 Job 開關無法只改設定後重啟 |
 
 ## 2. 項目
 
@@ -272,6 +273,13 @@
 - **方向**（待決定）：(a) 在 CI 加一個檢查：`deploy/migration-test/seeds/` 必須有「最新已發布 release 的最後一個 migration」的 seed；(b) 或允許新增 migration 的 PR 同時附上新 head 的 seed（compat 只讀 applied head 的 seed，提早放入不影響舊 head）；(b) 較簡單，可在 runbook §4.1 與 AGENTS／deploy docs 寫成規則。
 - **驗收**：下一個新增 migration 的 release 部署後，下一次 CD 的 compat 不再因缺 seed 失敗。
 - **補記（2026-11-14，Job 計畫 M1）**：`20261114032619_AddRecommendationJobs` 的 seed 已在新增 migration 的同一個 PR 提供（方向 (b)），並以 `RecommendationJobSeedTests` 驗證可載入。是否把 (b) 寫成通用規則仍待決定。
+
+### DEP-B26 網站的非 secret 設定只能隨 release 改變
+
+- **狀態**：待決策（2026-11-14，[推薦 Job 實作報告](../../Docs/Implementation-Report/async-recommendation-jobs.md)）。
+- **現況**：host 只把三個 SSM secret 寫入 `web-<run_id>.env`；其他設定來自映像檔內的 `appsettings.json` 與 [compose.prod.yaml](../release/compose.prod.yaml) 的 `environment`。因此 `RecommendationJobs:Enabled` 的開啟或關閉都要發一個 release（改 `compose.prod.yaml`，或以 CD dispatch 重新部署開啟前的 release）。
+- **影響**：回退需要一次完整的 CD（compat、plan、deploy），比「改設定後重啟」慢。
+- **方向**（待決定）：(a) 維持現狀：開關隨 release，最簡單，也有完整紀錄；(b) 讓 host 從 `host.conf` 或 SSM 讀取一組允許清單內的非 secret 設定，寫入 env file。(b) 屬於 deploy 機制的變更，需要先改 host 程式與測試（L3），再改 production 設定（L4）。
 
 ## 3. 已處理
 
