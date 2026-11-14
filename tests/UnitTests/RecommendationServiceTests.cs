@@ -687,18 +687,25 @@ public sealed class RecommendationServiceTests
         var logger = new RecordingLogger<RecommendationService>();
         var usage = new FakeRecommendationUsage(parser);
         var time = new FakeTimeProvider(new DateTimeOffset(SavedAt));
-        var service = new RecommendationService(
+        var settings = Options.Create(options ?? new RecommendationOptions());
+        // The pipeline's log lines land in the service logger's list, so the assertions below read one list.
+        var pipeline = new RecommendationPipeline(
             parser,
             embeddings,
             candidates,
             ranker,
+            settings,
+            time,
+            new ForwardingLogger<RecommendationPipeline>(logger));
+        var service = new RecommendationService(
             store,
             usage,
             new BookDifficultyReader(profiles, new RecordingLogger<BookDifficultyReader>()),
             scheduler,
-            Options.Create(options ?? new RecommendationOptions()),
+            settings,
             time,
-            logger);
+            logger,
+            pipeline);
         return new Harness(service, parser, embeddings, candidates, ranker, store, usage, profiles, queue, schedulerLogger, logger, time, events);
     }
 
@@ -847,6 +854,17 @@ public sealed class RecommendationServiceTests
         }
 
         public sealed record Call(Guid UserId, string RequirementText, IReadOnlyList<RankedCandidate> Results);
+    }
+
+    // Passes every call to another logger, so a log written under one category lands in the list of another.
+    private sealed class ForwardingLogger<T>(ILogger target) : ILogger<T>
+    {
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => target.BeginScope(state);
+
+        public bool IsEnabled(LogLevel logLevel) => target.IsEnabled(logLevel);
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
+            target.Log(logLevel, eventId, state, exception, formatter);
     }
 
     // Keeps the formatted message and the structured properties so tests can assert field values, not only text.

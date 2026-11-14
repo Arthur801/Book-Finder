@@ -68,6 +68,7 @@ builder.Services.AddScoped<IRecommendationUsage, EfRecommendationUsage>();
 builder.Services.AddScoped<IRecommendationHistory, EfRecommendationHistory>();
 // AI profile (#18): difficulty reads and stale checks over book_ai_profiles (recommendation.md §9).
 builder.Services.AddScoped<IBookProfileStore, EfBookProfileStore>();
+builder.Services.AddScoped<RecommendationPipeline>();
 builder.Services.AddScoped<RecommendationService>();
 // Recommendation Jobs (plan async-recommendation-jobs section 3.4): submit, list and get over the recommendation_jobs table.
 builder.Services.AddScoped<IRecommendationJobStore, EfRecommendationJobStore>();
