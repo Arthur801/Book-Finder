@@ -264,3 +264,8 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter FullyQualifiedNa
 - 只有端到端測試同時打開兩者，Worker 以 100 ms 輪詢，用 fake AI 跑完整個 Job。
 - 案例見 Controllers JOB-01～03。2026-11-14 WebIntegration 337 項通過。
 
+### TEST-30：MCP endpoint 骨架（MCP 計畫 MCP-001）
+
+- WebFixture 新增 `McpEnabled`（設定 `Mcp:Enabled`，預設 false），並固定 `Mcp:PublicBaseUrl = https://khwebsc.com`。
+- `McpOptionsTests`（Unit，19 個）：`PublicBaseUrl` 的啟動驗證。
+- `McpEndpointTests`（WebIntegration，5 個）：開關關閉時 `/mcp` 與一般未 map 路徑相同；開啟時匿名 `initialize`、`tools/list`（空陣列）成功，不設 cookie、不需要 antiforgery；首頁不受影響。細節見 [Mcp/docs/test-suite.md](../../Mcp/docs/test-suite.md)。
