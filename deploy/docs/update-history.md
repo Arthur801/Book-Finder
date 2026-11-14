@@ -354,3 +354,10 @@ git log --reverse --no-merges --format='@@%h' --numstat -- <同上路徑>
 | 日期 | commit | subject | 變更 |
 |---|---|---|---|
 | 2026-11-14 | `0a11483` | test(rec-jobs): compat seed for AddRecommendationJobs | `deploy/migration-test/seeds/20261114032619_AddRecommendationJobs.sql`（新增）；在新增 migration 的 PR 一併提供，採 backlog DEP-B25 方向 (b) |
+
+## 2026-11-14 開啟推薦 Job（新增紀錄）
+
+| 日期 | commit | subject | 變更 |
+|---|---|---|---|
+| 2026-11-14 | 本 PR | deploy: enable Recommendation Jobs in production | `deploy/release/compose.prod.yaml` 的 `environment` 加上 `RecommendationJobs__Enabled: "true"`；依[推薦 Job 實作報告](../../Docs/Implementation-Report/async-recommendation-jobs.md)上線手冊第 3 步。開關隨 release 生效，回退方式見 backlog DEP-B26 |
+
