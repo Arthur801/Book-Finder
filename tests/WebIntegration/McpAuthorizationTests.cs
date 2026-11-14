@@ -3,6 +3,7 @@ using System.Text.Json;
 using Book_Finder.Domain.Entities;
 using Book_Finder.Infrastructure.Identity;
 using Book_Finder.Infrastructure.Persistence;
+using Book_Finder.Mcp.Security;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -37,6 +38,46 @@ public sealed class McpAuthorizationTests(WebFixture fixture)
         Assert.Contains("search_books", names);
         Assert.Contains("public_ping", names);
         Assert.Contains("recommend_books", names);
+    }
+
+    // Every listed tool declares its security schemes, and the tools that declare oauth2 are exactly ProtectedToolNames. Names compare
+    // ignoring case, as the gate does, so a tool cannot be protected by the gate yet declared public (or the reverse) to a client.
+    [Fact]
+    public async Task Every_listed_tool_declares_schemes_and_the_oauth_tools_are_exactly_the_protected_names()
+    {
+        await fixture.ResetDatabaseAsync();
+        await using var app = CreateFactory();
+        var client = app.CreateClient(ClientOptions);
+
+        var response = await McpWire.PostAsync(client, McpWire.ToolsList());
+
+        var tools = (await McpWire.ReadRpcAsync(response)).GetProperty("result").GetProperty("tools").EnumerateArray().ToList();
+        Assert.All(tools, tool => Assert.Equal(JsonValueKind.Array, tool.GetProperty("securitySchemes").ValueKind));
+        var oauthTools = tools
+            .Where(tool => tool.GetProperty("securitySchemes").EnumerateArray().Single().GetProperty("type").GetString() == "oauth2")
+            .Select(tool => tool.GetProperty("name").GetString()!)
+            .ToList();
+        Assert.Equal(
+            McpAuthSetup.ProtectedToolNames.OrderBy(name => name, StringComparer.OrdinalIgnoreCase),
+            oauthTools.OrderBy(name => name, StringComparer.OrdinalIgnoreCase),
+            StringComparer.OrdinalIgnoreCase);
+    }
+
+    // The gate and the declaration read the same list, so every name the list protects answers an anonymous call with 401 and never runs.
+    [Fact]
+    public async Task Every_protected_tool_name_gets_401_for_an_anonymous_call()
+    {
+        await fixture.ResetDatabaseAsync();
+        await using var app = CreateFactory();
+        var client = app.CreateClient(ClientOptions);
+
+        foreach (var name in McpAuthSetup.ProtectedToolNames)
+        {
+            var response = await McpWire.PostAsync(client, McpWire.ToolsCall(name));
+
+            Assert.True(response.StatusCode == HttpStatusCode.Unauthorized, $"{name} answered {(int)response.StatusCode}");
+        }
+        await AssertJobCountAsync(0);
     }
 
     [Fact]
