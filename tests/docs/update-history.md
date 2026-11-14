@@ -192,3 +192,4 @@ Git 歷史不證明 runtime 或 CI 已通過。
 | 2026-10-25 | `d864acc` | test(db): cover migration 010 and 011 on their own databases | `tests/DatabaseIntegration/MigrationServer.cs`、`SqlHelpers.cs`、`MultiSourceCatalog010SchemaTests.cs`、`ContractMigration011Tests.cs`（新增）；`MultiSourceCatalogSchemaTests.cs`（改為 011 physical schema）；`MultiSourceBackfillTests.cs`（停在 010）；`constraints.sql`（source_code 與 ISBN） |
 | 2026-10-25 | 本次 backlog 整理 commit | docs(backlog): tidy tests backlog after #113 PR2–PR4 | `docs/backlog.md`：TEST-B05 移出表格至「已處理」；補記標頭；未改程式或測試 |
 | 2026-11-14 | `e7a105b` | feat(categories): add canonical category schema (P1) | `tests/DatabaseIntegration/CanonicalCategorySchemaTests.cs`（新增）、`StoredEnumTests.cs`（`MappingMethod`）、`constraints.sql`（必要資料表加入兩張新表） | TEST-23 |
+| 2026-11-14 | `920dc2c` | ci: categories-tool job for the canonical category tool (P2) | `.github/workflows/ci.yml`（新增 `categories-tool` job；測試本身在 `scripts/categories/tests`） | TEST-11 補記 |

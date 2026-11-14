@@ -131,6 +131,8 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter FullyQualifiedNa
 
 上述 target 檔案由 Git object 查核；本次未執行任何 pytest／Docker／host 操作。較早的 [ci.yml](../../.github/workflows/ci.yml)、[deploy/tests](../../deploy/tests)、[compat.sh](../../deploy/migration-test/compat.sh) 相對連結保留作 repository 導覽，target 新增行為以固定 SHA 來源為準。
 
+- 補記（2026-11-14，分類計畫 P2，`920dc2c`）：CI 新增 `categories-tool` job，對 `scripts/categories` 執行 ruff check／format 與 pytest（含 testcontainers 整合測試，EF schema 由 dotnet 產生，與 crawler job 相同）。案例見 [scripts/categories/docs/test-suite.md](../../scripts/categories/docs/test-suite.md)。
+
 ### TEST-12：網站瀏覽器與靜態資產
 
 - 責任／規格：test-plan E2E 暫緩；L2；明確暫緩，待核准解除；TEST-B03。

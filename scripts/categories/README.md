@@ -2,7 +2,36 @@
 
 計畫：[Docs/plans/canonical-category-browse.md](../../Docs/plans/canonical-category-browse.md)。
 
-目前只有 P0 的唯讀盤點 SQL。Python 工具（`audit`／`init`／`sync`／`verify`）與本模組的 `docs/` 五份文件會在 P2 加入。
+維護 Canonical Category 與 Provider Category Mapping 的操作工具。設計與取捨見 [docs/architecture.md](docs/architecture.md)，流程見 [docs/workflow-diagram.md](docs/workflow-diagram.md)。
+
+## manage_categories.py
+
+在 repo 根目錄執行；資料庫指令需要環境變數 `DATABASE_URL`（不會被印出）。所有指令都接受 `--config-dir`（預設 `scripts/categories/config`）。
+
+```bash
+python scripts/categories/manage_categories.py init              # 只檢查 schema；不執行 DDL
+python scripts/categories/manage_categories.py sync               # 預設 dry-run：列出新增、更新、orphan、AMBIGUOUS
+python scripts/categories/manage_categories.py sync --apply       # 單一交易寫入；重跑寫入 0 列
+python scripts/categories/manage_categories.py verify             # DB 與規則不一致時 exit 1
+python scripts/categories/manage_categories.py audit [--unmapped-csv out.csv]
+python scripts/categories/manage_categories.py eslite-import --tree ~/eslite-category-tree.json   # 不連 DB、不連網
+```
+
+- 結束碼：0 成功；1 執行失敗或 drift；2 用法、設定或 schema 問題。
+- `init`／`audit`／`verify`／`sync --dry-run` 用 read-only 連線。
+- schema 缺漏時：開發環境跑 `dotnet ef database update`；production 一律經 CD 套用 migration。
+- production 的 `sync --apply` 要在 migration 套用之後，並經使用者授權。
+
+## 規則檔（config/）
+
+| 檔案 | 內容 |
+|---|---|
+| `canonical_categories.toml` | 18 類：`slug`、`display_name`、`sort_order`、`is_active`（預設 true） |
+| `provider_roots.toml` | 各來源頂層 → slug。博客來、金石堂的鍵是頂層 Subject；誠品的鍵是第 2 層 id |
+| `subject_mappings.toml` | MANUAL 例外，覆蓋推導結果、解決 AMBIGUOUS；每筆需經使用者審核 |
+| `eslite_level3.tsv` | 由 `eslite-import` 從誠品分類樹存檔產生，commit 進 repo；分類樹改變時重新產生並審核 diff |
+
+修改規則後：跑 `pytest scripts/categories/tests`（出貨設定測試會檢查數量與 0 個 AMBIGUOUS／unruled），再 `sync --dry-run` 審核報告。
 
 ## sql/audit-subjects.sql（P0，唯讀）
 

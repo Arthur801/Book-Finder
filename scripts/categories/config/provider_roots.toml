@@ -1,0 +1,74 @@
+# 來源頂層 → Canonical Category（決定 #1、#4、#5、#6；P0 審核結果）。
+# 博客來、金石堂：key 是頂層 Subject 名稱，書本身帶有這個名稱。
+# 誠品：key 是第 2 層分類 id（字串，正整數），註解是當時的第 2 層名稱；不用會變動的促銷名稱當 key。
+# 不在這裡的 Subject 不會被猜測分類；它們會出現在 sync／audit 的未對應清單。
+
+[BOOKS_COM_TW]
+"文學小說" = "literature"
+"漫畫/圖文書" = "comics-light-novels"
+"輕小說" = "comics-light-novels"
+"商業理財" = "business"
+"心理勵志" = "psychology"
+"人文社科" = "humanities"
+"宗教命理" = "religion"
+"藝術設計" = "art-design"
+"影視偶像" = "art-design"
+"語言學習" = "language"
+"考試用書" = "exams"
+"國中小參考書" = "exams"
+"專業/教科書/政府出版品" = "exams"
+"自然科普" = "science"
+"電腦資訊" = "computers"
+"醫療保健" = "health"
+"飲食" = "food"
+"生活風格" = "lifestyle"
+"旅遊" = "travel"
+"親子教養" = "parenting"
+"童書/青少年文學" = "children-teens"
+
+[KINGSTONE]
+"文學" = "literature"
+"羅曼史" = "literature"
+"漫畫" = "comics-light-novels"
+"輕小說" = "comics-light-novels"
+"財經企管" = "business"
+"心理勵志" = "psychology"
+"社會哲思" = "humanities"
+"人文歷史" = "humanities"
+"宗教命理" = "religion"
+"藝術設計" = "art-design"
+"語言/字辭典" = "language"
+"參考書" = "exams"
+"考試書/政府出版品" = "exams"
+"自然科普" = "science"
+"電腦資訊" = "computers"
+"醫療保健" = "health"
+"飲食料理" = "food"
+"生活風格" = "lifestyle"
+"旅遊" = "travel"
+"教育/親子教養" = "parenting"
+"教育／親子教養" = "parenting"
+"童書/青少年" = "children-teens"
+
+[ESLITE]
+"28" = "literature"  # 📌文學館79折起
+"137" = "comics-light-novels"  # 動漫畫／圖文
+"45" = "comics-light-novels"  # 輕小說
+"80" = "business"  # 📌商業財經79折起
+"63" = "psychology"  # 📌心理勵志79折起
+"76" = "humanities"  # 📌社科79折起
+"61" = "humanities"  # 人文史哲
+"48540" = "art-design"  # 美術
+"4" = "art-design"  # 藝術設計
+"97" = "language"  # 語言學習
+"23110" = "exams"  # 考試用書
+"48867" = "exams"  # 國高中技職考用
+"119" = "science"  # 自然科普
+"110" = "computers"  # 電腦
+"153" = "health"  # 醫學保健
+"141" = "food"  # 飲食
+"9" = "lifestyle"  # 生活風格
+"125" = "travel"  # 旅遊
+"83" = "parenting"  # 親子教養
+"334" = "children-teens"  # 青少年
+"162" = "simplified-chinese"  # 簡體書

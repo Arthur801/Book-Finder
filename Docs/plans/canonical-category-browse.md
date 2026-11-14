@@ -1,10 +1,10 @@
-# Canonical Category 分類瀏覽 — v2.2 實作計畫
+# Canonical Category 分類瀏覽 — v2.3 實作計畫
 
 > Baseline：`origin/main @ 6ef2cd6`（2026-11-14）。
 >
 > 來源：使用者提供的 v2.0 提案（Proposed），經 repo 現況核對與使用者決定（下表）整理成本版。
 >
-> **狀態：P0 完成；P1（EF Schema）已實作，PR 審核中（2026-11-14）**：production 盤點結果與使用者審核過的分類集合見 §5「P0 結果」。
+> **狀態：P0 完成；P1（EF Schema）、P2（Python 工具）已實作，PR 審核中（2026-11-14）**：production 盤點結果與使用者審核過的分類集合見 §5「P0 結果」；工具用法見 [scripts/categories/README.md](../../scripts/categories/README.md)。
 >
 > 本文件是實作計畫，不代表功能已實作、測試已通過或取得 production 授權。變更記在文末「設計變更紀錄」。
 
@@ -39,6 +39,7 @@
 | 4 | （P0 審核）採用 §5「P0 結果」的 18 類 Canonical Category 與各來源頂層對照。 |
 | 5 | （P0 審核）誠品第 2 層「簡體書」獨立成一類 `simplified-chinese`，不拆到各主題。 |
 | 6 | （P0 審核）誠品第 2 層 id 從**分類樹存檔**取得（`eslite_category_pages.py` 讀的同一份 API 回應），不從 `eslite-pages.txt` 的註解推，也不用第 2 層名稱當 key。 |
+| 7 | （P2）誠品「繪本／插畫／漫畫」「語言考用」同時在「青少年」與「簡體書」下，**都歸簡體書**，以 `subject_mappings.toml` 的 MANUAL 規則寫入。 |
 
 ## 1. 範圍
 
@@ -271,7 +272,7 @@ scripts/categories/
 **誠品重複名稱**：
 
 - 12 個第 3 層名稱同時在「動漫畫／圖文」與「輕小說」下，例如日系BL、華文GL、日系奇幻魔法／科幻冒險。兩組都對應到 `comics-light-novels`，所以不算歧義。
-- 「繪本／插畫／漫畫」（40 本）、「語言考用」（47 本）同時在「青少年」（`children-teens`）與「簡體書」（`simplified-chinese`）下，對應結果不同，標為 `AMBIGUOUS`，不寫入。這 87 本書仍可以在「全部書籍」中看到，或透過其他來源的 Subject 分類。
+- 「繪本／插畫／漫畫」（40 本）、「語言考用」（47 本）同時在「青少年」（`children-teens`）與「簡體書」（`simplified-chinese`）下，對應結果不同，推導時為 `AMBIGUOUS`。P2 時使用者決定兩者都歸簡體書（決定 #7），以 MANUAL 規則解決。
 
 ## 6. 測試
 
@@ -348,8 +349,7 @@ crawler 的寫入契約沒有改變，`crawler/docs` 不需要更新。
 
 ## 10. 待決策事項
 
-- 誠品 `AMBIGUOUS` 的 2 個名稱（87 本）：要接受不分類，還是評估讓 crawler 保存第 2 層 id（另開票，會改寫入契約）。在 P3 的 `sync --dry-run` 報告中再確認。
-- 誠品分類樹存檔：由使用者取得（一次請求），並在 P2 時提供。
+- P3：production `sync --dry-run` 報告由使用者審核後，再執行 `--apply`（需授權，且在 migration 經 CD 套用之後）。
 - 本計畫自行決定、可以推翻的事項：
   - 規則檔用 TOML；
   - 誠品的 `provider_root_subject` 用第 2 層 id；
@@ -360,5 +360,6 @@ crawler 的寫入契約沒有改變，`crawler/docs` 不需要更新。
 
 | 日期 | 版本 | 變更 |
 |---|---|---|
+| 2026-11-14 | v2.3 | P2 完成：<br>- 誠品兩個同名第 3 層歸簡體書（決定 #7）；<br>- 分類樹存檔由使用者以既有清單工具取得，不需要新增 crawler 選項；<br>- 工具另有 `eslite-import`（產生 `config/eslite_level3.tsv`）與 `--config-dir`；`--apply` 先鎖表再計算計畫；orphan 只回報不刪除。 |
 | 2026-11-14 | v2.2 | P0 完成：<br>- 記錄 production 盤點結果；<br>- 18 類 Canonical Category 與各來源頂層對照（決定 #4）；<br>- 誠品「簡體書」獨立成一類（決定 #5）；<br>- 誠品第 2 層 id 改從分類樹存檔取得，展開結果 commit 為 `config/eslite_level3.tsv`（決定 #6）。 |
 | 2026-11-14 | v2.1 | 由 v2.0 提案整理：<br>- Mapping 粒度依來源而定（決定 #1）；<br>- `init` 改為只驗證（決定 #2）；<br>- P0 改為唯讀 SQL 加上使用者審核（決定 #3）；<br>- YAML 改為 TOML；<br>- 新增 `book_subjects (source_code, subject)` index。 |
