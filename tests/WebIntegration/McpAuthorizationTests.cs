@@ -63,6 +63,29 @@ public sealed class McpAuthorizationTests(WebFixture fixture)
             StringComparer.OrdinalIgnoreCase);
     }
 
+    // Default deny: a tool is public only when it is named here on purpose. Any other listed tool must be in ProtectedToolNames, so a
+    // new tool that needs a signed-in user cannot ship anonymous just because nobody added it to the gate's list. public_ping is the
+    // test host's own public tool.
+    private static readonly string[] PublicToolNames = ["search_books", "public_ping"];
+
+    [Fact]
+    public async Task Every_listed_tool_is_either_deliberately_public_or_protected()
+    {
+        await fixture.ResetDatabaseAsync();
+        await using var app = CreateFactory();
+        var client = app.CreateClient(ClientOptions);
+
+        var response = await McpWire.PostAsync(client, McpWire.ToolsList());
+
+        var names = (await McpWire.ReadRpcAsync(response)).GetProperty("result").GetProperty("tools").EnumerateArray()
+            .Select(tool => tool.GetProperty("name").GetString()!)
+            .ToList();
+        Assert.NotEmpty(names);
+        Assert.All(names, name => Assert.True(
+            PublicToolNames.Contains(name, StringComparer.OrdinalIgnoreCase) || McpAuthSetup.ProtectedToolNames.Contains(name),
+            $"{name} is neither in PublicToolNames nor in McpAuthSetup.ProtectedToolNames; decide whether it needs a signed-in user."));
+    }
+
     // The gate and the declaration read the same list, so every name the list protects answers an anonymous call with 401 and never runs.
     [Fact]
     public async Task Every_protected_tool_name_gets_401_for_an_anonymous_call()
