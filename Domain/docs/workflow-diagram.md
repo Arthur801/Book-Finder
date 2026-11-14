@@ -1,5 +1,7 @@
 # Domain 生命週期與責任流程
 
+> Canonical Category P1 補記：2026-11-14 更新；程式變更以 `e7a105b` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
 查核：2026-10-24；HEAD `91333c3`。Domain 是資料實體與 enum，沒有 HTTP 入口、factory、驗證方法、repository、cache 或 I/O。圖中 Application、Infrastructure、crawler 節點只標示跨層責任，不表示 Domain 自行執行。
 
 入口對照：[Book](../Entities/Book.cs) 與 [BookSource](../Entities/BookSource.cs) 由 ingestion 使用；[User](../Entities/User.cs) 用於認證；[LibraryEntry](../Entities/LibraryEntry.cs) 由 [LibraryService](../../Application/Library/LibraryService.cs) 建立；[RecommendationSearch](../Entities/RecommendationSearch.cs)／[RecommendationResult](../Entities/RecommendationResult.cs) 由推薦 store 保存；[BookAiProfile](../Entities/BookAiProfile.cs)／[BookEmbedding](../Entities/BookEmbedding.cs) 用於背景衍生資料；[Bestseller](../Entities/Bestseller.cs) 由 crawler 更新。Authority：[資料模型](../../Docs/data/data-model.md)、[書單](../../Docs/modules/user-library.md)、[推薦](../../Docs/modules/recommendation.md)、[crawler](../../Docs/modules/crawler.md)。
@@ -20,6 +22,23 @@ flowchart TD
 ```
 
 `required` 是編譯期建構要求，不能取代 runtime 非空、長度、範圍、enum 或 ISBN 驗證。實體沒有自動時間／ID constructor。Book UUID 可由 EF/provider 生成；推薦 store 明確指定 UUIDv7 與 UTC 時鐘。取消由 service/store 的 CancellationToken 傳遞，entity 沒有取消或重試責任。
+
+## 網站分類對應（Canonical Category）
+
+P1（`e7a105b`）只建立 [CanonicalCategory](../Entities/CanonicalCategory.cs) 與 [ProviderCategoryMapping](../Entities/ProviderCategoryMapping.cs) 的 schema；下圖虛線節點是 [分類計畫](../../Docs/plans/canonical-category-browse.md) 中尚未合併的 writer／reader，不是現有行為。
+
+```mermaid
+flowchart TD
+    R[版本化規則檔] -.-> T[scripts/categories sync；P2]
+    T -.->|單一交易 UPSERT| C[(canonical_categories)]
+    T -.->|單一交易 UPSERT| M[(provider_category_mappings)]
+    S[(book_subjects；crawler 寫入，不變)] -->|source_code + subject 邏輯 JOIN| M
+    M -->|FK Restrict| C
+    M -->|FK Restrict| P[(source_providers)]
+    M -.-> Q[分類查詢；P4]
+```
+
+Mapping 以 `(source_code, subject)` 為鍵，不同來源的同名 Subject 各自對應；一本 Book 經不同 Subject 可屬於多個 Canonical Category。刪除仍被 Mapping 引用的 Category 會被 FK 拒絕。
 
 ## Library Entry
 

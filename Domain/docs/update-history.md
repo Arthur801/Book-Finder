@@ -2,6 +2,7 @@
 
 > PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR4 M1（#120）補記：2026-10-25 更新；程式變更以 `5052361`、`d864acc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+> Canonical Category P1 補記：2026-11-14 更新；程式變更以 `e7a105b` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 查核基準 `91333c3` 的 source history 如下；`Domain/docs` 明確排除，不將 PR #100 新增或後續修正的文件 commits 計入 source history。PR2 phase A（#115）的程式變更已補入表格，見下方最後一列。
 
@@ -36,6 +37,7 @@ git rev-parse --is-shallow-repository
 | 2026-10-25 | `bbe0a0a` | refactor(catalog): share ISBN-family types and display priority | `Entities/IsbnIdentifierTypes.cs`（新增）|
 | 2026-10-25 | `5052361` | feat(catalog): contract migration 011 and read only the ISBN type | `Entities/IdentifierType.cs`（刪除 `Isbn10`／`Isbn13`）、`Entities/IsbnIdentifierTypes.cs`（刪除）、`Persistence/Configurations/BookIdentifierConfiguration.cs`（移除 legacy partial unique）、`Persistence/Migrations/20261025120000_ContractMultiSourceCatalog.cs`（011）|
 | 2026-10-25 | 本次 backlog 整理 commit | docs(backlog): tidy domain backlog after #113 PR1–PR4 | `docs/backlog.md`：DOM-B01、DOM-B05、DOM-B06 移出表格至「已處理」；補記標頭；未改程式 |
+| 2026-11-14 | `e7a105b` | feat(categories): add canonical category schema (P1) | `Entities/CanonicalCategory.cs`、`Entities/ProviderCategoryMapping.cs`、`Entities/MappingMethod.cs`（新增）；migration `20261114003848_AddCanonicalCategories` 只新增兩張表與 index（見 Infrastructure update-history） |
 
 Git 不能證明已部署、migration 已套用或測試通過。實體建立後，多數行為演進在外層，Domain log 不等於全系統進度。
 

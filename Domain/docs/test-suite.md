@@ -2,6 +2,7 @@
 
 > PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR4 M1（#120）補記：2026-10-25 更新；程式變更以 `5052361`、`d864acc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+> Canonical Category P1 補記：2026-11-14 更新；程式變更以 `e7a105b` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 查核：2026-10-24；HEAD `91333c3`。本次只做靜態查核，沒有執行下列測試。已有測試不表示本次已通過。Domain 無獨立測試專案，多數 invariant 在 DB integration 與 Application/contract tests 斷言。
 
@@ -27,7 +28,7 @@ dotnet test tests/UnitTests/UnitTests.csproj --filter 'FullyQualifiedName~BookDe
 
 ### DOM-T02 — enum 與 SQL vocabulary
 
-風險 L3；已有測試，本次未執行。來源：[StoredEnum](../../Infrastructure/Persistence/StoredEnum.cs)、[StoredEnumTests](../../tests/DatabaseIntegration/StoredEnumTests.cs)。Given 六組 enum（含 IdentifierType.Isbn、ProviderKind、OfferAvailability）全值及無效 stored code；ISBN、provider_kind、availability 的 CHECK 詞彙需與 data-model 一致；When ToStored/FromStored；Then WANT_TO_READ、ISBN_13 等符合詞彙、全值 roundtrip，未知值丟 InvalidOperationException。DB CHECK 另由 DOM-T03 保護，不把 C# enum 型別當自動驗證。
+風險 L3；已有測試，本次未執行。來源：[StoredEnum](../../Infrastructure/Persistence/StoredEnum.cs)、[StoredEnumTests](../../tests/DatabaseIntegration/StoredEnumTests.cs)。Given 七組 enum（含 IdentifierType.Isbn、ProviderKind、OfferAvailability、MappingMethod）全值及無效 stored code；ISBN、provider_kind、availability 的 CHECK 詞彙需與 data-model 一致；When ToStored/FromStored；Then WANT_TO_READ、ISBN_13 等符合詞彙、全值 roundtrip，未知值丟 InvalidOperationException。DB CHECK 另由 DOM-T03 保護，不把 C# enum 型別當自動驗證。
 
 ### DOM-T03 — constraints、索引與刪除
 
@@ -60,6 +61,10 @@ dotnet test tests/UnitTests/UnitTests.csproj --filter 'FullyQualifiedName~BookDe
 ### DOM-T10 — fallback 與 flag
 
 風險 L3；未實作的跨層目標，關聯 DOM-B02。來源：[推薦 §6](../../Docs/modules/recommendation.md)、[RecommendationServiceTests](../../tests/UnitTests/RecommendationServiceTests.cs) 擴充入口、[EfRecommendationStore](../../Infrastructure/Persistence/EfRecommendationStore.cs)。Given fake Google Books 與候選數 4/5、重複 ISBN、低 similarity、外部失敗；When 未來完整推薦入口執行；Then 只有 4 本分支呼叫 fallback，normalize/persist/embed 後依同條件再檢索，重複 ISBN 不生新 Book，低 similarity 不入候選，保存真實 flag；核心推薦在保存前失敗不存 Search；保存後的 difficulty/profile 使用 caller token，取消可傳遞且不回滾已存 Search（詳見 [Application 流程](../../Application/docs/workflow-diagram.md)）。現況 store 固定 false，不能將此案標為已有測試通過。
+
+### DOM-T11 — Canonical Category 與 Mapping 約束
+
+風險 L3；已有測試，2026-11-14 執行通過（`e7a105b`）。來源：[分類計畫 §2](../../Docs/plans/canonical-category-browse.md)、[CanonicalCategorySchemaTests](../../tests/DatabaseIntegration/CanonicalCategorySchemaTests.cs)、[StoredEnumTests](../../tests/DatabaseIntegration/StoredEnumTests.cs)。Given 已套全部 migration 的 DB；When 寫入 category 與 mapping；Then 不合法 slug（大寫、連續或首尾連字號、底線、空字串）被 CHECK 拒絕，`comics-light-novels`、`a1` 可寫入；slug 重複、`(source_code, subject)` 重複被 UNIQUE／PK 拒絕，但同名 Subject 換來源可寫入；未知 source_code、未知 category 被 FK 拒絕；`mapping_method` 只接受 `MANUAL`、`VERIFIED_RULE`；有 Mapping 的 category 不能刪；三個 index 與兩個 FK 存在；EF 讀回 `MappingMethod` enum。
 
 明確暫緩：ANN 索引與 Work/Edition 雙層不是本次驗收，也沒有授權壓測。靜態、mock、disposable integration 與 production 證據須分開，本文件沒有 live 結果。
 
