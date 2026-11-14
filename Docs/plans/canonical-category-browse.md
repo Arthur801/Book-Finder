@@ -1,10 +1,10 @@
-# Canonical Category 分類瀏覽 — v2.1 實作計畫
+# Canonical Category 分類瀏覽 — v2.2 實作計畫
 
 > Baseline：`origin/main @ 6ef2cd6`（2026-11-14）。
 >
 > 來源：使用者提供的 v2.0 提案（Proposed），經 repo 現況核對與使用者決定（下表）整理成本版。
 >
-> **狀態：P0 進行中**：盤點 SQL 已交付，等待 production 盤點結果。
+> **狀態：P0 完成（2026-11-14）**：production 盤點結果與使用者審核過的分類集合見 §5「P0 結果」。下一步是 P1。
 >
 > 本文件是實作計畫，不代表功能已實作、測試已通過或取得 production 授權。變更記在文末「設計變更紀錄」。
 
@@ -36,6 +36,9 @@
 | 1 | **Mapping 粒度依來源而定**：<br>- 博客來、金石堂：只對應頂層 Subject。書本身就帶有頂層名稱，這樣已足以分類。<br>- 誠品：以第 2 層 id 為單位決定 Canonical Category，再由工具展開成底下所有第 3 層名稱。同一個第 3 層名稱出現在不同第 2 層、而且對應到不同 Canonical Category 時，標為 `AMBIGUOUS`，不寫入。 |
 | 2 | **Python `init` 只驗證、不套用 Migration**：Schema 只由 EF Core Migration 負責。開發環境用 `dotnet ef database update`，正式環境用 CD／efbundle 和 migration lock。 |
 | 3 | **P0 先交付唯讀盤點 SQL**：使用者在 production 執行並貼回結果，agent 再依結果擬定 Canonical 分類集合與規則檔草案。**使用者審核通過後才進入 P1。** |
+| 4 | （P0 審核）採用 §5「P0 結果」的 18 類 Canonical Category 與各來源頂層對照。 |
+| 5 | （P0 審核）誠品第 2 層「簡體書」獨立成一類 `simplified-chinese`，不拆到各主題。 |
+| 6 | （P0 審核）誠品第 2 層 id 從**分類樹存檔**取得（`eslite_category_pages.py` 讀的同一份 API 回應），不從 `eslite-pages.txt` 的註解推，也不用第 2 層名稱當 key。 |
 
 ## 1. 範圍
 
@@ -141,7 +144,7 @@ scripts/categories/
   2. 讀取 DB 實際存在的 `(source_code, subject)`。
   3. 依決定 #1 推出每個 Subject 對應的 Canonical Category：
      - 博客來、金石堂：只處理頂層 Subject。
-     - 誠品：讀 `crawler/eslite-pages.txt` 的註解，或使用者提供的分類樹存檔，把第 2 層 id 展開成第 3 層名稱。**工具不連真站。**
+     - 誠品：讀分類樹存檔（決定 #6），把第 2 層 id 展開成第 3 層名稱。走訪規則沿用 `crawler/deploy/local/eslite_category_pages.py` 的 `select()`（同一份 top id 與排除規則），不另寫一套。展開結果寫成可 review 的小檔 `config/eslite_level3.tsv`（`level2_id`、`level2_name`、`level3_name`）並 commit，之後的 `sync` 只讀這個檔，所以不需要原始存檔也能重現。**工具不連真站**；存檔由使用者取得。
      - `subject_mappings.toml` 的 `MANUAL` 規則優先於推導出的 `VERIFIED_RULE`。
   4. 產生新增、更新、不變、未對應、`AMBIGUOUS` 清單。只要有 `AMBIGUOUS` 或規則錯誤，就不允許 `--apply`。
   5. `--apply`：在單一 transaction 中 UPSERT categories 和 mappings。`ON CONFLICT ... DO UPDATE ... WHERE` 只在值真的改變時寫入，所以重複執行時變更數是 0。失敗就整批 rollback。
@@ -218,7 +221,7 @@ scripts/categories/
    如果沿用誠品 canary 的 `run-sql.sh read <版本> ...`，就以 `csv=<路徑>` 傳入 psql 變數。
 2. 貼回畫面上第 1～4 段的輸出，並提供 CSV：完整的 `(source_code, subject, books, parent_candidate, parent_books)`。
 3. agent 依結果擬出：
-   - Canonical 分類集合（預估 10～15 類）；
+   - Canonical 分類集合；
    - 博客來與金石堂的頂層 Subject → slug 對照；
    - 誠品第 2 層 id → slug 對照；
    - 會變成 `AMBIGUOUS` 的名稱清單，以及未分類書的比例。
@@ -226,6 +229,49 @@ scripts/categories/
    以上交給使用者審核。
 
 「上層候選」是用共同出現推測出來的：如果另一個 Subject 出現在這個 Subject 的每一本書上，而且書數更多，就把它當成上層候選。它只是盤點線索，不能當 Mapping 規則。兩個 Subject 書數完全相同時，兩者都會被列為頂層候選。
+
+### P0 結果（2026-11-14，production，唯讀）
+
+`audit-subjects.sql` 的 CSV 共 2508 列；另外跑了一次性的覆蓋率查詢（主頂層清單寫死在 SQL 中，只在 scratchpad，沒有 commit）。
+
+| 來源 | 有 Subject 的書 | 不同 Subject | 頂層候選 | 結論 |
+|---|---:|---:|---:|---|
+| 博客來 | 2879 | 895 | 48 | 21 個真正的頂層，與 `crawler/category-pages.txt` 的 21 個分類榜一致，每個都超過 120 本。其餘 27 個是假頂層：同時掛在 2 個以上頂層下的下層名稱，例如語文、國文、日本、BL。**每本書都至少有一個頂層（0 本缺）**。 |
+| 金石堂 | 16970 | 1384 | 43 | 22 個真正的頂層，其中包含「羅曼史」，以及全形斜線的「教育／親子教養」。覆蓋率查詢漏列了這兩個，所以顯示有 183 本缺頂層；這 183 本都來自這兩個頂層（173 + 10），補上後預期 0 本缺。P3 由 `audit` 確認。 |
+| 誠品 | — | 229 | 229 | 每本書只有第 3 層名稱。229 個都能在 254 頁清單的分類路徑中找到所屬的第 2 層（共 21 組）。 |
+
+- 一書多類是常態：博客來有 388 本（13%）有 2 個以上頂層，例如「漫畫/圖文書 + 生活風格」；金石堂有 36 本（「人文歷史 + 漫畫」）。這符合計畫「不強制一本書只屬於一類」的設計。
+- 假頂層只會出現在已有主頂層的書上，所以 root-only 的 Mapping（決定 #1）已足以分類，不需要對應下層。
+
+**Canonical Category（決定 #4、#5）**：
+
+| sort | slug | 名稱 | 博客來頂層 | 金石堂頂層 | 誠品第 2 層 |
+|---:|---|---|---|---|---|
+| 1 | `literature` | 文學小說 | 文學小說 | 文學、羅曼史 | 📌文學館79折起 |
+| 2 | `comics-light-novels` | 漫畫與輕小說 | 漫畫/圖文書、輕小說 | 漫畫、輕小說 | 動漫畫／圖文、輕小說 |
+| 3 | `business` | 商業理財 | 商業理財 | 財經企管 | 📌商業財經79折起 |
+| 4 | `psychology` | 心理勵志 | 心理勵志 | 心理勵志 | 📌心理勵志79折起 |
+| 5 | `humanities` | 人文社科 | 人文社科 | 社會哲思、人文歷史 | 📌社科79折起、人文史哲 |
+| 6 | `religion` | 宗教命理 | 宗教命理 | 宗教命理 | — |
+| 7 | `art-design` | 藝術設計 | 藝術設計、影視偶像 | 藝術設計 | 美術、藝術設計 |
+| 8 | `language` | 語言學習 | 語言學習 | 語言/字辭典 | 語言學習 |
+| 9 | `exams` | 考試與教科書 | 考試用書、國中小參考書、專業/教科書/政府出版品 | 參考書、考試書/政府出版品 | 考試用書、國高中技職考用 |
+| 10 | `science` | 自然科普 | 自然科普 | 自然科普 | 自然科普 |
+| 11 | `computers` | 電腦資訊 | 電腦資訊 | 電腦資訊 | 電腦 |
+| 12 | `health` | 醫療保健 | 醫療保健 | 醫療保健 | 醫學保健 |
+| 13 | `food` | 飲食 | 飲食 | 飲食料理 | 飲食 |
+| 14 | `lifestyle` | 生活風格 | 生活風格 | 生活風格 | 生活風格 |
+| 15 | `travel` | 旅遊 | 旅遊 | 旅遊 | 旅遊 |
+| 16 | `parenting` | 親子教養 | 親子教養 | 教育/親子教養、教育／親子教養 | 親子教養 |
+| 17 | `children-teens` | 童書與青少年 | 童書/青少年文學 | 童書/青少年 | 青少年 |
+| 18 | `simplified-chinese` | 簡體書 | — | — | 簡體書 |
+
+誠品第 2 層在表中以名稱列出，規則檔實際用 id（決定 #6）。
+
+**誠品重複名稱**：
+
+- 12 個第 3 層名稱同時在「動漫畫／圖文」與「輕小說」下，例如日系BL、華文GL、日系奇幻魔法／科幻冒險。兩組都對應到 `comics-light-novels`，所以不算歧義。
+- 「繪本／插畫／漫畫」（40 本）、「語言考用」（47 本）同時在「青少年」（`children-teens`）與「簡體書」（`simplified-chinese`）下，對應結果不同，標為 `AMBIGUOUS`，不寫入。這 87 本書仍可以在「全部書籍」中看到，或透過其他來源的 Subject 分類。
 
 ## 6. 測試
 
@@ -302,8 +348,8 @@ crawler 的寫入契約沒有改變，`crawler/docs` 不需要更新。
 
 ## 10. 待決策事項
 
-- （P0 之後）Canonical 分類集合、slug、顯示名稱與順序。
-- （P0 之後）博客來與金石堂的頂層名稱，如果也會出現在其他頂層底下，產生無法消解的歧義：是否需要評估讓 crawler 保存完整分類路徑（需要另外開票，會改寫入契約）。
+- 誠品 `AMBIGUOUS` 的 2 個名稱（87 本）：要接受不分類，還是評估讓 crawler 保存第 2 層 id（另開票，會改寫入契約）。在 P3 的 `sync --dry-run` 報告中再確認。
+- 誠品分類樹存檔：由使用者取得（一次請求），並在 P2 時提供。
 - 本計畫自行決定、可以推翻的事項：
   - 規則檔用 TOML；
   - 誠品的 `provider_root_subject` 用第 2 層 id；
@@ -314,4 +360,5 @@ crawler 的寫入契約沒有改變，`crawler/docs` 不需要更新。
 
 | 日期 | 版本 | 變更 |
 |---|---|---|
+| 2026-11-14 | v2.2 | P0 完成：<br>- 記錄 production 盤點結果；<br>- 18 類 Canonical Category 與各來源頂層對照（決定 #4）；<br>- 誠品「簡體書」獨立成一類（決定 #5）；<br>- 誠品第 2 層 id 改從分類樹存檔取得，展開結果 commit 為 `config/eslite_level3.tsv`（決定 #6）。 |
 | 2026-11-14 | v2.1 | 由 v2.0 提案整理：<br>- Mapping 粒度依來源而定（決定 #1）；<br>- `init` 改為只驗證（決定 #2）；<br>- P0 改為唯讀 SQL 加上使用者審核（決定 #3）；<br>- YAML 改為 TOML；<br>- 新增 `book_subjects (source_code, subject)` index。 |
