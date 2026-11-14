@@ -261,6 +261,7 @@ Auth的Google登入/email驗證/忘記密碼/個資修改/refresh token依identi
 - 風險／狀態：L3；**測試實作：Implemented；執行：2026-11-14 UnitTests 898、DatabaseIntegration 220 項通過（`ef89755`）**。規格：[Job 計畫](../../Docs/plans/async-recommendation-jobs.md) §3.4、§3.7。
 - **Given**：UnitTests 用手寫 fake store 與 `FakeTimeProvider`（2026-10-21T17:30Z，台北已是 10-22）；DatabaseIntegration 用真實 PostgreSQL（見 Infrastructure INF-T22）。
 - **When**：`RecommendationJobService.SubmitAsync／ListAsync／GetAsync`；`IdempotencyKeyRules.Validate`。
+- **Then**：
   - key：null／空字串視為沒有 key；1 與 128 字元合法；129 字元、空白、`.`、非 ASCII、結尾換行不合法；合法 key 原樣傳回；
   - 不合法 key 不呼叫 store；
   - store 收到 v7 JobId、使用者、需求文字、64 字元小寫 SHA-256、key、時鐘時間、設定的 DailyLimit、台北日界 2026-10-21T16:00Z；

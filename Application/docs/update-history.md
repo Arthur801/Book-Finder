@@ -154,6 +154,8 @@ git show --format= --numstat <sha> -- Application ':(exclude)Application/docs'
 
 ## 非同步推薦 Job M4 提交與查詢（新增紀錄）
 
+| 提交 | Subject | 影響 |
+|---|---|---|
 | `4b31184` | feat(rec-jobs): validate the Idempotency-Key header | 新增 `Recommendation/IdempotencyKeyRules.cs` |
 | `5d143b4` | feat(rec-jobs): submit, list and get recommendation jobs in the application layer | 新增 `IRecommendationJobStore.cs`（含 NewRecommendationJob、JobSubmitOutcome）、`RecommendationJobReadModels.cs`、`RecommendationJobSubmission.cs`、`RecommendationJobService.cs` |
 | `08d8c9a`、`1f36620` | EF store 與同 key 路徑的 commit 修正 | Application 無變更（見 Infrastructure） |
