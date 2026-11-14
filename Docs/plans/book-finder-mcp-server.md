@@ -1,10 +1,10 @@
-# Book-Finder MCP Server — v1.2 實作計畫
+# Book-Finder MCP Server — v1.3 實作計畫
 
 > Baseline：`origin/main @ 8c8e3ab`（2026-11-14）。
 >
 > 來源：使用者提供的「Book-Finder MCP Server 實作規劃（Proposed）」，經 repo 現況核對後整理成本版。核對時找到的差異列在「核對 repo 現況的結果」與文末「設計變更紀錄」。
 >
-> **狀態：Proposed（尚未實作）**。使用者已決定 D-01～D-08（2026-11-14）。下一步是 M0：SDK 釘版、單一 endpoint 授權 Spike（決定用單一 `/mcp` 還是雙 endpoint），以及 OpenIddict 預註冊可行性。
+> **狀態：Proposed（尚未實作）**。使用者已決定 D-01～D-08（2026-11-14）。MCP-001（SDK 2.3.1 骨架）與 MCP-002（授權 Spike：單一 `/mcp` 可行）已完成，下一步 MCP-003（OpenIddict 與 Client Registration ADR）與 M1。
 >
 > 本文件是實作計畫，不代表功能已實作、測試已通過或取得 production 授權。技術 authority 仍是各模組的 `docs/`（`AGENTS.md` §3.2）；實作時把定案的 contract 寫進 owning module 的 docs（新模組 `Mcp/docs/` 與受影響模組），不只寫在這裡。文中的 Tool JSON 都是格式示意，不是實際查詢結果；SLO 是目標，尚未量測。
 
@@ -541,3 +541,12 @@ M1 只依賴 MCP-001，可以和 MCP-002／003 並行。
 
 1. AI Tool 不另加頻率限制，刪除「每 Client／User 速率保護」；額度與網站共用。
 2. 專案沒有 staging：真實 Client 實測、Worker 確認與效能量測改在 `https://khwebsc.com/mcp` 的 production canary；nginx 若整站轉發則不需新增路由，只確認 header 轉發與不緩衝。
+
+### v1.3（2026-11-14）：MCP-001、MCP-002 的結果
+
+1. SDK 釘在 `ModelContextProtocol.AspNetCore` 2.3.1。SDK 回應一律是 SSE，沒有 JSON response 選項（§3.1 的「優先 JSON response」做不到）；回應自帶 `X-Accel-Buffering: no`。
+2. **D-04 結果：採單一 `/mcp`**。§3.5 選項 2（受控閘門）在 2025-11-25 與 2026-07-28 都能回 HTTP 401 + `resource_metadata`，不需要雙 endpoint。
+3. 閘門改為 fail closed：無法解析的 body、大小寫不同的 method、`Mcp-Name` header 都視為受保護。
+4. Protected Resource Metadata 由 app 自行 map（SDK 自動服務時 URI 取自 request host，違反 §3.2）。
+5. 2026-07-28 需要 `Mcp-Method`、`Mcp-Name` header 與 `params._meta`；Tool 以 `JsonRpcRequest.Context.User` 取得使用者。
+
