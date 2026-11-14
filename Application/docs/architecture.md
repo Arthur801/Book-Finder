@@ -1,5 +1,6 @@
 # Application 架構選型
 
+> 非同步推薦 Job M5 補記：2026-11-14 更新；程式變更以 `38543fa`、`149c4e0`、`d181add`、`d82c1cc`、`a648a90`、`48b57e0` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR4 M1（#120）補記：2026-10-25 更新；程式變更以 `5052361`、`d864acc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > Canonical Category P4 補記：2026-11-14 更新；程式變更以 `c2e5324`、`cec6bd7` 記入 update-history。原查核基準保留，未重新審查其餘內容。
@@ -106,3 +107,14 @@ History的reason/rank/relevance是snapshot，Book標題等為目前資料；diff
 ## 導覽
 
 [流程](workflow-diagram.md)・[架構](architecture.md)・[待辦](backlog.md)・[歷史](update-history.md)・[案例](test-suite.md)
+
+## 推薦工作 lease port（Job 計畫 M5）
+
+[IRecommendationJobLeaseStore](../Recommendation/IRecommendationJobLeaseStore.cs) 是 Worker（M6）與資料庫之間的唯一介面，和提交、查詢用的 `IRecommendationJobStore` 分開（[Job 計畫](../../Docs/plans/async-recommendation-jobs.md) §3.5、v1.2）：
+
+- `TryClaimNextAsync` → [ClaimedRecommendationJob](../Recommendation/ClaimedRecommendationJob.cs)（含 lease token）或 null；
+- `HeartbeatAsync`、`RequeueAsync`、`FailAsync`、`ReleaseAsync` 回 bool：false 代表已不持有 lease，呼叫端不得再寫入；
+- `CommitSucceededAsync` 在同一交易內寫入 Search、Results 與 `SUCCEEDED`；不再持有 lease 時拋出 [RecommendationJobLeaseLostException](../Recommendation/RecommendationJobLeaseLostException.cs)，什麼都不寫；
+- `RecoverExpiredAsync(maxAttempts)`：逾期的 `RUNNING` 未達次數就回 `QUEUED`，已達次數就 `FAILED`，兩者 error_code 都是 `WORKER_INTERRUPTED`。
+
+固定的 error_code 在 [RecommendationJobErrorCodes](../Recommendation/RecommendationJobErrorCodes.cs)：`AI_UNAVAILABLE`、`AI_TIMEOUT`、`WORKER_INTERRUPTED`、`INTERNAL_ERROR`。lease 是否有效一律由資料庫時鐘判斷，Application 不比較時間。

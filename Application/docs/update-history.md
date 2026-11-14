@@ -1,5 +1,6 @@
 # Application Git 修改歷史
 
+> 非同步推薦 Job M5 補記：2026-11-14 更新；程式變更以 `38543fa`、`149c4e0`、`d181add`、`d82c1cc`、`a648a90`、`48b57e0` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR4 M1（#120）補記：2026-10-25 更新；程式變更以 `5052361`、`d864acc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
@@ -137,3 +138,9 @@ git show --format= --numstat <sha> -- Application ':(exclude)Application/docs'
 ## 導覽
 
 [流程](workflow-diagram.md)・[架構](architecture.md)・[待辦](backlog.md)・[歷史](update-history.md)・[案例](test-suite.md)
+
+## 非同步推薦 Job M5 lease port（新增紀錄）
+
+| 提交 | Subject | 影響 |
+|---|---|---|
+| `149c4e0` | feat(rec-jobs): add lease store contracts for recommendation jobs | 新增 `Recommendation/IRecommendationJobLeaseStore.cs`、`ClaimedRecommendationJob.cs`、`RecommendationJobLeaseLostException.cs`、`RecommendationJobErrorCodes.cs` |

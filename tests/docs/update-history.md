@@ -200,3 +200,4 @@ Git 歷史不證明 runtime 或 CI 已通過。
 | 2026-11-14 | 本 PR | test(compat): seed for AddCanonicalCategories | `tests/DatabaseIntegration/CanonicalCategorySeedTests.cs`（新增）、`MigrationServer.cs`（`MigrationIds.AddCanonicalCategories`） | TEST-26 |
 | 2026-11-14 | `904baca` | test(rec-jobs): cover recommendation_jobs checks, keys, FKs and cascade | `tests/DatabaseIntegration/RecommendationJobSchemaTests.cs`（新增）、`StoredEnumTests.cs`（`RecommendationJobStatus`）、`constraints.sql`（必要資料表加入 `recommendation_jobs`） | TEST-27 |
 | 2026-11-14 | `0a11483` | test(rec-jobs): compat seed for AddRecommendationJobs | `tests/DatabaseIntegration/RecommendationJobSeedTests.cs`（新增）、`MigrationServer.cs`（`MigrationIds.AddRecommendationJobs`） | TEST-28 |
+| 2026-11-14 | `d82c1cc`、`a648a90`、`48b57e0` | test(rec-jobs): cover claim, fencing, commit atomicity and recovery | `tests/DatabaseIntegration/EfRecommendationJobLeaseStoreTests.cs`（新增，自己的容器與 collection） | INF-T23 |
