@@ -19,11 +19,11 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Pins EF Core to 10.0.12 to match Design and dotnet-ef; Npgsql alone would resolve an older EF and
+    <!-- Pins EF Core to 10.0.14 to match Design and dotnet-ef (OpenIddict.EntityFrameworkCore 7.8.0 requires Relational 10.0.14); Npgsql alone would resolve an older EF and
          cause version conflicts in projects that reference this one. -->
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.13" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.13" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.13">
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.14" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.14">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
@@ -32,6 +32,9 @@
     <PackageReference Include="Pgvector.EntityFrameworkCore" Version="0.3.0" />
     <!-- Official MCP C# SDK (plan mcp-server section 3.1). Pinned exactly; the protocol is implemented by the SDK, not by Book-Finder. -->
     <PackageReference Include="ModelContextProtocol.AspNetCore" Version="2.3.1" />
+    <!-- OpenIddict Authorization Server for MCP OAuth (MCP-ADR-007). Pinned exactly; EF Core entities live in the app's own database. -->
+    <PackageReference Include="OpenIddict.AspNetCore" Version="7.8.0" />
+    <PackageReference Include="OpenIddict.EntityFrameworkCore" Version="7.8.0" />
   </ItemGroup>
 
 </Project>

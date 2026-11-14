@@ -1,5 +1,6 @@
 using Book_Finder.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
+using OpenIddict.EntityFrameworkCore.Models;
 
 namespace Book_Finder.Infrastructure.Persistence;
 
@@ -28,6 +29,14 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         base.OnModelCreating(modelBuilder);
         modelBuilder.HasPostgresExtension("vector");
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(AppDbContext).Assembly);
+
+        // OpenIddict entities (MCP-ADR-007) use the default string keys. Tables are renamed to the repo's snake_case
+        // convention; their columns are renamed by the loop below like every other column.
+        modelBuilder.UseOpenIddict();
+        modelBuilder.Entity<OpenIddictEntityFrameworkCoreApplication>().ToTable("openiddict_applications");
+        modelBuilder.Entity<OpenIddictEntityFrameworkCoreAuthorization>().ToTable("openiddict_authorizations");
+        modelBuilder.Entity<OpenIddictEntityFrameworkCoreScope>().ToTable("openiddict_scopes");
+        modelBuilder.Entity<OpenIddictEntityFrameworkCoreToken>().ToTable("openiddict_tokens");
 
         // Columns follow Docs/data/data-model.md snake_case naming; configurations set only types and constraints.
         foreach (var property in modelBuilder.Model.GetEntityTypes().SelectMany(entity => entity.GetProperties()))
