@@ -53,13 +53,19 @@ public sealed record CategoryBrowseViewModel(
         return new CategoryBrowseViewModel(
             result.SelectedCategory?.DisplayName ?? "全部書籍",
             result.SelectedSource?.DisplayName,
-            categorySlug is null ? "書庫還沒有書" : "這個分類目前沒有書",
+            EmptyTextFor(categorySlug, sourceCode),
             items,
             books.TotalCount,
             pager,
             categories,
             sources);
     }
+
+    // The message names the narrowest filter in effect: the category, else the source, else the whole Catalog.
+    private static string EmptyTextFor(string? categorySlug, string? sourceCode) =>
+        categorySlug is not null ? "這個分類目前沒有書"
+        : sourceCode is not null ? "這個來源目前沒有書"
+        : "書庫還沒有書";
 
     // Empty values are left out, and page 1 is the default so it is left out too. Values are escaped, so a slug or
     // source code cannot change the query structure.

@@ -142,6 +142,13 @@ public sealed class CategoryBrowseViewModelTests
         Assert.Equal("書庫還沒有書", CategoryBrowseViewModel.From(Found(null, null, 1, 0)).EmptyText);
     }
 
+    [Fact]
+    public void Empty_text_names_the_source_when_only_a_source_is_selected()
+    {
+        Assert.Equal("這個來源目前沒有書", CategoryBrowseViewModel.From(Found(null, Eslite, 1, 0)).EmptyText);
+        Assert.Equal("這個分類目前沒有書", CategoryBrowseViewModel.From(Found(Literature, Eslite, 1, 0)).EmptyText);
+    }
+
     private static CategoryBrowseResult Found(
         CategorySummary? category, SourceOption? source, int page, int totalCount)
     {
