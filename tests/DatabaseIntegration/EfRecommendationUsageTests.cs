@@ -72,6 +72,107 @@ public class EfRecommendationUsageTests(PostgresFixture fixture)
         Assert.Equal(1, count);
     }
 
+    // recommendation.md §11 / plan §3.4: a job's quota belongs to its submit time, and only FAILED jobs release it.
+    [Fact]
+    public async Task Queued_running_and_succeeded_jobs_count_and_failed_jobs_do_not()
+    {
+        var userId = await SeedUserAsync();
+        await SeedJobAsync(userId, SinceUtc.AddHours(1), RecommendationJobStatus.Queued);
+        await SeedJobAsync(userId, SinceUtc.AddHours(2), RecommendationJobStatus.Running);
+        await SeedJobAsync(userId, SinceUtc.AddHours(3), RecommendationJobStatus.Succeeded);
+        await SeedJobAsync(userId, SinceUtc.AddHours(4), RecommendationJobStatus.Failed);
+        await using var db = fixture.CreateContext();
+        var usage = new EfRecommendationUsage(db);
+
+        var count = await usage.CountSinceAsync(userId, SinceUtc, CancellationToken.None);
+
+        Assert.Equal(3, count);
+    }
+
+    // The search a job produced is reached through the job, so the pair is one quota unit, not two.
+    [Fact]
+    public async Task A_succeeded_job_and_its_search_count_once()
+    {
+        var userId = await SeedUserAsync();
+        await SeedJobAsync(userId, SinceUtc.AddHours(1), RecommendationJobStatus.Succeeded);
+        await using var db = fixture.CreateContext();
+        var usage = new EfRecommendationUsage(db);
+
+        var count = await usage.CountSinceAsync(userId, SinceUtc, CancellationToken.None);
+
+        Assert.Equal(1, count);
+    }
+
+    [Fact]
+    public async Task A_job_submitted_before_since_does_not_count_even_when_its_search_is_later()
+    {
+        var userId = await SeedUserAsync();
+        await SeedJobAsync(userId, SinceUtc.AddSeconds(-1), RecommendationJobStatus.Succeeded, SinceUtc.AddHours(1));
+        await using var db = fixture.CreateContext();
+        var usage = new EfRecommendationUsage(db);
+
+        var count = await usage.CountSinceAsync(userId, SinceUtc, CancellationToken.None);
+
+        Assert.Equal(0, count);
+    }
+
+    [Fact]
+    public async Task A_job_submitted_after_since_counts_once_even_when_its_search_is_later()
+    {
+        var userId = await SeedUserAsync();
+        await SeedJobAsync(userId, SinceUtc.AddHours(1), RecommendationJobStatus.Succeeded, SinceUtc.AddHours(2));
+        await using var db = fixture.CreateContext();
+        var usage = new EfRecommendationUsage(db);
+
+        var count = await usage.CountSinceAsync(userId, SinceUtc, CancellationToken.None);
+
+        Assert.Equal(1, count);
+    }
+
+    [Fact]
+    public async Task Plain_searches_and_jobs_add_up()
+    {
+        var userId = await SeedUserAsync();
+        await SeedSearchAsync(userId, SinceUtc.AddHours(1));
+        await SeedSearchAsync(userId, SinceUtc.AddHours(2));
+        await SeedJobAsync(userId, SinceUtc.AddHours(3), RecommendationJobStatus.Queued);
+        await using var db = fixture.CreateContext();
+        var usage = new EfRecommendationUsage(db);
+
+        var count = await usage.CountSinceAsync(userId, SinceUtc, CancellationToken.None);
+
+        Assert.Equal(3, count);
+    }
+
+    [Fact]
+    public async Task Counts_only_this_users_jobs()
+    {
+        var userId = await SeedUserAsync();
+        var otherUserId = await SeedUserAsync();
+        await SeedJobAsync(userId, SinceUtc.AddHours(1), RecommendationJobStatus.Queued);
+        await SeedJobAsync(otherUserId, SinceUtc.AddHours(1), RecommendationJobStatus.Queued);
+        await using var db = fixture.CreateContext();
+        var usage = new EfRecommendationUsage(db);
+
+        var count = await usage.CountSinceAsync(userId, SinceUtc, CancellationToken.None);
+
+        Assert.Equal(1, count);
+    }
+
+    [Fact]
+    public async Task A_job_exactly_at_since_counts_and_one_tick_before_does_not()
+    {
+        var userId = await SeedUserAsync();
+        await SeedJobAsync(userId, SinceUtc.AddTicks(-1), RecommendationJobStatus.Queued);
+        await SeedJobAsync(userId, SinceUtc, RecommendationJobStatus.Queued);
+        await using var db = fixture.CreateContext();
+        var usage = new EfRecommendationUsage(db);
+
+        var count = await usage.CountSinceAsync(userId, SinceUtc, CancellationToken.None);
+
+        Assert.Equal(1, count);
+    }
+
     private async Task<Guid> SeedUserAsync()
     {
         await using var db = fixture.CreateContext();
@@ -100,6 +201,50 @@ public class EfRecommendationUsageTests(PostgresFixture fixture)
             FallbackUsed = false,
             CreatedAt = createdAt,
         });
+        await db.SaveChangesAsync();
+    }
+
+    // Fills only the columns each status allows (ck_recommendation_jobs_lease and ck_recommendation_jobs_outcome).
+    // A SUCCEEDED job gets a search created at searchCreatedAt (defaults to the job's own time).
+    private async Task SeedJobAsync(Guid userId, DateTime createdAt, RecommendationJobStatus status, DateTime? searchCreatedAt = null)
+    {
+        await using var db = fixture.CreateContext();
+        var job = new RecommendationJob
+        {
+            Id = Guid.CreateVersion7(),
+            UserId = userId,
+            RequirementText = "text",
+            Status = status,
+            RunAfter = createdAt,
+            RequestHash = new string('a', 64),
+            CreatedAt = createdAt,
+        };
+        if (status == RecommendationJobStatus.Running)
+        {
+            job.StartedAt = createdAt;
+            job.LeaseToken = Guid.CreateVersion7();
+            job.LeaseExpiresAt = createdAt.AddMinutes(5);
+        }
+        if (status == RecommendationJobStatus.Succeeded)
+        {
+            var search = new RecommendationSearch
+            {
+                Id = Guid.CreateVersion7(),
+                UserId = userId,
+                RequirementText = "text",
+                FallbackUsed = false,
+                CreatedAt = searchCreatedAt ?? createdAt,
+            };
+            db.RecommendationSearches.Add(search);
+            job.SearchId = search.Id;
+            job.CompletedAt = createdAt.AddMinutes(1);
+        }
+        if (status == RecommendationJobStatus.Failed)
+        {
+            job.CompletedAt = createdAt.AddMinutes(1);
+            job.ErrorCode = "provider_unavailable";
+        }
+        db.RecommendationJobs.Add(job);
         await db.SaveChangesAsync();
     }
 }

@@ -1,5 +1,7 @@
 # Application 文字測試案例庫
 
+
+> 非同步推薦 Job M2 補記：2026-11-14 更新；程式變更以 `6717d8f` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M3 補記：2026-11-14 更新；程式變更以 `b81a322`、`dc2d903` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR4 M1（#120）補記：2026-10-25 更新；程式變更以 `5052361`、`d864acc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
@@ -86,6 +88,7 @@ dotnet test tests/WebIntegration/WebIntegration.csproj
 - **Given**：FakeTimeProvider固定UTC時刻，usage=20或19；DailyLimit=20；recording parser/embedding/ranker/store。
 - **When**：RecommendAsync(userId,text,ct)。
 - **Then**：20回DailyLimitReached，無parser/embedding/ranker/save；CountSince是當日台北00:00對應UTC；19走流程；失敗搜尋不計入usage由DB/web測試補證。
+- 用量計數本身（含 Job）由 DatabaseIntegration `EfRecommendationUsageTests` 驗證，見 Infrastructure INF-T15（M2，`6717d8f`）。
 - 測試來源／擴充入口：[RecommendationServiceTests.cs](../../tests/UnitTests/RecommendationServiceTests.cs)、[TaipeiTimeZoneTests.cs](../../tests/UnitTests/TaipeiTimeZoneTests.cs)、[RecommendationApiTests.cs](../../tests/WebIntegration/RecommendationApiTests.cs) 的 `Failed_searches_are_not_counted_and_the_next_attempt_still_fits_under_the_limit`（19 筆成功 → ranker 失敗 502，DB 仍 19 → 重試成功，DB 為 20；本次未執行）。
 
 ### APP-T08 — filter與retrieval fallback
