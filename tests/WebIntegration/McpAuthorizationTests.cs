@@ -284,6 +284,19 @@ public sealed class McpAuthorizationTests(WebFixture fixture)
         Assert.Equal(["https://khwebsc.com/mcp"], options.Audiences);
     }
 
+    // Defence in depth: the gate only authenticates when an Authorization header is present, so the end-to-end query and form tests
+    // pass even if the validation would read those places. This pins the validation's own setting, which OpenIddict turns on by default.
+    [Fact]
+    public void Validation_reads_the_token_only_from_the_authorization_header()
+    {
+        using var app = CreateFactory();
+        var options = app.Services.GetRequiredService<IOptionsMonitor<OpenIddict.Validation.AspNetCore.OpenIddictValidationAspNetCoreOptions>>().CurrentValue;
+
+        Assert.False(options.DisableAccessTokenExtractionFromAuthorizationHeader);
+        Assert.True(options.DisableAccessTokenExtractionFromQueryString);
+        Assert.True(options.DisableAccessTokenExtractionFromBodyForm);
+    }
+
     // The gate reads only the Authorization header. A real token in the query string or a form body does not authorize the call.
     [Fact]
     public async Task Access_token_in_the_query_string_does_not_authorize_the_protected_tool()
