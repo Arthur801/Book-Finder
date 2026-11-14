@@ -1,7 +1,9 @@
 # Infrastructure 修改歷史
 
+> 非同步推薦 Job M6 補記：2026-11-14 更新；程式變更以 `54ad51b`、`0d3b3ac`、`93db136`、`11f86b4`、`c0ac2f6` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M4 補記：2026-11-14 更新；程式變更以 `4b31184`、`5d143b4`、`08d8c9a`、`1f36620`、`ef89755` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M2 補記：2026-11-14 更新；程式變更以 `6717d8f` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+> 非同步推薦 Job M5 補記：2026-11-14 更新；程式變更以 `38543fa`、`149c4e0`、`d181add`、`d82c1cc`、`a648a90`、`48b57e0` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M1 補記：2026-11-14 更新；程式變更以 `ad398b8`、`904baca`、`0a11483` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR4 M1（#120）補記：2026-10-25 更新；程式變更以 `5052361`、`d864acc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
@@ -189,3 +191,20 @@ git show <SHA> -- Infrastructure
 |---|---|---|---|
 | 2026-11-14 | `c2d68a1` | feat(categories): cache the sidebar counts and source list for 10 minutes | `Caching/CachedCategoryBrowse.cs`（新增）；目錄外：`Program.cs` 改為 EfCategoryBrowse 外包快取 |
 
+## 非同步推薦 Job M5 lease store（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-14 | `38543fa` | refactor(recommendation): extract search and result row building into RecommendationSearchRows | `Persistence/RecommendationSearchRows.cs`（新增）、`Persistence/EfRecommendationStore.cs`（改用 helper，行為不變） |
+| 2026-11-14 | `d181add` | feat(rec-jobs): implement fenced lease store and register it | `Persistence/EfRecommendationJobLeaseStore.cs`（新增） |
+
+驗證（2026-11-14，主 agent 重跑）：`dotnet build` 0 warning（主 agent 以 `a648a90`、`48b57e0` 修正測試中的 CS8604；第一次改用 DBNull 造成 26 項失敗，第二次改用有型別的 NpgsqlParameter）；DatabaseIntegration 225、UnitTests 867、WebIntegration 293 通過；mutation 見 test-suite INF-T23。
+
+## 非同步推薦 Job M6 Worker（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-14 | `93db136` | feat(rec-jobs): add the Recommendation Job worker | `BackgroundJobs/RecommendationJobWorker.cs`（新增） |
+| 2026-11-14 | `11f86b4` | feat(rec-jobs): wire the Recommendation Job worker | `BackgroundJobs/RecommendationJobServiceCollectionExtensions.cs`（新增）；另改 `Program.cs`、`appsettings.json`（新增 `RecommendationJobs` 區段，Enabled false） |
+
+驗證（2026-11-14，主 agent 重跑）：`dotnet build --no-incremental` 0 warning；UnitTests 933、DatabaseIntegration 248、WebIntegration 293 通過；mutation 見 test-suite INF-T24 與 Application APP-T27。

@@ -61,6 +61,8 @@ builder.Services.AddScoped<CategoryBrowseService>();
 // AI recommendation: one Recommendation Search per request, EF candidate search and store (recommendation.md §3).
 builder.Services.AddScoped<ICandidateSearch, EfCandidateSearch>();
 builder.Services.AddScoped<IRecommendationStore, EfRecommendationStore>();
+// Recommendation Job lease, fencing and recovery (plan section 3.5); the async job path uses it, not the synchronous store.
+builder.Services.AddScoped<IRecommendationJobLeaseStore, EfRecommendationJobLeaseStore>();
 builder.Services.AddScoped<IRecommendationUsage, EfRecommendationUsage>();
 // AI search history (#16): read-only port for the user's own saved searches (recommendation.md §12).
 builder.Services.AddScoped<IRecommendationHistory, EfRecommendationHistory>();
@@ -84,6 +86,9 @@ builder.Services.AddHostedService<EmbeddingBackfillWorker>();
 
 // Book AI profile (#18): difficulty reader, scheduler, in-process queue and the worker that drains it (recommendation.md §9).
 builder.Services.AddBookProfiles(builder.Configuration);
+
+// Recommendation Jobs (plan async-recommendation-jobs section 3.6): claims and runs queued jobs in the background. Off unless RecommendationJobs:Enabled is true.
+builder.Services.AddRecommendationJobs(builder.Configuration);
 
 var app = builder.Build();
 

@@ -1,5 +1,6 @@
 # Application 流程與責任
 
+> 非同步推薦 Job M6 補記：2026-11-14 更新；程式變更以 `54ad51b`、`0d3b3ac`、`93db136`、`11f86b4`、`c0ac2f6` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M3 補記：2026-11-14 更新；程式變更以 `b81a322`、`dc2d903` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M4 補記：2026-11-14 更新；程式變更以 `4b31184`、`5d143b4`、`08d8c9a`、`1f36620`、`ef89755` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > Canonical Category P4 補記：2026-11-14 更新；程式變更以 `c2e5324`、`cec6bd7` 記入 update-history。原查核基準保留，未重新審查其餘內容。
@@ -249,3 +250,22 @@ flowchart TD
 
 鎖住使用者那一列，讓同一使用者的提交依序執行：同 key 的並行提交不會都查不到既有 Job，並行提交也不會超出額度。Idempotency 判斷在額度之前，所以已被接受的重送不會收到 429。Log 只記 userId 與 jobId，不記需求文字與 key。提交時不呼叫任何 AI；Job 由 Worker（M6）之後執行。
 
+## 推薦工作執行（Job 計畫 M6）
+
+```mermaid
+flowchart TD
+  W[RecommendationJobWorker 每輪] --> REC[RecoverExpiredAsync]
+  REC --> CLAIM{TryClaimNextAsync}
+  CLAIM -->|無| WAIT[等 PollInterval]
+  CLAIM -->|有| HB[heartbeat 迴圈：每 HeartbeatInterval 續租，被拒就取消 lease-lost]
+  CLAIM -->|有| RUN[Runner：Pipeline，save = CommitSucceededAsync]
+  RUN -->|成功| PROF[best-effort Profile 排程]
+  RUN -->|AI 失敗、逾時、暫時性 DB 錯誤| RETRY{attempt < MaxAttempts}
+  RETRY -->|是| RQ[RequeueAsync RetryDelay]
+  RETRY -->|否| FAIL[FailAsync]
+  RUN -->|其他例外| FAIL2[FailAsync INTERNAL_ERROR]
+  RUN -->|lease lost| NONE[不寫入]
+  RUN -->|主機停止| REL[ReleaseAsync]
+```
+
+Log 欄位：JobId、Attempt、ErrorCode、QueueWaitMs（領取時間減去 Job 建立時間）、ExecutionMs、成功時的 SearchId；不記需求文字。
