@@ -6,7 +6,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 
 namespace WebIntegration;
 
-// /mcp skeleton (plan mcp-server section 4, MCP-001). Anonymous, stateless Streamable HTTP with no tools yet. Off unless Mcp:Enabled
+// /mcp skeleton (plan mcp-server section 4, MCP-001). Anonymous, stateless Streamable HTTP; search_books is the only tool so far. Off unless Mcp:Enabled
 // is true, so the flag-off test checks that the path answers like any unmapped route. The raw HTTP tests pin the wire behaviour the SDK must keep.
 [Collection(WebCollection.Name)]
 public sealed class McpEndpointTests(WebFixture fixture)
@@ -56,7 +56,7 @@ public sealed class McpEndpointTests(WebFixture fixture)
     }
 
     [Fact]
-    public async Task Anonymous_tools_list_returns_an_empty_tools_array()
+    public async Task Anonymous_tools_list_offers_only_search_books()
     {
         await fixture.ResetDatabaseAsync();
         await using var app = CreateFactory(enabled: true);
@@ -66,8 +66,9 @@ public sealed class McpEndpointTests(WebFixture fixture)
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var result = await ReadRpcResponseAsync(response);
-        Assert.Equal(JsonValueKind.Array, result.GetProperty("result").GetProperty("tools").ValueKind);
-        Assert.Equal(0, result.GetProperty("result").GetProperty("tools").GetArrayLength());
+        var tools = result.GetProperty("result").GetProperty("tools");
+        Assert.Equal(JsonValueKind.Array, tools.ValueKind);
+        Assert.Equal(["search_books"], tools.EnumerateArray().Select(tool => tool.GetProperty("name").GetString()));
     }
 
     [Fact]
