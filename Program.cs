@@ -87,6 +87,9 @@ builder.Services.AddHostedService<EmbeddingBackfillWorker>();
 // Book AI profile (#18): difficulty reader, scheduler, in-process queue and the worker that drains it (recommendation.md §9).
 builder.Services.AddBookProfiles(builder.Configuration);
 
+// Recommendation Jobs (plan async-recommendation-jobs section 3.6): claims and runs queued jobs in the background. Off unless RecommendationJobs:Enabled is true.
+builder.Services.AddRecommendationJobs(builder.Configuration);
+
 var app = builder.Build();
 
 // nginx forwards requests from loopback (systemd) or the Docker network (container). Loopback stays trusted;
