@@ -2,6 +2,7 @@
 
 > 非同步推薦 Job M4 補記：2026-11-14 更新；程式變更以 `4b31184`、`5d143b4`、`08d8c9a`、`1f36620`、`ef89755` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M2 補記：2026-11-14 更新；程式變更以 `6717d8f` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+> 非同步推薦 Job M5 補記：2026-11-14 更新；程式變更以 `38543fa`、`149c4e0`、`d181add`、`d82c1cc`、`a648a90`、`48b57e0` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M1 補記：2026-11-14 更新；程式變更以 `ad398b8`、`904baca`、`0a11483` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR4 M1（#120）補記：2026-10-25 更新；程式變更以 `5052361`、`d864acc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
@@ -76,3 +77,19 @@ HostingSetup 支援設定不等於已驗證容器切換、公開 HTTPS、可信 
 ## 文件導航
 
 [流程](workflow-diagram.md) · [架構](architecture.md) · [待辦](backlog.md) · [歷史](update-history.md) · [案例](test-suite.md)
+
+## 推薦工作 lease 與 fencing（Job 計畫 M5）
+
+[EfRecommendationJobLeaseStore](../Persistence/EfRecommendationJobLeaseStore.cs)：
+
+| 操作 | SQL 重點 |
+|---|---|
+| claim | CTE `SELECT … WHERE status='QUEUED' AND run_after <= now() ORDER BY run_after, created_at, id FOR UPDATE SKIP LOCKED LIMIT 1`，`UPDATE … RETURNING`；`attempt_count+1`、新 token（C# 產生）、`lease_expires_at = now() + make_interval(secs => …)` |
+| fence | `id = … AND lease_token = … AND status='RUNNING' AND lease_expires_at > now()`；heartbeat、requeue、fail、release 都以它為 WHERE，回傳是否剛好改到 1 列 |
+| commit | 明確交易：先以 fence 條件 `SELECT … FOR UPDATE` 鎖住 Job（沒有就拋 lease lost，什麼都不寫）→ [RecommendationSearchRows](../Persistence/RecommendationSearchRows.cs) 加入 Search 與 Results → SaveChanges → 更新 Job 為 `SUCCEEDED` → commit。任何例外（例如 Book FK）都整筆 rollback，Job 維持 `RUNNING` |
+| release | `QUEUED`、`run_after = now()`、`attempt_count - 1`（正常停機不消耗次數），error_code 保留 |
+| recover | 一條 `UPDATE … CASE WHEN attempt_count < max …`：逾期的 `RUNNING` 回 `QUEUED` 或 `FAILED`，error_code `WORKER_INTERRUPTED` |
+
+- 狀態值以參數傳入（`StoredEnum.ToStored`），SQL 不另存一份詞彙。
+- commit 失敗後，DbContext 的 change tracker 仍留著加入的 Search，所以呼叫端（M6 Worker）必須每個 Job 使用獨立的 scope。
+- `RecommendationSearchRows` 由 [EfRecommendationStore](../Persistence/EfRecommendationStore.cs) 與本 store 共用，舊路徑的寫入行為不變。

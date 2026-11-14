@@ -204,3 +204,4 @@ Git 歷史不證明 runtime 或 CI 已通過。
 | 2026-11-14 | `0a11483` | test(rec-jobs): compat seed for AddRecommendationJobs | `tests/DatabaseIntegration/RecommendationJobSeedTests.cs`（新增）、`MigrationServer.cs`（`MigrationIds.AddRecommendationJobs`） | TEST-28 |
 | 2026-11-14 | `6717d8f` | feat(rec-jobs): count jobs in the daily recommendation usage | `tests/DatabaseIntegration/EfRecommendationUsageTests.cs`（新增 `SeedJobAsync` 與 7 項 Job 用量測試） | INF-T15 |
 | 2026-11-14 | `4b31184`、`5d143b4`、`08d8c9a`、`1f36620` | feat(rec-jobs): job submit, list and get (M4) | `tests/UnitTests/IdempotencyKeyRulesTests.cs`、`tests/UnitTests/RecommendationJobServiceTests.cs`、`tests/DatabaseIntegration/EfRecommendationJobStoreTests.cs`（新增） | APP-T26、INF-T22 |
+| 2026-11-14 | `d82c1cc`、`a648a90`、`48b57e0` | test(rec-jobs): cover claim, fencing, commit atomicity and recovery | `tests/DatabaseIntegration/EfRecommendationJobLeaseStoreTests.cs`（新增，自己的容器與 collection） | INF-T23 |
