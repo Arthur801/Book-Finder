@@ -1,5 +1,6 @@
 # Infrastructure AI 文字測試案例庫
 
+> 非同步推薦 Job M6 補記：2026-11-14 更新；程式變更以 `54ad51b`、`0d3b3ac`、`93db136`、`11f86b4`、`c0ac2f6` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M4 補記：2026-11-14 更新；程式變更以 `4b31184`、`5d143b4`、`08d8c9a`、`1f36620`、`ef89755` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M2 補記：2026-11-14 更新；程式變更以 `6717d8f` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M5 補記：2026-11-14 更新；程式變更以 `38543fa`、`149c4e0`、`d181add`、`d82c1cc`、`a648a90`、`48b57e0` 記入 update-history。原查核基準保留，未重新審查其餘內容。
@@ -238,3 +239,19 @@ dotnet test tests/WebIntegration/WebIntegration.csproj
 - mutation（主 agent，2026-11-14）：拿掉 commit 的 `lease_expires_at > now()` → `Commit_after_the_lease_expired…` 失敗；拿掉 release 的 `attempt_count - 1` → `Release_requeues_now…` 失敗。皆已還原。
 - 並行測試只驗證不變條件，不保證一定發生交錯；保證來自 `SKIP LOCKED`。
 - 入口：[EfRecommendationJobLeaseStoreTests](../../tests/DatabaseIntegration/EfRecommendationJobLeaseStoreTests.cs)；[EfRecommendationStoreTests](../../tests/DatabaseIntegration/EfRecommendationStoreTests.cs) 在抽出 RecommendationSearchRows 後不改仍通過。
+
+
+## INF-T24 — 推薦工作 Worker（Job 計畫 M6）
+
+- 責任／風險／狀態：BackgroundService，L3，已有測試；2026-11-14 UnitTests 933、DatabaseIntegration 248、WebIntegration 293 項通過（`c0ac2f6`）。
+- Given：ServiceCollection 內放 fake lease store 與真的 Runner；`FakeTimeProvider` 推進 heartbeat 與 poll 的等待（以計數 `CreateTimer` 的子類別確認等待已建立後才推進時間）。
+- When／Then：
+  - 停用時不呼叫 store；
+  - 有一筆排隊 Job → recover、claim、執行並 commit，之後等待；
+  - heartbeat 回 false → 執行中的 Job 被取消，什麼都不寫；
+  - 主機在執行中停止 → 呼叫 release，Worker 正常結束；
+  - claim 拋出例外 → 記 log，迴圈繼續。
+- WebIntegration 的 host 以 Enabled false 啟動，Worker 不動作。
+- mutation（主 agent）：拿掉 heartbeat 被拒時的 `leaseLost.Cancel()` → `A_refused_heartbeat_cancels_the_running_job_and_nothing_is_written` 失敗，已還原。
+- 入口：[RecommendationJobWorkerTests](../../tests/UnitTests/RecommendationJobWorkerTests.cs)。
+

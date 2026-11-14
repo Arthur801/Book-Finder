@@ -1,8 +1,10 @@
 # Application 架構選型
 
 
+> 非同步推薦 Job M6 補記：2026-11-14 更新；程式變更以 `54ad51b`、`0d3b3ac`、`93db136`、`11f86b4`、`c0ac2f6` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M4 補記：2026-11-14 更新；程式變更以 `4b31184`、`5d143b4`、`08d8c9a`、`1f36620`、`ef89755` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M2 補記：2026-11-14 更新；程式變更以 `6717d8f` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+> 非同步推薦 Job M5 補記：2026-11-14 更新；程式變更以 `38543fa`、`149c4e0`、`d181add`、`d82c1cc`、`a648a90`、`48b57e0` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M3 補記：2026-11-14 更新；程式變更以 `b81a322`、`dc2d903` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M5 補記：2026-11-14 更新；程式變更以 `38543fa`、`149c4e0`、`d181add`、`d82c1cc`、`a648a90`、`48b57e0` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
@@ -126,3 +128,20 @@ History的reason/rank/relevance是snapshot，Book標題等為目前資料；diff
 - `RecoverExpiredAsync(maxAttempts)`：逾期的 `RUNNING` 未達次數就回 `QUEUED`，已達次數就 `FAILED`，兩者 error_code 都是 `WORKER_INTERRUPTED`。
 
 固定的 error_code 在 [RecommendationJobErrorCodes](../Recommendation/RecommendationJobErrorCodes.cs)：`AI_UNAVAILABLE`、`AI_TIMEOUT`、`WORKER_INTERRUPTED`、`INTERNAL_ERROR`。lease 是否有效一律由資料庫時鐘判斷，Application 不比較時間。
+
+## 推薦工作執行器（Job 計畫 M6）
+
+[RecommendationJobRunner](../Recommendation/RecommendationJobRunner.cs) 擁有「一筆已領取的 Job 要寫入什麼」的規則（[Job 計畫](../../Docs/plans/async-recommendation-jobs.md) §3.6）：
+
+| 情況 | 寫入 |
+|---|---|
+| 成功 | Pipeline 的 `save` 就是 fenced commit（在 60 秒預算內）；之後 best-effort 排程 Book Profile，失敗只記 warning，Job 維持 `SUCCEEDED` |
+| lease lost（commit 拋出 lease lost，或 heartbeat 取消了 lease-lost token） | 不寫任何東西 |
+| 主機停止（stopping token） | `ReleaseAsync`，不消耗次數 |
+| `AiUnavailableException`／`AiTimeoutException` | 可重試：`AI_UNAVAILABLE`／`AI_TIMEOUT` |
+| 例外鏈中有 `DbException.IsTransient` | 可重試：`INTERNAL_ERROR` |
+| 其他例外 | `FailAsync(INTERNAL_ERROR)`，並記錄例外 |
+
+可重試＝`attempt_count < MaxAttempts` 時 `RequeueAsync(RetryDelay)`，否則 `FailAsync`。失敗處理的寫入使用 `CancellationToken.None`，主機停止時也不會只寫一半；store 回 false（lease 已不在）時只記 log。Application 只用 BCL 的 `DbException`，不引用 Npgsql 或 EF。
+
+[RecommendationJobOptions](../Recommendation/RecommendationJobOptions.cs)（section `RecommendationJobs`）：`Enabled` false、`PollInterval` 2 秒、`LeaseDuration` 45 秒、`HeartbeatInterval` 10 秒（必須小於 LeaseDuration）、`MaxAttempts` 2、`RetryDelay` 5 秒；啟動時驗證。併行度固定為 1，不是設定。

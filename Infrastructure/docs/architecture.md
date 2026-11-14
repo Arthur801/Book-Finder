@@ -1,5 +1,6 @@
 # Infrastructure 架構
 
+> 非同步推薦 Job M6 補記：2026-11-14 更新；程式變更以 `54ad51b`、`0d3b3ac`、`93db136`、`11f86b4`、`c0ac2f6` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M4 補記：2026-11-14 更新；程式變更以 `4b31184`、`5d143b4`、`08d8c9a`、`1f36620`、`ef89755` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M2 補記：2026-11-14 更新；程式變更以 `6717d8f` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M5 補記：2026-11-14 更新；程式變更以 `38543fa`、`149c4e0`、`d181add`、`d82c1cc`、`a648a90`、`48b57e0` 記入 update-history。原查核基準保留，未重新審查其餘內容。
@@ -93,3 +94,14 @@ HostingSetup 支援設定不等於已驗證容器切換、公開 HTTPS、可信 
 - 狀態值以參數傳入（`StoredEnum.ToStored`），SQL 不另存一份詞彙。
 - commit 失敗後，DbContext 的 change tracker 仍留著加入的 Search，所以呼叫端（M6 Worker）必須每個 Job 使用獨立的 scope。
 - `RecommendationSearchRows` 由 [EfRecommendationStore](../Persistence/EfRecommendationStore.cs) 與本 store 共用，舊路徑的寫入行為不變。
+
+## 推薦工作背景 Worker（Job 計畫 M6）
+
+[RecommendationJobWorker](../BackgroundJobs/RecommendationJobWorker.cs)（`BackgroundService`，由 [AddRecommendationJobs](../BackgroundJobs/RecommendationJobServiceCollectionExtensions.cs) 註冊，啟動時驗證設定）不含商業規則：
+
+- `RecommendationJobs:Enabled` 為 false（`appsettings.json` 的預設）時只記一行 log 就結束；
+- 每輪在新的 scope 中先 `RecoverExpiredAsync`，再 `TryClaimNextAsync`；沒有 Job 就等 PollInterval，有 Job 就立刻接著領下一筆；
+- 每筆 Job 在自己的 scope 執行 Runner：commit 失敗會在 DbContext 留下追蹤中的實體，不能帶到下一筆；
+- heartbeat 迴圈每次續租都另開 scope（DbContext 不能同時被兩處使用）；被拒就取消 lease-lost token，續租出錯只記 log、下一次再試；
+- 除了主機停止造成的取消之外，任何例外都記 log 後等 PollInterval 再繼續：未處理的例外會讓整個 web host 停止。
+

@@ -1,5 +1,6 @@
 # Application 文字測試案例庫
 
+> 非同步推薦 Job M6 補記：2026-11-14 更新；程式變更以 `54ad51b`、`0d3b3ac`、`93db136`、`11f86b4`、`c0ac2f6` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M4 補記：2026-11-14 更新；程式變更以 `4b31184`、`5d143b4`、`08d8c9a`、`1f36620`、`ef89755` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M2 補記：2026-11-14 更新；程式變更以 `6717d8f` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M3 補記：2026-11-14 更新；程式變更以 `b81a322`、`dc2d903` 記入 update-history。原查核基準保留，未重新審查其餘內容。
@@ -268,3 +269,17 @@ Auth的Google登入/email驗證/忘記密碼/個資修改/refresh token依identi
   - 四種 store 結果各自對應；未知結果拋出例外；log 不含需求文字與 key；
   - 列表頁碼小於 1 時改為 1，每頁 20 筆。
 - 測試來源：[IdempotencyKeyRulesTests.cs](../../tests/UnitTests/IdempotencyKeyRulesTests.cs)、[RecommendationJobServiceTests.cs](../../tests/UnitTests/RecommendationJobServiceTests.cs)。
+
+### APP-T27 — 推薦工作執行器的結果表與設定
+
+- 風險／狀態：L3；**測試實作：Implemented；執行：2026-11-14 UnitTests 933 項通過（`c0ac2f6`）**。規格：[Job 計畫](../../Docs/plans/async-recommendation-jobs.md) §3.6。
+- **Given**：`tests/Shared` 的 fake lease store（記錄每次呼叫）、真的 `RecommendationPipeline` 與 `BookProfileScheduler`（以共用 fake 組成）、`FakeTimeProvider`。
+- **Then**：
+  - 成功時以 Job 的需求文字經 Pipeline 的 save 步驟 commit 一次，之後排程結果書籍；0 筆結果不排程；排程失敗 Job 仍成功；
+  - AI_UNAVAILABLE 第 1／2 次 → requeue；第 2／2 次 → fail；AI 逾時（時間推過 60 秒）→ AI_TIMEOUT requeue；
+  - 包在其他例外裡的暫時性 DbException → requeue INTERNAL_ERROR；非暫時性或其他例外 → fail INTERNAL_ERROR；
+  - commit 拋出 lease lost、執行中 lease-lost token 被取消 → 不寫入；stopping token 被取消 → 只呼叫 release；
+  - log 不含需求文字；
+  - 設定：預設值；HeartbeatInterval 等於 LeaseDuration 不合法；MaxAttempts 0 不合法；RetryDelay 0 合法。
+- mutation（主 agent）：把重試判斷 `<` 改成 `<=` → `Ai_unavailable_on_attempt_two_of_two_fails_the_job` 失敗，已還原。
+- 測試來源：[RecommendationJobRunnerTests.cs](../../tests/UnitTests/RecommendationJobRunnerTests.cs)、[RecommendationJobOptionsTests.cs](../../tests/UnitTests/RecommendationJobOptionsTests.cs)。
