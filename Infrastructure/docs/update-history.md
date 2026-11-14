@@ -1,5 +1,6 @@
 # Infrastructure 修改歷史
 
+> 非同步推薦 Job M4 補記：2026-11-14 更新；程式變更以 `4b31184`、`5d143b4`、`08d8c9a`、`1f36620`、`ef89755` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M2 補記：2026-11-14 更新；程式變更以 `6717d8f` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M5 補記：2026-11-14 更新；程式變更以 `38543fa`、`149c4e0`、`d181add`、`d82c1cc`、`a648a90`、`48b57e0` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M1 補記：2026-11-14 更新；程式變更以 `ad398b8`、`904baca`、`0a11483` 記入 update-history。原查核基準保留，未重新審查其餘內容。
@@ -165,6 +166,15 @@ git show <SHA> -- Infrastructure
 | 2026-11-14 | `6717d8f` | feat(rec-jobs): count jobs in the daily recommendation usage | `Persistence/EfRecommendationUsage.cs`（兩個 count：未由 Job 產生的 Search＋非 FAILED 的 Job） |
 
 驗證（2026-11-14，主 agent 重跑）：`dotnet build` 0 warning；DatabaseIntegration 204、UnitTests 867、WebIntegration 293 通過；mutation 抽查兩處（見 test-suite INF-T15）。
+
+## 非同步推薦 Job M4 提交與查詢（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-14 | `08d8c9a` | feat(rec-jobs): persist job submit, list and get with the user row lock | `Persistence/EfRecommendationJobStore.cs`（新增） |
+| 2026-11-14 | `1f36620` | fix(rec-jobs): commit the same-key path so it ends its transaction as the spec says | `Persistence/EfRecommendationJobStore.cs` |
+
+驗證（2026-11-14，主 agent 重跑）：`dotnet build` 0 warning；UnitTests 898、DatabaseIntegration 220、WebIntegration 293 通過；mutation 見 test-suite INF-T22。
 
 ## Canonical Category P4 分類瀏覽查詢（新增紀錄）
 

@@ -1,6 +1,7 @@
 # Application 流程與責任
 
 > 非同步推薦 Job M3 補記：2026-11-14 更新；程式變更以 `b81a322`、`dc2d903` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+> 非同步推薦 Job M4 補記：2026-11-14 更新；程式變更以 `4b31184`、`5d143b4`、`08d8c9a`、`1f36620`、`ef89755` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > Canonical Category P4 補記：2026-11-14 更新；程式變更以 `c2e5324`、`cec6bd7` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 > 查核日期：2026-10-24；Git 基準 `91333c3`。目標 `Application/`；本次僅靜態查核，未執行 build、測試、資料庫或外部服務。規格、實作與測試證據分開記錄。
@@ -17,6 +18,7 @@
 | Library/登入後待辦 | [LibraryService](../Library/LibraryService.cs) CRUD、AddPendingAsync | [user-library](../../Docs/modules/user-library.md) §3～5 |
 | 推薦 | [RecommendationService](../Recommendation/RecommendationService.cs) → Succeeded/DailyLimitReached | [recommendation](../../Docs/modules/recommendation.md) §3～14 |
 | 推薦紀錄 | [IRecommendationHistory](../Recommendation/IRecommendationHistory.cs) ListAsync/GetAsync | recommendation §12 |
+| 推薦工作（M4） | [RecommendationJobService](../Recommendation/RecommendationJobService.cs) SubmitAsync/ListAsync/GetAsync | [Job 計畫](../../Docs/plans/async-recommendation-jobs.md) §3.4、§3.7 |
 | 背景補齊 | [EmbeddingBackfillService](../Recommendation/EmbeddingBackfillService.cs)、[BookProfileGenerationService](../Recommendation/BookProfileGenerationService.cs) | recommendation §9～10 |
 
 ```mermaid
@@ -227,3 +229,23 @@ generation例外向 worker 傳遞，由 worker 記錄並處理下一本；Applic
 ## 導覽
 
 [流程](workflow-diagram.md)・[架構](architecture.md)・[待辦](backlog.md)・[歷史](update-history.md)・[案例](test-suite.md)
+
+## 推薦工作提交（Job 計畫 M4）
+
+```mermaid
+flowchart TD
+  IN[已驗證 trim 的需求、userId、Idempotency-Key header] --> KEY{IdempotencyKeyRules}
+  KEY -->|格式錯| BAD[InvalidIdempotencyKey；不碰 store]
+  KEY -->|無或合法| BUILD[v7 JobId、SHA-256 request hash、台北日界]
+  BUILD --> TX[store 單一交易]
+  TX --> LOCK[SELECT users FOR UPDATE]
+  LOCK --> SAME{同使用者同 key 已存在？}
+  SAME -->|同 hash| EXIST[Accepted Created=false；不新增、不扣額度]
+  SAME -->|不同 hash| CONFLICT[IdempotencyConflict；rollback]
+  SAME -->|無| COUNT{usage 已達 DailyLimit？}
+  COUNT -->|是| LIMIT[DailyLimitReached；rollback]
+  COUNT -->|否| INSERT[INSERT QUEUED；commit；Accepted Created=true]
+```
+
+鎖住使用者那一列，讓同一使用者的提交依序執行：同 key 的並行提交不會都查不到既有 Job，並行提交也不會超出額度。Idempotency 判斷在額度之前，所以已被接受的重送不會收到 429。Log 只記 userId 與 jobId，不記需求文字與 key。提交時不呼叫任何 AI；Job 由 Worker（M6）之後執行。
+
