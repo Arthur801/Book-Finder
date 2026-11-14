@@ -18,6 +18,10 @@ services:
       ForwardedHeaders__KnownNetworks__0: 172.31.250.0/24
       # Antiforgery keys must survive container replacement, so they live in a named volume (see dp-keys).
       DataProtection__KeysPath: /data-protection-keys
+      # Turns on background Recommendation Jobs: the worker runs queued jobs and /ai submits through the job API
+      # (Docs/plans/async-recommendation-jobs.md). The host injects only secrets, so this switch ships with the release;
+      # to turn it off, release without this line or redeploy the previous release (deploy backlog DEP-B26).
+      RecommendationJobs__Enabled: "true"
     # Loopback only: nginx on the host is the only client, and TLS terminates there.
     ports:
       - "127.0.0.1:5000:8080"
