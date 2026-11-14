@@ -2,6 +2,7 @@
 
 > PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR4 M1（#120）補記：2026-10-25 更新；程式變更以 `5052361`、`d864acc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+> Canonical Category P5 補記：2026-11-14 更新；程式變更以 `a9b7ad1`、`c2d68a1`、`d43ea57` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > Canonical Category P4 補記：2026-11-14 更新；程式變更以 `c2e5324`、`cec6bd7` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 > backlog 整理（2026-10-25）補記：INF-B07 已完成，移至文末「已處理」；其餘狀態未變。
@@ -33,10 +34,22 @@ Debug 證據收集：INF-B04 須保存去識別的 request scheme、來源網段
 
 ## INF-B09 — 分類瀏覽查詢的成本基準
 
-- **P2 / L2 / 未量測**：`EfCategoryBrowse.ListCategoriesAsync` 對每個 active 分類各跑一個 `COUNT(DISTINCT book_id)` 相關子查詢（目前 18 類）；書單用 EXISTS 搭配 `IX_book_subjects_source_code_subject`。每次分類頁請求約 6 個查詢，沒有快取。
-- 證據：[EfCategoryBrowse.cs](../Persistence/EfCategoryBrowse.cs)；SQL 形狀記在 [分類計畫](../../Docs/plans/canonical-category-browse.md) 與 P4 PR。
-- 方向：P5 上線前，在 production 規模資料上用唯讀 `EXPLAIN ANALYZE` 量測側邊欄與書單查詢；若成本不可接受，再評估側邊欄書數快取（比照 `CachedBestsellerReader`）或預先彙總。
-- 驗收：記錄資料量、查詢計畫與耗時；不改變「同一本書只算一次」與來源篩選的語意。
+- **P3 / L2 / 已量測並以快取緩解（2026-11-14）**：production 唯讀 `EXPLAIN (ANALYZE, BUFFERS)`（books 23,491、book_subjects 68,817、book_sources 28,202、mappings 283、active 分類 18；全部 shared hit）：
+
+  | 查詢 | 耗時 |
+  |---|---:|
+  | 側邊欄書數（全部來源，18 個相關子查詢、283 次 index scan） | 25.5 ms |
+  | 側邊欄書數（KINGSTONE） | 15.0 ms |
+  | 來源清單 | 0.2 ms |
+  | 全部書籍數＋KINGSTONE（`book_sources` 全表掃描） | 37.7 ms |
+  | 文學小說 COUNT（4,596 本） | 18.4 ms |
+  | 文學小說第 1 頁 | 19.7 ms |
+  | 文學小說 OFFSET 5000 | 24.3 ms |
+  | 宗教命理＋ESLITE 第 1 頁 | 0.6 ms |
+
+- 一次分類頁請求約 65 ms（不篩選來源）到 100 ms（篩選來源），`/books` 約 1.5 ms。使用者決定把側邊欄書數、來源清單、全部書籍數快取 10 分鐘（[CachedCategoryBrowse](../Caching/CachedCategoryBrowse.cs)，`c2d68a1`）；常態請求只剩書單的 COUNT 與分頁（約 40 ms）。代價：crawler 或 sync 後，書數最多晚 10 分鐘更新（process-local，沒有失效通知）。
+- 剩餘：`book_sources` 沒有 `(source_code, book_id)` index，全部書籍數＋來源是全表掃描；快取後每 10 分鐘只跑一次。大分類的書單需要先找出全部成員再排序（文學小說約 20 ms），資料量再成長時可評估預先彙總或 index 調整。
+- 量測 SQL 與方法見 P5 PR；沒有寫成自動化測試。
 
 ## INF-B08 — Google Books writer 前的跨 process 序列化（#14 前置）
 

@@ -2,6 +2,7 @@
 
 > 查核日期：2026-10-24；基準：`91333c3`；目標：`Models/`。本次只做靜態閱讀，未執行 build、測試、Mermaid renderer、資料庫或外部服務。開始時來源無未提交修改；其他代理既有的 `Controllers/docs/` 不屬本文件範圍。
 > PR4 M1（#120）補記：2026-10-25 更新；程式變更以 `5052361`、`d864acc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+> Canonical Category P5 補記：2026-11-14 更新；程式變更以 `a9b7ad1`、`c2d68a1`、`d43ea57` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 ## Authority 與責任
 
@@ -18,6 +19,7 @@ Models 是 HTTP／Razor 的表示層，從 Application read model 或已完成 u
 | BookDetail／Contributor | Application BookDetail → 基本書目、角色分組、InfoRows、外連 | 不含簡介／目錄；reader 只讀 `ISBN`（011 後），依值排序；view model 排除 OTHER、依值排序（同值去重已不需要，DB PK 保證每本書每個值一筆）；外連文字用 ProviderDisplayName |
 | Search／Pager／PageNumber | BookSearchPage → Query、Items、TotalCount、Pager | 只做顯示映射；搜尋規則與 Local DB 存取屬 Application |
 | 書庫／首頁列表 | BookBrowsePage、BookBrowseItem、BookSearchHit → BookListItemViewModel、BookBrowseViewModel、HomeViewModel | 不依 Bestseller rank；列項不含簡介／目錄；空 Catalog 的 SummaryText 為 null |
+| 分類瀏覽 | CategoryBrowseResult → [CategoryBrowseViewModel](../CategoryBrowseViewModel.cs)、FilterLinkViewModel、BookListItemViewModel、PagerViewModel | `UrlFor(category, source, page)` 省略空值與第 1 頁、值以 `Uri.EscapeDataString` 編碼；切換分類保留來源、切換來源保留分類，兩者都重置頁碼；分頁保留兩者；第一個分類連結是「全部書籍」 |
 | AI history list／detail | RecommendationSearchPage／Detail + difficulty dictionary → 展示文字、頁碼、結果 | 本人隔離先由 history reader／Controller 保證；VM 不做授權 |
 | Library page／section／controls | 本人 LibraryItem／LibraryEntry → tabs、rows、edit state | 使用者區塊不得加入共享 catalog cache |
 | Recommendation request／response | nullable requirementText → Application 驗證；Outcome → 明列 response 欄位 | 外部服務 gate、Candidate Set、20 次限制不在 DTO |

@@ -1,5 +1,7 @@
 # Views 文字測試案例庫
 
+> Canonical Category P5 補記：2026-11-14 更新；程式變更以 `a9b7ad1`、`c2d68a1`、`d43ea57` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
 查核：2026-10-24；HEAD `91333c3`。本次未執行 build、test、browser 或 network。以下已有測試代表 source 有斷言，不代表本次通過。
 
 ## Fixture 與隔離
@@ -65,3 +67,13 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter 'FullyQualifiedN
 風險 L2；網站 E2E 明確暫緩、待建；filter 即時行為待決策，關聯 VIEW-B01/B02。規格：[API §4](../../Docs/api/api-spec.md)、[Library](../../Docs/modules/user-library.md)。Given Book 與 filtered `/library`、每列 server initial controls/mock fetch；When add PUT200、PATCH status/rating/null200、400/404/network、401、DELETE204 直到最後列；Then 送同源 cookies/token、server200 才確認值、失敗恢復 WeakMap 值與清除按鈕狀態、錯誤以 textContent 顯示；401 edit 保留 query，add 帶 pending；delete Book 重顯 add、Library 刪最後列顯空態。現況 PATCH 留在原列且不重排；決策後補明確 filter/sort 驗收。來源：[library.js](../../wwwroot/js/library.js)、[_LibraryControls](../Shared/_LibraryControls.cshtml)，API tests 不等於 DOM case 通過。
 
 互參：[流程](workflow-diagram.md)、[架構](architecture.md)、[待辦](backlog.md)、[歷史](update-history.md)。所有 runtime、browser 與 production 證據均未由本文件任務產生。
+
+### VIEW-T13 — 分類頁的側邊欄、抽屜與無 JS 導覽
+
+- 狀態：WebIntegration 的 [CategoryPageTests](../../tests/WebIntegration/CategoryPageTests.cs) 與 [NavbarTests](../../tests/WebIntegration/NavbarTests.cs) 已有測試（2026-11-14 通過）；瀏覽器檢查為一次性的本機 Playwright（腳本未 commit）。
+- 瀏覽器檢查（2026-11-14，拋棄式 PostgreSQL、90 本假書、18 類 283 筆 Mapping，20／20 通過）：
+  - 桌面 1280px：側邊欄可見；收合後隱藏、`aria-expanded` 變 false，重新整理後仍收合，可再展開；鍵盤 Enter 可切換；點分類導覽並標 `aria-current`；切換來源保留分類。
+  - 手機 390px：抽屜預設隱藏，按「分類」開啟，Escape 關閉；點抽屜內連結導覽且新頁抽屜為關閉。
+  - 停用 JS：手機顯示 `<noscript>` 連結並可導覽；「分類」與「隱藏分類」按鈕不顯示；桌面側邊欄仍顯示。
+- 已知限制：收合偏好由 JS 在載入後套用，桌面版收合狀態下重新整理時，側邊欄可能先閃現一下。
+

@@ -1,5 +1,7 @@
 # Views 優化與 debug 待辦
 
+> Canonical Category P5 補記：2026-11-14 更新；程式變更以 `a9b7ad1`、`c2d68a1`、`d43ea57` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
 > backlog 整理（2026-10-25）補記：VIEW-B05 已驗證完成，移至文末「已處理」；其餘狀態未變。
 
 查核：2026-10-24；HEAD `91333c3`。沒有本次動態重現的 bug。P2 為後續驗證／產品決策，P3 為低優先改善；風險沿用 L1–L4。只列證據支持的工作，不把歷史已修復問題重開。測試命令與待辦不是本次執行授權。
@@ -12,6 +14,12 @@
 | VIEW-B04 | P3／L1／待決策 | [_ValidationScriptsPartial](../Shared/_ValidationScriptsPartial.cshtml) 無 caller，Account forms 依 server validation；不是已承諾的 client validation 缺陷 | 決定刪未用 scaffold 或有需要才引用；先確認表單沒有改動 public rules | 若啟用，JS 與 server 同樣欄位錯誤，不回填密碼、仍驗 CSRF；若保留／刪除，文件反映現況；VIEW-T04 |
 
 已修復、不列待修：history refresh 跟隨登入 redirect 不能覆蓋片段（b2c72a0）；共用 pager／controls；未評分文字；ReadingStatusCode 單一順序；Book 安全外連與缺值投影。不要在此提案直接實作 SPA、取消 server validation 或把簡介／目錄加進 UI。
+
+## VIEW-B06 — 分類頁收合狀態的閃現
+
+- **P3 / L1 / 已觀察（2026-11-14 瀏覽器檢查）**：桌面版收合偏好由 [category-sidebar.js](../../wwwroot/js/category-sidebar.js) 在 DOMContentLoaded 後套用，已收合的使用者重新整理時，側邊欄可能先出現再隱藏。
+- 方向：在 `<head>` 以極小的 inline script 先讀 localStorage、在 `<html>` 加 class；需確認 CSP 與 asset 規範是否允許 inline script。
+- 驗收：已收合狀態重新整理無閃現；localStorage 失敗時仍正常顯示。
 
 ## 已處理
 

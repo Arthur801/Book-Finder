@@ -1,5 +1,7 @@
 # Controllers 架構與選型對照
 
+> Canonical Category P5 補記：2026-11-14 更新；程式變更以 `a9b7ad1`、`c2d68a1`、`d43ea57` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
 整理日期：2026-10-24；程式基準：`91333c3`。本文件是目前 Controller 的導覽與設計說明，不替代 Docs 規格，也不新增 API contract。
 
 ## 1. Authority 與閱讀路徑
@@ -13,6 +15,7 @@
 | 帳號、安全與待辦 | [identity-auth.md](../../Docs/modules/identity-auth.md) | `AccountController`、`Infrastructure/Identity/` |
 | 搜尋與書籍公開內容 | [book-catalog.md](../../Docs/modules/book-catalog.md) | `SearchController`、`BooksController` |
 | 書庫與首頁樣本 | [book-catalog.md](../../Docs/modules/book-catalog.md) §3；榜單 Web 已不顯示，見 [bestseller.md](../../Docs/modules/bestseller.md) | `BooksController.Index`、`HomeController`、`BestsellersController`（301 至 `/books`） |
+| 分類瀏覽 | [分類計畫](../../Docs/plans/canonical-category-browse.md) §4.2、§4.3 | `CategoriesController.Index`（`GET /categories`，匿名） |
 | 書單隔離與更新語意 | [user-library.md](../../Docs/modules/user-library.md) | `LibraryController`、`LibraryApiController` |
 | 推薦、額度、歷史與 difficulty | [recommendation.md](../../Docs/modules/recommendation.md) | `RecommendationsController`、`AiController` |
 | 全域不可洩漏內容 | [product-requirements.md，BOOK-05](../../Docs/requirements/product-requirements.md) | ViewModel / response 欄位白名單 |

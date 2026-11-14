@@ -2,6 +2,7 @@
 
 > PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR4 M1（#120）補記：2026-10-25 更新；程式變更以 `5052361`、`d864acc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+> Canonical Category P5 補記：2026-11-14 更新；程式變更以 `a9b7ad1`、`c2d68a1`、`d43ea57` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > Canonical Category P4 補記：2026-11-14 更新；程式變更以 `c2e5324`、`cec6bd7` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > Canonical Category P1 補記：2026-11-14 更新；程式變更以 `e7a105b` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
@@ -151,3 +152,10 @@ git show <SHA> -- Infrastructure
 | 2026-11-14 | `cec6bd7` | feat(categories): query the category browse from the local database | `Persistence/EfCategoryBrowse.cs`（新增）、`Persistence/BookBrowsePaging.cs`（新增，從 EfBookBrowse 抽出 COUNT → 分頁 → 作者，行為不變）、`Persistence/EfBookBrowse.cs`（改用 BookBrowsePaging）；`Program.cs`（目錄外：註冊 ICategoryBrowse 與 CategoryBrowseService） |
 
 驗證（2026-11-14，主 agent 重跑）：`dotnet build` 0 warning；UnitTests 842、DatabaseIntegration 174、WebIntegration 280 全數通過。
+
+## Canonical Category P5 分類頁快取（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-14 | `c2d68a1` | feat(categories): cache the sidebar counts and source list for 10 minutes | `Caching/CachedCategoryBrowse.cs`（新增）；目錄外：`Program.cs` 改為 EfCategoryBrowse 外包快取 |
+

@@ -1,5 +1,7 @@
 # Controllers：面向 AI 的文字測試案例庫
 
+> Canonical Category P5 補記：2026-11-14 更新；程式變更以 `a9b7ad1`、`c2d68a1`、`d43ea57` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
 版本日期：2026-10-24；程式基準：`91333c3`。用途：讓後續 AI 能依固定資料、操作與斷言補寫或執行測試。這是案例規格，不是測試執行報告，也不取代 [test-plan.md](../../Docs/testing/test-plan.md)、[api-spec.md](../../Docs/api/api-spec.md) 與各 module 規格。
 
 ## 1. 使用規則與測試環境
@@ -83,6 +85,18 @@ PIPE-03／PIPE-06 證據分層（均未在本次執行）：[AuthPipelineTests](
 | BOOK-05／已有測試 | 多個博客來來源與 Google 來源，包括 javascript／非絕對 URL | 只產生 http(s) 絕對連結；最早合格博客來優先，否則 Google；新分頁且 rel 有 noopener noreferrer；危險封面用 placeholder。 |
 | BOOK-06／已有測試 | 任一來源 Book 的 description／TOC 有 sentinel | HTML 不含 sentinel；公開 ViewModel／JSON contract 不含兩欄位，不因來源不同而放寬。 |
 | BOOK-07／已有測試 | 同一 app 讀 detail、改 DB 書名、TTL 內再讀 | 書目仍是快取值；個人 Library 狀態不可納入此斷言。TTL 邊界另由 CachedBookDetailReader unit tests 驗證。 |
+
+## 5.1 CategoriesController
+
+依據：[分類計畫](../../Docs/plans/canonical-category-browse.md) §4.2、§4.3。入口：[CategoryPageTests.cs](../../tests/WebIntegration/CategoryPageTests.cs)（WebIntegration），2026-11-14 WebIntegration 292 項通過。
+
+| ID / 狀態 | Given / When | Then |
+|---|---|---|
+| CAT-01／已有測試 | `/categories`、`?category=`、`?category=&source=` | 200；書單只含該分類（與來源）的書；跨來源同一本書只出現一次。 |
+| CAT-02／已有測試 | 未知 slug、未知 source、停用分類、大小寫不符的 slug | 404 NotFound View。 |
+| CAT-03／已有測試 | page 超過最後一頁 | 302 至最後一頁，保留 category 與 source。 |
+| CAT-04／已有測試 | 有書的分類與空分類 | 側邊欄、來源連結與分頁連結保留另一個條件並重置頁碼；目前項目有 `aria-current="page"`；空分類 200 並顯示空狀態文字。 |
+| CAT-05／已有測試 | 頁面結構 | 有 `#category-sidebar`、帶 aria-controls／aria-expanded 的切換按鈕與 `<noscript>` 連結清單；不含 description／TOC；`/books`、`/search` 仍為 200。 |
 
 ## 6. AccountController 與登入待辦
 

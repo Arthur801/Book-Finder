@@ -1,5 +1,7 @@
 # Views 架構與呈現契約
 
+> Canonical Category P5 補記：2026-11-14 更新；程式變更以 `a9b7ad1`、`c2d68a1`、`d43ea57` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
 查核：2026-10-24；HEAD `91333c3`。主 authority 是 [UI Flow](../../Docs/ui/ui-flow.md)；JSON 合約見 [API](../../Docs/api/api-spec.md)，領域用語見 [CONTEXT](../../CONTEXT.md)，安全／資料規則見 [Identity](../../Docs/modules/identity-auth.md)、[Library](../../Docs/modules/user-library.md)、[Catalog](../../Docs/modules/book-catalog.md)、[Recommendation](../../Docs/modules/recommendation.md)。本文件不是第二份規格。
 
 ## 組合與依賴
@@ -10,6 +12,7 @@
 |---|---|---|
 | 首頁／書庫 | HomeController、BooksController、HomeViewModel、BookBrowseViewModel、BookListItemViewModel | _SearchForm 共用 GET 搜尋；首頁 10 本隨機樣本與書庫分頁共用 _BookList（封面占位、作者、出版社、出版日期）；空庫顯示「書庫還沒有書」；/bestsellers 只 301 至 /books，無榜單頁 |
 | 搜尋 | SearchController、SearchResultsViewModel、PagerViewModel | query 預填、總數／頁數、結果列由 _BookList 呈現、_Pager；搜尋完全是 local DB |
+| 分類瀏覽 | CategoriesController、CategoryBrowseViewModel、BookListItemViewModel | 側邊欄只有一個元素：Bootstrap 5.3 `offcanvas-lg`，≥lg 是一般欄位、<lg 是抽屜（Escape、遮罩、焦點由 Bootstrap 處理）；桌面可收合（[category-sidebar.js](../../wwwroot/js/category-sidebar.js)，偏好存在 localStorage，讀寫失敗不影響導覽）；需要 JS 的兩個按鈕帶 `js-only`，JS 執行後才顯示；無 JS 時 <lg 以 `<noscript>` 顯示同一份連結；來源篩選是 nav-pills 連結；共用 _BookList、_Pager；樣式在 [category-browser.css](../../wwwroot/css/category-browser.css)，經 Layout 的 `Styles` section 載入 |
 | Book 詳情 | BooksController、BookDetailViewModel | 基本資料／safe 外連；LibrarySection 另外放 ViewData，避免將個人資料塞入 catalog cache |
 | 個人書單 | LibraryController、LibraryPageViewModel | tabs、每列 _LibraryControls、頁面 token、預先存在的空狀態 |
 | 帳號 | AccountController、LoginForm／RegisterForm | server field errors／summary、hidden ReturnUrl/PendingAction；post success redirect |

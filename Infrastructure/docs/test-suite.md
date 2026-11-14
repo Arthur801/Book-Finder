@@ -2,6 +2,7 @@
 
 > PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR4 M1（#120）補記：2026-10-25 更新；程式變更以 `5052361`、`d864acc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+> Canonical Category P5 補記：2026-11-14 更新；程式變更以 `a9b7ad1`、`c2d68a1`、`d43ea57` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > Canonical Category P4 補記：2026-11-14 更新；程式變更以 `c2e5324`、`cec6bd7` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > Canonical Category P1 補記：2026-11-14 更新；程式變更以 `e7a105b` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
@@ -188,6 +189,7 @@ dotnet test tests/WebIntegration/WebIntegration.csproj
   - 停用分類不列出；來源清單只列有 Mapping 的 provider，依 Code 排序；
   - 排序（有日期的新到舊、無日期居後、Id）與第 2 頁正確；超出頁數回空 items 與真實 TotalCount；空分類回 0。
 - Mutation 抽查（2026-11-14）：拿掉 Mapping 的 `source_code` 比對 → 跨來源測試失敗；拿掉側邊欄的 `Distinct()` → 「只算一次」測試失敗。兩處都已還原。
+- 快取（`c2d68a1`）：[CachedCategoryBrowseTests](../../tests/UnitTests/CachedCategoryBrowseTests.cs) 驗證第二次呼叫命中快取、不同來源與無來源分開快取、10 分鐘後重新查詢、書單每次都查 inner。
 - 入口：[EfCategoryBrowseTests](../../tests/DatabaseIntegration/EfCategoryBrowseTests.cs)。`BookBrowsePaging` 抽出後，EfBookBrowse 的既有測試（[BookBrowseIntegrationTests](../../tests/WebIntegration/BookBrowseIntegrationTests.cs)，WebIntegration 280 項）仍全數通過。
 
 ## 文件導航

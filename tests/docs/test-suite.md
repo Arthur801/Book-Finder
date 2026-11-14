@@ -231,3 +231,8 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter FullyQualifiedNa
 - **When／Then**：見 Application APP-T24 與 Infrastructure INF-T21。
 - **來源與狀態**：[CategoryBrowseServiceTests](../UnitTests/CategoryBrowseServiceTests.cs)（19 項）、[EfCategoryBrowseTests](../DatabaseIntegration/EfCategoryBrowseTests.cs)（12 項）。`c2e5324`、`cec6bd7` 後主 agent 重跑 UnitTests 842、DatabaseIntegration 174、WebIntegration 280 全數通過（2026-11-14）。
 
+### TEST-25：分類頁、快取與瀏覽器檢查（分類計畫 P5）
+
+- **來源**：[CategoryPageTests](../WebIntegration/CategoryPageTests.cs)（WebIntegration，分類與 Mapping 的 seed 在測試內的私有 helper）、[NavbarTests](../WebIntegration/NavbarTests.cs)（導覽列「分類」）、[CategoryBrowseViewModelTests](../UnitTests/CategoryBrowseViewModelTests.cs)、[CachedCategoryBrowseTests](../UnitTests/CachedCategoryBrowseTests.cs)（以手動時鐘的 MemoryCache 推進時間）。
+- **案例**：見 Controllers CAT-01～05、Models M-T14、Views VIEW-T13、Infrastructure INF-T21。
+- **狀態**：2026-11-14 主 agent 重跑 UnitTests 866、DatabaseIntegration 174、WebIntegration 292 全數通過；`WebFixture` 每個測試建立新的 host，所以快取不會在測試之間殘留。瀏覽器檢查為一次性本機 Playwright（20／20）。

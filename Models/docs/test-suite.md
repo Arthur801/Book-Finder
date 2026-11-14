@@ -2,6 +2,7 @@
 
 > 查核日期：2026-10-24；基準：`91333c3`；目標：`Models/`。本次只做靜態閱讀，未執行 build、測試、Mermaid renderer、資料庫或外部服務。開始時來源無未提交修改；其他代理既有的 `Controllers/docs/` 不屬本文件範圍。
 > PR4 M1（#120）補記：2026-10-25 更新；程式變更以 `5052361`、`d864acc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+> Canonical Category P5 補記：2026-11-14 更新；程式變更以 `a9b7ad1`、`c2d68a1`、`d43ea57` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 ## Fixture 與執行邊界
 
@@ -125,3 +126,11 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter 'FullyQualifiedN
 書庫與首頁列表由 [BookBrowseViewModelTests](../../tests/UnitTests/BookBrowseViewModelTests.cs)（摘要 null、UrlFor、列項映射、HomeViewModel.IsEmpty）、[BookBrowsePageTests](../../tests/WebIntegration/BookBrowsePageTests.cs) 與 [LayoutAndHomeTests](../../tests/WebIntegration/LayoutAndHomeTests.cs) 覆蓋；Taipei 時間的 fallback 轉換由 [TaipeiTimeZoneTests](../../tests/UnitTests/TaipeiTimeZoneTests.cs) 覆蓋（BestsellerListViewModel 已刪除）。本次未執行；模型無持久化，DB constraints 案例應歸 Entity／Infrastructure 文件，不在此重複。
 
 相關文件：[流程](workflow-diagram.md) · [架構](architecture.md) · [待辦](backlog.md) · [歷史](update-history.md) · [測試案例](test-suite.md)。
+
+### M-T14：分類頁 ViewModel 的 URL 與目前項目（L2；已有測試）
+
+- 規格：[分類計畫](../../Docs/plans/canonical-category-browse.md) §4.2、§4.3；入口 [CategoryBrowseViewModelTests](../../tests/UnitTests/CategoryBrowseViewModelTests.cs)，2026-11-14 UnitTests 866 項通過。
+- Given：CategoryBrowseResult（有／無選取分類與來源，有／無書）。
+- When：`CategoryBrowseViewModel.From`、`UrlFor`。
+- Then：UrlFor 省略空值與第 1 頁、參數順序固定且編碼；分類連結保留來源、來源連結保留分類，兩者都重置頁碼；分頁保留兩者；「全部書籍」「全部來源」與目前分類／來源的 IsCurrent 正確；Heading、SourceLabel、SummaryText（無書為 null）、EmptyText（分類與全部書籍不同）。
+

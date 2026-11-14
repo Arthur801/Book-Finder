@@ -1,5 +1,7 @@
 # Controllers 詳細流程
 
+> Canonical Category P5 補記：2026-11-14 更新；程式變更以 `a9b7ad1`、`c2d68a1`、`d43ea57` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
 本文件依 2026-10-24 工作樹（基準 commit `91333c3`）整理現有流程。實線表示目前實作；明確標示的缺口不是已完成功能。Controller 只負責 HTTP 與 Application 結果映射，圖中的 SQL、外部呼叫與 transaction 均由下層負責。
 
 規格入口：[UI 路由](../../Docs/ui/ui-flow.md)、[API contract](../../Docs/api/api-spec.md)、[系統分層](../../Docs/architecture/system-architecture.md)。架構對照見 [architecture.md](architecture.md)，案例編號見 [test-suite.md](test-suite.md)。
@@ -65,6 +67,22 @@ flowchart TD
 ```
 
 `/` 對應 Home.Index，`/books` 對應 Books.Index（GET），`/bestsellers` 對應 Bestsellers.Index 並只回 301。Bestseller 後端（BestsellerService、快取與 reader）保留但沒有 Web 呼叫端。書庫與首頁樣本只查 Local DB，不依 rank 排序，也不讀 AI profile。Error action 本身回 View，非 Development exception handler 處理原始例外時通常保留 500；直接請求 `/Home/Error` 不應當作發生原始 500 的證據。
+
+## 2.1 CategoriesController
+
+來源：[CategoriesController.cs](../CategoriesController.cs)；規格：[分類計畫](../../Docs/plans/canonical-category-browse.md) §4.2、§4.3。
+
+```mermaid
+flowchart TD
+    C[GET /categories：category、source、page] --> P[PageNumber.Parse]
+    P --> S[CategoryBrowseService.BrowseAsync]
+    S -->|UnknownSource／UnknownCategory| NF[404 Categories/NotFound]
+    S -->|Found| O{TotalCount 大於 0 且 Page 超過 TotalPages？}
+    O -->|是| R[302 UrlFor：保留 category、source，page=最後一頁]
+    O -->|否| V[CategoryBrowseViewModel.From → 200 View]
+```
+
+匿名、只查 Local DB（經 [CachedCategoryBrowse](../../Infrastructure/Caching/CachedCategoryBrowse.cs)：側邊欄書數、來源清單、全部書籍數快取 10 分鐘，書單每次查詢）。不存在、停用或大小寫不符的 slug／source 都是 404；合法條件但沒有書回 200 空狀態。
 
 ## 3. SearchController
 
