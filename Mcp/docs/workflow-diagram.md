@@ -37,7 +37,7 @@ sequenceDiagram
 flowchart TD
     A[POST /mcp] --> B[清除網站 cookie 身分]
     B --> C{有 Authorization header?}
-    C -- 有 --> D{McpBearer 驗證成功?}
+    C -- 有 --> D{OpenIddict validation 成功?<br/>audience、到期、撤銷}
     D -- 否 --> X1[401 + WWW-Authenticate resource_metadata]
     D -- 是 --> E[context.User = token principal]
     C -- 無 --> F

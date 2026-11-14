@@ -138,7 +138,7 @@ public sealed class McpSearchBooksTests(WebFixture fixture)
         await fixture.ResetDatabaseAsync();
         await using var app = CreateFactory();
         var client = app.CreateClient(ClientOptions);
-        var badToken = McpTestTokens.Mint(issuer: "https://evil.example/");
+        var badToken = "not-an-access-token";
 
         var response = await McpWire.PostAsync(client, McpWire.ToolsCall("search_books", arguments: new { query = Query }), bearer: badToken);
 

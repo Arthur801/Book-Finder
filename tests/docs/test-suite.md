@@ -289,3 +289,7 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter FullyQualifiedNa
 ### TEST-34：OAuth 授權流程（MCP 計畫 MCP-201b）
 
 - `OAuthFlowTests`（WebIntegration）：未登入導向登入並帶回完整 authorize query；consent 頁內容與 antiforgery；consent 頁不可被 frame（`X-Frame-Options: DENY`、`frame-ancestors 'none'`）；核准後導回帶 `code`、`state`、`iss`；PKCE 交換、錯誤 verifier 與重複 code 失敗；refresh（rolling）；consent 記住（D-10）與 `prompt=consent`／`prompt=none`／`prompt=login`；拒絕為 `access_denied` 且不留授權；未註冊 redirect_uri、未知 client、缺 PKCE、plain、`openid`、錯誤 resource 都被拒且不轉址到未註冊位置；loopback redirect；刪除使用者後 token 交換失敗；discovery 只宣告 `books:recommend`。
+
+### TEST-35：`/mcp` 驗證 OpenIddict token（MCP 計畫 MCP-202）
+
+- `McpAuthorizationTests` 改用真實 OAuth token（`OAuthTestClient`）：竄改、他站簽發、過期、撤銷、query／form 帶 token 都 401；`HasScope` 的 unit test 涵蓋 `oi_scp` 與缺 scope。

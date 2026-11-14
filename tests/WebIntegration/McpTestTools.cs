@@ -1,12 +1,9 @@
+using System.ComponentModel;
 using System.Net.Http.Headers;
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
-using Microsoft.IdentityModel.JsonWebTokens;
-using Microsoft.IdentityModel.Tokens;
-using System.ComponentModel;
 
 namespace WebIntegration;
 
@@ -30,38 +27,6 @@ public sealed class McpTestTools
 public sealed class McpCallCounter
 {
     public int Count;
-}
-
-// Test tokens are signed with a random key the app never trusts by default. The app's McpBearer scheme is given this key only in tests.
-internal static class McpTestTokens
-{
-    public const string Issuer = "https://khwebsc.com/";
-    public const string Audience = "https://khwebsc.com/mcp";
-    public const string Scope = "books:recommend";
-
-    public static readonly SymmetricSecurityKey Key = new(RandomNumberGenerator.GetBytes(32));
-
-    public static string Mint(
-        string? issuer = Issuer,
-        string? audience = Audience,
-        DateTime? expires = null,
-        string? scope = Scope,
-        SecurityKey? signingKey = null,
-        string sub = "5b0e6f2a-1f57-4a58-9a1c-2d3c4b5a6f70")
-    {
-        var claims = new Dictionary<string, object> { [JwtRegisteredClaimNames.Sub] = sub };
-        if (scope is not null)
-            claims["scope"] = scope;
-
-        return new JsonWebTokenHandler().CreateToken(new SecurityTokenDescriptor
-        {
-            Issuer = issuer,
-            Audience = audience,
-            Expires = expires ?? DateTime.UtcNow.AddMinutes(10),
-            Claims = claims,
-            SigningCredentials = new SigningCredentials(signingKey ?? Key, SecurityAlgorithms.HmacSha256),
-        });
-    }
 }
 
 // Raw HTTP helpers for the Streamable HTTP wire format. The SDK answers with JSON or one SSE event; both carry the JSON-RPC message.

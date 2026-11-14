@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Options;
 using ModelContextProtocol.AspNetCore.Authentication;
+using OpenIddict.Abstractions;
 
 namespace Book_Finder.Mcp.Security;
 
@@ -156,10 +157,11 @@ public sealed class McpToolAuthorizationMiddleware(RequestDelegate next)
     public static bool NamesProtectedTool(IEnumerable<string?> headerValues) =>
         headerValues.Any(value => value is not null && McpAuthSetup.ProtectedToolNames.Contains(value.Trim()));
 
-    // The scope claim is a space-separated string. Several scope or scp claims are also accepted, as the SDK and identity providers emit both forms.
-    private static bool HasScope(ClaimsPrincipal user, string scope) =>
+    // OpenIddict keeps each scope as its own oi_scp claim; scope and scp carry a space-separated string, as the SDK and other
+    // identity providers emit them. Each form is read, so the check does not depend on which one the token carries.
+    public static bool HasScope(ClaimsPrincipal user, string scope) =>
         user.Claims
-            .Where(claim => claim.Type is "scope" or "scp")
+            .Where(claim => claim.Type is "scope" or "scp" or OpenIddictConstants.Claims.Private.Scope)
             .SelectMany(claim => claim.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
             .Contains(scope, StringComparer.Ordinal);
 }

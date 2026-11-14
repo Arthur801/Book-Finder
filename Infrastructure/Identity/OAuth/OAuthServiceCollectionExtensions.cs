@@ -110,6 +110,26 @@ public static class OAuthServiceCollectionExtensions
                     .EnableTokenEndpointPassthrough();
             });
 
+        // The MCP resource server validates the tokens this server issues (MCP-202). Validation runs in the same process, so it shares
+        // the server's keys and reads the token store directly. Tokens are JWE, which JwtBearer cannot validate.
+        services.AddOpenIddict()
+            .AddValidation(validation =>
+            {
+                validation.UseLocalServer();
+                validation.UseAspNetCore(aspNetCore =>
+                {
+                    // The token comes only from the Authorization header. The query string and the form body are turned off, so a token
+                    // placed in a URL or a form cannot authorize an MCP request.
+                    aspNetCore.DisableAccessTokenExtractionFromQueryString();
+                    aspNetCore.DisableAccessTokenExtractionFromBodyForm();
+                });
+                // Only a token whose audience is the MCP resource is accepted (the same value as the RFC 8707 resource above).
+                validation.AddAudiences(ResourceOf(configuration));
+                // A revoked authorization or a removed token is refused, not only an expired JWE.
+                validation.EnableAuthorizationEntryValidation();
+                validation.EnableTokenEntryValidation();
+            });
+
         // Only enabled MCP registers clients; it never deletes the ones it finds, only logs them (see OAuthClientSync).
         services.AddHostedService<OAuthClientSync>();
         return services;
