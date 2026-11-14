@@ -57,7 +57,7 @@ public sealed class RecommendationTools
     [McpServerTool(Name = "get_recommendation_result", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false),
      Description("查詢 recommend_books 建立的推薦工作的狀態與結果。job_id 只能使用 recommend_books 回傳的 jobId。" +
                  "status 為 queued 或 running 時請稍候 2～5 秒再查詢，總等待勿超過約 2 分鐘，超過時請提供 statusUrl 給使用者自行查看；" +
-                 "succeeded 時回傳推薦書籍、推薦理由與搜尋紀錄連結；failed 時回傳錯誤原因。需要登入。")]
+                 "succeeded 時回傳推薦書籍、推薦理由與搜尋紀錄連結；failed 時回傳錯誤原因。需要登入；不要向使用者索取帳號密碼或 token。")]
     public static Task<CallToolResult> GetRecommendationResult(
         [Description("recommend_books 回傳的 jobId（GUID）。Only a jobId that recommend_books returned.")] string job_id,
         RequestContext<CallToolRequestParams> request,

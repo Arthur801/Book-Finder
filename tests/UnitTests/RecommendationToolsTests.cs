@@ -1,3 +1,5 @@
+using System.ComponentModel;
+using System.Reflection;
 using System.Security.Claims;
 using Book_Finder.Application.Recommendation;
 using Book_Finder.Domain.Entities;
@@ -98,6 +100,16 @@ public sealed class RecommendationToolsTests
 
         Assert.True(result.IsError);
         Assert.Equal("NOT_FOUND", ErrorCodeOf(result));
+    }
+
+    // The description is what the model reads before calling the tool, so it must forbid asking the user for credentials, as recommend_books does.
+    [Fact]
+    public void Get_recommendation_result_description_says_not_to_ask_the_user_for_credentials()
+    {
+        var method = typeof(RecommendationTools).GetMethod(nameof(RecommendationTools.GetRecommendationResult))!;
+        var description = method.GetCustomAttribute<DescriptionAttribute>()!.Description;
+
+        Assert.EndsWith("需要登入；不要向使用者索取帳號密碼或 token。", description, StringComparison.Ordinal);
     }
 
     private static string? ErrorCodeOf(CallToolResult result) => result.StructuredContent!.Value.GetProperty("errorCode").GetString();
