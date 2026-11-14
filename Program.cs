@@ -116,7 +116,7 @@ app.UseAuthorization();
 
 app.MapStaticAssets();
 
-// MCP endpoint at /mcp, mapped only when Mcp:Enabled is true; with the flag off the path is an ordinary 404.
+// MCP endpoint at /mcp, mapped only when Mcp:Enabled is true; with the flag off the path answers like any unmapped route.
 app.MapBookFinderMcp();
 
 app.MapControllerRoute(

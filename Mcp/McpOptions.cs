@@ -6,7 +6,7 @@ public sealed class McpOptions
 {
     public const string SectionName = "Mcp";
 
-    // When false /mcp is not mapped at all, so the path answers 404 like any unknown route.
+    // When false /mcp is not mapped at all, so the path answers like any unmapped route (GET 404).
     public bool Enabled { get; set; } = false;
 
     // The only source of outbound links built for MCP results. It must be the public site root, so links never point at a path prefix.

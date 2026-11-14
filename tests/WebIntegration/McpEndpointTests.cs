@@ -7,14 +7,14 @@ using Microsoft.AspNetCore.Mvc.Testing;
 namespace WebIntegration;
 
 // /mcp skeleton (plan mcp-server section 4, MCP-001). Anonymous, stateless Streamable HTTP with no tools yet. Off unless Mcp:Enabled
-// is true, so the flag-off test checks that the path is an ordinary 404. The raw HTTP tests pin the wire behaviour the SDK must keep.
+// is true, so the flag-off test checks that the path answers like any unmapped route. The raw HTTP tests pin the wire behaviour the SDK must keep.
 [Collection(WebCollection.Name)]
 public sealed class McpEndpointTests(WebFixture fixture)
 {
     private const string McpPath = "/mcp";
 
-    // A protocol revision the SDK supports that still uses the initialize handshake. The SDK default is 2026-07-28, which the
-    // raw tests do not pin, so a regression to a different default would show up only in the SDK client tests.
+    // A protocol revision the SDK supports that still uses the initialize handshake. Other revisions (2026-07-28) are covered by
+    // the authorization spike (MCP-002), not here.
     private const string ProtocolVersion = "2025-11-25";
 
     private static readonly WebApplicationFactoryClientOptions ClientOptions = new()

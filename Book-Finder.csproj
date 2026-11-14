@@ -22,8 +22,6 @@
     <!-- Pins EF Core to 10.0.12 to match Design and dotnet-ef; Npgsql alone would resolve an older EF and
          cause version conflicts in projects that reference this one. -->
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.13" />
-    <!-- Official MCP C# SDK (plan mcp-server section 3.1). Pinned exactly; the protocol is implemented by the SDK, not by Book-Finder. -->
-    <PackageReference Include="ModelContextProtocol.AspNetCore" Version="2.3.1" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.13" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.13">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
@@ -32,6 +30,8 @@
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
     <PackageReference Include="OpenAI" Version="2.14.0" />
     <PackageReference Include="Pgvector.EntityFrameworkCore" Version="0.3.0" />
+    <!-- Official MCP C# SDK (plan mcp-server section 3.1). Pinned exactly; the protocol is implemented by the SDK, not by Book-Finder. -->
+    <PackageReference Include="ModelContextProtocol.AspNetCore" Version="2.3.1" />
   </ItemGroup>
 
 </Project>
