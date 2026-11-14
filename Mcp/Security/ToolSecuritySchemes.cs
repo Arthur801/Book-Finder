@@ -9,15 +9,10 @@ namespace Book_Finder.Mcp.Security;
 // Only a tools/list result carries a "tools" array, so no other outgoing message is changed.
 public static class ToolSecuritySchemes
 {
-    private const string RecommendTool = "recommend_books";
-    private const string ResultTool = "get_recommendation_result";
-
-    private static readonly IReadOnlyDictionary<string, JsonArray> SchemesByTool = new Dictionary<string, JsonArray>(StringComparer.Ordinal)
-    {
-        ["search_books"] = Parse("""[{"type":"noauth"}]"""),
-        [RecommendTool] = Parse($$"""[{"type":"oauth2","scopes":["{{McpAuthSetup.RecommendScope}}"]}]"""),
-        [ResultTool] = Parse($$"""[{"type":"oauth2","scopes":["{{McpAuthSetup.RecommendScope}}"]}]"""),
-    };
+    // The declaration is derived from McpAuthSetup.ProtectedToolNames, the same list the HTTP gate uses, so a new protected tool
+    // is added in one place and both the gate and the declaration follow it.
+    private static readonly JsonArray OAuthSchemes = Parse($$"""[{"type":"oauth2","scopes":["{{McpAuthSetup.RecommendScope}}"]}]""");
+    private static readonly JsonArray NoAuthSchemes = Parse("""[{"type":"noauth"}]""");
 
     // Registered as an outgoing message filter. It returns the message untouched unless it is a tools/list result.
     public static McpMessageHandler Annotate(McpMessageHandler next) => (context, cancellationToken) =>
@@ -31,9 +26,10 @@ public static class ToolSecuritySchemes
     {
         foreach (var node in tools)
         {
-            if (node is not JsonObject tool || tool["name"]?.GetValue<string>() is not { } name || !SchemesByTool.TryGetValue(name, out var schemes))
+            if (node is not JsonObject tool || tool["name"]?.GetValue<string>() is not { } name)
                 continue;
 
+            var schemes = McpAuthSetup.ProtectedToolNames.Contains(name) ? OAuthSchemes : NoAuthSchemes;
             tool["securitySchemes"] = schemes.DeepClone();
             var meta = tool["_meta"] as JsonObject ?? new JsonObject();
             meta["securitySchemes"] = schemes.DeepClone();

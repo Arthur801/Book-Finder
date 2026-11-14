@@ -21,7 +21,7 @@
 | `Services/McpRecommendationService.cs` | `recommend_books` 的 adapter：依序檢查 `RecommendationJobs:Enabled`（關閉 → `SERVICE_UNAVAILABLE`）、`RecommendationInputRules`（→ `VALIDATION_FAILED`）、再呼叫 `RecommendationJobService.SubmitAsync`；對應 `IDEMPOTENCY_CONFLICT`、`DAILY_LIMIT_REACHED`。額度與 idempotency 完全由 Application 處理 |
 | `Services/McpRecommendationResultService.cs` | `get_recommendation_result` 的 adapter：開關 → `Guid.TryParse`（失敗同 `NOT_FOUND`）→ `RecommendationJobService.GetAsync`（不存在與別人的同 `NOT_FOUND`）→ 依狀態：queued／running 只回狀態與連結；succeeded 以 `IRecommendationHistory.GetAsync` 讀已保存結果（依 rank、最多 10 本）；succeeded 但讀不到 search → `INTERNAL_ERROR` 並 log id（不產生連結）；failed 回 `errorCode` 與網站 Job 頁相同的文案。只讀，不寫入 |
 | `Tools/RecommendationTools.cs` | `recommend_books` 與 `get_recommendation_result` Tool（都需 `books:recommend`）；`failed` 是「查詢成功、工作失敗」，回 `isError = false`，只有 `NOT_FOUND`、`INTERNAL_ERROR`、`UNAUTHORIZED`、`SERVICE_UNAVAILABLE` 回 `isError = true`；使用者只取自 `JsonRpcRequest.Context.User`，沒有已認證使用者時回 `UNAUTHORIZED` 且不呼叫 service（閘門之後的第二道防線）；成功回 `queued`、`jobId`、`statusUrl`、`historyListUrl`、`created`，不含推薦結果 |
-| `Security/ToolSecuritySchemes.cs` | outgoing message filter：只改寫 `tools/list` 結果，替每支 Tool 加上 ChatGPT 的 `securitySchemes`（頂層與 `_meta` 各一份）；`search_books` 為 `noauth`，`recommend_books`、`get_recommendation_result` 為 `oauth2` + `books:recommend`。SDK 2.3.1 的 `Tool` 沒有可放頂層欄位的 extension data，所以用 filter |
+| `Security/ToolSecuritySchemes.cs` | outgoing message filter：只改寫 `tools/list` 結果，替每支 Tool 加上 ChatGPT 的 `securitySchemes`（頂層與 `_meta` 各一份）。名單**只有一份**：在 `McpAuthSetup.ProtectedToolNames` 的 Tool 為 `oauth2` + `books:recommend`，其他為 `noauth`（M5）；新增 Tool 時預設拒絕測試會要求明確歸類。SDK 2.3.1 的 `Tool` 沒有可放頂層欄位的 extension data，所以用 filter |
 | `Contracts/*.cs` | 對外 DTO（lowerCamelCase）：`BookSearchToolResult`、`RecommendationSubmitToolResult`、`RecommendationStatusToolResult`（null 欄位由 `McpJsonUtilities.DefaultOptions` 省略）、`McpToolError` |
 | `Security/McpAuthSetup.cs` | Bearer scheme 常數（指向 OpenIddict validation 的 scheme，MCP-202）、SDK 的 challenge scheme 與 Protected Resource Metadata；受保護 Tool 名稱、`books:recommend` scope |
 | `Security/McpToolAuthorizationMiddleware.cs` | POST `/mcp` 的授權閘門：在 SDK 讀 body 前決定 401／403／413 或放行 |
@@ -52,7 +52,8 @@
 
 ```text
 Program.cs → Mcp（AddBookFinderMcp / MapBookFinderMcp）→ ModelContextProtocol.AspNetCore
-Mcp → Application（Catalog：SearchQuery、IBookSearch；Recommendation：RecommendationJobService、RecommendationInputRules、RecommendationJobOptions）
+Mcp → Application（Catalog：SearchQuery、IBookSearch；Recommendation：RecommendationJobService、RecommendationInputRules、RecommendationJobOptions、IRecommendationHistory、RecommendationJobErrorCodes）
+Mcp → OpenIddict 套件（只用 validation 的 scheme 常數與 `OpenIddictConstants` 的 scope claim 型別；token 驗證由 Infrastructure 註冊）
 Mcp → Infrastructure/Identity（只有 `CurrentUser.CurrentUserId()`，與 Controllers 相同的讀 `sub` 方式）
 ```
 
@@ -111,7 +112,7 @@ ChatGPT 文件描述兩種機制：
 ### 6.6 影響
 
 - 新增 OpenIddict 資料表（applications、authorizations、scopes、tokens）→ EF migration + `deploy/migration-test/seeds/<head>.sql`（DEP-B25），L3。
-- 簽章與加密金鑰：production 用 X.509 憑證，存在 host（不進 repo、不進 image），以既有 secret 注入機制或 volume 提供；需要輪替與備份程序（L4，需使用者授權）。開發與測試用 OpenIddict 的 development certificate／ephemeral key。
+- 簽章與加密金鑰（D-11、D-12）：production 用兩張**不設密碼**的 PKCS#12 憑證，放在 root-only 權限的 host named volume，container 唯讀掛載（與 Data Protection keys 相同保護方式）；不進 repo、不進 image；需要輪替與備份程序（L4，需使用者授權）。開發與測試用 ephemeral key。
 - 預註冊 Client 以設定或 seed 建立（client_id、redirect URI、scope），無 client secret。
 - Consent 頁：沿用網站版面與 `bf_auth` 登入；顯示 Client 名稱與 scope。
 - `/mcp` 的 bearer 驗證改用 OpenIddict validation（已完成，MCP-202）。

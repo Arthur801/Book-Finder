@@ -16,9 +16,13 @@
 | MCP-B10 | RFC 9207 `iss`、RFC 8707 `resource` | 已完成（MCP-201b）：回應帶 `iss`；只接受 `{base}/mcp` |
 | MCP-B11 | ChatGPT 的預註冊介面位置不明；MCP-203 找不到時實作 allowlist 版 CIMD（architecture.md §6.4） | 待 MCP-203 |
 | MCP-B12 | `securitySchemes` 已加（M3，頂層與 `_meta`）。OpenAI 文件說明連結帳號 UI 由 Tool 錯誤加 `_meta["mcp/www_authenticate"]` 觸發，而不是 HTTP 401；授權後是否重送原請求未記載。MCP-203 實測 ChatGPT，必要時評估 Tool 層錯誤（architecture.md §6.5） | 待 MCP-203 |
-| MCP-B13 | production 簽章／加密憑證的存放、輪替與備份程序（L4，需使用者授權） | 待 M2 上線前 |
+| MCP-B13 | production 簽章／加密憑證：不設密碼、root-only volume（D-12）；建立、輪替與備份程序（L4，需使用者授權） | 上線前（上線手冊步驟 2） |
 | MCP-B14 | `scopes_supported` 的 `openid`、`offline_access` | 已完成（MCP-201b）：只宣告 `books:recommend`，核准時隱含 `offline_access` |
 | MCP-B15 | OpenIddict 驗證階段的錯誤（未註冊 redirect_uri 以外的情況，例如缺 PKCE）回 400 而非導回 client（RFC 6749 §4.1.2.1 建議導回）；MCP-203 若 Client 因此體驗不佳再評估 | 改善提案 |
 | MCP-B16 | 網站沒有全站的 framing 政策；目前只有 OAuth consent 頁設 `X-Frame-Options: DENY` 與 `frame-ancestors 'none'`。是否全站加上另行決定 | 待決策 |
 | MCP-B17 | 撤銷授權的管理頁（D-10 決定本期不做） | 延後 |
 | MCP-B18 | 失敗文案在 `McpRecommendationResultService` 與 `Models/AiJobViewModel` 各有一份（Mcp 不參照 Models），目前以 unit test 比對一致；若要共用，搬到 Application | 改善提案 |
+| MCP-B19 | Tool 契約（名稱、描述全文、schema）的 snapshot 測試：目前只斷言名稱、schema 與部分欄位（計畫 §5） | 改善提案 |
+| MCP-B20 | OAuth endpoint 防暴力嘗試（計畫 §5「資源限制」）：authorize 依賴網站登入頁，登入頁本身的頻率限制仍暫緩（Controllers backlog CTL-02）；token endpoint 以 PKCE 與一次性 code 防護 | 待決策（與 CTL-02 一起） |
+| MCP-B21 | `Mcp:Enabled`、`Mcp:PublicBaseUrl` 在 `OAuthController`、`OAuthServiceCollectionExtensions` 以字串讀取（Infrastructure／Controllers 不參照 Mcp 模組）；`books:recommend` 常數兩處定義，以 unit test 鎖住相同值 | 已知取捨 |
+| MCP-B22 | code review（M5）列出的判斷題重複：`Refused`／`Failure` helper、未登入檢查、`StatusName`／`StatusText` 對應、OAuthController 建 identity 的兩處寫法；目前不影響行為，之後碰到這些檔案時再整理 | 改善提案 |

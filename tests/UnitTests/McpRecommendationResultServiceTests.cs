@@ -10,6 +10,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using ModelContextProtocol;
+using TestDoubles;
 
 namespace UnitTests;
 
@@ -337,8 +338,8 @@ public sealed class McpRecommendationResultServiceTests
 
     private static Harness Build(RecommendationJobView? job = null, bool enabled = true)
     {
-        var store = new FakeJobStore { Job = job };
-        var history = new FakeHistory();
+        var store = new FakeRecommendationJobStore { Job = job, OwnerId = UserId };
+        var history = new FakeRecommendationHistory();
         var logger = new CapturingLogger<McpRecommendationResultService>();
         var jobs = new RecommendationJobService(
             store,
@@ -357,45 +358,9 @@ public sealed class McpRecommendationResultServiceTests
 
     private sealed record Harness(
         McpRecommendationResultService Service,
-        FakeJobStore Store,
-        FakeHistory History,
+        FakeRecommendationJobStore Store,
+        FakeRecommendationHistory History,
         CapturingLogger<McpRecommendationResultService> Logger);
-
-    // Returns the scripted job only for its owner; every other caller gets null, as the real store does.
-    private sealed class FakeJobStore : IRecommendationJobStore
-    {
-        public RecommendationJobView? Job { get; set; }
-
-        public List<(Guid UserId, Guid JobId)> GetCalls { get; } = [];
-
-        public Task<JobSubmitOutcome> SubmitAsync(NewRecommendationJob job, int dailyLimit, DateTime dayStartUtc, CancellationToken cancellationToken) =>
-            throw new NotSupportedException("Submit is not used by the result tool.");
-
-        public Task<RecommendationJobPage> ListAsync(Guid userId, int page, int pageSize, CancellationToken cancellationToken) =>
-            Task.FromResult(new RecommendationJobPage([], 0));
-
-        public Task<RecommendationJobView?> GetAsync(Guid userId, Guid jobId, CancellationToken cancellationToken)
-        {
-            GetCalls.Add((userId, jobId));
-            return Task.FromResult(Job is { } job && job.JobId == jobId && userId == UserId ? job : null);
-        }
-    }
-
-    private sealed class FakeHistory : IRecommendationHistory
-    {
-        public Dictionary<Guid, RecommendationSearchDetail> Details { get; } = [];
-
-        public List<(Guid UserId, Guid SearchId)> Calls { get; } = [];
-
-        public Task<RecommendationSearchPage> ListAsync(Guid userId, int page, int pageSize, CancellationToken cancellationToken) =>
-            throw new NotSupportedException("List is not used by the result tool.");
-
-        public Task<RecommendationSearchDetail?> GetAsync(Guid userId, Guid searchId, CancellationToken cancellationToken)
-        {
-            Calls.Add((userId, searchId));
-            return Task.FromResult(Details.GetValueOrDefault(searchId));
-        }
-    }
 
     // Keeps every entry so a test can check the level and that no requirement text was written.
     private sealed class CapturingLogger<T> : ILogger<T>

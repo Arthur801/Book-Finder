@@ -21,7 +21,8 @@ public static class McpServiceCollectionExtensions
             .Validate(McpOptions.HasValidPublicBaseUrl, "Mcp:PublicBaseUrl 必須是 https 網址（開發可用 http://localhost）")
             .ValidateOnStart();
 
-        // The URL builder is a singleton (it only holds the base URL); the search service is scoped like the other per-request adapters.
+        // The URL builder is a singleton (it only holds the base URL); the three tool adapter services (book search, recommendation submit,
+        // recommendation result) are scoped, so each request gets its own instance.
         services.AddSingleton<McpUrlBuilder>();
         services.AddScoped<McpBookSearchService>();
         services.AddScoped<McpRecommendationService>();
