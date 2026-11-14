@@ -43,8 +43,8 @@
 3. **init**：10 項全部 PASS。
 4. **第一次 `sync --dry-run`**：categories insert 18、mappings insert 283，沒有 orphan、AMBIGUOUS、unruled。逐行審核時發現誠品「宗教」→ humanities、「命理占星／風水」→ lifestyle，結果「宗教命理」類沒有誠品的書。使用者決定改歸 religion（#187）。
 5. **`sync --apply`**：使用者以 #187 的規則執行（apply 本身的輸出沒有貼回）。
-7. **`verify`**（apply 之後）：`init` 10 項 PASS；`categories: insert 0, update 0, unchanged 18, orphan 0`；`mappings: insert 0, update 0, unchanged 283, orphan 0`；`verify: the database matches the rules.`。
 6. **`audit`**：結果如下。
+7. **`verify`**（apply 之後）：`init` 10 項 PASS；`categories: insert 0, update 0, unchanged 18, orphan 0`；`mappings: insert 0, update 0, unchanged 283, orphan 0`；`verify: the database matches the rules.`。
 
 ## 驗證結果
 
