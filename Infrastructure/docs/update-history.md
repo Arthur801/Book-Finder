@@ -200,6 +200,7 @@ git show <SHA> -- Infrastructure
 
 驗證（2026-11-14，主 agent 重跑）：`dotnet build` 0 warning（主 agent 以 `a648a90`、`48b57e0` 修正測試中的 CS8604；第一次改用 DBNull 造成 26 項失敗，第二次改用有型別的 NpgsqlParameter）；DatabaseIntegration 225、UnitTests 867、WebIntegration 293 通過；mutation 見 test-suite INF-T23。
 
+
 ## 非同步推薦 Job M6 Worker（新增紀錄）
 
 | Author 日期 | SHA | subject | 本目錄實際改動檔案 |
@@ -208,3 +209,4 @@ git show <SHA> -- Infrastructure
 | 2026-11-14 | `11f86b4` | feat(rec-jobs): wire the Recommendation Job worker | `BackgroundJobs/RecommendationJobServiceCollectionExtensions.cs`（新增）；另改 `Program.cs`、`appsettings.json`（新增 `RecommendationJobs` 區段，Enabled false） |
 
 驗證（2026-11-14，主 agent 重跑）：`dotnet build --no-incremental` 0 warning；UnitTests 933、DatabaseIntegration 248、WebIntegration 293 通過；mutation 見 test-suite INF-T24 與 Application APP-T27。
+

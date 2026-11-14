@@ -104,3 +104,4 @@ HostingSetup 支援設定不等於已驗證容器切換、公開 HTTPS、可信 
 - 每筆 Job 在自己的 scope 執行 Runner：commit 失敗會在 DbContext 留下追蹤中的實體，不能帶到下一筆；
 - heartbeat 迴圈每次續租都另開 scope（DbContext 不能同時被兩處使用）；被拒就取消 lease-lost token，續租出錯只記 log、下一次再試；
 - 除了主機停止造成的取消之外，任何例外都記 log 後等 PollInterval 再繼續：未處理的例外會讓整個 web host 停止。
+

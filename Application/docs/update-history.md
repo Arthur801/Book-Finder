@@ -174,6 +174,7 @@ git show --format= --numstat <sha> -- Application ':(exclude)Application/docs'
 |---|---|---|
 | `149c4e0` | feat(rec-jobs): add lease store contracts for recommendation jobs | 新增 `Recommendation/IRecommendationJobLeaseStore.cs`、`ClaimedRecommendationJob.cs`、`RecommendationJobLeaseLostException.cs`、`RecommendationJobErrorCodes.cs` |
 
+
 ## 非同步推薦 Job M6 執行器（新增紀錄）
 
 | 提交 | Subject | 影響 |
@@ -181,3 +182,4 @@ git show --format= --numstat <sha> -- Application ':(exclude)Application/docs'
 | `54ad51b` | feat(rec-jobs): add the Recommendation Job worker options | 新增 `Recommendation/RecommendationJobOptions.cs` |
 | `0d3b3ac` | feat(rec-jobs): add the job runner with its outcome table | 新增 `Recommendation/RecommendationJobRunner.cs` |
 | `c0ac2f6` | fix(rec-jobs): log the exception when a job fails with INTERNAL_ERROR | `RecommendationJobRunner.cs`：主 agent 驗收時修正，INTERNAL_ERROR 的 log 帶上例外 |
+

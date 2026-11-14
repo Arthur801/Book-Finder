@@ -240,6 +240,7 @@ dotnet test tests/WebIntegration/WebIntegration.csproj
 - 並行測試只驗證不變條件，不保證一定發生交錯；保證來自 `SKIP LOCKED`。
 - 入口：[EfRecommendationJobLeaseStoreTests](../../tests/DatabaseIntegration/EfRecommendationJobLeaseStoreTests.cs)；[EfRecommendationStoreTests](../../tests/DatabaseIntegration/EfRecommendationStoreTests.cs) 在抽出 RecommendationSearchRows 後不改仍通過。
 
+
 ## INF-T24 — 推薦工作 Worker（Job 計畫 M6）
 
 - 責任／風險／狀態：BackgroundService，L3，已有測試；2026-11-14 UnitTests 933、DatabaseIntegration 248、WebIntegration 293 項通過（`c0ac2f6`）。
@@ -253,3 +254,4 @@ dotnet test tests/WebIntegration/WebIntegration.csproj
 - WebIntegration 的 host 以 Enabled false 啟動，Worker 不動作。
 - mutation（主 agent）：拿掉 heartbeat 被拒時的 `leaseLost.Cancel()` → `A_refused_heartbeat_cancels_the_running_job_and_nothing_is_written` 失敗，已還原。
 - 入口：[RecommendationJobWorkerTests](../../tests/UnitTests/RecommendationJobWorkerTests.cs)。
+
