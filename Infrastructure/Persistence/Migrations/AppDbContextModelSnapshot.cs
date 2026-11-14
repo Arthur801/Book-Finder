@@ -363,7 +363,55 @@ namespace Book_Finder.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("SourceCode");
 
+                    b.HasIndex("SourceCode", "Subject");
+
                     b.ToTable("book_subjects", (string)null);
+                });
+
+            modelBuilder.Entity("Book_Finder.Domain.Entities.CanonicalCategory", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasColumnType("varchar(100)")
+                        .HasColumnName("display_name");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("is_active");
+
+                    b.Property<string>("Slug")
+                        .IsRequired()
+                        .HasColumnType("varchar(100)")
+                        .HasColumnName("slug");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("int")
+                        .HasColumnName("sort_order");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Slug")
+                        .IsUnique();
+
+                    b.ToTable("canonical_categories", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_canonical_categories_slug", "slug ~ '^[a-z0-9]+(-[a-z0-9]+)*$'");
+                        });
                 });
 
             modelBuilder.Entity("Book_Finder.Domain.Entities.LibraryEntry", b =>
@@ -402,6 +450,45 @@ namespace Book_Finder.Infrastructure.Persistence.Migrations
                             t.HasCheckConstraint("ck_user_books_rating", "rating BETWEEN 1 AND 5");
 
                             t.HasCheckConstraint("ck_user_books_reading_status", "reading_status IN ('WANT_TO_READ', 'READING', 'FINISHED')");
+                        });
+                });
+
+            modelBuilder.Entity("Book_Finder.Domain.Entities.ProviderCategoryMapping", b =>
+                {
+                    b.Property<string>("SourceCode")
+                        .HasColumnType("varchar(64)")
+                        .HasColumnName("source_code");
+
+                    b.Property<string>("Subject")
+                        .HasColumnType("varchar(255)")
+                        .HasColumnName("subject");
+
+                    b.Property<Guid>("CanonicalCategoryId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("canonical_category_id");
+
+                    b.Property<string>("MappingMethod")
+                        .IsRequired()
+                        .HasColumnType("varchar(24)")
+                        .HasColumnName("mapping_method");
+
+                    b.Property<string>("ProviderRootSubject")
+                        .IsRequired()
+                        .HasColumnType("varchar(255)")
+                        .HasColumnName("provider_root_subject");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("SourceCode", "Subject");
+
+                    b.HasIndex("CanonicalCategoryId", "SourceCode", "Subject")
+                        .HasDatabaseName("IX_provider_category_mappings_category_source_subject");
+
+                    b.ToTable("provider_category_mappings", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_provider_category_mappings_mapping_method", "mapping_method IN ('MANUAL', 'VERIFIED_RULE')");
                         });
                 });
 
@@ -648,6 +735,22 @@ namespace Book_Finder.Infrastructure.Persistence.Migrations
                         .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Book_Finder.Domain.Entities.ProviderCategoryMapping", b =>
+                {
+                    b.HasOne("Book_Finder.Domain.Entities.CanonicalCategory", null)
+                        .WithMany()
+                        .HasForeignKey("CanonicalCategoryId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_provider_category_mappings_canonical_categories_category_id");
+
+                    b.HasOne("Book_Finder.Domain.Entities.SourceProvider", null)
+                        .WithMany()
+                        .HasForeignKey("SourceCode")
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
 

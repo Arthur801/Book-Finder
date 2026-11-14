@@ -24,6 +24,7 @@ public class StoredEnumTests
         Assert.Equal("published_date_precision IN ('YEAR', 'MONTH', 'DAY')",
             StoredEnum.InSql<PublishedDatePrecision>("published_date_precision"));
         Assert.Equal("reading_status IN ('WANT_TO_READ', 'READING', 'FINISHED')", StoredEnum.InSql<ReadingStatus>("reading_status"));
+        Assert.Equal("mapping_method IN ('MANUAL', 'VERIFIED_RULE')", StoredEnum.InSql<MappingMethod>("mapping_method"));
         Assert.Equal("identifier_type IN ('ISBN')", StoredEnum.InSql("identifier_type", IdentifierType.Isbn));
     }
 
@@ -36,6 +37,7 @@ public class StoredEnumTests
         AssertRoundtrips<ContributorRole>();
         AssertRoundtrips<PublishedDatePrecision>();
         AssertRoundtrips<ReadingStatus>();
+        AssertRoundtrips<MappingMethod>();
     }
 
     [Fact]
