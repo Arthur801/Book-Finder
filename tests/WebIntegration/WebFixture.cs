@@ -102,6 +102,10 @@ public sealed class BookFinderFactory(string connectionString) : WebApplicationF
     // Mcp:Enabled. Off by default, as in appsettings.json, so /mcp is an ordinary 404; the MCP endpoint tests turn it on.
     public bool McpEnabled { get; set; }
 
+    // Test-only MCP registrations (the spike's tools and key). Null keeps the app's own MCP registrations, which expose no tool.
+    // The app has no tool yet, so the MCP tests add theirs here instead of putting test tools into the application.
+    public Action<IServiceCollection>? ConfigureMcp { get; set; }
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseSetting("ConnectionStrings:DefaultConnection", connectionString);
@@ -128,6 +132,7 @@ public sealed class BookFinderFactory(string connectionString) : WebApplicationF
             // The app registers TimeProvider only if nothing else did, so this later registration is the one that resolves.
             if (Time is { } time)
                 services.AddSingleton<TimeProvider>(time);
+            ConfigureMcp?.Invoke(services);
             if (!RunJobWorker)
             {
                 // Removes the hosted worker registration (AddHostedService is a descriptor, so this drops exactly that one).
