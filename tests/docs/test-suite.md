@@ -279,3 +279,9 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter FullyQualifiedNa
 ### TEST-32：MCP `search_books`（MCP 計畫 M1）
 
 - `McpUrlBuilderTests`、`McpBookSearchServiceTests`（Unit）與 `McpSearchBooksTests`（WebIntegration，CatalogSeed 建書）：最多 50 本、`hasMore`、搜尋網址編碼、排序與網站一致、空白輸入不碰 DB。細節見 [Mcp/docs/test-suite.md](../../Mcp/docs/test-suite.md)。
+
+### TEST-33：OpenIddict 基礎（MCP 計畫 MCP-201a）
+
+- `OAuthOptionsTests`（Unit）：client 與憑證設定規則。
+- `OpenIddictSchemaTests`、`OpenIddictMigrationTests`、`OpenIddictSeedTests`（DatabaseIntegration）：四張表與 snake_case 欄位、migration 只新增表與 index、compat seed 可載入。
+- `OAuthServerTests`（WebIntegration）：兩個 discovery 路徑、issuer 不受 Host header 影響、只有 S256、`none` 認證方式、沒有 registration endpoint；client 同步內容、重啟不重複、MCP 關閉時不同步。WebFixture 新增 OAuth client 設定。
