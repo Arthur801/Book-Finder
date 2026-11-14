@@ -237,6 +237,63 @@ public sealed partial class CategoryPageTests(WebFixture fixture)
         Assert.Equal(HttpStatusCode.OK, search.StatusCode);
     }
 
+    // Five books exercise the counting rules. A has literature subjects from two sources (counted once). B reaches literature and
+    // business through two different categories' subjects. C is ESLITE-only. D has no subjects. F's subject text 「文學小說」 is
+    // only mapped under BOOKS_COM_TW, so its ESLITE subject must not count.
+    [Fact]
+    public async Task Sidebar_badges_count_each_book_once_per_category_and_follow_the_source_filter()
+    {
+        await fixture.ResetDatabaseAsync();
+        var literature = await AddCategoryAsync("literature", "文學", 1);
+        var business = await AddCategoryAsync("business", "商業", 2);
+        await MapAsync(SourceCodes.BooksComTw, "文學小說", literature);
+        await MapAsync(SourceCodes.Eslite, "文學", literature);
+        await MapAsync(SourceCodes.BooksComTw, "商業", business);
+        await MapAsync(SourceCodes.Eslite, "商業書", business);
+        await CatalogSeed.AddBooksAsync(fixture,
+        [
+            new BookSeed("A 兩來源同分類")
+            {
+                Subjects = [new SubjectSeed("文學小說", SourceCodes.BooksComTw), new SubjectSeed("文學", SourceCodes.Eslite)],
+                Sources = [new SourceSeed(SourceCodes.BooksComTw), EsliteSource()],
+            },
+            new BookSeed("B 兩分類")
+            {
+                Subjects = [new SubjectSeed("文學小說", SourceCodes.BooksComTw), new SubjectSeed("商業", SourceCodes.BooksComTw)],
+            },
+            new BookSeed("C 只有誠品")
+            {
+                Subjects = [new SubjectSeed("商業書", SourceCodes.Eslite)],
+                Sources = [EsliteSource()],
+            },
+            new BookSeed("D 未分類"),
+            new BookSeed("F 同文字不同來源")
+            {
+                Subjects = [new SubjectSeed("文學小說", SourceCodes.Eslite)],
+            },
+        ]);
+        await using var app = fixture.CreateFactory();
+        var client = app.CreateClient(NoRedirectOptions);
+
+        // Unfiltered: A, B, C, D and F are all books. A and B are literature; B and C are business.
+        var all = await client.GetPageAsync("/categories");
+        Assert.Equal(5, SidebarCount(all, "/categories"));
+        Assert.Equal(2, SidebarCount(all, "/categories?category=literature"));
+        Assert.Equal(2, SidebarCount(all, "/categories?category=business"));
+
+        // ESLITE: 全部書籍 counts the books with an ESLITE book_sources row (A, C). Category counts use only ESLITE subjects.
+        var eslite = await client.GetPageAsync("/categories?source=ESLITE");
+        Assert.Equal(2, SidebarCount(eslite, "/categories?source=ESLITE"));
+        Assert.Equal(1, SidebarCount(eslite, "/categories?category=literature&source=ESLITE"));
+        Assert.Equal(1, SidebarCount(eslite, "/categories?category=business&source=ESLITE"));
+
+        // BOOKS_COM_TW: 全部書籍 counts the books with a BOOKS_COM_TW row (A, B, D, F). Category counts use only BCM subjects.
+        var bcm = await client.GetPageAsync("/categories?source=BOOKS_COM_TW");
+        Assert.Equal(4, SidebarCount(bcm, "/categories?source=BOOKS_COM_TW"));
+        Assert.Equal(2, SidebarCount(bcm, "/categories?category=literature&source=BOOKS_COM_TW"));
+        Assert.Equal(1, SidebarCount(bcm, "/categories?category=business&source=BOOKS_COM_TW"));
+    }
+
     private static IReadOnlyList<BookSeed> LiteratureBooks(int count) =>
         Enumerable.Range(1, count).Select(n => new BookSeed($"文學書 {n}")
         {
@@ -287,6 +344,15 @@ public sealed partial class CategoryPageTests(WebFixture fixture)
     // The source filter <nav> (aria-label 來源篩選). Razor encodes the label, and GetPageAsync decodes it before this runs.
     private static string SourceFilter(string html) =>
         Regex.Match(html, "<nav\\b[^>]*aria-label=\"來源篩選\"[^>]*>(.*?)</nav>", RegexOptions.Singleline).Groups[1].Value;
+
+    // The count badge of the sidebar link to this URL (the href as the page renders it), or null when the link has no badge.
+    private static int? SidebarCount(string html, string url)
+    {
+        var link = Regex.Match(Sidebar(html), "<a\\b[^>]*\\bhref=\"" + Regex.Escape(url) + "\"[^>]*>(.*?)</a>", RegexOptions.Singleline);
+        Assert.True(link.Success, $"The sidebar has no link to {url}.");
+        var badge = Regex.Match(link.Groups[1].Value, "<span class=\"badge[^\"]*\">(\\d+)</span>");
+        return badge.Success ? int.Parse(badge.Groups[1].Value) : null;
+    }
 
     private sealed record Anchor(string Href, IReadOnlyDictionary<string, string> Attributes, string Text);
 
