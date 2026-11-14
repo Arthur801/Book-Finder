@@ -5,6 +5,8 @@
 
     var STORAGE_KEY = 'bookFinder.aiRequirement';
     var API_URL = '/api/recommendations';
+    var JOBS_URL = '/api/recommendations/jobs';
+    var JOB_PAGE_URL = '/ai/jobs/';
     var LOGIN_URL = '/account/login?returnUrl=%2Fai';
     var HISTORY_LIST_URL = '/ai/history-list?page=1';
     var SEARCHING_TEXT = 'AI 正在為你找書…（約需 10～30 秒）';
@@ -12,6 +14,13 @@
     var NO_RESULT_TEXT = '找不到符合的書，試著換個描述';
     var UNAVAILABLE_TEXT = 'AI 推薦暫時無法使用，請稍後再試';
     var DAILY_LIMIT_TEXT = '今天的 AI 推薦次數已用完，明天再來';
+    var SUBMITTING_JOB_TEXT = '正在送出推薦工作…';
+
+    // One Idempotency-Key per submission. crypto.randomUUID needs a secure context; without it the header is simply not sent,
+    // and the submit is then not idempotent (the server still accepts it).
+    function newIdempotencyKey() {
+        return window.crypto && typeof window.crypto.randomUUID === 'function' ? window.crypto.randomUUID() : null;
+    }
 
     // Storage can be blocked (private windows, disabled site data); then the text is simply not carried over.
     function saveRequirement(text) {
@@ -67,6 +76,12 @@
         if (handedOver) {
             textarea.value = handedOver;
         }
+
+        // Set by the server from RecommendationJobs:Enabled. False keeps the synchronous search below as it was.
+        var jobsEnabled = form.getAttribute('data-recommendation-jobs') === 'true';
+        // The key of the submission in flight. A network error keeps it, so sending the same text again reuses it and the server
+        // returns the job it already made; any HTTP response clears it.
+        var pendingJob = null;
 
         function showStatus(text) {
             status.textContent = text;
@@ -205,6 +220,81 @@
                 });
         }
 
+        function keyFor(text) {
+            if (!pendingJob || pendingJob.text !== text) {
+                pendingJob = { text: text, key: newIdempotencyKey() };
+            }
+            return pendingJob.key;
+        }
+
+        // Job path (plan async-recommendation-jobs section 3.8): the server queues the search and answers 202 with the job id.
+        // The button stays disabled while the browser goes to the job page.
+        function handleJobResponse(response, text) {
+            if (response.status === 202) {
+                return response.json().then(function (body) {
+                    if (!body || !body.jobId) {
+                        button.disabled = false;
+                        showStatus(UNAVAILABLE_TEXT);
+                        return;
+                    }
+                    window.location.assign(JOB_PAGE_URL + encodeURIComponent(body.jobId));
+                }, function () {
+                    button.disabled = false;
+                    showStatus(UNAVAILABLE_TEXT);
+                });
+            }
+
+            button.disabled = false;
+            if (response.status === 401) {
+                // The session expired or was never there: keep the text, sign in, and come back here.
+                saveRequirement(text);
+                window.location.assign(LOGIN_URL);
+                return null;
+            }
+            if (response.status === 429) {
+                showStatus(DAILY_LIMIT_TEXT);
+                return null;
+            }
+            if (response.status === 400) {
+                return response.json().then(function (problem) {
+                    var messages = problem.type === '/errors/validation' && problem.errors && problem.errors.requirementText;
+                    showStatus(messages && messages[0] ? messages[0] : UNAVAILABLE_TEXT);
+                }, function () {
+                    showStatus(UNAVAILABLE_TEXT);
+                });
+            }
+            // 409 (the key was reused for another requirement) and anything else get the general message. The text stays in the textarea.
+            showStatus(UNAVAILABLE_TEXT);
+            return null;
+        }
+
+        function submitJob(text) {
+            var token = form.querySelector('input[name="__RequestVerificationToken"]').value;
+            var headers = { 'Content-Type': 'application/json', 'RequestVerificationToken': token };
+            var key = keyFor(text);
+            if (key) {
+                headers['Idempotency-Key'] = key;
+            }
+            button.disabled = true;
+            showStatus(SUBMITTING_JOB_TEXT);
+
+            fetch(JOBS_URL, {
+                method: 'POST',
+                headers: headers,
+                body: JSON.stringify({ requirementText: text }),
+                credentials: 'same-origin'
+            })
+                .then(function (response) {
+                    pendingJob = null;
+                    return handleJobResponse(response, text);
+                })
+                .catch(function () {
+                    // No response (network error): the key is kept, so the same text sent again is the same job.
+                    button.disabled = false;
+                    showStatus(UNAVAILABLE_TEXT);
+                });
+        }
+
         form.addEventListener('submit', function (event) {
             event.preventDefault();
             var text = textarea.value.trim();
@@ -212,7 +302,11 @@
                 showStatus(EMPTY_TEXT);
                 return;
             }
-            search(text);
+            if (jobsEnabled) {
+                submitJob(text);
+            } else {
+                search(text);
+            }
         });
     }
 
