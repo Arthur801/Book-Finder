@@ -99,6 +99,9 @@ public sealed class BookFinderFactory(string connectionString) : WebApplicationF
     // RecommendationJobs:PollInterval for a host that runs the worker. Null keeps the configured 2 seconds.
     public TimeSpan? JobPollInterval { get; set; }
 
+    // Mcp:Enabled. Off by default, as in appsettings.json, so /mcp is an ordinary 404; the MCP endpoint tests turn it on.
+    public bool McpEnabled { get; set; }
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseSetting("ConnectionStrings:DefaultConnection", connectionString);
@@ -107,6 +110,8 @@ public sealed class BookFinderFactory(string connectionString) : WebApplicationF
         // Background backfill is off by default in tests: tests start the round themselves, so the timer never races them.
         builder.UseSetting("Embedding:BackfillEnabled", "false");
         builder.UseSetting("RecommendationJobs:Enabled", JobsEnabled ? "true" : "false");
+        builder.UseSetting("Mcp:Enabled", McpEnabled ? "true" : "false");
+        builder.UseSetting("Mcp:PublicBaseUrl", "https://khwebsc.com");
         if (JobPollInterval is { } pollInterval)
             builder.UseSetting("RecommendationJobs:PollInterval", pollInterval.ToString(@"hh\:mm\:ss\.fff", System.Globalization.CultureInfo.InvariantCulture));
         builder.ConfigureTestServices(services =>

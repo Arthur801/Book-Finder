@@ -8,6 +8,7 @@ using Book_Finder.Infrastructure.Hosting;
 using Book_Finder.Infrastructure.Identity;
 using Book_Finder.Infrastructure.OpenAi;
 using Book_Finder.Infrastructure.Persistence;
+using Book_Finder.Mcp;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Pgvector.EntityFrameworkCore;
@@ -90,6 +91,9 @@ builder.Services.AddBookProfiles(builder.Configuration);
 // Recommendation Jobs (plan async-recommendation-jobs section 3.6): claims and runs queued jobs in the background. Off unless RecommendationJobs:Enabled is true.
 builder.Services.AddRecommendationJobs(builder.Configuration);
 
+// MCP server (plan mcp-server section 3.1): registered here, but /mcp is mapped below only when Mcp:Enabled is true.
+builder.Services.AddBookFinderMcp(builder.Configuration);
+
 var app = builder.Build();
 
 // nginx forwards requests from loopback (systemd) or the Docker network (container). Loopback stays trusted;
@@ -111,6 +115,9 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapStaticAssets();
+
+// MCP endpoint at /mcp, mapped only when Mcp:Enabled is true; with the flag off the path is an ordinary 404.
+app.MapBookFinderMcp();
 
 app.MapControllerRoute(
     name: "default",
