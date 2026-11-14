@@ -1,10 +1,10 @@
-# 非同步 AI 推薦 Job（Recommendation Job）— v1.1 實作計畫
+# 非同步 AI 推薦 Job（Recommendation Job）— v1.2 實作計畫
 
 > Baseline：`origin/main @ 80f558b`（2026-11-14）。
 >
 > 來源：使用者提供的「Book-Finder 非同步 AI 推薦工作系統：實作規劃 v1.0（Proposed）」，經 repo 現況核對與使用者決定（下表）整理成本版。
 >
-> **狀態：M1～M3 已實作，PR 審核中（2026-11-14）**：M1 新增 `recommendation_jobs` 與 migration `20261114032619_AddRecommendationJobs`（#193）；M2 用量計數納入 Job；M3 抽出 `RecommendationPipeline`（#194）。兩者都還沒部署；其餘模組未實作。
+> **狀態：M1～M5 已實作，PR 審核中（2026-11-14）**：M1 新增 `recommendation_jobs` 與 migration `20261114032619_AddRecommendationJobs`（#193）；M2 用量計數納入 Job（#195）；M3 抽出 `RecommendationPipeline`（#194）；M4 提交與查詢；M5 lease store。兩者都還沒部署；其餘模組未實作。
 >
 > 本文件是實作計畫，不代表功能已實作、測試已通過或取得 production 授權。技術 authority 仍是各模組的 `docs/`（`AGENTS.md` §3.2）；實作時把定案的 contract 寫進 owning module 的 docs，不只寫在這裡。變更記在文末「設計變更紀錄」。
 
@@ -284,7 +284,7 @@ loop until stoppingToken:
 | M2 Usage | §3.4 公式；舊路徑回歸 | L3 | `EfRecommendationUsage.cs` | M1 |
 | M3 Pipeline 切分 | 抽 `RecommendationPipeline`，舊行為不變 | L2 | `RecommendationService.cs`、`RecommendationPipeline.cs` | — |
 | M4 Submit／Query | `IRecommendationJobStore`（submit／list／get）、`RecommendationJobService`（驗證、idempotency、額度預約） | L3 | `Application/Recommendation/`、`Infrastructure/Persistence/EfRecommendationJobStore.cs` | M1、M2 |
-| M5 Lease store | claim、heartbeat、fenced commit、重排、失敗、釋放、逾期恢復 | L3 | `EfRecommendationJobStore.cs` | M4 |
+| M5 Lease store | 獨立 port `IRecommendationJobLeaseStore`：claim、heartbeat、fenced commit、重排、失敗、釋放、逾期恢復；`RecommendationJobErrorCodes` | L3 | `Application/Recommendation/`、`Infrastructure/Persistence/EfRecommendationJobLeaseStore.cs`、`RecommendationSearchRows.cs` | M1 |
 | M6 Runner＋Worker | `RecommendationJobRunner`、`RecommendationJobWorker`、`RecommendationJobOptions`、DI 與啟動驗證 | L3 | `Application/Recommendation/`、`Infrastructure/BackgroundJobs/`、`Program.cs` | M3、M5 |
 | M7 Web | Controller、DTO、`/ai/jobs/{id}`、`_AiJobList`、ai.js flag 分支與 polling | L2／L3 | `Controllers/`、`Models/`、`Views/Ai/`、`wwwroot/js/ai.js` | M4、M6 |
 | M8 Report | 完整 gate、瀏覽器檢查、故障注入紀錄、兩軸 code review、實作報告、上線手冊 | — | `Docs/Implementation-Report/async-recommendation-jobs.md` | M1～M7 |
@@ -365,3 +365,4 @@ loop until stoppingToken:
 |---|---|---|
 | v1.0 | 2026-11-14 | 由使用者原稿 v1.0（Proposed）整理；記錄決定 #1～#4；補充本計畫的工程假設：Pipeline 切分、usage 公式、DB 時鐘 fencing、shutdown 釋放不扣次數、固定 error_code、Idempotency-Key 格式、flag 關閉時 Job API 回 404、指標以 log 輸出。 |
 | v1.1 | 2026-11-14 | §3.3：Pipeline 改為接受呼叫端的 `save` 步驟、保存仍在 60 秒預算內（原為不含保存的 `ComputeAsync`），讓 Job 的 fenced commit 與舊路徑逾時語意相同（M3）。M1 的 compat seed 在新增 migration 的同一個 PR 提供（deploy DEP-B25 方向 (b)）；129 字元的 idempotency key 先被 varchar(128) 拒絕（22001），CHECK 是第二層。M1 與 M3 並行開發。 |
+| v1.2 | 2026-11-14 | Lease 操作改用獨立的 port `IRecommendationJobLeaseStore`／`EfRecommendationJobLeaseStore`（原計畫放在 `IRecommendationJobStore`），M5 因此只依賴 M1，可與 M4 並行。Search 與 Results 的建列邏輯抽成 `RecommendationSearchRows`，由舊路徑 store 與 fenced commit 共用。固定 error_code 定義在 `RecommendationJobErrorCodes`。 |

@@ -1,5 +1,6 @@
 # Application 文字測試案例庫
 
+> 非同步推薦 Job M4 補記：2026-11-14 更新；程式變更以 `4b31184`、`5d143b4`、`08d8c9a`、`1f36620`、`ef89755` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M2 補記：2026-11-14 更新；程式變更以 `6717d8f` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR4 M1（#120）補記：2026-10-25 更新；程式變更以 `5052361`、`d864acc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
@@ -239,3 +240,16 @@ Auth的Google登入/email驗證/忘記密碼/個資修改/refresh token依identi
   - 頁碼小於 1 時改為 1，pageSize 為 20；
   - 分類清單以來源篩選查詢；查書時傳的是分類 Id（不是 slug）與來源；Found 的每個欄位都有值。
 - 測試來源：[CategoryBrowseServiceTests.cs](../../tests/UnitTests/CategoryBrowseServiceTests.cs)。
+
+### APP-T26 — 推薦工作提交、Idempotency-Key 與額度預約
+
+- 風險／狀態：L3；**測試實作：Implemented；執行：2026-11-14 UnitTests 898、DatabaseIntegration 220 項通過（`ef89755`）**。規格：[Job 計畫](../../Docs/plans/async-recommendation-jobs.md) §3.4、§3.7。
+- **Given**：UnitTests 用手寫 fake store 與 `FakeTimeProvider`（2026-10-21T17:30Z，台北已是 10-22）；DatabaseIntegration 用真實 PostgreSQL（見 Infrastructure INF-T22）。
+- **When**：`RecommendationJobService.SubmitAsync／ListAsync／GetAsync`；`IdempotencyKeyRules.Validate`。
+- **Then**：
+  - key：null／空字串視為沒有 key；1 與 128 字元合法；129 字元、空白、`.`、非 ASCII、結尾換行不合法；合法 key 原樣傳回；
+  - 不合法 key 不呼叫 store；
+  - store 收到 v7 JobId、使用者、需求文字、64 字元小寫 SHA-256、key、時鐘時間、設定的 DailyLimit、台北日界 2026-10-21T16:00Z；
+  - 四種 store 結果各自對應；未知結果拋出例外；log 不含需求文字與 key；
+  - 列表頁碼小於 1 時改為 1，每頁 20 筆。
+- 測試來源：[IdempotencyKeyRulesTests.cs](../../tests/UnitTests/IdempotencyKeyRulesTests.cs)、[RecommendationJobServiceTests.cs](../../tests/UnitTests/RecommendationJobServiceTests.cs)。
