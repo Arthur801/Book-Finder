@@ -144,6 +144,15 @@ git show --format= --numstat <sha> -- Application ':(exclude)Application/docs'
 |---|---|---|
 | `6717d8f` | feat(rec-jobs): count jobs in the daily recommendation usage | `Recommendation/IRecommendationUsage.cs` 只改註解，說明新的計數規則；實作見 Infrastructure |
 
+## 非同步推薦 Job M3 Pipeline 切分（新增紀錄）
+
+| 提交 | Subject | 影響 |
+|---|---|---|
+| `b81a322` | refactor(recommendation): extract the AI pipeline into RecommendationPipeline | 新增 `Recommendation/RecommendationPipeline.cs`（含 RecommendationPipelineResult）；`RecommendationService.cs` 改為額度檢查 → pipeline → difficulty／Profile，建構子改收 pipeline；`Program.cs` 註冊 scoped pipeline |
+| `dc2d903` | test(recommendation): cover the pipeline save, budget and cancellation contract | 新增 `tests/UnitTests/RecommendationPipelineTests.cs`（6 項）；`RecommendationServiceTests.cs` 只改建構方式 |
+
+驗證（2026-11-14，主 agent 重跑）：`dotnet build` 0 warning；UnitTests 873、WebIntegration 293 通過；diff 確認流程程式碼原樣搬移，只把保存改為呼叫 `save(results, token)`。
+
 ## 非同步推薦 Job M4 提交與查詢（新增紀錄）
 
 | 提交 | Subject | 影響 |
@@ -152,12 +161,6 @@ git show --format= --numstat <sha> -- Application ':(exclude)Application/docs'
 | `5d143b4` | feat(rec-jobs): submit, list and get recommendation jobs in the application layer | 新增 `IRecommendationJobStore.cs`（含 NewRecommendationJob、JobSubmitOutcome）、`RecommendationJobReadModels.cs`、`RecommendationJobSubmission.cs`、`RecommendationJobService.cs` |
 | `08d8c9a`、`1f36620` | EF store 與同 key 路徑的 commit 修正 | Application 無變更（見 Infrastructure） |
 | `ef89755` | fix(rec-jobs): map the daily-limit outcome explicitly and reject unknown ones | `RecommendationJobService.cs`：主 agent 驗收時修正，未知結果不再被當成每日上限 |
-## 非同步推薦 Job M3 Pipeline 切分（新增紀錄）
-
-| `b81a322` | refactor(recommendation): extract the AI pipeline into RecommendationPipeline | 新增 `Recommendation/RecommendationPipeline.cs`（含 RecommendationPipelineResult）；`RecommendationService.cs` 改為額度檢查 → pipeline → difficulty／Profile，建構子改收 pipeline；`Program.cs` 註冊 scoped pipeline |
-| `dc2d903` | test(recommendation): cover the pipeline save, budget and cancellation contract | 新增 `tests/UnitTests/RecommendationPipelineTests.cs`（6 項）；`RecommendationServiceTests.cs` 只改建構方式 |
-
-驗證（2026-11-14，主 agent 重跑）：`dotnet build` 0 warning；UnitTests 873、WebIntegration 293 通過；diff 確認流程程式碼原樣搬移，只把保存改為呼叫 `save(results, token)`。
 
 ## 導覽
 

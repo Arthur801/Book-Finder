@@ -242,6 +242,20 @@ Auth的Google登入/email驗證/忘記密碼/個資修改/refresh token依identi
   - 分類清單以來源篩選查詢；查書時傳的是分類 Id（不是 slug）與來源；Found 的每個欄位都有值。
 - 測試來源：[CategoryBrowseServiceTests.cs](../../tests/UnitTests/CategoryBrowseServiceTests.cs)。
 
+### APP-T25 — 推薦流程的保存步驟與預算
+
+- 風險／狀態：L2；**測試實作：Implemented；執行：2026-11-14 UnitTests 873、WebIntegration 293 項通過（`dc2d903`）**。規格：[Job 計畫](../../Docs/plans/async-recommendation-jobs.md) §3.3。
+- **Given**：`tests/Shared` 的 fake parser／embedding／ranker、測試內的 fake candidate search 與 fake save、`FakeTimeProvider`。
+- **When**：`RecommendationPipeline.RunAsync(requirementText, save, ct)`。
+- **Then**：
+  - `save` 收到的正是驗證後的結果；沒有候選時收到空清單，ranker 不被呼叫；
+  - `save` 卡到 60 秒預算之後 → `AiTimeoutException`，沒有保存；
+  - `save` 拋出的例外原樣往外傳（同一個 instance），不轉成 timeout；
+  - 呼叫端取消 → `OperationCanceledException`，不是 `AiTimeoutException`；
+  - 回傳值帶著保存結果與推薦結果。
+- 回歸：`RecommendationServiceTests` 只改建構方式（以同一組 fake 組出 pipeline，pipeline 的 log 轉進同一個 recording logger），斷言全部未改、全綠（APP-T07～T17）。
+- 測試來源：[RecommendationPipelineTests.cs](../../tests/UnitTests/RecommendationPipelineTests.cs)、[RecommendationServiceTests.cs](../../tests/UnitTests/RecommendationServiceTests.cs)。
+
 ### APP-T26 — 推薦工作提交、Idempotency-Key 與額度預約
 
 - 風險／狀態：L3；**測試實作：Implemented；執行：2026-11-14 UnitTests 898、DatabaseIntegration 220 項通過（`ef89755`）**。規格：[Job 計畫](../../Docs/plans/async-recommendation-jobs.md) §3.4、§3.7。
@@ -254,15 +268,3 @@ Auth的Google登入/email驗證/忘記密碼/個資修改/refresh token依identi
   - 四種 store 結果各自對應；未知結果拋出例外；log 不含需求文字與 key；
   - 列表頁碼小於 1 時改為 1，每頁 20 筆。
 - 測試來源：[IdempotencyKeyRulesTests.cs](../../tests/UnitTests/IdempotencyKeyRulesTests.cs)、[RecommendationJobServiceTests.cs](../../tests/UnitTests/RecommendationJobServiceTests.cs)。
-### APP-T25 — 推薦流程的保存步驟與預算
-
-- 風險／狀態：L2；**測試實作：Implemented；執行：2026-11-14 UnitTests 873、WebIntegration 293 項通過（`dc2d903`）**。規格：[Job 計畫](../../Docs/plans/async-recommendation-jobs.md) §3.3。
-- **Given**：`tests/Shared` 的 fake parser／embedding／ranker、測試內的 fake candidate search 與 fake save、`FakeTimeProvider`。
-- **When**：`RecommendationPipeline.RunAsync(requirementText, save, ct)`。
-  - `save` 收到的正是驗證後的結果；沒有候選時收到空清單，ranker 不被呼叫；
-  - `save` 卡到 60 秒預算之後 → `AiTimeoutException`，沒有保存；
-  - `save` 拋出的例外原樣往外傳（同一個 instance），不轉成 timeout；
-  - 呼叫端取消 → `OperationCanceledException`，不是 `AiTimeoutException`；
-  - 回傳值帶著保存結果與推薦結果。
-- 回歸：`RecommendationServiceTests` 只改建構方式（以同一組 fake 組出 pipeline，pipeline 的 log 轉進同一個 recording logger），斷言全部未改、全綠（APP-T07～T17）。
-- 測試來源：[RecommendationPipelineTests.cs](../../tests/UnitTests/RecommendationPipelineTests.cs)、[RecommendationServiceTests.cs](../../tests/UnitTests/RecommendationServiceTests.cs)。
