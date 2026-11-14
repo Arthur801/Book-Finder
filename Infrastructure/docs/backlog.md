@@ -47,7 +47,7 @@ Debug 證據收集：INF-B04 須保存去識別的 request scheme、來源網段
   | 文學小說 OFFSET 5000 | 24.3 ms |
   | 宗教命理＋ESLITE 第 1 頁 | 0.6 ms |
 
-- 一次分類頁請求約 65 ms（不篩選來源）到 100 ms（篩選來源），`/books` 約 1.5 ms。使用者決定把側邊欄書數、來源清單、全部書籍數快取 10 分鐘（[CachedCategoryBrowse](../Caching/CachedCategoryBrowse.cs)，`c2d68a1`）；常態請求只剩書單的 COUNT 與分頁（約 40 ms）。代價：crawler 或 sync 後，書數最多晚 10 分鐘更新（process-local，沒有失效通知）。
+- 一次分類頁請求約 65 ms（不篩選來源）到 100 ms（篩選來源），`/books` 約 1.5 ms。使用者決定把側邊欄書數、來源清單、全部書籍數快取 10 分鐘（[CachedCategoryBrowse](../Caching/CachedCategoryBrowse.cs)，`c2d68a1`）；常態請求只剩書單的 COUNT 與分頁（約 40 ms）。代價：crawler 或 sync 後，書數最多晚 10 分鐘更新（process-local，沒有失效通知）。快取的清單也用來判斷 slug／source 是否存在：分類停用、新增或新來源加入 Mapping 後，最多 10 分鐘內 404／200 的判斷仍依舊清單（停用分類在這段時間仍可瀏覽，新來源仍回 404）；書單本身每次都依分類 Id 查詢。
 - 剩餘：`book_sources` 沒有 `(source_code, book_id)` index，全部書籍數＋來源是全表掃描；快取後每 10 分鐘只跑一次。大分類的書單需要先找出全部成員再排序（文學小說約 20 ms），資料量再成長時可評估預先彙總或 index 調整。
 - 量測 SQL 與方法見 P5 PR；沒有寫成自動化測試。
 

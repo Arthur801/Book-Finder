@@ -361,7 +361,7 @@ crawler 的寫入契約沒有改變，`crawler/docs` 不需要更新。
 
 | 日期 | 版本 | 變更 |
 |---|---|---|
-| 2026-11-14 | v2.5 | P4、P5：<br>- 依 production EXPLAIN（側邊欄 25 ms、全部書籍數＋來源 38 ms），使用者決定把側邊欄書數、來源清單、全部書籍數快取 10 分鐘（取代原「分類書數不做快取」，Infrastructure INF-B09）；<br>- 需要 JS 的按鈕在無 JS 時隱藏。 |
+| 2026-11-14 | v2.5 | P4、P5：<br>- 依 production EXPLAIN（側邊欄 25 ms、全部書籍數＋來源 38 ms），使用者決定把側邊欄書數、來源清單、全部書籍數快取 10 分鐘（取代原「分類書數不做快取」，Infrastructure INF-B09）；<br>- 附帶影響：slug／source 是否存在也依快取判斷，分類停用或新來源加入後，404 判斷最多延遲 10 分鐘（code review 指出）；<br>- 需要 JS 的按鈕在無 JS 時隱藏。 |
 | 2026-11-14 | v2.4 | P3 dry-run 審核：誠品兩個宗教命理名稱改歸 `religion`（決定 #8）；P1 migration 隨 v0.0.8 部署（部署前清理 EC2 磁碟，見 deploy backlog DEP-B24）。 |
 | 2026-11-14 | v2.3 | P2 完成：<br>- 誠品兩個同名第 3 層歸簡體書（決定 #7）；<br>- 分類樹存檔由使用者以既有清單工具取得，不需要新增 crawler 選項；<br>- 工具另有 `eslite-import`（產生 `config/eslite_level3.tsv`）與 `--config-dir`；`--apply` 先鎖表再計算計畫；orphan 只回報不刪除。 |
 | 2026-11-14 | v2.2 | P0 完成：<br>- 記錄 production 盤點結果；<br>- 18 類 Canonical Category 與各來源頂層對照（決定 #4）；<br>- 誠品「簡體書」獨立成一類（決定 #5）；<br>- 誠品第 2 層 id 改從分類樹存檔取得，展開結果 commit 為 `config/eslite_level3.tsv`（決定 #6）。 |

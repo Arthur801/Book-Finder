@@ -1,5 +1,7 @@
 # wwwroot Git 修改歷史
 
+> Canonical Category P5 補記：2026-11-14 更新；程式變更以 `a9b7ad1`、`d43ea57` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
 查核基準 `91333c3` 的 source history 如下；`wwwroot/docs` 明確排除，不將 PR #100 新增或後續修正的文件 commits 計入 source history。
 
 > 查核：2026-10-24；HEAD `91333c334148fa5bfe07055d0e799dc13bb0bb4e`。基準版本靜態證據；本次未執行 build、測試、瀏覽器、網路或發布。文件修正不納入來源歷史。
@@ -49,3 +51,5 @@ git show 66ecf55 f0e1f0f b2c72a0 -- wwwroot/js
 | `a8a5077` | feat(web): show 書庫 on home and /books in place of the bestseller ranking | wwwroot 無程式變更；文件中的前往榜單描述改為前往書庫 |
 | `2642182` | test(web): cover 書庫 paging, home sample and the /bestsellers redirect | 無 wwwroot 變更 |
 | 本 M2 docs commit | docs(web): record 書庫 Web presentation in folder docs | 更新 wwwroot test-suite 的空態連結描述 |
+| 2026-11-14 | `a9b7ad1` | feat(categories): add the 分類 browse page with sidebar and source filter | 新增 `js/category-sidebar.js`、`css/category-browser.css` |
+| 2026-11-14 | `d43ea57` | fix(categories): show the sidebar buttons only when JavaScript runs | `js/category-sidebar.js` 移除 `.js-only`；`css/category-browser.css` 新增 `.js-only` 隱藏規則 |

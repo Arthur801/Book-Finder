@@ -1,5 +1,7 @@
 # wwwroot 面向 AI 的文字測試案例庫
 
+> Canonical Category P5 補記：2026-11-14 更新；程式變更以 `a9b7ad1`、`d43ea57` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
 > 查核 2026-10-24；HEAD `91333c334148fa5bfe07055d0e799dc13bb0bb4e`。本次只讀與文件靜態檢查，沒有本次測試通過結果。
 
 ## 測資、替身與隔離
@@ -117,3 +119,11 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter "FullyQualifiedN
 site.js 目前只有模板註解，沒有待實作商業功能；不把它列缺陷。網站 browser E2E 依 test-plan 明確暫緩（MVP 不做）；純 DOM harness 未實作、publish與render待驗證。WT-01～09 可先用純 DOM 替身驗證；WT-10 真網站 browser render 在解除 E2E 暫緩前只保留案例設計。第三方vendor不逐行複製測試；使用者可見Bootstrap navbar互動由未來render測試涵蓋，不能從載入script推定已工作。
 
 相關：[流程](workflow-diagram.md)／[架構](architecture.md)／[待辦](backlog.md)／[歷史](update-history.md)。
+
+## WT-13 — 分類頁側邊欄收合、抽屜與無 JS
+
+- 狀態：網站 E2E 仍明確暫緩（tests TEST-12／TEST-B03），沒有 commit 的瀏覽器測試；2026-11-14 以一次性本機 Playwright 檢查 20／20 通過（細節見 [Views VIEW-T13](../../Views/docs/test-suite.md)）。HTML 結構（按鈕的 aria 屬性、`<noscript>` 清單）由 WebIntegration 的 CategoryPageTests 驗證。
+- Given：分類頁，桌面 1280px、手機 390px、停用 JS。
+- Then：桌面收合／展開、`aria-expanded` 同步、重新整理後記得偏好；localStorage 失敗不影響導覽；手機抽屜開關與 Escape；無 JS 時兩個按鈕不顯示、連結可用。
+- 已知限制：收合偏好在載入後才套用，可能閃現（Views VIEW-B06）。
+

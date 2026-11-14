@@ -1,5 +1,7 @@
 # wwwroot 工作流程
 
+> Canonical Category P5 補記：2026-11-14 更新；程式變更以 `a9b7ad1`、`d43ea57` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
 > 查核：2026-10-24；HEAD `91333c334148fa5bfe07055d0e799dc13bb0bb4e`。當前工作樹靜態證據；本次未執行 build、測試、瀏覽器、網路或發布。只新增本目錄五份文件。
 
 [UI authority](../../Docs/ui/ui-flow.md)、[API](../../Docs/api/api-spec.md)、[Library](../../Docs/modules/user-library.md)、[Recommendation](../../Docs/modules/recommendation.md)、[Identity](../../Docs/modules/identity-auth.md)。以下為現行自有 JS 與 DOM 的流程；商業規則、身分驗證、交易與每日額度在伺服器。
@@ -12,6 +14,8 @@
 | [library.js](../js/library.js) | [Book section](../../Views/Books/_LibrarySection.cshtml)、[Library 頁](../../Views/Library/Index.cshtml)、[共用 controls](../../Views/Shared/_LibraryControls.cshtml) 的 data attributes |
 | [site.js](../js/site.js) | [Layout](../../Views/Shared/_Layout.cshtml) 載入；目前只有模板註解，無行為 |
 | [site.css](../css/site.css) | Layout；響應字級、focus、stars、history 兩行截斷 |
+| [category-sidebar.js](../js/category-sidebar.js) | [Categories/Index](../../Views/Categories/Index.cshtml) 的 `.category-browser`、`#category-sidebar-toggle`、`.js-only`；不發 request |
+| [category-browser.css](../css/category-browser.css) | 分類頁經 Layout 的 `Styles` section 載入；≥992px 欄位版面、收合、`.js-only` |
 | lib／favicon | Layout 使用 Bootstrap、jQuery；validation 套件由 View 引用；第三方實作不逐行展開 |
 | 靜態 endpoint | [Program](../../Program.cs) MapStaticAssets／WithStaticAssets，生成與發布由 Web SDK 負責 |
 
