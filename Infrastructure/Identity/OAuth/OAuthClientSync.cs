@@ -10,6 +10,7 @@ namespace Book_Finder.Infrastructure.Identity.OAuth;
 internal sealed partial class OAuthClientSync(
     IServiceScopeFactory scopes,
     IOptions<OAuthOptions> options,
+    IConfiguration configuration,
     ILogger<OAuthClientSync> logger) : IHostedService
 {
     public async Task StartAsync(CancellationToken cancellationToken)
@@ -51,6 +52,8 @@ internal sealed partial class OAuthClientSync(
         descriptor.Permissions.Add(Permissions.GrantTypes.RefreshToken);
         descriptor.Permissions.Add(Permissions.ResponseTypes.Code);
         descriptor.Permissions.Add(Permissions.Prefixes.Scope + OAuthServiceCollectionExtensions.RecommendScope);
+        // OpenIddict 7 refuses a resource indicator unless the client holds a resource permission for it (RFC 8707, MCP-201b).
+        descriptor.AddResourcePermissions(OAuthServiceCollectionExtensions.ResourceOf(configuration));
         descriptor.Requirements.Add(Requirements.Features.ProofKeyForCodeExchange);
 
         var existing = await manager.FindByClientIdAsync(client.ClientId, cancellationToken);

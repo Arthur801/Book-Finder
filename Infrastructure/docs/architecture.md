@@ -110,7 +110,7 @@ HostingSetup 支援設定不等於已驗證容器切換、公開 HTTPS、可信 
 
 [ApiProblemResults](../Identity/ApiProblemResults.cs) 新增 `IdempotencyConflict`：409，type `/errors/idempotency-conflict`，title 「同一個 Idempotency-Key 已用於不同的需求」，沒有建立任何 Job。
 
-## MCP OAuth Authorization Server（MCP 計畫 MCP-201a）
+## MCP OAuth Authorization Server（MCP 計畫 MCP-201a、201b）
 
 同站 OpenIddict 7.8.0（MCP-ADR-007，見 [Mcp/docs/architecture.md §6](../../Mcp/docs/architecture.md)）。程式在 [Identity/OAuth/](../Identity/OAuth/)：
 
@@ -126,4 +126,11 @@ HostingSetup 支援設定不等於已驗證容器切換、公開 HTTPS、可信 
 - 金鑰（D-11）：有設定憑證路徑時載入 PKCS#12（`X509CertificateLoader`）；沒有時用 ephemeral key（開發與測試，重啟後 token 失效）。Production 且 MCP 開啟但沒有憑證路徑 → 啟動失敗。
 - 資料表：`openiddict_applications`、`openiddict_authorizations`、`openiddict_scopes`、`openiddict_tokens`（migration `20261114082838_AddOpenIddict`，key 為預設 string，欄位 snake_case）。`AppDbContext` 一律包含這四張表，與 MCP 開關無關。
 - EF Core 由 10.0.13 升到 10.0.14（OpenIddict.EntityFrameworkCore 7.8.0 需要），`dotnet-ef` 同步升級。
-- 尚未實作：authorize／consent／token 的 passthrough controller（MCP-201b）；`resource`（RFC 8707）註冊；`McpBearer` 驗證 OpenIddict token（MCP-202）。
+- MCP-201b：
+  - Resource（RFC 8707）：`RegisterResources({PublicBaseUrl}/mcp)`，access token 的 audience 為它；其他 resource 值回 `invalid_target`；client 需要 resource permission（`OAuthClientSync` 已加）。
+  - Scope：discovery 的 `scopes_supported` 只宣告 `books:recommend`；請求其他 scope 回 `invalid_scope`；核准時一律加 `offline_access`，client 不需要該 permission 就能拿到 refresh token；rolling refresh（每次換新）。
+  - Authorization response 帶 `iss`（RFC 9207）。
+  - OpenIddict 在 passthrough 前就拒絕的請求（未註冊 redirect_uri、未知 client、缺 PKCE、plain）回 400 text/plain，不轉址。
+  - Access token 為 **JWE（加密）**；`McpBearer` 不能只驗 JWT 簽章，MCP-202 改用 OpenIddict validation（local server）。
+  - `EfUserStore.FindByIdAsync`：token endpoint 拒絕已刪除的使用者。
+- 尚未實作：`McpBearer` 驗證 OpenIddict token（MCP-202）；撤銷管理頁（D-10，不在本期）。

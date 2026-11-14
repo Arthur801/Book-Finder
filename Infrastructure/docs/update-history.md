@@ -217,3 +217,4 @@ git show <SHA> -- Infrastructure
 |---|---|---|---|
 | 2026-11-14 | `4db0c98` | feat(rec-jobs): add the job submit, list and get API | `Identity/ApiProblemResults.cs`（`IdempotencyConflict`） |
 | 2026-11-14 | `d245b9b`、`e16b56f`、`84f8656` | feat／test(mcp): OpenIddict tables, server, client sync (MCP-201a) | `Identity/OAuth/OAuthOptions.cs`、`OAuthServiceCollectionExtensions.cs`、`OAuthClientSync.cs`（新增）；`Persistence/AppDbContext.cs`（`UseOpenIddict` 與 snake_case 表名）；`Persistence/Migrations/20261114082838_AddOpenIddict*`（新增） |
+| 2026-11-14 | `48b2edd`、`3a41690` | feat／test(mcp): OAuth authorize, consent and token (MCP-201b) | `Identity/OAuth/OAuthServiceCollectionExtensions.cs`（`RegisterResources`、discovery 只宣告 `books:recommend`、`ResourceOf`）；`OAuthClientSync.cs`（resource permission）；`Persistence/EfUserStore.cs`（`FindByIdAsync`） |

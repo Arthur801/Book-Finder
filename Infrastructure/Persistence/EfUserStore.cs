@@ -16,6 +16,11 @@ internal sealed class EfUserStore(AppDbContext db) : IUserStore
             .AsNoTracking()
             .FirstOrDefaultAsync(cancellationToken);
 
+    public Task<User?> FindByIdAsync(Guid userId, CancellationToken cancellationToken) =>
+        db.Users
+            .AsNoTracking()
+            .FirstOrDefaultAsync(user => user.Id == userId, cancellationToken);
+
     public async Task<AddUserResult> AddAsync(User user, CancellationToken cancellationToken)
     {
         db.Users.Add(user);

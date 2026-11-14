@@ -285,3 +285,7 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter FullyQualifiedNa
 - `OAuthOptionsTests`（Unit）：client 與憑證設定規則。
 - `OpenIddictSchemaTests`、`OpenIddictMigrationTests`、`OpenIddictSeedTests`（DatabaseIntegration）：四張表與 snake_case 欄位、migration 只新增表與 index、compat seed 可載入。
 - `OAuthServerTests`（WebIntegration）：兩個 discovery 路徑、issuer 不受 Host header 影響、只有 S256、`none` 認證方式、沒有 registration endpoint；client 同步內容、重啟不重複、MCP 關閉時不同步。WebFixture 新增 OAuth client 設定。
+
+### TEST-34：OAuth 授權流程（MCP 計畫 MCP-201b）
+
+- `OAuthFlowTests`（WebIntegration）：未登入導向登入並帶回完整 authorize query；consent 頁內容與 antiforgery；consent 頁不可被 frame（`X-Frame-Options: DENY`、`frame-ancestors 'none'`）；核准後導回帶 `code`、`state`、`iss`；PKCE 交換、錯誤 verifier 與重複 code 失敗；refresh（rolling）；consent 記住（D-10）與 `prompt=consent`／`prompt=none`／`prompt=login`；拒絕為 `access_denied` 且不留授權；未註冊 redirect_uri、未知 client、缺 PKCE、plain、`openid`、錯誤 resource 都被拒且不轉址到未註冊位置；loopback redirect；刪除使用者後 token 交換失敗；discovery 只宣告 `books:recommend`。

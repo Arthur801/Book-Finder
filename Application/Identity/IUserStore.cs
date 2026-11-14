@@ -9,6 +9,9 @@ public interface IUserStore
     // Returns an untracked entity, or null when no user has this email (ignoring case).
     Task<User?> FindByEmailAsync(string email, CancellationToken cancellationToken);
 
+    // Returns an untracked entity, or null when the user no longer exists. The OAuth endpoints use it to reject a deleted user.
+    Task<User?> FindByIdAsync(Guid userId, CancellationToken cancellationToken);
+
     // DuplicateEmail is a normal result, not an exception: the unique index on lower(email) decided it.
     Task<AddUserResult> AddAsync(User user, CancellationToken cancellationToken);
 

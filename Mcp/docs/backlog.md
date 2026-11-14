@@ -13,8 +13,11 @@
 | MCP-B07 | 是否升級 SDK 到 2.4.0 以上（目前 2.3.1）；升級時重跑契約測試 | 改善提案 |
 | MCP-B08 | `McpBearer` 尚無簽章金鑰（任何 token 都失敗）；MCP-201 接上 OpenIddict 的驗證金鑰 | 待 M2 |
 | MCP-B09 | 401 的 `WWW-Authenticate` 沒有 `error="invalid_token"`（SDK handler 不加）；目標 Client 若需要再補 | 待 MCP-203 實測 |
-| MCP-B10 | RFC 9207：metadata 已宣告 `authorization_response_iss_parameter_supported = true`（201a），回應實際帶 `iss` 待 201b 驗證；RFC 8707：OpenIddict 以 `RegisterResources` 支援，201b 註冊 `https://khwebsc.com/mcp` | 進行中 |
+| MCP-B10 | RFC 9207 `iss`、RFC 8707 `resource` | 已完成（MCP-201b）：回應帶 `iss`；只接受 `{base}/mcp` |
 | MCP-B11 | ChatGPT 的預註冊介面位置不明；MCP-203 找不到時實作 allowlist 版 CIMD（architecture.md §6.4） | 待 MCP-203 |
 | MCP-B12 | AI Tool 描述加 `securitySchemes`；MCP-203 確認 ChatGPT 對 HTTP 401 的處理，必要時評估 Tool 層錯誤（architecture.md §6.5） | 待 M3／MCP-203 |
 | MCP-B13 | production 簽章／加密憑證的存放、輪替與備份程序（L4，需使用者授權） | 待 M2 上線前 |
-| MCP-B14 | metadata 的 `scopes_supported` 目前含 `openid`、`offline_access`（OpenIddict 預設）。ChatGPT 預設會要求宣告的 OIDC scope，client 沒有該權限時授權會失敗；201b 決定移除宣告或允許，並確認 refresh token 是否需要 `offline_access` | 待 201b |
+| MCP-B14 | `scopes_supported` 的 `openid`、`offline_access` | 已完成（MCP-201b）：只宣告 `books:recommend`，核准時隱含 `offline_access` |
+| MCP-B15 | OpenIddict 驗證階段的錯誤（未註冊 redirect_uri 以外的情況，例如缺 PKCE）回 400 而非導回 client（RFC 6749 §4.1.2.1 建議導回）；MCP-203 若 Client 因此體驗不佳再評估 | 改善提案 |
+| MCP-B16 | 網站沒有全站的 framing 政策；目前只有 OAuth consent 頁設 `X-Frame-Options: DENY` 與 `frame-ancestors 'none'`。是否全站加上另行決定 | 待決策 |
+| MCP-B17 | 撤銷授權的管理頁（D-10 決定本期不做） | 延後 |

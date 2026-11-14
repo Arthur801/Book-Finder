@@ -128,6 +128,7 @@ public sealed class OAuthServerTests(WebFixture fixture)
                 Permissions.GrantTypes.RefreshToken,
                 Permissions.ResponseTypes.Code,
                 Permissions.Prefixes.Scope + "books:recommend",
+                Permissions.Prefixes.Resource + "https://khwebsc.com/mcp",
             },
             permissions);
         Assert.Equal(new[] { Requirements.Features.ProofKeyForCodeExchange }, await manager.GetRequirementsAsync(application));

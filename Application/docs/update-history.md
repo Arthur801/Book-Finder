@@ -182,4 +182,4 @@ git show --format= --numstat <sha> -- Application ':(exclude)Application/docs'
 | `54ad51b` | feat(rec-jobs): add the Recommendation Job worker options | 新增 `Recommendation/RecommendationJobOptions.cs` |
 | `0d3b3ac` | feat(rec-jobs): add the job runner with its outcome table | 新增 `Recommendation/RecommendationJobRunner.cs` |
 | `c0ac2f6` | fix(rec-jobs): log the exception when a job fails with INTERNAL_ERROR | `RecommendationJobRunner.cs`：主 agent 驗收時修正，INTERNAL_ERROR 的 log 帶上例外 |
-
+| `48b2edd` | feat(mcp): OAuth authorize, consent and token endpoints (MCP-201b) | `Identity/IUserStore.cs`：新增 `FindByIdAsync`（token endpoint 確認使用者仍存在） |

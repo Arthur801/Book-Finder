@@ -89,3 +89,4 @@ git show 894883b -- Views
 | Author 日期 | SHA | subject | 本目錄實際改動檔案 |
 |---|---|---|---|
 | 2026-11-14 | `e00cbb5` | feat(rec-jobs): show the job list on /ai and the job status page | `Ai/Index.cshtml`、`Ai/_AiJobList.cshtml`（新增）、`Ai/Job.cshtml`（新增） |
+| 2026-11-14 | `48b2edd` | feat(mcp): OAuth consent page (MCP-201b) | `OAuth/Consent.cshtml`（新增）：client 名稱、scope 說明、登入 email、允許／拒絕，原 OAuth 參數以 hidden 欄位回送 |
