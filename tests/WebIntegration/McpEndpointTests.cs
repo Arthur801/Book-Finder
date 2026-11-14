@@ -56,7 +56,7 @@ public sealed class McpEndpointTests(WebFixture fixture)
     }
 
     [Fact]
-    public async Task Anonymous_tools_list_offers_only_search_books()
+    public async Task Anonymous_tools_list_offers_search_books_and_the_gated_recommend_books()
     {
         await fixture.ResetDatabaseAsync();
         await using var app = CreateFactory(enabled: true);
@@ -68,7 +68,8 @@ public sealed class McpEndpointTests(WebFixture fixture)
         var result = await ReadRpcResponseAsync(response);
         var tools = result.GetProperty("result").GetProperty("tools");
         Assert.Equal(JsonValueKind.Array, tools.ValueKind);
-        Assert.Equal(["search_books"], tools.EnumerateArray().Select(tool => tool.GetProperty("name").GetString()));
+        // recommend_books is listed for every client; the HTTP gate refuses its calls without a token, so listing reveals no data.
+        Assert.Equal(["search_books", "recommend_books"], tools.EnumerateArray().Select(tool => tool.GetProperty("name").GetString()));
     }
 
     [Fact]

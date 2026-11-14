@@ -2,31 +2,17 @@ using System.ComponentModel;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
-using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 
 namespace WebIntegration;
 
-// Test-only MCP tools (MCP-002). They live in the test project because the app exposes no tool yet. recommend_books carries a
-// protected name, so every test can see whether its handler ran through the call counter, not just the HTTP status.
+// Test-only MCP tools (MCP-002). Only the public ping lives here now: the protected name recommend_books is the real tool, so its
+// refusals and its job rows are checked against the database, and a second tool with the same name would clash with it.
 [McpServerToolType]
 public sealed class McpTestTools
 {
     [McpServerTool(Name = "public_ping"), Description("Public test tool; answers pong to anyone.")]
     public static string Ping() => "pong";
-
-    [McpServerTool(Name = "recommend_books"), Description("Protected test tool; returns the caller's sub.")]
-    public static string RecommendBooks(RequestContext<CallToolRequestParams> request, McpCallCounter counter)
-    {
-        Interlocked.Increment(ref counter.Count);
-        return request.JsonRpcRequest.Context?.User?.FindFirst("sub")?.Value ?? "";
-    }
-}
-
-// Counts how many times the protected handler really ran. Zero means the request was stopped before the tool.
-public sealed class McpCallCounter
-{
-    public int Count;
 }
 
 // Raw HTTP helpers for the Streamable HTTP wire format. The SDK answers with JSON or one SSE event; both carry the JSON-RPC message.

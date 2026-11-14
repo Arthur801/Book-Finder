@@ -293,3 +293,7 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter FullyQualifiedNa
 ### TEST-35：`/mcp` 驗證 OpenIddict token（MCP 計畫 MCP-202）
 
 - `McpAuthorizationTests` 改用真實 OAuth token（`OAuthTestClient`）：竄改、他站簽發、過期、撤銷、query／form 帶 token 都 401；`HasScope` 的 unit test 涵蓋 `oi_scp` 與缺 scope。
+
+### TEST-36：MCP `recommend_books`（MCP 計畫 M3）
+
+- `McpRecommendationServiceTests`、`RecommendationToolsTests`（Unit）與 `McpRecommendBooksTests`（WebIntegration）：提交只排 Job、不呼叫 AI；驗證、idempotency、每日額度（與網站共用）、開關關閉、匿名 401。`McpAuthorizationTests` 改用真正的 `recommend_books` 並以 DB Job 筆數斷言；`McpTestTools` 只剩 `public_ping`。

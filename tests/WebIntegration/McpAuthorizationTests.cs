@@ -2,7 +2,9 @@ using System.Net;
 using System.Text.Json;
 using Book_Finder.Domain.Entities;
 using Book_Finder.Infrastructure.Identity;
+using Book_Finder.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Time.Testing;
 using Microsoft.Extensions.Options;
@@ -57,7 +59,7 @@ public sealed class McpAuthorizationTests(WebFixture fixture)
         await using var app = CreateFactory();
         var client = app.CreateClient(ClientOptions);
 
-        var response = await McpWire.PostAsync(client, McpWire.ToolsCall("recommend_books"));
+        var response = await McpWire.PostAsync(client, RecommendCall());
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
         var challenge = response.Headers.WwwAuthenticate.ToString();
@@ -65,7 +67,7 @@ public sealed class McpAuthorizationTests(WebFixture fixture)
         Assert.Contains($"resource_metadata=\"{ResourceMetadataUri}\"", challenge, StringComparison.Ordinal);
         // A 302 with a Location would send a headless MCP client to a login page, which is exactly what this spike rules out.
         Assert.False(response.Headers.Contains("Location"));
-        Assert.Equal(0, CallCount(app));
+        await AssertJobCountAsync(0);
     }
 
     [Fact]
@@ -93,10 +95,10 @@ public sealed class McpAuthorizationTests(WebFixture fixture)
         var client = app.CreateClient(ClientOptions);
         var siteToken = app.Services.GetRequiredService<AuthTokenIssuer>().Issue(NewUser());
 
-        var response = await McpWire.PostAsync(client, McpWire.ToolsCall("recommend_books"), bearer: siteToken);
+        var response = await McpWire.PostAsync(client, RecommendCall(), bearer: siteToken);
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
-        Assert.Equal(0, CallCount(app));
+        await AssertJobCountAsync(0);
     }
 
     [Fact]
@@ -107,11 +109,11 @@ public sealed class McpAuthorizationTests(WebFixture fixture)
         var client = app.CreateClient(ClientOptions);
         var siteToken = app.Services.GetRequiredService<AuthTokenIssuer>().Issue(NewUser());
 
-        var response = await McpWire.PostAsync(client, McpWire.ToolsCall("recommend_books"), cookie: $"{AuthCookie.Name}={siteToken}");
+        var response = await McpWire.PostAsync(client, RecommendCall(), cookie: $"{AuthCookie.Name}={siteToken}");
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
         Assert.False(response.Headers.Contains("Location"));
-        Assert.Equal(0, CallCount(app));
+        await AssertJobCountAsync(0);
     }
 
     [Fact]
@@ -126,7 +128,7 @@ public sealed class McpAuthorizationTests(WebFixture fixture)
         var response = await McpWire.PostAsync(client, body);
 
         Assert.Equal(HttpStatusCode.RequestEntityTooLarge, response.StatusCode);
-        Assert.Equal(0, CallCount(app));
+        await AssertJobCountAsync(0);
     }
 
     [Fact]
@@ -157,12 +159,15 @@ public sealed class McpAuthorizationTests(WebFixture fixture)
         var client = app.CreateClient(ClientOptions);
 
         var response = await McpWire.PostAsync(
-            client, McpWire.ToolsCall("recommend_books", protocolVersion: protocolVersion), bearer: tokens.AccessToken,
+            client, RecommendCall(protocolVersion), bearer: tokens.AccessToken,
             protocolVersion: protocolVersion, mcpName: "recommend_books");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal(tokens.UserId.ToString(), ToolText(await McpWire.ReadRpcAsync(response)));
-        Assert.Equal(1, CallCount(app));
+        var rpc = await McpWire.ReadRpcAsync(response);
+        Assert.False(rpc.GetProperty("result").GetProperty("isError").GetBoolean());
+        // The job belongs to the token's sub, so the tool ran for the authenticated user and no one else.
+        await AssertJobCountAsync(1);
+        await AssertJobOwnerAsync(tokens.UserId);
     }
 
     // Protocol 2026-07-28 mirrors the tool name in Mcp-Name; the challenge and the token path must hold for both revisions.
@@ -177,15 +182,15 @@ public sealed class McpAuthorizationTests(WebFixture fixture)
         var client = app.CreateClient(ClientOptions);
 
         var anonymous = await McpWire.PostAsync(
-            client, McpWire.ToolsCall("recommend_books", protocolVersion: protocolVersion), protocolVersion: protocolVersion, mcpName: "recommend_books");
+            client, RecommendCall(protocolVersion), protocolVersion: protocolVersion, mcpName: "recommend_books");
         var authorized = await McpWire.PostAsync(
-            client, McpWire.ToolsCall("recommend_books", protocolVersion: protocolVersion), bearer: tokens.AccessToken,
+            client, RecommendCall(protocolVersion), bearer: tokens.AccessToken,
             protocolVersion: protocolVersion, mcpName: "recommend_books");
 
         Assert.Equal(HttpStatusCode.Unauthorized, anonymous.StatusCode);
         Assert.Contains($"resource_metadata=\"{ResourceMetadataUri}\"", anonymous.Headers.WwwAuthenticate.ToString(), StringComparison.Ordinal);
         Assert.Equal(HttpStatusCode.OK, authorized.StatusCode);
-        Assert.Equal(1, CallCount(app));
+        await AssertJobCountAsync(1);
     }
 
     // A token that is not a valid access token for this host: tampered, random, or a website login token. Each is refused with 401.
@@ -206,11 +211,11 @@ public sealed class McpAuthorizationTests(WebFixture fixture)
             _ => app.Services.GetRequiredService<AuthTokenIssuer>().Issue(NewUser()),
         };
 
-        var response = await McpWire.PostAsync(client, McpWire.ToolsCall("recommend_books"), bearer: token);
+        var response = await McpWire.PostAsync(client, RecommendCall(), bearer: token);
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
         Assert.StartsWith("Bearer", response.Headers.WwwAuthenticate.ToString(), StringComparison.Ordinal);
-        Assert.Equal(0, CallCount(app));
+        await AssertJobCountAsync(0);
     }
 
     // A token signed by another host (its own ephemeral keys) is not accepted here.
@@ -223,10 +228,10 @@ public sealed class McpAuthorizationTests(WebFixture fixture)
         await using var receiving = CreateFactory();
         var client = receiving.CreateClient(ClientOptions);
 
-        var response = await McpWire.PostAsync(client, McpWire.ToolsCall("recommend_books"), bearer: tokens.AccessToken);
+        var response = await McpWire.PostAsync(client, RecommendCall(), bearer: tokens.AccessToken);
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
-        Assert.Equal(0, CallCount(receiving));
+        await AssertJobCountAsync(0);
     }
 
     // The access token lasts one hour (D-09). After the clock passes that, the same token is refused.
@@ -239,14 +244,14 @@ public sealed class McpAuthorizationTests(WebFixture fixture)
         var tokens = await ObtainTokensAsync(app, "gate-expired@x.com");
         var client = app.CreateClient(ClientOptions);
 
-        var fresh = await McpWire.PostAsync(client, McpWire.ToolsCall("recommend_books"), bearer: tokens.AccessToken);
+        var fresh = await McpWire.PostAsync(client, RecommendCall(), bearer: tokens.AccessToken);
         Assert.Equal(HttpStatusCode.OK, fresh.StatusCode);
 
         time.Advance(TimeSpan.FromHours(1) + TimeSpan.FromMinutes(1));
-        var expired = await McpWire.PostAsync(client, McpWire.ToolsCall("recommend_books"), bearer: tokens.AccessToken);
+        var expired = await McpWire.PostAsync(client, RecommendCall(), bearer: tokens.AccessToken);
 
         Assert.Equal(HttpStatusCode.Unauthorized, expired.StatusCode);
-        Assert.Equal(1, CallCount(app));
+        await AssertJobCountAsync(1);
     }
 
     // EnableAuthorizationEntryValidation: revoking the authorization refuses its tokens at once, even though the JWE is still unexpired.
@@ -257,7 +262,7 @@ public sealed class McpAuthorizationTests(WebFixture fixture)
         await using var app = CreateFactory();
         var tokens = await ObtainTokensAsync(app, "gate-revoked@x.com");
         var client = app.CreateClient(ClientOptions);
-        var before = await McpWire.PostAsync(client, McpWire.ToolsCall("recommend_books"), bearer: tokens.AccessToken);
+        var before = await McpWire.PostAsync(client, RecommendCall(), bearer: tokens.AccessToken);
         Assert.Equal(HttpStatusCode.OK, before.StatusCode);
 
         using (var scope = app.Services.CreateScope())
@@ -267,10 +272,10 @@ public sealed class McpAuthorizationTests(WebFixture fixture)
                 Assert.True(await authorizations.TryRevokeAsync(authorization));
         }
 
-        var after = await McpWire.PostAsync(client, McpWire.ToolsCall("recommend_books"), bearer: tokens.AccessToken);
+        var after = await McpWire.PostAsync(client, RecommendCall(), bearer: tokens.AccessToken);
 
         Assert.Equal(HttpStatusCode.Unauthorized, after.StatusCode);
-        Assert.Equal(1, CallCount(app));
+        await AssertJobCountAsync(1);
     }
 
     // Audience: the validation accepts only the MCP resource (Mcp:PublicBaseUrl + /mcp). The server issues tokens for that resource only,
@@ -308,7 +313,7 @@ public sealed class McpAuthorizationTests(WebFixture fixture)
         var uri = "/mcp?access_token=" + Uri.EscapeDataString(tokens.AccessToken);
         var request = new HttpRequestMessage(HttpMethod.Post, uri)
         {
-            Content = new StringContent(McpWire.ToolsCall("recommend_books"), System.Text.Encoding.UTF8, "application/json"),
+            Content = new StringContent(RecommendCall(), System.Text.Encoding.UTF8, "application/json"),
         };
         request.Headers.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
         request.Headers.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("text/event-stream"));
@@ -317,7 +322,7 @@ public sealed class McpAuthorizationTests(WebFixture fixture)
         var response = await client.SendAsync(request);
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
-        Assert.Equal(0, CallCount(app));
+        await AssertJobCountAsync(0);
     }
 
     [Fact]
@@ -338,7 +343,7 @@ public sealed class McpAuthorizationTests(WebFixture fixture)
         var response = await client.SendAsync(request);
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
-        Assert.Equal(0, CallCount(app));
+        await AssertJobCountAsync(0);
     }
 
     // The public tool answers a valid token with 200, and a refused token with 401 (the gate rejects every invalid token).
@@ -368,22 +373,34 @@ public sealed class McpAuthorizationTests(WebFixture fixture)
         return token[..index] + replacement + token[(index + 1)..];
     }
 
-    private BookFinderFactory CreateFactory(bool jobsEnabled = false, FakeTimeProvider? time = null)
+    // The real recommend_books runs here. Jobs are on, so a call that passes the gate creates a QUEUED row; the worker is not running.
+    private BookFinderFactory CreateFactory(bool jobsEnabled = true, FakeTimeProvider? time = null)
     {
         var app = fixture.CreateFactory();
         app.McpEnabled = true;
         app.OAuthTestClient = true;
         app.JobsEnabled = jobsEnabled;
         app.Time = time;
-        app.ConfigureMcp = services =>
-        {
-            services.AddSingleton<McpCallCounter>();
-            services.AddMcpServer().WithTools<McpTestTools>();
-        };
+        app.ConfigureMcp = services => services.AddMcpServer().WithTools<McpTestTools>();
         return app;
     }
 
-    private static int CallCount(BookFinderFactory app) => app.Services.GetRequiredService<McpCallCounter>().Count;
+    // A valid call with the required argument. The gate decides before the tool runs, so the argument only matters when the call passes.
+    private static string RecommendCall(string protocolVersion = McpWire.ProtocolVersion) =>
+        McpWire.ToolsCall("recommend_books", protocolVersion: protocolVersion, arguments: new { requirement_text = "想看輕鬆的推理小說" });
+
+    // Refused calls must leave no job row, so the database is the witness that the handler did not run.
+    private async Task AssertJobCountAsync(int expected)
+    {
+        await using var db = fixture.CreateContext();
+        Assert.Equal(expected, await db.RecommendationJobs.CountAsync());
+    }
+
+    private async Task AssertJobOwnerAsync(Guid userId)
+    {
+        await using var db = fixture.CreateContext();
+        Assert.Equal(userId, await db.RecommendationJobs.Select(job => job.UserId).SingleAsync());
+    }
 
     private static string ToolText(JsonElement rpc) =>
         rpc.GetProperty("result").GetProperty("content")[0].GetProperty("text").GetString() ?? "";

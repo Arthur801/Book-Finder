@@ -1,6 +1,6 @@
 # Mcp 流程
 
-> 建立：2026-11-14（MCP-001）；MCP-002 加入授權閘門。M1 加入 `search_books`；兩支 AI Tool 在之後的票加入。
+> 建立：2026-11-14（MCP-001）；MCP-002 加入授權閘門。M1 加入 `search_books`；M3 加入 `recommend_books`；`get_recommendation_result` 在 M4 加入。
 
 ## 1. 啟動
 
@@ -90,3 +90,33 @@ sequenceDiagram
 ```
 
 - 只查本地 DB，沒有外部 fallback；0 本時 `books = []`，仍有 `searchUrl`。
+
+## 5. `recommend_books`（需要 `books:recommend`）
+
+```mermaid
+sequenceDiagram
+    participant Client as MCP Client
+    participant Gate as 授權閘門
+    participant Tool as RecommendationTools
+    participant Svc as McpRecommendationService
+    participant Job as RecommendationJobService
+    Client->>Gate: tools/call recommend_books {requirement_text, idempotency_key?} + Bearer
+    alt 無 token／無效／缺 scope
+        Gate-->>Client: 401／403（不建立 Job）
+    else 驗證通過
+        Gate->>Tool: principal（sub = 使用者 ID）
+        Tool->>Svc: SubmitAsync(userId, text, key)
+        alt RecommendationJobs:Enabled = false
+            Svc-->>Client: SERVICE_UNAVAILABLE
+        else 文字空白或超過 500 字
+            Svc-->>Client: VALIDATION_FAILED（requirement_text）
+        else
+            Svc->>Job: SubmitAsync（額度與 idempotency 在 store 交易內）
+            Job-->>Svc: Accepted／InvalidIdempotencyKey／IdempotencyConflict／DailyLimitReached
+            Svc-->>Client: queued + jobId + statusUrl，或對應錯誤碼
+        end
+    end
+```
+
+- 只排入 Job，不同步呼叫 OpenAI；Worker 之後執行（既有 Recommendation Job 流程）。
+- 額度與網站共用（D-07）：網站 `/api/recommendations/jobs` 提交的 Job 與 MCP 的 Job 一起計數。

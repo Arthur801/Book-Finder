@@ -5,6 +5,10 @@ namespace Book_Finder.Mcp.Contracts;
 public sealed class McpToolError
 {
     public const string ValidationFailed = "VALIDATION_FAILED";
+    public const string Unauthorized = "UNAUTHORIZED";
+    public const string ServiceUnavailable = "SERVICE_UNAVAILABLE";
+    public const string IdempotencyConflict = "IDEMPOTENCY_CONFLICT";
+    public const string DailyLimitReached = "DAILY_LIMIT_REACHED";
 
     public string Status { get; } = "error";
 
