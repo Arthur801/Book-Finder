@@ -27,10 +27,10 @@
 
 - 博客來、金石堂：只對應頂層 Subject，`provider_root_subject` 為頂層本身；書本身帶有頂層名稱，所以足以分類（P0 盤點：博客來 0 本缺頂層）。
 - 誠品：`provider_roots.toml` 以第 2 層 id 對應 slug；`eslite_level3.tsv` 展開成第 3 層名稱，`provider_root_subject` 為 `eslite-l2:<id>`。同名第 3 層在不同第 2 層、slug 一致時只寫一筆，不一致時為 AMBIGUOUS。
-- `subject_mappings.toml` 的 MANUAL 規則覆蓋推導結果，也能解決 AMBIGUOUS。現有兩筆：誠品「繪本／插畫／漫畫」「語言考用」→ `simplified-chinese`（決定 #7）。
+- `subject_mappings.toml` 的 MANUAL 規則覆蓋推導結果，也能解決 AMBIGUOUS。現有四筆：誠品「繪本／插畫／漫畫」「語言考用」→ `simplified-chinese`（決定 #7）；誠品「宗教」（人文史哲下）、「命理占星／風水」（生活風格下）→ `religion`，與博客來、金石堂的「宗教命理」一致（決定 #8）。
 - Mapping 依規則寫入，不論該 Subject 目前是否已出現在 `book_subjects`，所以之後的新書能立即分類。
 
-出貨規則的結果：18 類，Mapping 共 283 筆（博客來 21、金石堂 22、誠品 238 + MANUAL 2），沒有 AMBIGUOUS 與 unruled。
+出貨規則的結果：18 類，Mapping 共 283 筆（博客來 21、金石堂 22、誠品 240；其中 4 筆是 MANUAL：2 筆解決 AMBIGUOUS，2 筆覆蓋推導結果），沒有 AMBIGUOUS 與 unruled。
 
 ## 選型與取捨
 

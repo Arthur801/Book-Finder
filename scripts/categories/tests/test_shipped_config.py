@@ -24,7 +24,9 @@ def test_shipped_rules_load_with_expected_counts() -> None:
         counts[root.source_code] = counts.get(root.source_code, 0) + 1
     assert counts == {"BOOKS_COM_TW": 21, "KINGSTONE": 22, "ESLITE": 21}
     assert {(m.source_code, m.subject, m.slug, m.root) for m in rules.manual_mappings} == {
-        ("ESLITE", name, "simplified-chinese", "eslite-l2:162") for name in SHIPPED_AMBIGUOUS
+        *(("ESLITE", name, "simplified-chinese", "eslite-l2:162") for name in SHIPPED_AMBIGUOUS),
+        ("ESLITE", "宗教", "religion", "eslite-l2:61"),
+        ("ESLITE", "命理占星／風水", "religion", "eslite-l2:9"),
     }
 
 
@@ -53,3 +55,19 @@ def test_shipped_tsv_ambiguous_names_are_exactly_the_reviewed_pair_and_manual_ru
     plan = build_plan(rules, rows, db_categories=[], db_mappings=[])
     assert can_apply(plan)
     assert len(plan.desired_mappings) == 21 + 22 + 238 + 2
+
+
+def test_shipped_manual_rules_move_eslite_religion_names_to_religion() -> None:
+    # Decision #8: Eslite has no religion level-2, so its two religion names are aligned with the other providers.
+    rules = load_rules(CONFIG_DIR)
+    rows = read_level3_tsv(DEFAULT_TSV)
+    without_manual = replace(rules, manual_mappings=())
+
+    derived = derive_desired(without_manual, rows).mappings
+    assert derived[("ESLITE", "宗教")].slug == "humanities"
+    assert derived[("ESLITE", "命理占星／風水")].slug == "lifestyle"
+
+    desired = derive_desired(rules, rows).mappings
+    for name, root in (("宗教", "eslite-l2:61"), ("命理占星／風水", "eslite-l2:9")):
+        mapping = desired[("ESLITE", name)]
+        assert (mapping.slug, mapping.method, mapping.provider_root_subject) == ("religion", "MANUAL", root)

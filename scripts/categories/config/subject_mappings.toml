@@ -17,3 +17,19 @@ subject = "語言考用"
 slug = "simplified-chinese"
 root = "eslite-l2:162"
 note = "與青少年（334）同名；使用者決定歸簡體書"
+
+# 誠品沒有宗教命理的第 2 層：「宗教」在人文史哲（61）下、「命理占星／風水」在生活風格（9）下。
+# 為了與博客來、金石堂的「宗教命理」一致，使用者 2026-11-14 決定兩者都歸 religion（計畫決定 #8）。
+[[mapping]]
+source_code = "ESLITE"
+subject = "宗教"
+slug = "religion"
+root = "eslite-l2:61"
+note = "誠品人文史哲下的宗教；與另兩家一致歸宗教命理"
+
+[[mapping]]
+source_code = "ESLITE"
+subject = "命理占星／風水"
+slug = "religion"
+root = "eslite-l2:9"
+note = "誠品生活風格下的命理；與另兩家一致歸宗教命理"
