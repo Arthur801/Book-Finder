@@ -1,6 +1,6 @@
 # Mcp 架構
 
-> 建立：2026-11-14（MCP-001，`e618edb`、`4c1b047`）；MCP-002 授權閘門（`df9e333`～`7485e53`）。實作計畫：[book-finder-mcp-server.md](../../Docs/plans/book-finder-mcp-server.md)（計畫不是 contract；本文件描述目前已實作的狀態）。
+> 建立：2026-11-14（MCP-001，`e618edb`、`4c1b047`）；MCP-002 授權閘門（`df9e333`～`7485e53`）；M1 `search_books`（`da0d0c7`）。實作計畫：[book-finder-mcp-server.md](../../Docs/plans/book-finder-mcp-server.md)（計畫不是 contract；本文件描述目前已實作的狀態）。
 
 ## 1. 模組責任
 
@@ -15,6 +15,10 @@
 |---|---|
 | `McpOptions.cs` | `Mcp` 設定：`Enabled`（預設 false）、`PublicBaseUrl`；`HasValidPublicBaseUrl` 在啟動時驗證 |
 | `McpServiceCollectionExtensions.cs` | `AddBookFinderMcp`：綁定並驗證設定、註冊官方 SDK（Streamable HTTP、Stateless）與 MCP 認證；`MapBookFinderMcp`：`Enabled` 為 true 才加入授權閘門、resource metadata 與 `MapMcp("/mcp")` |
+| `McpUrlBuilder.cs` | 對外連結的唯一來源：`{base}/search?q=`（trim + `Uri.EscapeDataString`）、`/books/{id}`、`/ai/jobs/{id}`、`/ai/history/{id}`、`/ai` |
+| `Services/McpBookSearchService.cs` | `search_books` 的 adapter：`SearchQuery.Parse`，`Empty` 回 `VALIDATION_FAILED` 且不碰 DB；其他呼叫 `IBookSearch.SearchAsync(q, 1, 50)`，排序與網站相同 |
+| `Tools/BookSearchTools.cs` | `search_books` Tool（公開、`readOnlyHint`）；成功回 structured content + 文字摘要，錯誤 `isError = true` |
+| `Contracts/*.cs` | 對外 DTO（lowerCamelCase）：`BookSearchToolResult`、`McpToolError` |
 | `Security/McpAuthSetup.cs` | `McpBearer` scheme（只讀 `Authorization: Bearer`，issuer `{base}/`、audience `{base}/mcp`）、SDK 的 challenge scheme 與 Protected Resource Metadata；受保護 Tool 名稱、`books:recommend` scope |
 | `Security/McpToolAuthorizationMiddleware.cs` | POST `/mcp` 的授權閘門：在 SDK 讀 body 前決定 401／403／413 或放行 |
 
@@ -35,14 +39,16 @@
 | Resource metadata | 自行 `MapGet` `/.well-known/oauth-protected-resource/mcp`，內容來自設定 | SDK 只有在 `ResourceMetadataUri` 未設定時才自動服務，且那時 URI 取自 request host |
 | 簽章金鑰 | **尚未設定**，所以任何 token 都驗證失敗（fail closed） | M2（MCP-201）由 OpenIddict 提供 |
 | Tool 取得使用者 | `RequestContext<CallToolRequestParams>.JsonRpcRequest.Context?.User` | stateless HTTP 下 SDK 帶入閘門設定的 principal |
-| Tool | 尚無 Tool；`WithListToolsHandler` 回空陣列 | SDK 沒有任何 Tool 時不提供 `tools/list`（回 -32601）。加入第一支 Tool 時改用 `WithTools` 並移除這個 handler |
-| 對外連結 | `PublicBaseUrl` 必須是 https 根網址（開發可用 `http://localhost`、`127.0.0.1`），不得有 path、query、fragment | 連結只從設定產生，不讀 Host header（尚無使用者） |
+| Tool | `WithTools<BookSearchTools>()`；目前只有 `search_books` | MCP-001 的空 `tools/list` handler 已移除 |
+| Tool 輸出 | 手動設定 `CallToolResult.StructuredContent`（`McpJsonUtilities.DefaultOptions`），不宣告 outputSchema | SDK 的 `UseStructuredContent = true` 會產生不準確的通用 outputSchema |
+| 一般搜尋上限 | 最多 50 本；`totalCount` 為實際符合筆數、`hasMore = totalCount > 50`；不另設輸入長度、rate limit、timeout | 比照網站搜尋（D-06）；網站每頁 20 本不變 |
+| 對外連結 | `PublicBaseUrl` 必須是 https 根網址（開發可用 `http://localhost`、`127.0.0.1`），不得有 path、query、fragment；只由 `McpUrlBuilder` 產生 | 連結只從設定產生，不讀 Host header |
 
 ## 4. 相依方向
 
 ```text
 Program.cs → Mcp（AddBookFinderMcp / MapBookFinderMcp）→ ModelContextProtocol.AspNetCore
-Mcp →（之後）Application ports／services
+Mcp → Application（Catalog：SearchQuery、IBookSearch；之後 Recommendation）
 ```
 
 `Mcp` 不被 Application、Infrastructure、Controllers 參照。

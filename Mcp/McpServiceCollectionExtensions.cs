@@ -1,4 +1,6 @@
 using Book_Finder.Mcp.Security;
+using Book_Finder.Mcp.Services;
+using Book_Finder.Mcp.Tools;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Options;
@@ -19,10 +21,12 @@ public static class McpServiceCollectionExtensions
             .Validate(McpOptions.HasValidPublicBaseUrl, "Mcp:PublicBaseUrl 必須是 https 網址（開發可用 http://localhost）")
             .ValidateOnStart();
 
-        // Without any tool registration the SDK does not advertise tools/list at all. An explicit empty list handler keeps the
-        // endpoint answering with an empty array until the tool tickets register real tools.
+        // The URL builder is a singleton (it only holds the base URL); the search service is scoped like the other per-request adapters.
+        services.AddSingleton<McpUrlBuilder>();
+        services.AddScoped<McpBookSearchService>();
+
         services.AddMcpServer()
-            .WithListToolsHandler((_, _) => ValueTask.FromResult(new ListToolsResult { Tools = [] }))
+            .WithTools<BookSearchTools>()
             // Stateless: no MCP session is kept between requests, so the endpoint can run without session affinity.
             .WithHttpTransport(options => options.Stateless = true);
         services.AddMcpAuthentication();

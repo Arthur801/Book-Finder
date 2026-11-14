@@ -73,10 +73,11 @@ internal static class McpWire
     public static string ToolsList() => Rpc(new { jsonrpc = "2.0", id = 2, method = "tools/list" });
 
     // Protocol 2026-07-28 has no initialize handshake, so every request carries its version and client info in params._meta.
-    public static string ToolsCall(string name, int id = 3, string protocolVersion = ProtocolVersion)
+    public static string ToolsCall(string name, int id = 3, string protocolVersion = ProtocolVersion, object? arguments = null)
     {
+        arguments ??= new { };
         if (protocolVersion != NewProtocolVersion)
-            return Rpc(new { jsonrpc = "2.0", id, method = "tools/call", @params = new { name, arguments = new { } } });
+            return Rpc(new { jsonrpc = "2.0", id, method = "tools/call", @params = new { name, arguments } });
 
         return Rpc(new
         {
@@ -86,7 +87,7 @@ internal static class McpWire
             @params = new
             {
                 name,
-                arguments = new { },
+                arguments,
                 _meta = new Dictionary<string, object>
                 {
                     ["io.modelcontextprotocol/protocolVersion"] = NewProtocolVersion,

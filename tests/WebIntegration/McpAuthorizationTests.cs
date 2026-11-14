@@ -34,6 +34,7 @@ public sealed class McpAuthorizationTests(WebFixture fixture)
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var tools = (await McpWire.ReadRpcAsync(response)).GetProperty("result").GetProperty("tools");
         var names = tools.EnumerateArray().Select(tool => tool.GetProperty("name").GetString()).ToList();
+        Assert.Contains("search_books", names);
         Assert.Contains("public_ping", names);
         Assert.Contains("recommend_books", names);
     }
@@ -245,9 +246,7 @@ public sealed class McpAuthorizationTests(WebFixture fixture)
         app.ConfigureMcp = services =>
         {
             services.AddSingleton<McpCallCounter>();
-            // The app's empty list handler (MCP-001) would hide the test tools, so the test host drops it and lists the tool collection.
             services.AddMcpServer().WithTools<McpTestTools>();
-            services.PostConfigure<ModelContextProtocol.Server.McpServerOptions>(options => options.Handlers.ListToolsHandler = null);
             // The test key replaces the app's missing McpBearer key, so a test token can be validated. The app itself has no key yet.
             services.PostConfigure<Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerOptions>(
                 Book_Finder.Mcp.Security.McpAuthSetup.BearerScheme,

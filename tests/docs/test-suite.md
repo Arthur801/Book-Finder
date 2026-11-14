@@ -276,3 +276,6 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter FullyQualifiedNa
 - `McpAuthorizationTests`（WebIntegration，17 個）：401／403／413 與放行，每個案例都斷言受保護 Tool 的執行次數；網站 JWT 與 `bf_auth` cookie 不能冒用 MCP token；兩個協定版本。
 - WebFixture 新增 `ConfigureMcp` hook（只供測試註冊 Tool）；`McpTestTools.cs` 為測試專用 Tool。細節見 [Mcp/docs/test-suite.md](../../Mcp/docs/test-suite.md)。
 
+### TEST-32：MCP `search_books`（MCP 計畫 M1）
+
+- `McpUrlBuilderTests`、`McpBookSearchServiceTests`（Unit）與 `McpSearchBooksTests`（WebIntegration，CatalogSeed 建書）：最多 50 本、`hasMore`、搜尋網址編碼、排序與網站一致、空白輸入不碰 DB。細節見 [Mcp/docs/test-suite.md](../../Mcp/docs/test-suite.md)。
