@@ -1,7 +1,6 @@
 using Book_Finder.Application.Common;
 using Book_Finder.Application.Recommendation;
 using Book_Finder.Domain.Entities;
-using Book_Finder.Infrastructure.Persistence;
 
 namespace Book_Finder.Models;
 
@@ -11,7 +10,7 @@ namespace Book_Finder.Models;
 public sealed record RecommendationJobAcceptedResponse(Guid JobId, string Status, string StatusUrl)
 {
     public static RecommendationJobAcceptedResponse From(RecommendationJobView job) =>
-        new(job.JobId, StoredEnum.ToStored(job.Status), JobPaging.StatusUrlFor(job.JobId));
+        new(job.JobId, RecommendationJobStatusCodes.Of(job.Status), JobPaging.StatusUrlFor(job.JobId));
 }
 
 public sealed record RecommendationJobListResponse(
@@ -39,13 +38,14 @@ public sealed record RecommendationJobItemResponse(
     public static RecommendationJobItemResponse From(RecommendationJobView job) => new(
         job.JobId,
         job.RequirementText,
-        StoredEnum.ToStored(job.Status),
+        RecommendationJobStatusCodes.Of(job.Status),
         TaipeiTimeZone.FromUtc(job.CreatedAt),
         job.CompletedAt is { } completedAt ? TaipeiTimeZone.FromUtc(completedAt) : null);
 }
 
-// One job for its owner. SearchId, CompletedAt and ErrorCode are set only as the job stored them (terminal states); ResultUrl is set
-// only when the job SUCCEEDED, so the result page is never linked for a job that has none.
+// One job for its owner. SearchId and CompletedAt are set only as the job stored them (terminal states). ResultUrl is set only when the
+// job SUCCEEDED, so the result page is never linked for a job that has none. ErrorCode is shown only when the job FAILED (plan section 3.7):
+// a requeued or recovered job keeps the last error in the database, but while it waits or runs again it has not failed.
 public sealed record RecommendationJobResponse(
     Guid JobId,
     string Status,
@@ -57,12 +57,12 @@ public sealed record RecommendationJobResponse(
 {
     public static RecommendationJobResponse From(RecommendationJobView job) => new(
         job.JobId,
-        StoredEnum.ToStored(job.Status),
+        RecommendationJobStatusCodes.Of(job.Status),
         TaipeiTimeZone.FromUtc(job.CreatedAt),
         job.CompletedAt is { } completedAt ? TaipeiTimeZone.FromUtc(completedAt) : null,
         job.SearchId,
         job.Status == RecommendationJobStatus.Succeeded && job.SearchId is { } searchId ? JobPaging.ResultUrlFor(searchId) : null,
-        job.ErrorCode);
+        job.Status == RecommendationJobStatus.Failed ? job.ErrorCode : null);
 }
 
 // Paging and link rules shared by the API and the /ai pages, so both show the same page size and the same URLs.

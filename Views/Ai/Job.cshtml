@@ -3,7 +3,7 @@
     ViewData["Title"] = "推薦工作";
 }
 
-<section id="ai-job" class="mb-4" data-job-status-url="/api/recommendations/jobs/@Model.JobId" data-job-status="@Model.StatusCode">
+<section id="ai-job" class="mb-4" data-job-status-url="@Model.StatusUrl" data-job-status="@Model.StatusCode">
     <p class="mb-2"><a href="/ai">← 回到 AI 推薦</a></p>
     <h1 class="h3 mb-3">推薦工作</h1>
 

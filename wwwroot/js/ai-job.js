@@ -40,7 +40,13 @@
         inFlight = true;
         fetch(statusUrl, { credentials: 'same-origin', headers: { Accept: 'application/json' } })
             .then(function (response) {
-                // A failed request is ignored: the next tick asks again.
+                // 401 (signed out) and 404 (the job page is gone, e.g. the feature was switched off) will not change by asking again:
+                // reload, so the server shows the sign-in page or the not-found page. Any other failure is retried at the next tick.
+                if (response.status === 401 || response.status === 404) {
+                    stop();
+                    window.location.reload();
+                    return null;
+                }
                 return response.ok ? response.json() : null;
             })
             .then(function (body) {

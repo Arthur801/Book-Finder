@@ -137,4 +137,4 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter 'FullyQualifiedN
 
 ### M-T15
 
-推薦工作 DTO 與 view model（Job 計畫 M7）。[RecommendationJobResponseTests](../../tests/UnitTests/RecommendationJobResponseTests.cs)、[AiJobViewModelTests](../../tests/UnitTests/AiJobViewModelTests.cs)：四種狀態輸出為儲存用的大寫字串；resultUrl 只在 SUCCEEDED；+08:00 時間；狀態標籤；四種 error code 文案；`jobsPage` 夾在 1 與最後一頁之間。2026-11-14 UnitTests 982 項通過。
+推薦工作 DTO 與 view model（Job 計畫 M7）。[RecommendationJobResponseTests](../../tests/UnitTests/RecommendationJobResponseTests.cs)、[AiJobViewModelTests](../../tests/UnitTests/AiJobViewModelTests.cs)：四種狀態輸出為儲存用的大寫字串（與 `StoredEnum` 的一致性由 DatabaseIntegration `StoredEnumTests` 驗證）；排隊或執行中、帶有上一次錯誤碼的 Job 不輸出 errorCode；resultUrl 只在 SUCCEEDED；+08:00 時間；狀態標籤；四種 error code 文案；`jobsPage` 夾在 1 與最後一頁之間。2026-11-14 UnitTests 982 項通過。

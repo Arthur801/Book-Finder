@@ -57,5 +57,5 @@ ai.js 沒 browser AbortController timeout，server 60 秒限制才是契約；hi
 ## 推薦工作頁面（Job 計畫 M7）
 
 - [Ai/Index.cshtml](../Ai/Index.cshtml)：`#ai-form` 輸出 `data-recommendation-jobs="true|false"`；開關開啟時在表單下方加入 [_AiJobList](../Ai/_AiJobList.cshtml)（「推薦工作」、空狀態「還沒有推薦工作」、`/ai?jobsPage=N` 分頁）。原本的推薦紀錄列表不變；兩個列表的分頁連結各自只帶自己的頁碼。
-- [Ai/Job.cshtml](../Ai/Job.cshtml)：根元素 `#ai-job` 帶 `data-job-status-url`、`data-job-status`；排隊或執行中顯示「已加入工作佇列，可以離開網站，稍後回來查看。」，成功顯示「查看推薦結果」連到 `/ai/history/{searchId}`，失敗顯示依 error code 而定的固定文案；只載入 `ai-job.js`。
+- [Ai/Job.cshtml](../Ai/Job.cshtml)：根元素 `#ai-job` 帶 `data-job-status-url`（由 view model 的 `StatusUrl` 產生，與 API 的 `statusUrl` 同一個來源）、`data-job-status`；排隊或執行中顯示「已加入工作佇列，可以離開網站，稍後回來查看。」，成功顯示「查看推薦結果」連到 `/ai/history/{searchId}`，失敗顯示依 error code 而定的固定文案；只載入 `ai-job.js`。
 - 需求文字全部經 Razor 編碼。

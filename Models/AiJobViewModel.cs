@@ -1,7 +1,6 @@
 using Book_Finder.Application.Common;
 using Book_Finder.Application.Recommendation;
 using Book_Finder.Domain.Entities;
-using Book_Finder.Infrastructure.Persistence;
 
 namespace Book_Finder.Models;
 
@@ -26,7 +25,9 @@ public sealed record AiJobViewModel(
         job.ErrorCode);
 
     // The value the page puts in data-job-status, which the polling script compares with the API's status.
-    public string StatusCode => StoredEnum.ToStored(Status);
+    public string StatusCode => RecommendationJobStatusCodes.Of(Status);
+
+    public string StatusUrl => JobPaging.StatusUrlFor(JobId);
 
     public string StatusLabel => LabelFor(Status);
 

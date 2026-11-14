@@ -64,6 +64,17 @@ public sealed class RecommendationJobResponseTests
         }
     }
 
+    // A requeued or recovered job keeps its last error code in the database, but it has not failed, so the API does not show it.
+    [Theory]
+    [InlineData(RecommendationJobStatus.Queued)]
+    [InlineData(RecommendationJobStatus.Running)]
+    public void A_waiting_job_with_an_earlier_error_code_shows_no_error_code(RecommendationJobStatus status)
+    {
+        var detail = RecommendationJobResponse.From(View(status, errorCode: RecommendationJobErrorCodes.AiUnavailable));
+
+        Assert.Null(detail.ErrorCode);
+    }
+
     [Fact]
     public void Failed_job_shows_its_error_code_and_no_result_url()
     {

@@ -61,6 +61,6 @@ fallbackUsed 固定 false 且 Outcome 無 fallback flag，對照規格 fallback 
 
 ## 推薦工作 DTO 與 view model（Job 計畫 M7）
 
-- [RecommendationJobResponse](../RecommendationJobResponse.cs)：API 的 accepted、list、single 回應；`status` 為儲存用的大寫字串；時間以 `TaipeiTimeZone.FromUtc`（+08:00）輸出；只有 SUCCEEDED 才有 `resultUrl`。
+- [RecommendationJobResponse](../RecommendationJobResponse.cs)：API 的 accepted、list、single 回應；`status` 為儲存用的大寫字串，由 [RecommendationJobStatusCodes](../RecommendationJobStatusCodes.cs) 對照（Models 不依賴 Infrastructure 的 `StoredEnum`；DatabaseIntegration `StoredEnumTests` 確認兩者一致）；時間以 `TaipeiTimeZone.FromUtc`（+08:00）輸出；只有 SUCCEEDED 才有 `resultUrl`；只有 FAILED 才有 `errorCode`（重排或恢復後的 Job 在資料庫留有上一次的 error_code，但它還沒失敗）。
 - [AiJobListViewModel](../AiJobListViewModel.cs)：`/ai` 的工作列表、狀態中文標籤（排隊中、推薦中、已完成、失敗）、`jobsPage` 超出範圍時改為最後一頁。
 - [AiJobViewModel](../AiJobViewModel.cs)：狀態頁；error code 對應固定文案（AI_UNAVAILABLE、AI_TIMEOUT、WORKER_INTERRUPTED、其他）。文案只在這裡，JS 在終態時重新載入頁面，不另存一份。

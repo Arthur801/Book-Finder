@@ -49,4 +49,4 @@ AiPageTests 明言沒有執行 JS；現有 WebIntegration 驗證 HTML／API，�
 ## 推薦工作的前端（Job 計畫 M7）
 
 - [ai.js](../js/ai.js)：`data-recommendation-jobs="true"` 時，送出改呼叫 `POST /api/recommendations/jobs`，帶 `Idempotency-Key`（每次送出以 `crypto.randomUUID()` 產生；沒有這個 API 時不送 header）。網路錯誤時保留 key，同一段文字再送出會沿用；收到任何 HTTP 回應就清除。202 導向 `/ai/jobs/{jobId}`；401 保存文字後導向登入；429 每日上限文案；400 伺服器的驗證訊息；409 與其他狀態用通用文案。`false` 時維持原本的同步流程。
-- [ai-job.js](../js/ai-job.js)：狀態為 QUEUED／RUNNING 時，分頁可見就每 3 秒查詢 `data-job-status-url`；切到背景時停止，回到前景立刻查一次並恢復輪詢；狀態變成 SUCCEEDED 或 FAILED 就重新載入頁面。查詢失敗會在下一次重試。不使用 innerHTML，也不含任何訊息文案。
+- [ai-job.js](../js/ai-job.js)：狀態為 QUEUED／RUNNING 時，分頁可見就每 3 秒查詢 `data-job-status-url`；切到背景時停止，回到前景立刻查一次並恢復輪詢；狀態變成 SUCCEEDED 或 FAILED 就重新載入頁面。查詢回 401（登出）或 404（頁面已不存在，例如功能被關閉）時停止並重新載入，讓伺服器顯示登入頁或找不到頁；其他失敗會在下一次重試。不使用 innerHTML，也不含任何訊息文案。
