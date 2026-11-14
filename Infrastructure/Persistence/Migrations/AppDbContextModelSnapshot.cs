@@ -492,6 +492,106 @@ namespace Book_Finder.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Book_Finder.Domain.Entities.RecommendationJob", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<int>("AttemptCount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0)
+                        .HasColumnName("attempt_count");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("completed_at");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("ErrorCode")
+                        .HasColumnType("varchar(64)")
+                        .HasColumnName("error_code");
+
+                    b.Property<string>("IdempotencyKey")
+                        .HasColumnType("varchar(128)")
+                        .HasColumnName("idempotency_key");
+
+                    b.Property<DateTime?>("LeaseExpiresAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("lease_expires_at");
+
+                    b.Property<Guid?>("LeaseToken")
+                        .HasColumnType("uuid")
+                        .HasColumnName("lease_token");
+
+                    b.Property<string>("RequestHash")
+                        .IsRequired()
+                        .HasColumnType("char(64)")
+                        .HasColumnName("request_hash");
+
+                    b.Property<string>("RequirementText")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("requirement_text");
+
+                    b.Property<DateTime>("RunAfter")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("run_after");
+
+                    b.Property<Guid?>("SearchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("search_id");
+
+                    b.Property<DateTime?>("StartedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("started_at");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("varchar(20)")
+                        .HasColumnName("status");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SearchId")
+                        .IsUnique();
+
+                    b.HasIndex("Status", "LeaseExpiresAt");
+
+                    b.HasIndex("UserId", "CreatedAt")
+                        .IsDescending(false, true);
+
+                    b.HasIndex("UserId", "IdempotencyKey")
+                        .IsUnique()
+                        .HasFilter("idempotency_key IS NOT NULL");
+
+                    b.HasIndex("Status", "RunAfter", "CreatedAt");
+
+                    b.ToTable("recommendation_jobs", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_recommendation_jobs_attempt_count", "attempt_count >= 0");
+
+                            t.HasCheckConstraint("ck_recommendation_jobs_idempotency_key", "idempotency_key IS NULL OR idempotency_key ~ '^[A-Za-z0-9_-]{1,128}$'");
+
+                            t.HasCheckConstraint("ck_recommendation_jobs_lease", "(status = 'RUNNING' AND lease_token IS NOT NULL AND lease_expires_at IS NOT NULL) OR (status <> 'RUNNING' AND lease_token IS NULL AND lease_expires_at IS NULL)");
+
+                            t.HasCheckConstraint("ck_recommendation_jobs_outcome", "(status = 'SUCCEEDED' AND search_id IS NOT NULL AND completed_at IS NOT NULL AND error_code IS NULL) OR (status = 'FAILED' AND search_id IS NULL AND completed_at IS NOT NULL AND error_code IS NOT NULL) OR (status IN ('QUEUED', 'RUNNING') AND search_id IS NULL AND completed_at IS NULL)");
+
+                            t.HasCheckConstraint("ck_recommendation_jobs_request_hash", "request_hash ~ '^[0-9a-f]{64}$'");
+
+                            t.HasCheckConstraint("ck_recommendation_jobs_status", "status IN ('QUEUED', 'RUNNING', 'SUCCEEDED', 'FAILED')");
+                        });
+                });
+
             modelBuilder.Entity("Book_Finder.Domain.Entities.RecommendationResult", b =>
                 {
                     b.Property<Guid>("SearchId")
@@ -751,6 +851,20 @@ namespace Book_Finder.Infrastructure.Persistence.Migrations
                         .WithMany()
                         .HasForeignKey("SourceCode")
                         .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Book_Finder.Domain.Entities.RecommendationJob", b =>
+                {
+                    b.HasOne("Book_Finder.Domain.Entities.RecommendationSearch", null)
+                        .WithMany()
+                        .HasForeignKey("SearchId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("Book_Finder.Domain.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
 
