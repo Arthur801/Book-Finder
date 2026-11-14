@@ -26,6 +26,7 @@ public class StoredEnumTests
         Assert.Equal("reading_status IN ('WANT_TO_READ', 'READING', 'FINISHED')", StoredEnum.InSql<ReadingStatus>("reading_status"));
         Assert.Equal("mapping_method IN ('MANUAL', 'VERIFIED_RULE')", StoredEnum.InSql<MappingMethod>("mapping_method"));
         Assert.Equal("identifier_type IN ('ISBN')", StoredEnum.InSql("identifier_type", IdentifierType.Isbn));
+        Assert.Equal("status IN ('QUEUED', 'RUNNING', 'SUCCEEDED', 'FAILED')", StoredEnum.InSql<RecommendationJobStatus>("status"));
     }
 
     [Fact]
@@ -38,6 +39,7 @@ public class StoredEnumTests
         AssertRoundtrips<PublishedDatePrecision>();
         AssertRoundtrips<ReadingStatus>();
         AssertRoundtrips<MappingMethod>();
+        AssertRoundtrips<RecommendationJobStatus>();
     }
 
     [Fact]

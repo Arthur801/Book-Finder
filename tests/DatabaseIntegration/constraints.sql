@@ -22,7 +22,7 @@ SELECT pg_temp.assert_true(
     (SELECT bool_and(to_regclass(name) IS NOT NULL) FROM unnest(ARRAY[
       'books', 'book_sources', 'book_identifiers', 'book_contributors', 'book_subjects', 'book_ai_profiles',
       'users', 'user_books', 'bestsellers', 'recommendation_searches', 'recommendation_results', 'book_embeddings',
-      'canonical_categories', 'provider_category_mappings']) AS name),
+      'canonical_categories', 'provider_category_mappings', 'recommendation_jobs']) AS name),
     'required application tables');
 SELECT pg_temp.assert_true(EXISTS(SELECT 1 FROM pg_extension WHERE extname = 'vector'), 'vector enabled');
 SELECT pg_temp.assert_true('[1,2,3]'::vector <-> '[1,2,3]'::vector = 0, 'vector distance');
