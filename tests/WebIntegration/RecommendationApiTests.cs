@@ -660,7 +660,7 @@ public sealed class RecommendationApiTests(WebFixture fixture)
 
     // Seeds Books and gives each one an embedding whose similarity to SimilarityVectors.Query() is the paired value.
     // The fake embedding generator answers any text with the query vector, so the retrieval text does not matter here.
-    private static async Task<IReadOnlyList<SeededBook>> SeedEmbeddedBooksAsync(
+    internal static async Task<IReadOnlyList<SeededBook>> SeedEmbeddedBooksAsync(
         WebFixture webFixture, IReadOnlyList<(BookSeed Book, double Similarity)> items)
     {
         var seeded = await CatalogSeed.AddBooksAsync(webFixture, items.Select(item => item.Book));

@@ -1,5 +1,6 @@
 using Book_Finder.Application.Library;
 using Book_Finder.Application.Recommendation;
+using Book_Finder.Infrastructure.BackgroundJobs;
 using Book_Finder.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -7,6 +8,7 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Time.Testing;
 using Pgvector.EntityFrameworkCore;
 using Testcontainers.PostgreSql;
@@ -87,6 +89,16 @@ public sealed class BookFinderFactory(string connectionString) : WebApplicationF
     // Null keeps the real clock. A test that needs the Taipei day to roll over sets a fake clock before the first request.
     public FakeTimeProvider? Time { get; set; }
 
+    // RecommendationJobs:Enabled. Off by default, as in appsettings.json; the job API and the /ai job list answer as they do with the flag off.
+    public bool JobsEnabled { get; set; }
+
+    // Whether the RecommendationJobWorker hosted service runs in this host. Off by default: a test that observes a job staying QUEUED
+    // must not have the worker claim it, so the service is removed from the host's registrations. Only the end-to-end test turns it on.
+    public bool RunJobWorker { get; set; }
+
+    // RecommendationJobs:PollInterval for a host that runs the worker. Null keeps the configured 2 seconds.
+    public TimeSpan? JobPollInterval { get; set; }
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseSetting("ConnectionStrings:DefaultConnection", connectionString);
@@ -94,6 +106,9 @@ public sealed class BookFinderFactory(string connectionString) : WebApplicationF
         builder.UseSetting("OPENAIAPI_KEY", OpenAiApiKey);
         // Background backfill is off by default in tests: tests start the round themselves, so the timer never races them.
         builder.UseSetting("Embedding:BackfillEnabled", "false");
+        builder.UseSetting("RecommendationJobs:Enabled", JobsEnabled ? "true" : "false");
+        if (JobPollInterval is { } pollInterval)
+            builder.UseSetting("RecommendationJobs:PollInterval", pollInterval.ToString(@"hh\:mm\:ss\.fff", System.Globalization.CultureInfo.InvariantCulture));
         builder.ConfigureTestServices(services =>
         {
             // AddSingleton appends, and resolving the interface returns the last registration, so these replace the OpenAI adapters.
@@ -108,6 +123,15 @@ public sealed class BookFinderFactory(string connectionString) : WebApplicationF
             // The app registers TimeProvider only if nothing else did, so this later registration is the one that resolves.
             if (Time is { } time)
                 services.AddSingleton<TimeProvider>(time);
+            if (!RunJobWorker)
+            {
+                // Removes the hosted worker registration (AddHostedService is a descriptor, so this drops exactly that one).
+                var workers = services
+                    .Where(descriptor => descriptor.ServiceType == typeof(IHostedService) && descriptor.ImplementationType == typeof(RecommendationJobWorker))
+                    .ToList();
+                foreach (var worker in workers)
+                    services.Remove(worker);
+            }
         });
         // The layout's asp-append-version watches each asset file, and every watch opens an inotify instance that a
         // host keeps until a GC. Across the suite that reaches the Linux per-user limit (128), so tests serve no web

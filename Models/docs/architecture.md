@@ -1,5 +1,6 @@
 # Models 架構與選型
 
+> 非同步推薦 Job M7 補記：2026-11-14 更新；程式變更以 `4db0c98`、`e00cbb5`、`5559870`、`ac88ef2` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 查核日期：2026-10-24；基準：`91333c3`；目標：`Models/`。本次只做靜態閱讀，未執行 build、測試、Mermaid renderer、資料庫或外部服務。開始時來源無未提交修改；其他代理既有的 `Controllers/docs/` 不屬本文件範圍。
 > PR4 M1（#120）補記：2026-10-25 更新；程式變更以 `5052361`、`d864acc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > Canonical Category P5 補記：2026-11-14 更新；程式變更以 `a9b7ad1`、`c2d68a1`、`d43ea57` 記入 update-history。原查核基準保留，未重新審查其餘內容。
@@ -57,3 +58,9 @@ Models 無交易、時間來源、外部 I/O、retry 或 cancellation；同步�
 fallbackUsed 固定 false 且 Outcome 無 fallback flag，對照規格 fallback 仍有未實作部分（M-B03）。欄位排除 guard 覆蓋範圍與 URL policy 差異列 M-B01／M-B02，不宣稱已重現漏洞。沒有執行 runtime、序列化、時區或 HTML 渲染，本次只確認來源及測試存在。
 
 相關文件：[流程](workflow-diagram.md) · [架構](architecture.md) · [待辦](backlog.md) · [歷史](update-history.md) · [測試案例](test-suite.md)。
+
+## 推薦工作 DTO 與 view model（Job 計畫 M7）
+
+- [RecommendationJobResponse](../RecommendationJobResponse.cs)：API 的 accepted、list、single 回應；`status` 為儲存用的大寫字串，由 [RecommendationJobStatusCodes](../RecommendationJobStatusCodes.cs) 對照（Models 不依賴 Infrastructure 的 `StoredEnum`；DatabaseIntegration `StoredEnumTests` 確認兩者一致）；時間以 `TaipeiTimeZone.FromUtc`（+08:00）輸出；只有 SUCCEEDED 才有 `resultUrl`；只有 FAILED 才有 `errorCode`（重排或恢復後的 Job 在資料庫留有上一次的 error_code，但它還沒失敗）。
+- [AiJobListViewModel](../AiJobListViewModel.cs)：`/ai` 的工作列表、狀態中文標籤（排隊中、推薦中、已完成、失敗）、`jobsPage` 超出範圍時改為最後一頁。
+- [AiJobViewModel](../AiJobViewModel.cs)：狀態頁；error code 對應固定文案（AI_UNAVAILABLE、AI_TIMEOUT、WORKER_INTERRUPTED、其他）。文案只在這裡，JS 在終態時重新載入頁面，不另存一份。

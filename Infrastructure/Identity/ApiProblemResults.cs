@@ -36,6 +36,17 @@ public static class ApiProblemResults
         return From(problem);
     }
 
+    // The same Idempotency-Key was sent with a different requirement (plan async-recommendation-jobs section 3.7). Nothing was created.
+    public static ObjectResult IdempotencyConflict(ProblemDetailsFactory problemDetails, HttpContext http)
+    {
+        var problem = problemDetails.CreateProblemDetails(
+            http,
+            statusCode: StatusCodes.Status409Conflict,
+            title: "同一個 Idempotency-Key 已用於不同的需求",
+            type: "/errors/idempotency-conflict");
+        return From(problem);
+    }
+
     // An OpenAI call failed after the SDK's retries (api-spec.md §2, recommendation.md §8).
     // The title is fixed, so no provider detail reaches the client.
     public static ObjectResult AiUnavailable(ProblemDetailsFactory problemDetails, HttpContext http)

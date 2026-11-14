@@ -1,5 +1,6 @@
 # wwwroot 工作流程
 
+> 非同步推薦 Job M7 補記：2026-11-14 更新；程式變更以 `4db0c98`、`e00cbb5`、`5559870`、`ac88ef2` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > Canonical Category P5 補記：2026-11-14 更新；程式變更以 `a9b7ad1`、`d43ea57` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 > 查核：2026-10-24；HEAD `91333c334148fa5bfe07055d0e799dc13bb0bb4e`。當前工作樹靜態證據；本次未執行 build、測試、瀏覽器、網路或發布。只新增本目錄五份文件。
@@ -109,3 +110,18 @@ flowchart TD
 PATCH 只送變更欄位；null 清 rating 與省略不同。失敗恢復 server 最後確認值；select 原生先改值，錯誤再還原。401 分支直接導航，沒有先解鎖（假定頁面離開）。按鈕 disabled 是 UI 防連點，非 server concurrency 保證；沒有程式層 request generation guard。篩選頁改 status 不移除或重新排序 row，直到 reload；是明訂行為。CSRF 由 document.querySelector 取整個 document 第一個 matching Razor antiforgery input（可能是 Layout logout token）；只有 selector 完全找不到 input 才傳空值，並非只檢查 Library 區域。JS 不簽發 token、不讀 JWT。
 
 相關：[流程](workflow-diagram.md)／[架構](architecture.md)／[待辦](backlog.md)／[歷史](update-history.md)／[案例](test-suite.md)。
+
+## 推薦工作的前端流程（Job 計畫 M7）
+
+```mermaid
+flowchart TD
+  F[/ai 表單送出/] --> FLAG{data-recommendation-jobs}
+  FLAG -->|false| SYNC[原本的同步推薦]
+  FLAG -->|true| POST[POST /api/recommendations/jobs + Idempotency-Key]
+  POST -->|202| PAGE[導向 /ai/jobs/{jobId}]
+  POST -->|網路錯誤| KEEP[保留 key，同一段文字再送出沿用]
+  PAGE --> POLL{分頁可見？}
+  POLL -->|是| GET[每 3 秒 GET 狀態]
+  POLL -->|否| PAUSE[停止，回到前景立刻查一次]
+  GET -->|SUCCEEDED 或 FAILED| RELOAD[重新載入，由伺服器輸出最終狀態]
+```

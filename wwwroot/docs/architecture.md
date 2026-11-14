@@ -1,5 +1,6 @@
 # wwwroot 架構與選型
 
+> 非同步推薦 Job M7 補記：2026-11-14 更新；程式變更以 `4db0c98`、`e00cbb5`、`5559870`、`ac88ef2` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > Canonical Category P5 補記：2026-11-14 更新；程式變更以 `a9b7ad1`、`d43ea57` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 > 查核：2026-10-24；HEAD `91333c334148fa5bfe07055d0e799dc13bb0bb4e`。當前工作樹靜態證據；本次未執行 build、測試、瀏覽器、網路或發布。只新增本目錄五份文件。
@@ -44,3 +45,8 @@ AI 400 只讀 validation requirementText、429 有專屬文案；502／504／其
 AiPageTests 明言沒有執行 JS；現有 WebIntegration 驗證 HTML／API，不證明 fetch、storage、rollback、focus 或視覺正確，見 WB-01；[test-plan §2](../../Docs/testing/test-plan.md) 明定 MVP 不做網站 browser E2E，純 DOM harness 可獨立評估，不代表解除暫緩。MapStaticAssets 與 Web SDK 下，wwwroot/docs 應視為可能隨靜態資產發布；沒有排除規則，未 build／publish／HTTP 驗證，不能宣稱 Markdown 一定可下載或一定私有，見 WB-02。本任務依指定位置保存，不擅自移出或改設定。
 
 相關：[流程](workflow-diagram.md)／[架構](architecture.md)／[待辦](backlog.md)／[歷史](update-history.md)／[案例](test-suite.md)。
+
+## 推薦工作的前端（Job 計畫 M7）
+
+- [ai.js](../js/ai.js)：`data-recommendation-jobs="true"` 時，送出改呼叫 `POST /api/recommendations/jobs`，帶 `Idempotency-Key`（每次送出以 `crypto.randomUUID()` 產生；沒有這個 API 時不送 header）。網路錯誤時保留 key，同一段文字再送出會沿用；收到任何 HTTP 回應就清除。202 導向 `/ai/jobs/{jobId}`；401 保存文字後導向登入；429 每日上限文案；400 伺服器的驗證訊息；409 與其他狀態用通用文案。`false` 時維持原本的同步流程。
+- [ai-job.js](../js/ai-job.js)：狀態為 QUEUED／RUNNING 時，分頁可見就每 3 秒查詢 `data-job-status-url`；切到背景時停止，回到前景立刻查一次並恢復輪詢；狀態變成 SUCCEEDED 或 FAILED 就重新載入頁面。查詢回 401（登出）或 404（頁面已不存在，例如功能被關閉）時停止並重新載入，讓伺服器顯示登入頁或找不到頁；其他失敗會在下一次重試。不使用 innerHTML，也不含任何訊息文案。

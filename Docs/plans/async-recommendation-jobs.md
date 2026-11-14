@@ -1,10 +1,10 @@
-# 非同步 AI 推薦 Job（Recommendation Job）— v1.2 實作計畫
+# 非同步 AI 推薦 Job（Recommendation Job）— v1.3 實作計畫
 
 > Baseline：`origin/main @ 80f558b`（2026-11-14）。
 >
 > 來源：使用者提供的「Book-Finder 非同步 AI 推薦工作系統：實作規劃 v1.0（Proposed）」，經 repo 現況核對與使用者決定（下表）整理成本版。
 >
-> **狀態：M1～M6 已實作（2026-11-14）**：M1（#193）、M2（#195）、M3（#194）已合併；M4（#196）、M5（#197）審核中；M6 Runner 與 Worker 已實作（`RecommendationJobs:Enabled` 預設 false，部署後不會執行任何 Job）。下一步 M7 API 與頁面。
+> **狀態：M1～M7 已實作（2026-11-14）**：M1（#193）、M2（#195）、M3（#194）已合併；M4（#196）、M5（#197）、M6（#198）審核中；M7 Job API、`/ai` 工作列表、`/ai/jobs/{id}` 狀態頁與 JS 已實作。`RecommendationJobs:Enabled` 預設 false，部署後行為與現在相同。下一步 M8：瀏覽器檢查、故障注入、兩軸 code review 與上線手冊。
 >
 > 本文件是實作計畫，不代表功能已實作、測試已通過或取得 production 授權。技術 authority 仍是各模組的 `docs/`（`AGENTS.md` §3.2）；實作時把定案的 contract 寫進 owning module 的 docs，不只寫在這裡。變更記在文末「設計變更紀錄」。
 
@@ -366,3 +366,4 @@ loop until stoppingToken:
 | v1.0 | 2026-11-14 | 由使用者原稿 v1.0（Proposed）整理；記錄決定 #1～#4；補充本計畫的工程假設：Pipeline 切分、usage 公式、DB 時鐘 fencing、shutdown 釋放不扣次數、固定 error_code、Idempotency-Key 格式、flag 關閉時 Job API 回 404、指標以 log 輸出。 |
 | v1.1 | 2026-11-14 | §3.3：Pipeline 改為接受呼叫端的 `save` 步驟、保存仍在 60 秒預算內（原為不含保存的 `ComputeAsync`），讓 Job 的 fenced commit 與舊路徑逾時語意相同（M3）。M1 的 compat seed 在新增 migration 的同一個 PR 提供（deploy DEP-B25 方向 (b)）；129 字元的 idempotency key 先被 varchar(128) 拒絕（22001），CHECK 是第二層。M1 與 M3 並行開發。 |
 | v1.2 | 2026-11-14 | Lease 操作改用獨立的 port `IRecommendationJobLeaseStore`／`EfRecommendationJobLeaseStore`（原計畫放在 `IRecommendationJobStore`），M5 因此只依賴 M1，可與 M4 並行。Search 與 Results 的建列邏輯抽成 `RecommendationSearchRows`，由舊路徑 store 與 fenced commit 共用。固定 error_code 定義在 `RecommendationJobErrorCodes`。 |
+| v1.3 | 2026-11-14 | M8 兩軸 code review 後：§3.7 的 `errorCode` 只在 FAILED 時輸出（重排與恢復會在資料庫留下上一次的 error_code）；開關關閉時，列表、單筆查詢與 `/ai/jobs/{id}` 也回 404（決定 #4：開關同時控制 Worker 與前端；排隊中的 Job 仍保留在資料庫，開關打開後繼續執行並恢復可見）；`ai-job.js` 遇到 401／404 時停止輪詢並重新載入；Models 改用自己的狀態對照，不依賴 Persistence。Worker 的 structured log 以訊息文字表示結果，沒有獨立的 `status` 欄位，可用 `ErrorCode` 與訊息區分。 |

@@ -1,5 +1,6 @@
 # Views 文字測試案例庫
 
+> 非同步推薦 Job M7 補記：2026-11-14 更新；程式變更以 `4db0c98`、`e00cbb5`、`5559870`、`ac88ef2` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > Canonical Category P5 補記：2026-11-14 更新；程式變更以 `a9b7ad1`、`c2d68a1`、`d43ea57` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 查核：2026-10-24；HEAD `91333c3`。本次未執行 build、test、browser 或 network。以下已有測試代表 source 有斷言，不代表本次通過。
@@ -77,3 +78,6 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter 'FullyQualifiedN
   - 停用 JS：手機顯示 `<noscript>` 連結並可導覽；「分類」與「隱藏分類」按鈕不顯示；桌面側邊欄仍顯示。
 - 已知限制：收合偏好由 JS 在載入後套用，桌面版收合狀態下重新整理時，側邊欄可能先閃現一下。
 
+### VIEW-T14
+
+推薦工作頁面（Job 計畫 M7）。由 WebIntegration [AiJobPageTests](../../tests/WebIntegration/AiJobPageTests.cs) 驗證，見 Controllers JOB-02。2026-11-14 通過；JS 未在瀏覽器執行。

@@ -29,6 +29,14 @@ public class StoredEnumTests
         Assert.Equal("status IN ('QUEUED', 'RUNNING', 'SUCCEEDED', 'FAILED')", StoredEnum.InSql<RecommendationJobStatus>("status"));
     }
 
+    // The job API and page keep their own status map (Models must not depend on Persistence); it must equal what the database stores.
+    [Fact]
+    public void Job_status_codes_in_the_web_layer_match_the_stored_values()
+    {
+        foreach (var status in Enum.GetValues<RecommendationJobStatus>())
+            Assert.Equal(StoredEnum.ToStored(status), Book_Finder.Models.RecommendationJobStatusCodes.Of(status));
+    }
+
     [Fact]
     public void Every_value_roundtrips()
     {

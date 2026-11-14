@@ -1,5 +1,6 @@
 # Controllers 詳細流程
 
+> 非同步推薦 Job M7 補記：2026-11-14 更新；程式變更以 `4db0c98`、`e00cbb5`、`5559870`、`ac88ef2` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > Canonical Category P5 補記：2026-11-14 更新；程式變更以 `a9b7ad1`、`c2d68a1`、`d43ea57` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 本文件依 2026-10-24 工作樹（基準 commit `91333c3`）整理現有流程。實線表示目前實作；明確標示的缺口不是已完成功能。Controller 只負責 HTTP 與 Application 結果映射，圖中的 SQL、外部呼叫與 transaction 均由下層負責。
@@ -269,3 +270,23 @@ flowchart TD
 ```
 
 紀錄的 rank、reason、relevance 使用已保存快照；書名、作者、封面讀目前 Book 資料，difficulty 即時讀取。首頁需求文字的 `sessionStorage` 傳遞、成功後刷新片段、loading 與 401 導向屬 `wwwroot/js/ai.js` 的瀏覽器流程，非 Controller 讀取 query 中的需求文字。
+
+## 推薦工作提交與查詢（Job 計畫 M7）
+
+```mermaid
+sequenceDiagram
+  participant B as Browser /ai
+  participant C as RecommendationJobsController
+  participant S as RecommendationJobService
+  participant P as /ai/jobs/{id}
+  B->>C: POST /api/recommendations/jobs（antiforgery、Idempotency-Key）
+  C->>S: SubmitAsync
+  S-->>C: Accepted / InvalidIdempotencyKey / IdempotencyConflict / DailyLimitReached
+  C-->>B: 202 + Location / 400 / 409 / 429
+  B->>P: 導向狀態頁
+  loop 頁面可見時每 3 秒
+    P->>C: GET /api/recommendations/jobs/{id}
+    C-->>P: status
+  end
+  P->>P: SUCCEEDED 或 FAILED 時重新載入，由伺服器輸出最終狀態
+```

@@ -1,0 +1,39 @@
+@model Book_Finder.Models.AiJobViewModel
+@{
+    ViewData["Title"] = "推薦工作";
+}
+
+<section id="ai-job" class="mb-4" data-job-status-url="@Model.StatusUrl" data-job-status="@Model.StatusCode">
+    <p class="mb-2"><a href="/ai">← 回到 AI 推薦</a></p>
+    <h1 class="h3 mb-3">推薦工作</h1>
+
+    <p class="ai-job-requirement mb-1">@Model.RequirementText</p>
+    <p class="ai-job-time text-muted small mb-3">
+        建立於 @Model.CreatedAtText
+        @if (Model.CompletedAtText is not null)
+        {
+            <span>　完成於 @Model.CompletedAtText</span>
+        }
+    </p>
+    <p class="mb-3">狀態：<span class="ai-job-status fw-bold">@Model.StatusLabel</span></p>
+
+    @if (Model.IsWaiting)
+    {
+        <p class="ai-job-waiting">已加入工作佇列，可以離開網站，稍後回來查看。</p>
+    }
+
+    @if (Model.ResultUrl is not null)
+    {
+        <p class="mb-0"><a class="ai-job-result" href="@Model.ResultUrl">查看推薦結果</a></p>
+    }
+
+    @if (Model.FailureMessage is not null)
+    {
+        <p class="ai-job-failure text-danger">@Model.FailureMessage</p>
+        <p class="mb-0"><a href="/ai">回到 AI 推薦</a></p>
+    }
+</section>
+
+@section Scripts {
+    <script src="~/js/ai-job.js" asp-append-version="true"></script>
+}

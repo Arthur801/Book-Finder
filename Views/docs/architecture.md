@@ -1,5 +1,6 @@
 # Views 架構與呈現契約
 
+> 非同步推薦 Job M7 補記：2026-11-14 更新；程式變更以 `4db0c98`、`e00cbb5`、`5559870`、`ac88ef2` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > Canonical Category P5 補記：2026-11-14 更新；程式變更以 `a9b7ad1`、`c2d68a1`、`d43ea57` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 查核：2026-10-24；HEAD `91333c3`。主 authority 是 [UI Flow](../../Docs/ui/ui-flow.md)；JSON 合約見 [API](../../Docs/api/api-spec.md)，領域用語見 [CONTEXT](../../CONTEXT.md)，安全／資料規則見 [Identity](../../Docs/modules/identity-auth.md)、[Library](../../Docs/modules/user-library.md)、[Catalog](../../Docs/modules/book-catalog.md)、[Recommendation](../../Docs/modules/recommendation.md)。本文件不是第二份規格。
@@ -52,3 +53,9 @@ View 不讀 JWT、不做權限判定；隱藏控制項不等於授權。Book cat
 ai.js 沒 browser AbortController timeout，server 60 秒限制才是契約；history refresh 失敗保留舊列表。library.js PATCH 失敗還原 server 確認值；filtered list 修改狀態後不立即重查，與 server filter 的即時一致性尚待產品決策。完整 E2E 在 [test-plan](../../Docs/testing/test-plan.md) 明確 MVP 不做；[WebFixture](../../tests/WebIntegration/WebFixture.cs) 使用 NullFileProvider、HttpClient 不執行 JS，因此 HTML tests 不能證明 assets 可用或互動成功。
 
 互參：[流程](workflow-diagram.md)、[待辦](backlog.md)、[歷史](update-history.md)、[案例](test-suite.md)。本次未 build/test/render/browser/network。
+
+## 推薦工作頁面（Job 計畫 M7）
+
+- [Ai/Index.cshtml](../Ai/Index.cshtml)：`#ai-form` 輸出 `data-recommendation-jobs="true|false"`；開關開啟時在表單下方加入 [_AiJobList](../Ai/_AiJobList.cshtml)（「推薦工作」、空狀態「還沒有推薦工作」、`/ai?jobsPage=N` 分頁）。原本的推薦紀錄列表不變；兩個列表的分頁連結各自只帶自己的頁碼。
+- [Ai/Job.cshtml](../Ai/Job.cshtml)：根元素 `#ai-job` 帶 `data-job-status-url`（由 view model 的 `StatusUrl` 產生，與 API 的 `statusUrl` 同一個來源）、`data-job-status`；排隊或執行中顯示「已加入工作佇列，可以離開網站，稍後回來查看。」，成功顯示「查看推薦結果」連到 `/ai/history/{searchId}`，失敗顯示依 error code 而定的固定文案；只載入 `ai-job.js`。
+- 需求文字全部經 Razor 編碼。

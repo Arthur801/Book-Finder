@@ -1,0 +1,37 @@
+@model Book_Finder.Models.AiJobListViewModel
+@*
+    The 推薦工作 list under the /ai form (plan async-recommendation-jobs section 3.8). It lists the signed-in user's jobs, newest first,
+    and links each one to its status page. Only /ai renders it, and only while RecommendationJobs:Enabled is true.
+*@
+
+<section id="ai-jobs" class="mt-5" aria-labelledby="ai-jobs-heading">
+    <h2 id="ai-jobs-heading" class="h5 mb-3">推薦工作</h2>
+
+    @if (Model.HasItems)
+    {
+        <ol class="list-unstyled ai-job-list mb-0">
+            @foreach (var item in Model.Items)
+            {
+                <li class="border-bottom">
+                    <a class="ai-job-item d-block py-2 text-decoration-none" href="@item.Url">
+                        <div class="ai-job-requirement" title="@item.RequirementText">@item.RequirementText</div>
+                        <div class="d-flex gap-3 small text-muted">
+                            <span class="ai-job-status">@item.StatusLabel</span>
+                            <span class="ai-job-time">@item.CreatedAtText</span>
+                        </div>
+                    </a>
+                </li>
+            }
+        </ol>
+    }
+    else
+    {
+        <p class="text-muted">還沒有推薦工作</p>
+    }
+
+    @if (Model.TotalCount > 0)
+    {
+        ViewData["PagerLabel"] = "推薦工作分頁";
+        <partial name="_Pager" model="Model.Pager" />
+    }
+</section>

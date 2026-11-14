@@ -1,5 +1,6 @@
 # Infrastructure 修改歷史
 
+> 非同步推薦 Job M7 補記：2026-11-14 更新；程式變更以 `4db0c98`、`e00cbb5`、`5559870`、`ac88ef2` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M6 補記：2026-11-14 更新；程式變更以 `54ad51b`、`0d3b3ac`、`93db136`、`11f86b4`、`c0ac2f6` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M4 補記：2026-11-14 更新；程式變更以 `4b31184`、`5d143b4`、`08d8c9a`、`1f36620`、`ef89755` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M2 補記：2026-11-14 更新；程式變更以 `6717d8f` 記入 update-history。原查核基準保留，未重新審查其餘內容。
@@ -210,3 +211,8 @@ git show <SHA> -- Infrastructure
 
 驗證（2026-11-14，主 agent 重跑）：`dotnet build --no-incremental` 0 warning；UnitTests 933、DatabaseIntegration 248、WebIntegration 293 通過；mutation 見 test-suite INF-T24 與 Application APP-T27。
 
+## 非同步推薦 Job M7（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-14 | `4db0c98` | feat(rec-jobs): add the job submit, list and get API | `Identity/ApiProblemResults.cs`（`IdempotencyConflict`） |

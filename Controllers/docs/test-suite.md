@@ -1,5 +1,6 @@
 # Controllers：面向 AI 的文字測試案例庫
 
+> 非同步推薦 Job M7 補記：2026-11-14 更新；程式變更以 `4db0c98`、`e00cbb5`、`5559870`、`ac88ef2` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > Canonical Category P5 補記：2026-11-14 更新；程式變更以 `a9b7ad1`、`c2d68a1`、`d43ea57` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 版本日期：2026-10-24；程式基準：`91333c3`。用途：讓後續 AI 能依固定資料、操作與斷言補寫或執行測試。這是案例規格，不是測試執行報告，也不取代 [test-plan.md](../../Docs/testing/test-plan.md)、[api-spec.md](../../Docs/api/api-spec.md) 與各 module 規格。
@@ -216,3 +217,12 @@ dotnet test tests/WebIntegration/WebIntegration.csproj
 依案例可再執行 `tests/DatabaseIntegration/DatabaseIntegration.csproj` 的受影響測試。不以只跑 UnitTests 代表 HTTP pipeline 通過，也不以 Web tests 代表 production 或真實 AI 品質驗證。
 
 每次報告至少包含：案例 ID、commit、執行命令、fixture／fake 設定、預期值、實際值、HTTP＋DB＋Calls 證據、PASS／FAIL／NOT RUN／BLOCKED，以及未覆蓋的範圍。若是調查案例，先寫觀測結果與對照的規格，不虛構通過結果。
+
+## 13. 推薦工作 API 與頁面（Job 計畫 M7）
+
+- **JOB-01 API**（[RecommendationJobApiTests](../../tests/WebIntegration/RecommendationJobApiTests.cs)，24 項）：未登入 401；缺 antiforgery 400 且沒有 Job；空白／501 字需求 400；Idempotency-Key 格式錯 400；正確提交 202＋Location，Job 為 QUEUED 且沒有呼叫 fake AI；同 key 同內容回同一個 jobId、只有一列；同 key 不同內容 409；第 21 次 429；列表只含本人且分頁欄位正確；查詢本人 200、他人／不存在／非 GUID 404；SUCCEEDED 有 resultUrl、FAILED 有 errorCode；開關關閉時所有 Job API 404，同步 API 照常。
+- **JOB-02 頁面**（[AiJobPageTests](../../tests/WebIntegration/AiJobPageTests.cs)，19 項）：四種狀態各自的文字與連結；他人／不存在／非 GUID／開關關閉 404；`/ai` 在開關開啟時有工作列表、`jobsPage` 分頁與空狀態，關閉時沒有；需求文字經 HTML 編碼。
+- **JOB-03 端到端**（[RecommendationJobEndToEndTests](../../tests/WebIntegration/RecommendationJobEndToEndTests.cs)）：開關開啟、Worker 以 100 ms 輪詢 → 提交 → 輪詢到 SUCCEEDED → 同一使用者打開 `/ai/history/{searchId}` 回 200。
+- 測試控制：WebFixture 的 `JobsEnabled`（預設 false）、`RunJobWorker`（預設 false，會移除 Worker 這個 hosted service）、`JobPollInterval`。
+- 狀態：2026-11-14 主 agent 重跑 UnitTests 982、DatabaseIntegration 248、WebIntegration 337 全數通過。mutation：拿掉提交端點的開關判斷 → `With_the_flag_off_every_job_endpoint_returns_404…` 失敗，已還原。
+- 未驗證：瀏覽器實際執行 JS（TEST-B03 網站 E2E 仍暫緩）。
