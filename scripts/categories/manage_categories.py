@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Canonical category maintenance CLI (Docs/plans/canonical-category-browse.md §3).
 
 Run from the repository root:  python scripts/categories/manage_categories.py <command> [options]
