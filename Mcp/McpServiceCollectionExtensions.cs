@@ -1,5 +1,9 @@
+using Book_Finder.Mcp.Security;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Options;
+using ModelContextProtocol;
+using ModelContextProtocol.AspNetCore.Authentication;
 using ModelContextProtocol.Protocol;
 
 namespace Book_Finder.Mcp;
@@ -21,16 +25,23 @@ public static class McpServiceCollectionExtensions
             .WithListToolsHandler((_, _) => ValueTask.FromResult(new ListToolsResult { Tools = [] }))
             // Stateless: no MCP session is kept between requests, so the endpoint can run without session affinity.
             .WithHttpTransport(options => options.Stateless = true);
+        services.AddMcpAuthentication();
         return services;
     }
 
-    // Maps /mcp only when Mcp:Enabled is true. Anonymous for now; tools and their authorization arrive in later tickets.
+    // Maps /mcp only when Mcp:Enabled is true. The gate runs before MapMcp, on POST /mcp only, so it can read the JSON-RPC body first.
     public static WebApplication MapBookFinderMcp(this WebApplication app)
     {
         var options = app.Services.GetRequiredService<IOptions<McpOptions>>().Value;
         if (!options.Enabled)
             return app;
 
+        app.UseWhen(
+            context => HttpMethods.IsPost(context.Request.Method) && context.Request.Path.StartsWithSegments("/mcp", StringComparison.OrdinalIgnoreCase),
+            branch => branch.UseMiddleware<McpToolAuthorizationMiddleware>());
+        // Serves the same metadata object the challenge names, at the path the challenge names.
+        app.MapGet(McpAuthSetup.ResourceMetadataPath, (IOptionsMonitor<McpAuthenticationOptions> auth) =>
+            Results.Json(auth.Get(McpAuthSetup.ChallengeScheme).ResourceMetadata, McpJsonUtilities.DefaultOptions));
         app.MapMcp("/mcp");
         return app;
     }
