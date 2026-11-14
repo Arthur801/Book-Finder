@@ -1,10 +1,10 @@
-# Canonical Category 分類瀏覽 — v2.3 實作計畫
+# Canonical Category 分類瀏覽 — v2.4 實作計畫
 
 > Baseline：`origin/main @ 6ef2cd6`（2026-11-14）。
 >
 > 來源：使用者提供的 v2.0 提案（Proposed），經 repo 現況核對與使用者決定（下表）整理成本版。
 >
-> **狀態：P0 完成；P1（EF Schema）、P2（Python 工具）已實作，PR 審核中（2026-11-14）**：production 盤點結果與使用者審核過的分類集合見 §5「P0 結果」；工具用法見 [scripts/categories/README.md](../../scripts/categories/README.md)。
+> **狀態：P0～P2 完成並合併；P1 migration 已由 v0.0.8 部署到 production；P3 進行中（2026-11-14）**：production 盤點結果與使用者審核過的分類集合見 §5「P0 結果」；工具用法見 [scripts/categories/README.md](../../scripts/categories/README.md)。
 >
 > 本文件是實作計畫，不代表功能已實作、測試已通過或取得 production 授權。變更記在文末「設計變更紀錄」。
 
@@ -40,6 +40,7 @@
 | 5 | （P0 審核）誠品第 2 層「簡體書」獨立成一類 `simplified-chinese`，不拆到各主題。 |
 | 6 | （P0 審核）誠品第 2 層 id 從**分類樹存檔**取得（`eslite_category_pages.py` 讀的同一份 API 回應），不從 `eslite-pages.txt` 的註解推，也不用第 2 層名稱當 key。 |
 | 7 | （P2）誠品「繪本／插畫／漫畫」「語言考用」同時在「青少年」與「簡體書」下，**都歸簡體書**，以 `subject_mappings.toml` 的 MANUAL 規則寫入。 |
+| 8 | （P3 dry-run 審核）誠品「宗教」（人文史哲下）、「命理占星／風水」（生活風格下）**都歸 `religion`**，與博客來、金石堂的「宗教命理」一致；以 MANUAL 規則覆蓋推導結果。Mapping 總數仍為 283。 |
 
 ## 1. 範圍
 
@@ -360,6 +361,7 @@ crawler 的寫入契約沒有改變，`crawler/docs` 不需要更新。
 
 | 日期 | 版本 | 變更 |
 |---|---|---|
+| 2026-11-14 | v2.4 | P3 dry-run 審核：誠品兩個宗教命理名稱改歸 `religion`（決定 #8）；P1 migration 隨 v0.0.8 部署（部署前清理 EC2 磁碟，見 deploy backlog DEP-B24）。 |
 | 2026-11-14 | v2.3 | P2 完成：<br>- 誠品兩個同名第 3 層歸簡體書（決定 #7）；<br>- 分類樹存檔由使用者以既有清單工具取得，不需要新增 crawler 選項；<br>- 工具另有 `eslite-import`（產生 `config/eslite_level3.tsv`）與 `--config-dir`；`--apply` 先鎖表再計算計畫；orphan 只回報不刪除。 |
 | 2026-11-14 | v2.2 | P0 完成：<br>- 記錄 production 盤點結果；<br>- 18 類 Canonical Category 與各來源頂層對照（決定 #4）；<br>- 誠品「簡體書」獨立成一類（決定 #5）；<br>- 誠品第 2 層 id 改從分類樹存檔取得，展開結果 commit 為 `config/eslite_level3.tsv`（決定 #6）。 |
 | 2026-11-14 | v2.1 | 由 v2.0 提案整理：<br>- Mapping 粒度依來源而定（決定 #1）；<br>- `init` 改為只驗證（決定 #2）；<br>- P0 改為唯讀 SQL 加上使用者審核（決定 #3）；<br>- YAML 改為 TOML；<br>- 新增 `book_subjects (source_code, subject)` index。 |

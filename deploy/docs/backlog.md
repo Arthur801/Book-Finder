@@ -40,6 +40,7 @@
 | DEP-B20 | P1 | L4 | 部分驗證 | `client_connection_check_interval` 經 Npgsql `Options` 傳給 efbundle：Npgsql 送出 Options（負向對照已證）、生效值未讀到；RDS 版本已確認為 17.11（≥ 14） |
 | DEP-B21 | P1 | L4 | 已緩解；殘留風險已接受（2026-10-25） | 保險 (a) 釋放前等連線結束、(b) 殘留容器拒絕、效果接受前的 final heartbeat；超時後的殘留風險與 host 被 SIGKILL 的風險仍在 |
 | DEP-B23 | P1 | L3 | 大部分已驗證；未驗證項保留 | 真 lock holder 與拋棄式 PG 17 的整合測試已執行（test-suite §3.22）；efbundle 的 SIGTERM／kill 與 RDS 版本仍未驗證 |
+| DEP-B24 | P1 | L3（程式）／L4（擴大 EBS、host 清理） | 已發生（營運觀察，2026-11-14） | EC2 root 磁碟只有 6.7 GB，host 從不刪除舊 image；v0.0.8 的 plan 因 `no space left on device` 失敗 |
 
 ## 2. 項目
 
@@ -249,6 +250,18 @@
   2. efbundle 的 SIGTERM 與 `docker kill` 的實際行為（本次只在 fake 驗證）。
   3. ~~RDS 的 PostgreSQL 版本（DEP-B20）~~：已確認 17.11。
 - **測試入口**：`deploy/tests/integration/test_migration_lock_it.py`。
+
+### DEP-B24 EC2 磁碟空間與舊 image 累積
+
+- **狀態**：已發生（營運觀察，2026-11-14）；已人工緩解，根因未處理。
+- **經過**：
+  1. v0.0.8 的 CD `plan` 在 host pull 目標 web image 時失敗（exit 2，`no space left on device`）；root 是 6.7 GB，使用率 100%，`/var/lib/containerd` 約 2.1 GB。
+  2. 使用者人工刪除 state 沒有引用的 8 個舊 image，以及 `pgvector/pgvector@sha256:ac0853…`。
+  3. 再次 plan 回報 exit 3：`schema: observation failed: … No such image: pgvector/pgvector@sha256:ac0853…`。這個 image 是 `host.conf` 的 `PSQL_IMAGE`，host 用它執行 psql 讀取 migration history。重新以 digest pull 後 plan 正常。
+  4. 另外刪除 v0.0.6（當時的 `previous_runtime`）的 web 與 crawler image 以騰出空間；回滾到 v0.0.6 時 host 會依 digest 重新 pull。v0.0.8 部署成功。
+- **必須保留的 image**：`state.json` 的 `runtime`（web、crawler）、`previous_runtime`、`crawler.digest`，以及 **`host.conf` 的 `PSQL_IMAGE`**。只看 `deploy/host` 程式碼找不到 `PSQL_IMAGE` 的 digest。
+- **方向**（待使用者決定）：(a) host 在 deploy 成功後刪除上述清單以外的 `book-finder-*` image，L3 程式修改，需要測試；(b) 擴大 EBS，L4，會產生費用。兩者可以並行。
+- **驗收條件**：連續發布數個 release 後，root 使用率維持在安全範圍；清理永遠不刪除上述必須保留的 image。
 
 ## 3. 已處理
 
