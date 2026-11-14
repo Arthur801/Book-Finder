@@ -86,3 +86,4 @@ git show <commit> -- Controllers
 | Author 日期 | SHA | subject | 本目錄實際改動檔案 |
 |---|---|---|---|
 | 2026-11-14 | `a9b7ad1` | feat(categories): add the 分類 browse page with sidebar and source filter | `CategoriesController.cs`（新增） |
+| 2026-11-14 | `ec42a67` | test(categories): cover the sidebar count badges over HTTP | Controllers 無程式變更；CategoryPageTests 新增 CAT-06（Spec review） |

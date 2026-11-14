@@ -96,6 +96,7 @@ PIPE-03／PIPE-06 證據分層（均未在本次執行）：[AuthPipelineTests](
 | CAT-02／已有測試 | 未知 slug、未知 source、停用分類、大小寫不符的 slug | 404 NotFound View。 |
 | CAT-03／已有測試 | page 超過最後一頁 | 302 至最後一頁，保留 category 與 source。 |
 | CAT-04／已有測試 | 有書的分類與空分類 | 側邊欄、來源連結與分頁連結保留另一個條件並重置頁碼；目前項目有 `aria-current="page"`；空分類 200 並顯示空狀態文字。 |
+| CAT-06／已有測試 | 側邊欄書數徽章（無篩選、`?source=ESLITE`、`?source=BOOKS_COM_TW`） | 跨來源同一本書在同一分類只算一次；一書多類各算一次；來源篩選只計該來源的 Subject；全部書籍＋來源依 `book_sources` 計數（code review 後補，`ec42a67`）。 |
 | CAT-05／已有測試 | 頁面結構 | 有 `#category-sidebar`、帶 aria-controls／aria-expanded 的切換按鈕與 `<noscript>` 連結清單；不含 description／TOC；`/books`、`/search` 仍為 200。 |
 
 ## 6. AccountController 與登入待辦

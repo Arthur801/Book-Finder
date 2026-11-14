@@ -132,5 +132,5 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter 'FullyQualifiedN
 - 規格：[分類計畫](../../Docs/plans/canonical-category-browse.md) §4.2、§4.3；入口 [CategoryBrowseViewModelTests](../../tests/UnitTests/CategoryBrowseViewModelTests.cs)，2026-11-14 UnitTests 866 項通過。
 - Given：CategoryBrowseResult（有／無選取分類與來源，有／無書）。
 - When：`CategoryBrowseViewModel.From`、`UrlFor`。
-- Then：UrlFor 省略空值與第 1 頁、參數順序固定且編碼；分類連結保留來源、來源連結保留分類，兩者都重置頁碼；分頁保留兩者；「全部書籍」「全部來源」與目前分類／來源的 IsCurrent 正確；Heading、SourceLabel、SummaryText（無書為 null）、EmptyText（分類與全部書籍不同）。
+- Then：UrlFor 省略空值與第 1 頁、參數順序固定且編碼；分類連結保留來源、來源連結保留分類，兩者都重置頁碼；分頁保留兩者；「全部書籍」「全部來源」與目前分類／來源的 IsCurrent 正確；Heading、SourceLabel、SummaryText（無書為 null）、EmptyText（選了分類：「這個分類目前沒有書」；只選來源：「這個來源目前沒有書」；都沒選：「書庫還沒有書」）。
 

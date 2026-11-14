@@ -96,3 +96,4 @@ git show cda623f -- Models
 | Author 日期 | SHA | subject | 本目錄實際改動檔案 |
 |---|---|---|---|
 | 2026-11-14 | `a9b7ad1` | feat(categories): add the 分類 browse page with sidebar and source filter | `CategoryBrowseViewModel.cs`（新增，含 FilterLinkViewModel） |
+| 2026-11-14 | `b73f23c` | fix(categories): name the source in the empty text when only a source is selected | `CategoryBrowseViewModel.cs`：只選來源且沒有書時顯示「這個來源目前沒有書」（Spec review） |
