@@ -1,11 +1,10 @@
 using System.Net;
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
-using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.EntityFrameworkCore;
 using static WebIntegration.HtmlPage;
+using static WebIntegration.OAuthTestClient;
 
 namespace WebIntegration;
 
@@ -15,22 +14,7 @@ namespace WebIntegration;
 [Collection(WebCollection.Name)]
 public sealed class OAuthFlowTests(WebFixture fixture)
 {
-    private const string Issuer = "https://khwebsc.com/";
-    private const string Resource = "https://khwebsc.com/mcp";
-    private const string ClientId = "test-client";
-    private const string Callback = "https://client.example/callback";
-    private const string LoopbackCallback = "http://127.0.0.1:33418/callback";
-    private const string Password = "correct-horse-battery";
-    private const string State = "xyz-state";
-    // The RFC 7636 appendix B verifier; its S256 challenge is computed in AuthorizeParams.
-    private const string Verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
     private const string ConsentScopeText = "books:recommend：以你的帳號提交 AI 推薦並查看推薦結果（會使用你的每日 AI 推薦額度）";
-
-    private static readonly WebApplicationFactoryClientOptions ClientOptions = new()
-    {
-        BaseAddress = new Uri("https://localhost"),
-        AllowAutoRedirect = false,
-    };
 
     [Fact]
     public async Task Anonymous_authorize_request_is_sent_to_login_with_the_whole_original_request_as_return_url()
@@ -429,54 +413,6 @@ public sealed class OAuthFlowTests(WebFixture fixture)
         Assert.Equal(HttpStatusCode.NotFound, token.StatusCode);
     }
 
-    // The request parameters of a valid authorization request. A null value removes the parameter; any other value replaces it.
-    private static Dictionary<string, string> AuthorizeParams(params (string Name, string? Value)[] changes)
-    {
-        var values = new Dictionary<string, string>
-        {
-            ["client_id"] = ClientId,
-            ["redirect_uri"] = Callback,
-            ["response_type"] = "code",
-            ["scope"] = "books:recommend",
-            ["state"] = State,
-            ["code_challenge"] = Challenge(Verifier),
-            ["code_challenge_method"] = "S256",
-        };
-        foreach (var (name, value) in changes)
-        {
-            if (value is null)
-                values.Remove(name);
-            else
-                values[name] = value;
-        }
-        return values;
-    }
-
-    private static string Query(Dictionary<string, string> values) =>
-        string.Join("&", values.Select(pair => $"{Uri.EscapeDataString(pair.Key)}={Uri.EscapeDataString(pair.Value)}"));
-
-    // S256: BASE64URL(SHA256(ASCII(verifier))), without padding (RFC 7636 section 4.2).
-    private static string Challenge(string verifier) =>
-        Convert.ToBase64String(SHA256.HashData(Encoding.ASCII.GetBytes(verifier)))
-            .TrimEnd('=').Replace('+', '-').Replace('/', '_');
-
-    private static (string Name, string Value)[] CodeExchange(string code, string verifier = Verifier) =>
-    [
-        ("grant_type", "authorization_code"),
-        ("code", code),
-        ("redirect_uri", Callback),
-        ("client_id", ClientId),
-        ("code_verifier", verifier),
-    ];
-
-    private static List<(string Name, string Value)> FormFields(Dictionary<string, string> values, string? submit = null)
-    {
-        var fields = values.Select(pair => (pair.Key, pair.Value)).ToList();
-        if (submit is not null)
-            fields.Add((submit, submit["submit.".Length..]));
-        return fields;
-    }
-
     private BookFinderFactory CreateOAuthFactory()
     {
         var app = fixture.CreateFactory();
@@ -485,46 +421,4 @@ public sealed class OAuthFlowTests(WebFixture fixture)
         return app;
     }
 
-    private static Uri LocationOf(HttpResponseMessage response) =>
-        new(new Uri("https://localhost"), response.Headers.Location!);
-
-    private static Dictionary<string, string> QueryOf(Uri uri) =>
-        QueryHelpers.ParseQuery(uri.Query).ToDictionary(pair => pair.Key, pair => pair.Value.ToString());
-
-    private static async Task<JsonElement> JsonOfAsync(HttpResponseMessage response) =>
-        JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement.Clone();
-
-    private static Task<HttpResponseMessage> TokenAsync(HttpClient client, params (string Name, string Value)[] fields) =>
-        client.PostAsync("/oauth/token", new FormUrlEncodedContent(fields.Select(field => new KeyValuePair<string, string>(field.Name, field.Value))));
-
-    // Registers a user in a fresh browser session. Registering signs the user in, so the returned client holds the website cookie.
-    private static async Task<HttpClient> SignedInClientAsync(BookFinderFactory app, string email)
-    {
-        var client = app.CreateClient(ClientOptions);
-        var response = await AccountFlow.RegisterAsync(client, email, Password, "OAuth Tester");
-        Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
-        return client;
-    }
-
-    // Reads the consent page (which sets the antiforgery cookie), then posts the form the way the browser does.
-    private static async Task<HttpResponseMessage> SubmitConsentAsync(HttpClient client, Dictionary<string, string> values, string submit)
-    {
-        var page = await client.GetPageAsync("/oauth/authorize?" + Query(values));
-        return await AccountFlow.PostFormAsync(client, "/oauth/authorize", AntiforgeryToken(page), FormFields(values, submit).ToArray());
-    }
-
-    // Approves the consent page and returns the callback URL the authorization response redirects to.
-    private static async Task<Uri> ApproveAsync(HttpClient client, Dictionary<string, string> values)
-    {
-        var response = await SubmitConsentAsync(client, values, "submit.Accept");
-        Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
-        return LocationOf(response);
-    }
-
-    private static async Task<(HttpClient Client, string Code)> ApprovedCodeAsync(BookFinderFactory app, string email)
-    {
-        var client = await SignedInClientAsync(app, email);
-        var callback = await ApproveAsync(client, AuthorizeParams());
-        return (client, QueryOf(callback)["code"]);
-    }
 }

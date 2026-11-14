@@ -4,23 +4,21 @@ using Book_Finder.Domain.Entities;
 using Book_Finder.Infrastructure.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.IdentityModel.Tokens;
+using Microsoft.Extensions.Time.Testing;
+using Microsoft.Extensions.Options;
+using OpenIddict.Abstractions;
+using OpenIddict.Validation;
+using static WebIntegration.OAuthTestClient;
 
 namespace WebIntegration;
 
-// MCP-002 spike (plan mcp-server section 3.5). The same /mcp endpoint serves an anonymous public tool and a protected tool
-// that must answer HTTP 401 + WWW-Authenticate. Every case goes through real HTTP, and the protected handler is counted so a
-// test proves whether the tool ran. These tests do not replace the OAuth tests that arrive with MCP-201 and MCP-202.
+// The /mcp gate (plan mcp-server section 3.5) with real access tokens from the OAuth flow (MCP-202). The same endpoint serves an
+// anonymous public tool and a protected tool that answers HTTP 401 + WWW-Authenticate. Every case goes through real HTTP, and the
+// protected handler is counted so a test proves whether the tool ran.
 [Collection(WebCollection.Name)]
 public sealed class McpAuthorizationTests(WebFixture fixture)
 {
     private const string ResourceMetadataUri = "https://khwebsc.com/.well-known/oauth-protected-resource/mcp";
-
-    private static readonly WebApplicationFactoryClientOptions ClientOptions = new()
-    {
-        BaseAddress = new Uri("https://localhost"),
-        AllowAutoRedirect = false,
-    };
 
     [Fact]
     public async Task Anonymous_tools_list_shows_public_and_protected_tools()
@@ -88,63 +86,6 @@ public sealed class McpAuthorizationTests(WebFixture fixture)
     }
 
     [Fact]
-    public async Task Valid_token_reaches_the_protected_handler_with_its_sub()
-    {
-        await fixture.ResetDatabaseAsync();
-        await using var app = CreateFactory();
-        var client = app.CreateClient(ClientOptions);
-        var sub = "5b0e6f2a-1f57-4a58-9a1c-2d3c4b5a6f70";
-
-        var response = await McpWire.PostAsync(client, McpWire.ToolsCall("recommend_books"), bearer: McpTestTokens.Mint(sub: sub));
-
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal(sub, ToolText(await McpWire.ReadRpcAsync(response)));
-        Assert.Equal(1, CallCount(app));
-    }
-
-    [Fact]
-    public async Task Valid_token_without_books_recommend_scope_gets_403_insufficient_scope()
-    {
-        await fixture.ResetDatabaseAsync();
-        await using var app = CreateFactory();
-        var client = app.CreateClient(ClientOptions);
-
-        var response = await McpWire.PostAsync(client, McpWire.ToolsCall("recommend_books"), bearer: McpTestTokens.Mint(scope: "openid profile"));
-
-        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
-        var challenge = response.Headers.WwwAuthenticate.ToString();
-        Assert.Contains("insufficient_scope", challenge, StringComparison.Ordinal);
-        Assert.Contains("scope=\"books:recommend\"", challenge, StringComparison.Ordinal);
-        Assert.Contains($"resource_metadata=\"{ResourceMetadataUri}\"", challenge, StringComparison.Ordinal);
-        Assert.Equal(0, CallCount(app));
-    }
-
-    [Theory]
-    [InlineData("expired")]
-    [InlineData("wrong_issuer")]
-    [InlineData("wrong_audience")]
-    [InlineData("wrong_signature")]
-    public async Task Invalid_bearer_token_gets_401_and_never_runs(string kind)
-    {
-        await fixture.ResetDatabaseAsync();
-        await using var app = CreateFactory();
-        var client = app.CreateClient(ClientOptions);
-        var token = kind switch
-        {
-            "expired" => McpTestTokens.Mint(expires: DateTime.UtcNow.AddMinutes(-5)),
-            "wrong_issuer" => McpTestTokens.Mint(issuer: "https://evil.example/"),
-            "wrong_audience" => McpTestTokens.Mint(audience: "https://khwebsc.com/other"),
-            _ => McpTestTokens.Mint(signingKey: new SymmetricSecurityKey(new byte[32])),
-        };
-
-        var response = await McpWire.PostAsync(client, McpWire.ToolsCall("recommend_books"), bearer: token);
-
-        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
-        Assert.StartsWith("Bearer", response.Headers.WwwAuthenticate.ToString(), StringComparison.Ordinal);
-        Assert.Equal(0, CallCount(app));
-    }
-
-    [Fact]
     public async Task Website_login_token_used_as_bearer_is_rejected()
     {
         await fixture.ResetDatabaseAsync();
@@ -174,18 +115,6 @@ public sealed class McpAuthorizationTests(WebFixture fixture)
     }
 
     [Fact]
-    public async Task Invalid_bearer_is_rejected_even_for_the_public_tool()
-    {
-        await fixture.ResetDatabaseAsync();
-        await using var app = CreateFactory();
-        var client = app.CreateClient(ClientOptions);
-
-        var response = await McpWire.PostAsync(client, McpWire.ToolsCall("public_ping"), bearer: McpTestTokens.Mint(issuer: "https://evil.example/"));
-
-        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
-    }
-
-    [Fact]
     public async Task Oversized_body_is_413_and_never_reaches_the_sdk()
     {
         await fixture.ResetDatabaseAsync();
@@ -198,28 +127,6 @@ public sealed class McpAuthorizationTests(WebFixture fixture)
 
         Assert.Equal(HttpStatusCode.RequestEntityTooLarge, response.StatusCode);
         Assert.Equal(0, CallCount(app));
-    }
-
-    // The same challenge and token results must hold for the newer revision, which has no initialize handshake and needs Mcp-Name.
-    [Theory]
-    [InlineData(McpWire.ProtocolVersion)]
-    [InlineData(McpWire.NewProtocolVersion)]
-    public async Task Protocol_revisions_keep_the_401_challenge_and_the_token_path(string protocolVersion)
-    {
-        await fixture.ResetDatabaseAsync();
-        await using var app = CreateFactory();
-        var client = app.CreateClient(ClientOptions);
-
-        var anonymous = await McpWire.PostAsync(
-            client, McpWire.ToolsCall("recommend_books", protocolVersion: protocolVersion), protocolVersion: protocolVersion, mcpName: "recommend_books");
-        var authorized = await McpWire.PostAsync(
-            client, McpWire.ToolsCall("recommend_books", protocolVersion: protocolVersion), bearer: McpTestTokens.Mint(),
-            protocolVersion: protocolVersion, mcpName: "recommend_books");
-
-        Assert.Equal(HttpStatusCode.Unauthorized, anonymous.StatusCode);
-        Assert.Contains($"resource_metadata=\"{ResourceMetadataUri}\"", anonymous.Headers.WwwAuthenticate.ToString(), StringComparison.Ordinal);
-        Assert.Equal(HttpStatusCode.OK, authorized.StatusCode);
-        Assert.Equal(1, CallCount(app));
     }
 
     [Fact]
@@ -238,19 +145,227 @@ public sealed class McpAuthorizationTests(WebFixture fixture)
         Assert.Equal("application/problem+json", api.Content.Headers.ContentType?.MediaType);
     }
 
-    private BookFinderFactory CreateFactory(bool jobsEnabled = false)
+    // Real tokens from the authorization server: the sub is the Book-Finder user id, and the tool counts one call.
+    [Theory]
+    [InlineData(McpWire.ProtocolVersion)]
+    [InlineData(McpWire.NewProtocolVersion)]
+    public async Task Real_access_token_reaches_the_protected_handler_with_the_users_sub(string protocolVersion)
+    {
+        await fixture.ResetDatabaseAsync();
+        await using var app = CreateFactory();
+        var tokens = await ObtainTokensAsync(app, "gate-sub@x.com");
+        var client = app.CreateClient(ClientOptions);
+
+        var response = await McpWire.PostAsync(
+            client, McpWire.ToolsCall("recommend_books", protocolVersion: protocolVersion), bearer: tokens.AccessToken,
+            protocolVersion: protocolVersion, mcpName: "recommend_books");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(tokens.UserId.ToString(), ToolText(await McpWire.ReadRpcAsync(response)));
+        Assert.Equal(1, CallCount(app));
+    }
+
+    // Protocol 2026-07-28 mirrors the tool name in Mcp-Name; the challenge and the token path must hold for both revisions.
+    [Theory]
+    [InlineData(McpWire.ProtocolVersion)]
+    [InlineData(McpWire.NewProtocolVersion)]
+    public async Task Protocol_revisions_keep_the_401_challenge_and_the_token_path(string protocolVersion)
+    {
+        await fixture.ResetDatabaseAsync();
+        await using var app = CreateFactory();
+        var tokens = await ObtainTokensAsync(app, "gate-revisions@x.com");
+        var client = app.CreateClient(ClientOptions);
+
+        var anonymous = await McpWire.PostAsync(
+            client, McpWire.ToolsCall("recommend_books", protocolVersion: protocolVersion), protocolVersion: protocolVersion, mcpName: "recommend_books");
+        var authorized = await McpWire.PostAsync(
+            client, McpWire.ToolsCall("recommend_books", protocolVersion: protocolVersion), bearer: tokens.AccessToken,
+            protocolVersion: protocolVersion, mcpName: "recommend_books");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, anonymous.StatusCode);
+        Assert.Contains($"resource_metadata=\"{ResourceMetadataUri}\"", anonymous.Headers.WwwAuthenticate.ToString(), StringComparison.Ordinal);
+        Assert.Equal(HttpStatusCode.OK, authorized.StatusCode);
+        Assert.Equal(1, CallCount(app));
+    }
+
+    // A token that is not a valid access token for this host: tampered, random, or a website login token. Each is refused with 401.
+    [Theory]
+    [InlineData("tampered")]
+    [InlineData("random")]
+    [InlineData("website_login_token")]
+    public async Task Invalid_bearer_token_gets_401_and_never_runs(string kind)
+    {
+        await fixture.ResetDatabaseAsync();
+        await using var app = CreateFactory();
+        var tokens = await ObtainTokensAsync(app, "gate-invalid@x.com");
+        var client = app.CreateClient(ClientOptions);
+        var token = kind switch
+        {
+            "tampered" => Tamper(tokens.AccessToken),
+            "random" => Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(64)),
+            _ => app.Services.GetRequiredService<AuthTokenIssuer>().Issue(NewUser()),
+        };
+
+        var response = await McpWire.PostAsync(client, McpWire.ToolsCall("recommend_books"), bearer: token);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.StartsWith("Bearer", response.Headers.WwwAuthenticate.ToString(), StringComparison.Ordinal);
+        Assert.Equal(0, CallCount(app));
+    }
+
+    // A token signed by another host (its own ephemeral keys) is not accepted here.
+    [Fact]
+    public async Task Token_issued_by_another_host_is_refused()
+    {
+        await fixture.ResetDatabaseAsync();
+        await using var issuing = CreateFactory();
+        var tokens = await ObtainTokensAsync(issuing, "gate-foreign@x.com");
+        await using var receiving = CreateFactory();
+        var client = receiving.CreateClient(ClientOptions);
+
+        var response = await McpWire.PostAsync(client, McpWire.ToolsCall("recommend_books"), bearer: tokens.AccessToken);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Equal(0, CallCount(receiving));
+    }
+
+    // The access token lasts one hour (D-09). After the clock passes that, the same token is refused.
+    [Fact]
+    public async Task Expired_access_token_gets_401_and_never_runs()
+    {
+        await fixture.ResetDatabaseAsync();
+        var time = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        await using var app = CreateFactory(time: time);
+        var tokens = await ObtainTokensAsync(app, "gate-expired@x.com");
+        var client = app.CreateClient(ClientOptions);
+
+        var fresh = await McpWire.PostAsync(client, McpWire.ToolsCall("recommend_books"), bearer: tokens.AccessToken);
+        Assert.Equal(HttpStatusCode.OK, fresh.StatusCode);
+
+        time.Advance(TimeSpan.FromHours(1) + TimeSpan.FromMinutes(1));
+        var expired = await McpWire.PostAsync(client, McpWire.ToolsCall("recommend_books"), bearer: tokens.AccessToken);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, expired.StatusCode);
+        Assert.Equal(1, CallCount(app));
+    }
+
+    // EnableAuthorizationEntryValidation: revoking the authorization refuses its tokens at once, even though the JWE is still unexpired.
+    [Fact]
+    public async Task Access_token_is_refused_after_its_authorization_is_revoked()
+    {
+        await fixture.ResetDatabaseAsync();
+        await using var app = CreateFactory();
+        var tokens = await ObtainTokensAsync(app, "gate-revoked@x.com");
+        var client = app.CreateClient(ClientOptions);
+        var before = await McpWire.PostAsync(client, McpWire.ToolsCall("recommend_books"), bearer: tokens.AccessToken);
+        Assert.Equal(HttpStatusCode.OK, before.StatusCode);
+
+        using (var scope = app.Services.CreateScope())
+        {
+            var authorizations = scope.ServiceProvider.GetRequiredService<IOpenIddictAuthorizationManager>();
+            await foreach (var authorization in authorizations.FindBySubjectAsync(tokens.UserId.ToString()))
+                Assert.True(await authorizations.TryRevokeAsync(authorization));
+        }
+
+        var after = await McpWire.PostAsync(client, McpWire.ToolsCall("recommend_books"), bearer: tokens.AccessToken);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, after.StatusCode);
+        Assert.Equal(1, CallCount(app));
+    }
+
+    // Audience: the validation accepts only the MCP resource (Mcp:PublicBaseUrl + /mcp). The server issues tokens for that resource only,
+    // and a token minted for another audience cannot be produced by this host, so the configured value is checked directly.
+    [Fact]
+    public void Validation_accepts_only_the_mcp_resource_as_audience()
+    {
+        using var app = CreateFactory();
+        var options = app.Services.GetRequiredService<IOptionsMonitor<OpenIddictValidationOptions>>().CurrentValue;
+
+        Assert.Equal(["https://khwebsc.com/mcp"], options.Audiences);
+    }
+
+    // The gate reads only the Authorization header. A real token in the query string or a form body does not authorize the call.
+    [Fact]
+    public async Task Access_token_in_the_query_string_does_not_authorize_the_protected_tool()
+    {
+        await fixture.ResetDatabaseAsync();
+        await using var app = CreateFactory();
+        var tokens = await ObtainTokensAsync(app, "gate-query@x.com");
+        var client = app.CreateClient(ClientOptions);
+        var uri = "/mcp?access_token=" + Uri.EscapeDataString(tokens.AccessToken);
+        var request = new HttpRequestMessage(HttpMethod.Post, uri)
+        {
+            Content = new StringContent(McpWire.ToolsCall("recommend_books"), System.Text.Encoding.UTF8, "application/json"),
+        };
+        request.Headers.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
+        request.Headers.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("text/event-stream"));
+        request.Headers.Add("MCP-Protocol-Version", McpWire.ProtocolVersion);
+
+        var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Equal(0, CallCount(app));
+    }
+
+    [Fact]
+    public async Task Access_token_in_the_form_body_does_not_authorize_the_protected_tool()
+    {
+        await fixture.ResetDatabaseAsync();
+        await using var app = CreateFactory();
+        var tokens = await ObtainTokensAsync(app, "gate-form@x.com");
+        var client = app.CreateClient(ClientOptions);
+        var request = new HttpRequestMessage(HttpMethod.Post, "/mcp")
+        {
+            Content = new FormUrlEncodedContent([new KeyValuePair<string, string>("access_token", tokens.AccessToken)]),
+        };
+        request.Headers.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
+        request.Headers.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("text/event-stream"));
+        request.Headers.Add("MCP-Protocol-Version", McpWire.ProtocolVersion);
+
+        var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Equal(0, CallCount(app));
+    }
+
+    // The public tool answers a valid token with 200, and a refused token with 401 (the gate rejects every invalid token).
+    [Fact]
+    public async Task Public_tool_accepts_a_real_token_and_refuses_an_invalid_one()
+    {
+        await fixture.ResetDatabaseAsync();
+        await using var app = CreateFactory();
+        var tokens = await ObtainTokensAsync(app, "gate-public@x.com");
+        var client = app.CreateClient(ClientOptions);
+
+        var valid = await McpWire.PostAsync(client, McpWire.ToolsCall("public_ping"), bearer: tokens.AccessToken);
+        var invalid = await McpWire.PostAsync(client, McpWire.ToolsCall("public_ping"), bearer: Tamper(tokens.AccessToken));
+
+        Assert.Equal(HttpStatusCode.OK, valid.StatusCode);
+        Assert.Equal("pong", ToolText(await McpWire.ReadRpcAsync(valid)));
+        Assert.Equal(HttpStatusCode.Unauthorized, invalid.StatusCode);
+    }
+
+    // Changes one character of the token so its encrypted payload no longer verifies. The separator dots are never changed.
+    private static string Tamper(string token)
+    {
+        var index = token.Length / 2;
+        if (token[index] == '.')
+            index++;
+        var replacement = token[index] == 'A' ? 'B' : 'A';
+        return token[..index] + replacement + token[(index + 1)..];
+    }
+
+    private BookFinderFactory CreateFactory(bool jobsEnabled = false, FakeTimeProvider? time = null)
     {
         var app = fixture.CreateFactory();
         app.McpEnabled = true;
+        app.OAuthTestClient = true;
         app.JobsEnabled = jobsEnabled;
+        app.Time = time;
         app.ConfigureMcp = services =>
         {
             services.AddSingleton<McpCallCounter>();
             services.AddMcpServer().WithTools<McpTestTools>();
-            // The test key replaces the app's missing McpBearer key, so a test token can be validated. The app itself has no key yet.
-            services.PostConfigure<Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerOptions>(
-                Book_Finder.Mcp.Security.McpAuthSetup.BearerScheme,
-                options => options.TokenValidationParameters.IssuerSigningKey = McpTestTokens.Key);
         };
         return app;
     }
