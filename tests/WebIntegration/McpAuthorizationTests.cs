@@ -1,5 +1,4 @@
 using System.Net;
-using System.Text;
 using System.Text.Json;
 using Book_Finder.Domain.Entities;
 using Book_Finder.Infrastructure.Identity;
@@ -210,9 +209,11 @@ public sealed class McpAuthorizationTests(WebFixture fixture)
         await using var app = CreateFactory();
         var client = app.CreateClient(ClientOptions);
 
-        var anonymous = await McpWire.PostAsync(client, McpWire.ToolsCall("recommend_books"), protocolVersion: protocolVersion, mcpName: "recommend_books");
+        var anonymous = await McpWire.PostAsync(
+            client, McpWire.ToolsCall("recommend_books", protocolVersion: protocolVersion), protocolVersion: protocolVersion, mcpName: "recommend_books");
         var authorized = await McpWire.PostAsync(
-            client, McpWire.ToolsCall("recommend_books"), bearer: McpTestTokens.Mint(), protocolVersion: protocolVersion, mcpName: "recommend_books");
+            client, McpWire.ToolsCall("recommend_books", protocolVersion: protocolVersion), bearer: McpTestTokens.Mint(),
+            protocolVersion: protocolVersion, mcpName: "recommend_books");
 
         Assert.Equal(HttpStatusCode.Unauthorized, anonymous.StatusCode);
         Assert.Contains($"resource_metadata=\"{ResourceMetadataUri}\"", anonymous.Headers.WwwAuthenticate.ToString(), StringComparison.Ordinal);
@@ -244,6 +245,9 @@ public sealed class McpAuthorizationTests(WebFixture fixture)
         app.ConfigureMcp = services =>
         {
             services.AddSingleton<McpCallCounter>();
+            // The app's empty list handler (MCP-001) would hide the test tools, so the test host drops it and lists the tool collection.
+            services.AddMcpServer().WithTools<McpTestTools>();
+            services.PostConfigure<ModelContextProtocol.Server.McpServerOptions>(options => options.Handlers.ListToolsHandler = null);
             // The test key replaces the app's missing McpBearer key, so a test token can be validated. The app itself has no key yet.
             services.PostConfigure<Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerOptions>(
                 Book_Finder.Mcp.Security.McpAuthSetup.BearerScheme,

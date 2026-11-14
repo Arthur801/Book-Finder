@@ -72,13 +72,30 @@ internal static class McpWire
 
     public static string ToolsList() => Rpc(new { jsonrpc = "2.0", id = 2, method = "tools/list" });
 
-    public static string ToolsCall(string name, int id = 3) => Rpc(new
+    // Protocol 2026-07-28 has no initialize handshake, so every request carries its version and client info in params._meta.
+    public static string ToolsCall(string name, int id = 3, string protocolVersion = ProtocolVersion)
     {
-        jsonrpc = "2.0",
-        id,
-        method = "tools/call",
-        @params = new { name, arguments = new { } },
-    });
+        if (protocolVersion != NewProtocolVersion)
+            return Rpc(new { jsonrpc = "2.0", id, method = "tools/call", @params = new { name, arguments = new { } } });
+
+        return Rpc(new
+        {
+            jsonrpc = "2.0",
+            id,
+            method = "tools/call",
+            @params = new
+            {
+                name,
+                arguments = new { },
+                _meta = new Dictionary<string, object>
+                {
+                    ["io.modelcontextprotocol/protocolVersion"] = NewProtocolVersion,
+                    ["io.modelcontextprotocol/clientInfo"] = new { name = "book-finder-test", version = "0.0.0" },
+                    ["io.modelcontextprotocol/clientCapabilities"] = new { },
+                },
+            },
+        });
+    }
 
     public static async Task<HttpResponseMessage> PostAsync(
         HttpClient client, string body, string? bearer = null, string? cookie = null, string protocolVersion = ProtocolVersion,
