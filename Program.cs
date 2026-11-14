@@ -6,6 +6,7 @@ using Book_Finder.Infrastructure.BackgroundJobs;
 using Book_Finder.Infrastructure.Caching;
 using Book_Finder.Infrastructure.Hosting;
 using Book_Finder.Infrastructure.Identity;
+using Book_Finder.Infrastructure.Identity.OAuth;
 using Book_Finder.Infrastructure.OpenAi;
 using Book_Finder.Infrastructure.Persistence;
 using Book_Finder.Mcp;
@@ -93,6 +94,8 @@ builder.Services.AddRecommendationJobs(builder.Configuration);
 
 // MCP server (plan mcp-server section 3.1): registered here, but /mcp is mapped below only when Mcp:Enabled is true.
 builder.Services.AddBookFinderMcp(builder.Configuration);
+// OpenIddict Authorization Server and pre-registered clients (MCP-ADR-007). Registered only when Mcp:Enabled is true.
+builder.Services.AddBookFinderOAuth(builder.Configuration, builder.Environment);
 
 var app = builder.Build();
 

@@ -102,6 +102,12 @@ public sealed class BookFinderFactory(string connectionString) : WebApplicationF
     // Mcp:Enabled. Off by default, as in appsettings.json, so /mcp is an ordinary 404; the MCP endpoint tests turn it on.
     public bool McpEnabled { get; set; }
 
+    // OAuth:Clients for this host. Off by default, so no client is pre-registered. When true, one public client with an https and a
+    // loopback redirect is registered as "test-client" (see OAuthServerTests). OAuthSettings adds raw keys for a test that needs another shape.
+    public bool OAuthTestClient { get; set; }
+
+    public Dictionary<string, string?> OAuthSettings { get; } = [];
+
     // Test-only MCP registrations (the spike's tools and key). Null keeps the app's own MCP registrations, which expose no tool.
     // The app has no tool yet, so the MCP tests add theirs here instead of putting test tools into the application.
     public Action<IServiceCollection>? ConfigureMcp { get; set; }
@@ -116,6 +122,15 @@ public sealed class BookFinderFactory(string connectionString) : WebApplicationF
         builder.UseSetting("RecommendationJobs:Enabled", JobsEnabled ? "true" : "false");
         builder.UseSetting("Mcp:Enabled", McpEnabled ? "true" : "false");
         builder.UseSetting("Mcp:PublicBaseUrl", "https://khwebsc.com");
+        if (OAuthTestClient)
+        {
+            builder.UseSetting("OAuth:Clients:0:ClientId", "test-client");
+            builder.UseSetting("OAuth:Clients:0:DisplayName", "Test Client");
+            builder.UseSetting("OAuth:Clients:0:RedirectUris:0", "https://client.example/callback");
+            builder.UseSetting("OAuth:Clients:0:RedirectUris:1", "http://127.0.0.1:33418/callback");
+        }
+        foreach (var (key, value) in OAuthSettings)
+            builder.UseSetting(key, value);
         if (JobPollInterval is { } pollInterval)
             builder.UseSetting("RecommendationJobs:PollInterval", pollInterval.ToString(@"hh\:mm\:ss\.fff", System.Globalization.CultureInfo.InvariantCulture));
         builder.ConfigureTestServices(services =>
