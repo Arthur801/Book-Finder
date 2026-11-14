@@ -301,3 +301,7 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter FullyQualifiedNa
 ### TEST-37：MCP `get_recommendation_result`（MCP 計畫 M4）
 
 - `McpRecommendationResultServiceTests`（Unit）與 `McpRecommendationResultTests`（WebIntegration，`JobSeed` 建各狀態 Job）：各狀態回應、rank 排序、不存在／他人／非 GUID 回應相同、一致性錯誤、失敗文案與網站一致；端到端提交 → Worker → 輪詢到 succeeded。
+
+### TEST-38：MCP code review 修正（MCP 計畫 M5）
+
+- `McpTokenIsolationTests`（MCP token 不能登入網站）、預設拒絕的 Tool 歸類測試、`McpAuthSetupTests`（scope 常數一致）；`tests/Shared/FakeRecommendationJobStore.cs`、`FakeRecommendationHistory.cs` 取代三份重複的 fake。

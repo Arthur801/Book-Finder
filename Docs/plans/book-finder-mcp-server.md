@@ -1,10 +1,10 @@
-# Book-Finder MCP Server — v1.5 實作計畫
+# Book-Finder MCP Server — v1.6 實作計畫
 
 > Baseline：`origin/main @ 8c8e3ab`（2026-11-14）。
 >
 > 來源：使用者提供的「Book-Finder MCP Server 實作規劃（Proposed）」，經 repo 現況核對後整理成本版。核對時找到的差異列在「核對 repo 現況的結果」與文末「設計變更紀錄」。
 >
-> **狀態：Proposed（尚未實作）**。使用者已決定 D-01～D-11（2026-11-14）。M0（MCP-001 骨架、MCP-002 單一 `/mcp` 授權閘門、MCP-003 OpenIddict ADR）與 M1（`search_books`）已完成，下一步 M2（MCP-201 OpenIddict）。
+> **狀態：實作中（M0～M4 完成，M5 進行中）**。使用者已決定 D-01～D-12（2026-11-14）。三支 Tool、OAuth 授權伺服器與 `/mcp` 驗證都已完成並有測試；剩 M5（code review 修正、實作報告、上線準備）與 MCP-203（production 上的真實 Client 實測，需使用者授權）。
 >
 > 本文件是實作計畫，不代表功能已實作、測試已通過或取得 production 授權。技術 authority 仍是各模組的 `docs/`（`AGENTS.md` §3.2）；實作時把定案的 contract 寫進 owning module 的 docs（新模組 `Mcp/docs/` 與受影響模組），不只寫在這裡。文中的 Tool JSON 都是格式示意，不是實際查詢結果；SLO 是目標，尚未量測。
 
@@ -83,6 +83,7 @@ MCP 層只做協定轉換：搜尋重用 `IBookSearch`，推薦重用已上線�
 | D-09 | **Access Token 1 小時、Refresh Token 30 天**（使用時滾動延長） | OpenIddict 設定；Client 自動換新，約一個月不用重新登入 |
 | D-10 | **Consent 記住到撤銷**：同一使用者對同一 Client 只問一次 | OpenIddict permanent authorization；撤銷管理頁列 backlog，本期不做 |
 | D-11 | **production 憑證放 host volume 檔案**（比照 `dp-keys`），container 唯讀掛載；密碼走既有 SSM → env 注入 | EC2 操作屬 L4，上線前用 `wizard` 帶使用者操作 |
+| D-12 | **憑證不設密碼**：OpenIddict 的簽章／加密憑證存成不設密碼的 PKCS#12，放在 root-only 權限的 host volume、container 唯讀掛載（與 Data Protection keys 相同保護方式）；取代 D-11「密碼走 SSM」的部分 | host 不需改動（host 只從 SSM 讀 DB、OpenAI、JWT 三個 secret）；`OAuth:CertificatePassword` 留空 |
 
 **D-06 的現況**：網站一般搜尋（`SearchController` → `BookSearchService` → `EfBookSearch`）目前**沒有**輸入長度上限、沒有應用層 rate limit，程式碼也沒有另外設定查詢 timeout（只剩 Npgsql 與 Kestrel 的預設值；production 連線字串在 SSM，本計畫未查看是否覆寫）。因此 `search_books` 也不另加這三項限制，與網站行為一致。公開搜尋沒有節流這件事，記為已知缺口寫進 `Mcp/docs/backlog.md`（若之後要加，網站與 MCP 一起加）。
 
@@ -566,3 +567,7 @@ M1 只依賴 MCP-001，可以和 MCP-002／003 並行。
 2. Consent 記住到撤銷；撤銷管理頁不在本期。
 3. production 憑證放 host volume 檔案，container 唯讀掛載。
 4. MCP-201 拆成 201a（OpenIddict 基礎：資料表、migration、seed、Client 同步、metadata、憑證）與 201b（authorize／consent／token endpoint 與端到端測試），各一個 PR。
+
+### v1.6（2026-11-14）：D-12
+
+1. 憑證不設密碼，root-only 檔案權限放在 host volume；host 不需新增 SSM secret。

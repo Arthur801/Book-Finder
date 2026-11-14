@@ -76,3 +76,21 @@ _Avoid_: UserBook（舊類別名稱）、收藏
 
 **Reading Status**／閱讀狀態：
 Library Entry 的閱讀進度：想讀（WANT_TO_READ）、閱讀中（READING）、已讀（FINISHED）。
+
+## MCP 與外部 AI Client
+
+**MCP Tool**／MCP 工具：
+Book-Finder 透過 `/mcp`（Model Context Protocol）提供給外部 AI Client 呼叫的功能：`search_books`（公開）、`recommend_books`、`get_recommendation_result`（需登入）。MCP Tool 只轉呼叫既有的應用服務，不自行實作搜尋或推薦規則。
+_Avoid_: API、外掛（指 MCP Tool 時）
+
+**MCP Client**／MCP 用戶端：
+透過 MCP 呼叫 Book-Finder 的外部應用程式，例如 ChatGPT、Claude 或 IDE。
+_Avoid_: 第三方網站、機器人
+
+**MCP Access Token**／MCP 存取權杖：
+使用者在 Book-Finder 登入並同意授權後，由 Book-Finder 的 OAuth 授權伺服器發給 MCP Client 的權杖，只能用於 `/mcp`；與網站登入用的 `bf_auth` cookie 互不通用。
+_Avoid_: 登入 token、JWT（指 MCP 時）
+
+**`books:recommend` scope**／推薦權限：
+MCP Access Token 唯一的權限範圍：以使用者身分提交 Recommendation Job 並讀取自己的結果，使用該使用者的每日 AI 推薦額度。
+_Avoid_: 推薦 API 權限
