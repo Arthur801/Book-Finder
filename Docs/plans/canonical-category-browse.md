@@ -4,7 +4,7 @@
 >
 > 來源：使用者提供的 v2.0 提案（Proposed），經 repo 現況核對與使用者決定（下表）整理成本版。
 >
-> **狀態：P0～P3 完成（2026-11-14）**：Mapping 已匯入 production，23,491 本中 23,486 本有分類（[實作報告](../Implementation-Report/canonical-category-p0-p3.md)）；下一步是 P4。production 盤點結果與使用者審核過的分類集合見 §5「P0 結果」；工具用法見 [scripts/categories/README.md](../../scripts/categories/README.md)。
+> **狀態：P0～P3 完成（2026-11-14）**：Mapping 已匯入 production，23,491 本中 23,486 本有分類（[實作報告](../Implementation-Report/canonical-category-p0-p3.md)）；P4（分類查詢）已實作，PR 審核中。production 盤點結果與使用者審核過的分類集合見 §5「P0 結果」；工具用法見 [scripts/categories/README.md](../../scripts/categories/README.md)。
 >
 > 本文件是實作計畫，不代表功能已實作、測試已通過或取得 production 授權。變更記在文末「設計變更紀錄」。
 

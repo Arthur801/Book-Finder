@@ -2,6 +2,7 @@
 
 > PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR4 M1（#120）補記：2026-10-25 更新；程式變更以 `5052361`、`d864acc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+> Canonical Category P4 補記：2026-11-14 更新；程式變更以 `c2e5324`、`cec6bd7` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 > backlog 整理（2026-10-25）補記：INF-B07 已完成，移至文末「已處理」；其餘狀態未變。
 
@@ -29,6 +30,13 @@ Debug 證據收集：INF-B04 須保存去識別的 request scheme、來源網段
 - 驗收：有量測前後資料量與耗時；不改變「只從 Local DB 取樣、不讀 Bestseller rank」的規則。
 - 併發壓測（#109 上線關卡，本機 2884 本書）：首頁每個請求的 DB CPU 約 1.0–1.1 ms；`/books` 第 1 頁約 1.4–1.5 ms，最後一頁約 2.8–4.1 ms。併發從 1 到 16 時，每請求成本大致不變，總 CPU 隨流量線性增加；成本低於既有的一般搜尋（6.7–10 ms）。詳見實作報告〈上線關卡〉。未在 RDS 實測。
 - 入口：[BookBrowseIntegrationTests](../../tests/WebIntegration/BookBrowseIntegrationTests.cs)（功能）。效能量測方法見實作報告，沒有寫成自動化測試。
+
+## INF-B09 — 分類瀏覽查詢的成本基準
+
+- **P2 / L2 / 未量測**：`EfCategoryBrowse.ListCategoriesAsync` 對每個 active 分類各跑一個 `COUNT(DISTINCT book_id)` 相關子查詢（目前 18 類）；書單用 EXISTS 搭配 `IX_book_subjects_source_code_subject`。每次分類頁請求約 6 個查詢，沒有快取。
+- 證據：[EfCategoryBrowse.cs](../Persistence/EfCategoryBrowse.cs)；SQL 形狀記在 [分類計畫](../../Docs/plans/canonical-category-browse.md) 與 P4 PR。
+- 方向：P5 上線前，在 production 規模資料上用唯讀 `EXPLAIN ANALYZE` 量測側邊欄與書單查詢；若成本不可接受，再評估側邊欄書數快取（比照 `CachedBestsellerReader`）或預先彙總。
+- 驗收：記錄資料量、查詢計畫與耗時；不改變「同一本書只算一次」與來源篩選的語意。
 
 ## INF-B08 — Google Books writer 前的跨 process 序列化（#14 前置）
 

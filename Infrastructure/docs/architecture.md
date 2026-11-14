@@ -2,6 +2,7 @@
 
 > PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR4 M1（#120）補記：2026-10-25 更新；程式變更以 `5052361`、`d864acc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+> Canonical Category P4 補記：2026-11-14 更新；程式變更以 `c2e5324`、`cec6bd7` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > Canonical Category P1 補記：2026-11-14 更新；程式變更以 `e7a105b` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 > 查核日期：2026-10-24；基準 `91333c3`。本次只做文件靜態檢查，未執行 build、測試、migration、部署或外部服務。
@@ -19,7 +20,8 @@
 | Web request pipeline | [auth registration](../Identity/AuthServiceCollectionExtensions.cs)、[API exception filter](../Identity/ApiExceptionProblemDetailsFilter.cs)、[CSRF filter](../Identity/AntiforgeryProblemDetailsFilter.cs) | cookie-only JWT、401/400/500 ProblemDetails；local returnUrl |
 | Catalog services／SearchQuery、bookId | [EfBookSearch](../Persistence/EfBookSearch.cs)、[EfBookDetailReader](../Persistence/EfBookDetailReader.cs) → read models | Local DB only，公開內容排除來源簡介目錄 |
 | BestsellerService | [EfBestsellerReader](../Persistence/EfBestsellerReader.cs) → 最新 snapshot | 保留 rank 缺號、共用 captured_at；#109 後 Web 無呼叫者，後端保留並由 DI 守衛測試 |
-| BookBrowseService／page、pageSize、隨機樣本數 | [EfBookBrowse](../Persistence/EfBookBrowse.cs) → BookBrowsePage／items | 書庫列表依出版日排序後分頁（COUNT → 分頁 → 作者）；超出頁數不查列表；隨機樣本整表隨機排序 |
+| BookBrowseService／page、pageSize、隨機樣本數 | [EfBookBrowse](../Persistence/EfBookBrowse.cs) → BookBrowsePage／items | 書庫列表依出版日排序後分頁（COUNT → 分頁 → 作者），由共用的 [BookBrowsePaging](../Persistence/BookBrowsePaging.cs) 執行；超出頁數不查列表；隨機樣本整表隨機排序 |
+| CategoryBrowseService／source、categoryId、page | [EfCategoryBrowse](../Persistence/EfCategoryBrowse.cs) → 分類與書數、來源、全部書籍數、BookBrowsePage | LINQ 轉成 EXISTS；分類以 `(source_code, subject)` 對應，不同來源的同名 Subject 互不套用；側邊欄書數以 DISTINCT book_id 計算（每個分類一個相關子查詢）；書單分頁沿用 BookBrowsePaging |
 | LibraryService／userId、bookId、change | [EfLibraryStore](../Persistence/EfLibraryStore.cs) → Entry／null／List | 本人 filter、composite key、冪等新增、Book FK 特定轉譯 |
 | RecommendationService／filters、vector | [EfCandidateSearch](../Persistence/EfCandidateSearch.cs) → CandidateBook | exact cosine、硬條件、description 只供 AI |
 | RecommendationService／userId、成功 ranked items | [store](../Persistence/EfRecommendationStore.cs)、[usage](../Persistence/EfRecommendationUsage.cs) | 一次 SaveChanges；只計數已保存 search |

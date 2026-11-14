@@ -2,6 +2,7 @@
 
 > PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR4 M1（#120）補記：2026-10-25 更新；程式變更以 `5052361`、`d864acc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+> Canonical Category P4 補記：2026-11-14 更新；程式變更以 `c2e5324`、`cec6bd7` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 > 查核日期：2026-10-24；Git 基準 `91333c3`。目標 `Application/`；本次僅靜態查核，未執行 build、測試、資料庫或外部服務。規格、實作與測試證據分開記錄。
 
@@ -21,6 +22,7 @@ Application-level policy 包含 [LibraryService.AddPendingAsync](../Library/Libr
 | Bestseller | [BestsellerService](../Bestsellers/BestsellerService.cs)、IBestsellerReader → snapshot | 後端保留；#109 後 Web 無呼叫者（`HomeTopCount`/`GetTopAsync` 刻意保留）→ cached EF reader |
 | Catalog | [BookSearchService](../Catalog/BookSearchService.cs)、IBookSearch、IBookDetailReader → page/detail | Search/Books controllers → EF/cache |
 | 書庫（Catalog browse） | [BookBrowseService](../Catalog/BookBrowseService.cs)、IBookBrowse → BookBrowsePage / 隨機樣本 | HomeController、BooksController（#109 M2）→ EF |
+| 分類瀏覽（Canonical Category） | [CategoryBrowseService](../Catalog/CategoryBrowseService.cs)、[ICategoryBrowse](../Catalog/ICategoryBrowse.cs) → [CategoryBrowseResult](../Catalog/CategoryBrowsePage.cs) | P5 的 CategoriesController（尚未實作）→ EF（[EfCategoryBrowse](../../Infrastructure/Persistence/EfCategoryBrowse.cs)） |
 | Identity | [AccountService](../Identity/AccountService.cs)、IUserStore、IPasswordHashing → typed result | Account controller → EF/hashing |
 | Library | [LibraryService](../Library/LibraryService.cs)、ILibraryStore、LibraryChange → Entry/null | Library/Books/Account controllers → EF |
 | 推薦 | [RecommendationService](../Recommendation/RecommendationService.cs) → RecommendationAttempt | Recommendation controller → parser/embedding/candidate/ranker/store/usage ports |
@@ -53,6 +55,17 @@ Application-level policy 包含 [LibraryService.AddPendingAsync](../Library/Libr
 ### 書庫（BookBrowse）用例
 
 [BookBrowseService](../Catalog/BookBrowseService.cs) 只做頁碼下限（`page < 1` 視為第 1 頁）與固定參數（每頁 20 筆、首頁樣本 10 筆），其餘交 [IBookBrowse](../Catalog/IBookBrowse.cs)。`ListAsync` 回傳全部書籍（依出版日新到舊、無日期居後、Id 決定順序）；`SampleAsync` 回傳隨機書籍，供首頁使用。兩者只查 Local Database，不使用 embedding、LLM 或 Google Books，也不讀 Bestseller rank。[BookBrowseItem](../Catalog/BookBrowsePage.cs) 與 BookSearchHit 刻意分開定義，書庫的 contract 不與搜尋共用。
+
+### 分類瀏覽（CategoryBrowse）用例
+
+[CategoryBrowseService](../Catalog/CategoryBrowseService.cs) 驗證篩選條件、決定查詢順序；查詢細節交給 [ICategoryBrowse](../Catalog/ICategoryBrowse.cs)（[分類計畫](../../Docs/plans/canonical-category-browse.md) §4）。
+
+- 空白的 slug 或 source 視為沒有篩選；其他值**原樣比對**，大小寫必須一致。
+- 先驗證來源：不在「至少有一筆 Mapping 的 Source Provider」清單內 → `UnknownSource`。再驗證分類：不在 active 分類清單內（含停用的分類）→ `UnknownCategory`。兩者都不查書；P5 會把它們轉成 404。
+- 頁碼小於 1 視為第 1 頁，每頁 20 本（同 `BookBrowseService.PageSize`），排序與書庫相同。
+- 側邊欄的分類書數跟著來源篩選：一本書只要有一個 Subject 經 Mapping 屬於該分類就算一次，同一本書不重複計算。
+- 「全部書籍」不是分類：沒有來源時是全部書籍；有來源時是有該來源 `book_sources` 的書，包含沒有分類的書。
+- 只查 Local Database；結果使用 `BookBrowseItem`，不含簡介與目錄。
 
 ## 核心不變條件
 
