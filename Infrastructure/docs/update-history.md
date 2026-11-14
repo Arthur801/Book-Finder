@@ -1,5 +1,6 @@
 # Infrastructure 修改歷史
 
+> 非同步推薦 Job M1 補記：2026-11-14 更新；程式變更以 `ad398b8`、`904baca`、`0a11483` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR4 M1（#120）補記：2026-10-25 更新；程式變更以 `5052361`、`d864acc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > Canonical Category P5 補記：2026-11-14 更新；程式變更以 `a9b7ad1`、`c2d68a1`、`d43ea57` 記入 update-history。原查核基準保留，未重新審查其餘內容。
@@ -144,6 +145,16 @@ git show <SHA> -- Infrastructure
 | 2026-11-14 | `e7a105b` | feat(categories): add canonical category schema (P1) | `Persistence/Configurations/CanonicalCategoryConfiguration.cs`、`Persistence/Configurations/ProviderCategoryMappingConfiguration.cs`（新增）；`Persistence/Configurations/BookSubjectConfiguration.cs`（新增 `(source_code, subject)` index，並明確宣告既有 `source_code` index）；`Persistence/AppDbContext.cs`（兩個 DbSet）；`Persistence/Migrations/20261114003848_AddCanonicalCategories.cs`／`.Designer.cs`（新增，只 expand）；`Persistence/Migrations/AppDbContextModelSnapshot.cs` |
 
 驗證（2026-11-14，主 agent 重跑）：`dotnet build` 0 warning；UnitTests 823、DatabaseIntegration 162、WebIntegration 280 全數通過；`check_migrations.py` OK；crawler pytest 21375 通過（schema 由含新 migration 的 EF script 建立）。
+
+## 非同步推薦 Job M1 schema（新增紀錄）
+
+本段是 [Job 計畫](../../Docs/plans/async-recommendation-jobs.md) M1 的紀錄，不改寫上方查核表。
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-14 | `ad398b8` | feat(rec-jobs): add recommendation_jobs table, entity and migration | `Persistence/Configurations/RecommendationJobConfiguration.cs`（新增）；`Persistence/AppDbContext.cs`（DbSet）；`Persistence/Migrations/20261114032619_AddRecommendationJobs.cs`／`.Designer.cs`（新增，只 expand）；`Persistence/Migrations/AppDbContextModelSnapshot.cs` |
+
+驗證（2026-11-14，主 agent 重跑）：`dotnet build` 0 warning；UnitTests 867、DatabaseIntegration 197 通過；mutation 抽查：拿掉 migration 中 `FAILED` 必須有 error_code 的條件，`failed_without_error_code` 案例失敗，已還原。
 
 ## Canonical Category P4 分類瀏覽查詢（新增紀錄）
 

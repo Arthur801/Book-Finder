@@ -349,3 +349,8 @@ git log --reverse --no-merges --format='@@%h' --numstat -- <同上路徑>
 |---|---|---|---|
 | 2026-11-14 | 本 PR | test(compat): seed for AddCanonicalCategories, the applied head since v0.0.8 | `deploy/migration-test/seeds/20261114003848_AddCanonicalCategories.sql`（新增）；v0.0.9 CD 的 compat 因缺此檔失敗（run `43547981502`），見 backlog DEP-B25 |
 
+## 2026-11-14 AddRecommendationJobs 的 compat seed（新增紀錄）
+
+| 日期 | commit | subject | 變更 |
+|---|---|---|---|
+| 2026-11-14 | `0a11483` | test(rec-jobs): compat seed for AddRecommendationJobs | `deploy/migration-test/seeds/20261114032619_AddRecommendationJobs.sql`（新增）；在新增 migration 的 PR 一併提供，採 backlog DEP-B25 方向 (b) |

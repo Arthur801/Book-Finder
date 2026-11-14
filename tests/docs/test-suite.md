@@ -1,5 +1,6 @@
 # tests 面向 AI 的文字案例庫
 
+> 非同步推薦 Job M1 補記：2026-11-14 更新；程式變更以 `ad398b8`、`904baca`、`0a11483` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR4 M1（#120）補記：2026-10-25 更新；程式變更以 `5052361`、`d864acc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR4 M3（#120）補記：2026-10-25 更新；程式變更以 `d249c07`、`6e70e93`、`b99b368` 記入 update-history。原查核基準保留，未重新審查其餘內容。
@@ -243,4 +244,17 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter FullyQualifiedNa
 - **When**：載入 `deploy/migration-test/seeds/20261114003848_AddCanonicalCategories.sql`。
 - **Then**：可以載入；books 4 本、canonical_categories 3 筆（1 筆停用、1 筆 100 字 slug）、provider_category_mappings 4 筆（三家來源、MANUAL 與 VERIFIED_RULE、255 字 subject）；文學分類經兩家來源分到 2 本書。
 - **來源與狀態**：[CanonicalCategorySeedTests](../DatabaseIntegration/CanonicalCategorySeedTests.cs)，2026-11-14 通過。背景見 deploy backlog DEP-B25。
+
+### TEST-27：Recommendation Job schema（Job 計畫 M1）
+
+- **Given**：共用 PostgreSQL fixture 已套全部 migration（含 `20261114032619_AddRecommendationJobs`）；每個案例在 rollback 的交易內寫入。
+- **When／Then**：見 Domain DOM-T12。`StoredEnumTests` 加入 `RecommendationJobStatus` 詞彙與 roundtrip；`constraints.sql` 的必要資料表清單加入 `recommendation_jobs`。
+- **來源與狀態**：[RecommendationJobSchemaTests](../DatabaseIntegration/RecommendationJobSchemaTests.cs)；`904baca` 後主 agent 重跑 DatabaseIntegration 197、UnitTests 867 全數通過（2026-11-14）。
+
+### TEST-28：AddRecommendationJobs 的 compat seed
+
+- **Given**：空 DB，以 MigrationServer migrate 到 `20261114032619_AddRecommendationJobs`。
+- **When**：載入 `deploy/migration-test/seeds/20261114032619_AddRecommendationJobs.sql`。
+- **Then**：可以載入；AddCanonicalCategories seed 的資料原樣存在；recommendation_jobs 5 筆涵蓋四種狀態、128 字元 idempotency key、attempt_count 2147483647；`SUCCEEDED` 的 Search 屬於同一使用者。
+- **來源與狀態**：[RecommendationJobSeedTests](../DatabaseIntegration/RecommendationJobSeedTests.cs)，2026-11-14 通過。seed 在新增 migration 的 PR 一併提供（DEP-B25 方向 (b)）。
 

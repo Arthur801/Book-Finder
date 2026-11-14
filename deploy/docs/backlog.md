@@ -271,6 +271,7 @@
 - **原因**：seed 檔頭寫著「release 部署後要補 seed」，但沒有任何檢查會提醒；新增 migration 的 PR 當下也還不能補（compat 會在 applied 仍是舊 head 時用舊 seed）。
 - **方向**（待決定）：(a) 在 CI 加一個檢查：`deploy/migration-test/seeds/` 必須有「最新已發布 release 的最後一個 migration」的 seed；(b) 或允許新增 migration 的 PR 同時附上新 head 的 seed（compat 只讀 applied head 的 seed，提早放入不影響舊 head）；(b) 較簡單，可在 runbook §4.1 與 AGENTS／deploy docs 寫成規則。
 - **驗收**：下一個新增 migration 的 release 部署後，下一次 CD 的 compat 不再因缺 seed 失敗。
+- **補記（2026-11-14，Job 計畫 M1）**：`20261114032619_AddRecommendationJobs` 的 seed 已在新增 migration 的同一個 PR 提供（方向 (b)），並以 `RecommendationJobSeedTests` 驗證可載入。是否把 (b) 寫成通用規則仍待決定。
 
 ## 3. 已處理
 

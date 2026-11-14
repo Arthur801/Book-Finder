@@ -1,5 +1,6 @@
 # Infrastructure 架構
 
+> 非同步推薦 Job M1 補記：2026-11-14 更新；程式變更以 `ad398b8`、`904baca`、`0a11483` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR4 M1（#120）補記：2026-10-25 更新；程式變更以 `5052361`、`d864acc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > Canonical Category P5 補記：2026-11-14 更新；程式變更以 `a9b7ad1`、`c2d68a1`、`d43ea57` 記入 update-history。原查核基準保留，未重新審查其餘內容。
@@ -34,6 +35,7 @@
 | Multi-source（010 phase） | [MultiSourceCatalog](../Persistence/Migrations/20261024160045_MultiSourceCatalog.cs)：`source_providers`、`source_code`、雙向 trigger、`book_offers` | 010 的 `source_type` 與 trigger 由 011 移除；EF 不 mapping（data-model §11.4） |
 | Multi-source contract（011） | [ContractMultiSourceCatalog](../Persistence/Migrations/20261025120000_ContractMultiSourceCatalog.cs)：`ISBN_10`／`ISBN_13` 轉 `ISBN`，移除 `source_type`、trigger、legacy partial unique；`book_subjects` PK 換成 `source_code`；Up 自我守衛（gate 4、5）；Down 還原 010 實體 schema | KINGSTONE／ESLITE 無 010 對應 source_type，Down 拒絕執行（data-model §11.3、§11.5） |
 | 分類 schema（Canonical Category P1） | [AddCanonicalCategories](../Persistence/Migrations/20261114003848_AddCanonicalCategories.cs)：新增 `canonical_categories`、`provider_category_mappings` 與 `IX_book_subjects_source_code_subject`；[CanonicalCategoryConfiguration](../Persistence/Configurations/CanonicalCategoryConfiguration.cs)、[ProviderCategoryMappingConfiguration](../Persistence/Configurations/ProviderCategoryMappingConfiguration.cs) | 只 expand，不改既有欄位；`IX_book_subjects_source_code`（source_code FK 索引）在 [BookSubjectConfiguration](../Persistence/Configurations/BookSubjectConfiguration.cs) 明確宣告，避免 EF 視為重複而刪除；兩個預設名稱超過 PostgreSQL 63 bytes，改用明確名稱。P1 尚無 adapter 讀寫這兩張表（[分類計畫](../../Docs/plans/canonical-category-browse.md) P2 寫入、P4 讀取） |
+| Recommendation Job schema（[Job 計畫](../../Docs/plans/async-recommendation-jobs.md) M1） | [AddRecommendationJobs](../Persistence/Migrations/20261114032619_AddRecommendationJobs.cs)：新增 `recommendation_jobs`；[RecommendationJobConfiguration](../Persistence/Configurations/RecommendationJobConfiguration.cs) | 只 expand，不改既有欄位，舊 release 不讀此表。狀態機由 5 個 CHECK 在 DB 端保證（status 詞彙、attempt ≥ 0、request_hash 小寫 hex、idempotency key 字元集、lease 只在 `RUNNING`、終態欄位）；index：`(status, run_after, created_at)` 供領取、`(status, lease_expires_at)` 供逾期恢復、`(user_id, created_at DESC)` 供列表與額度、`search_id` UNIQUE、`(user_id, idempotency_key)` 部分 UNIQUE。`search_id` FK 用 Cascade：刪除使用者同時 cascade 到 Search 與 Job，Restrict 會讓刪除失敗。M1 尚無 adapter 讀寫此表 |
 | Domain entities | [AppDbContext](../Persistence/AppDbContext.cs)、[snapshot](../Persistence/Migrations/AppDbContextModelSnapshot.cs) | 12 application tables、snake_case、vector、constraints |
 
 ## 選型比較

@@ -19,6 +19,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<Bestseller> Bestsellers => Set<Bestseller>();
     public DbSet<RecommendationSearch> RecommendationSearches => Set<RecommendationSearch>();
     public DbSet<RecommendationResult> RecommendationResults => Set<RecommendationResult>();
+    public DbSet<RecommendationJob> RecommendationJobs => Set<RecommendationJob>();
     public DbSet<BookAiProfile> BookAiProfiles => Set<BookAiProfile>();
     public DbSet<BookEmbedding> BookEmbeddings => Set<BookEmbedding>();
 
