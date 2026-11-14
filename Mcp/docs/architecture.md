@@ -19,7 +19,7 @@
 | `Services/McpBookSearchService.cs` | `search_books` 的 adapter：`SearchQuery.Parse`，`Empty` 回 `VALIDATION_FAILED` 且不碰 DB；其他呼叫 `IBookSearch.SearchAsync(q, 1, 50)`，排序與網站相同 |
 | `Tools/BookSearchTools.cs` | `search_books` Tool（公開、`readOnlyHint`）；成功回 structured content + 文字摘要，錯誤 `isError = true` |
 | `Contracts/*.cs` | 對外 DTO（lowerCamelCase）：`BookSearchToolResult`、`McpToolError` |
-| `Security/McpAuthSetup.cs` | `McpBearer` scheme（只讀 `Authorization: Bearer`，issuer `{base}/`、audience `{base}/mcp`）、SDK 的 challenge scheme 與 Protected Resource Metadata；受保護 Tool 名稱、`books:recommend` scope |
+| `Security/McpAuthSetup.cs` | Bearer scheme 常數（指向 OpenIddict validation 的 scheme，MCP-202）、SDK 的 challenge scheme 與 Protected Resource Metadata；受保護 Tool 名稱、`books:recommend` scope |
 | `Security/McpToolAuthorizationMiddleware.cs` | POST `/mcp` 的授權閘門：在 SDK 讀 body 前決定 401／403／413 或放行 |
 
 `Program.cs` 只有兩個接點：`AddBookFinderMcp`（在 `AddRecommendationJobs` 之後）與 `MapBookFinderMcp`（在 `UseAuthorization` 之後、MVC route 之前）。
@@ -32,12 +32,12 @@
 | Transport | Streamable HTTP、`Stateless = true` | 不保存 MCP session；之後以 Job ID 跨呼叫追蹤 |
 | 回應格式 | 一律 SSE（`text/event-stream`，一個 `event: message`） | SDK 2.3.1 的 `HttpServerTransportOptions` 沒有 JSON response 選項；回應帶 `Cache-Control: no-store, no-cache` 與 `X-Accel-Buffering: no`，nginx 不會緩衝 |
 | 開關 | `Mcp:Enabled` 在啟動時讀取；false 時 `/mcp` 完全不 map | 與網站其他未 map 的路徑行為相同（GET 404、POST 405） |
-| 認證 | 獨立 `McpBearer` scheme；網站 cookie 身分在 `/mcp` 一律被清除 | 預設 cookie scheme 對非 `/api` 路徑回 302，不能用於 OAuth challenge；網站 JWT 的 issuer／audience 與 MCP 不同，不能冒用 |
+| 認證 | OpenIddict validation（同 process 的 local server，MCP-202）驗證同站簽發的 access token（JWE）：audience 必須是 `{base}/mcp`，並查 token 與 authorization 記錄（撤銷即失效）；token **只**從 `Authorization: Bearer` 讀取（關閉 query string 與 form body）；網站 cookie 身分在 `/mcp` 一律被清除 | 預設 cookie scheme 對非 `/api` 路徑回 302，不能用於 OAuth challenge；網站 JWT 的 issuer／audience 與 MCP 不同，不能冒用 |
 | 單一 endpoint 的 per-tool 授權 | 自訂閘門（計畫 §3.5 選項 2），不用 SDK 的 `[Authorize]` | SDK 的 `[Authorize]` 只回 JSON-RPC 錯誤，MCP Client 不會因此啟動 OAuth；MCP-002 證明閘門可在 2025-11-25 與 2026-07-28 兩個協定版本回 HTTP 401（D-04 採單一 `/mcp`） |
 | 閘門判斷 | 讀 body（上限 256 KiB，超過 413）；任一 JSON-RPC 訊息是受保護名稱的 `tools/call`（method、key、名稱都不分大小寫，重複 key 全檢查）、或 `Mcp-Name` header 是受保護名稱、或 body 無法解析，就視為受保護 | fail closed：比閘門寬鬆的 parser 也無法匿名抵達受保護 Tool |
 | 閘門結果 | 帶 `Authorization` 但驗證失敗 → 401（公開 Tool 也一樣）；受保護且未認證 → 401 `WWW-Authenticate: Bearer resource_metadata="{base}/.well-known/oauth-protected-resource/mcp"`；缺 scope → 403 `insufficient_scope`；拒絕時不呼叫 SDK | 未授權時 Tool handler 不會執行，不會建立 Job 或扣額度 |
 | Resource metadata | 自行 `MapGet` `/.well-known/oauth-protected-resource/mcp`，內容來自設定 | SDK 只有在 `ResourceMetadataUri` 未設定時才自動服務，且那時 URI 取自 request host |
-| 簽章金鑰 | **尚未設定**，所以任何 token 都驗證失敗（fail closed） | M2（MCP-201）由 OpenIddict 提供 |
+| Scope 判斷 | `HasScope` 讀 OpenIddict 的 `oi_scp`（每個 scope 一個 claim）以及 `scope`／`scp` 空白分隔字串 | 不依賴 token 用哪一種形式 |
 | Tool 取得使用者 | `RequestContext<CallToolRequestParams>.JsonRpcRequest.Context?.User` | stateless HTTP 下 SDK 帶入閘門設定的 principal |
 | Tool | `WithTools<BookSearchTools>()`；目前只有 `search_books` | MCP-001 的空 `tools/list` handler 已移除 |
 | Tool 輸出 | 手動設定 `CallToolResult.StructuredContent`（`McpJsonUtilities.DefaultOptions`），不宣告 outputSchema | SDK 的 `UseStructuredContent = true` 會產生不準確的通用 outputSchema |
@@ -109,6 +109,6 @@ ChatGPT 文件描述兩種機制：
 - 簽章與加密金鑰：production 用 X.509 憑證，存在 host（不進 repo、不進 image），以既有 secret 注入機制或 volume 提供；需要輪替與備份程序（L4，需使用者授權）。開發與測試用 OpenIddict 的 development certificate／ephemeral key。
 - 預註冊 Client 以設定或 seed 建立（client_id、redirect URI、scope），無 client secret。
 - Consent 頁：沿用網站版面與 `bf_auth` 登入；顯示 Client 名稱與 scope。
-- `McpBearer` 改為驗證 OpenIddict 發出的 access token（同 process 可用 OpenIddict validation 或共用簽章金鑰），取代目前「無金鑰、全部失敗」的狀態。
+- `/mcp` 的 bearer 驗證改用 OpenIddict validation（已完成，MCP-202）。
 
 來源（2026-11-14 讀取）：[OpenAI Authentication](https://developers.openai.com/plugins/build/auth)、[Claude custom connectors](https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp)、[Zuplo VS Code 相容性](https://zuplo.com/learn/mcp/compatibility/clients/vs-code)、[MCP Client Registration 2026-07-28](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/client-registration)、[AuthEndpoints #428](https://github.com/madeyoga/AuthEndpoints/issues/428)。表中標「待實測」的項目不是已驗證事實。

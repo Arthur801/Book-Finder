@@ -131,6 +131,7 @@ HostingSetup 支援設定不等於已驗證容器切換、公開 HTTPS、可信 
   - Scope：discovery 的 `scopes_supported` 只宣告 `books:recommend`；請求其他 scope 回 `invalid_scope`；核准時一律加 `offline_access`，client 不需要該 permission 就能拿到 refresh token；rolling refresh（每次換新）。
   - Authorization response 帶 `iss`（RFC 9207）。
   - OpenIddict 在 passthrough 前就拒絕的請求（未註冊 redirect_uri、未知 client、缺 PKCE、plain）回 400 text/plain，不轉址。
-  - Access token 為 **JWE（加密）**；`McpBearer` 不能只驗 JWT 簽章，MCP-202 改用 OpenIddict validation（local server）。
+  - Access token 為 **JWE（加密）**，JwtBearer 無法驗證。
   - `EfUserStore.FindByIdAsync`：token endpoint 拒絕已刪除的使用者。
-- 尚未實作：`McpBearer` 驗證 OpenIddict token（MCP-202）；撤銷管理頁（D-10，不在本期）。
+- MCP-202：同一處註冊 OpenIddict validation（只在 `Mcp:Enabled = true`）：`UseLocalServer`、`AddAudiences({base}/mcp)`（與 `ResourceOf` 同一來源）、`EnableAuthorizationEntryValidation`、`EnableTokenEntryValidation`；**關閉** query string 與 form body 取 token（OpenIddict 7.8 預設兩者都開）。Validation 的 scheme 由 `/mcp` 閘門使用，不是預設 scheme。
+- 尚未實作：撤銷管理頁（D-10，不在本期）。

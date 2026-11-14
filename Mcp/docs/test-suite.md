@@ -13,9 +13,9 @@
 | `tests/UnitTests/McpBookSearchServiceTests.cs` | Unit | 空白／null 回 `VALIDATION_FAILED` 且不呼叫 `IBookSearch`；關鍵字與 ISBN 分類；固定 page 1、pageSize 50；totalCount 0／1／49／50／51／100 的 `returnedCount`、`hasMore` |
 | `tests/WebIntegration/McpSearchBooksTests.cs` | HTTP + DB | 匿名呼叫；0 本仍有 `searchUrl`；51 本只回 50、`hasMore`；排序與網站搜尋一致；空白 query 為 `isError`；無效 Bearer 401；2026-07-28 成功呼叫；`tools/list` 中 `search_books` 的 name、inputSchema（`query` string、required） |
 | `tests/UnitTests/McpToolAuthorizationMiddlewareTests.cs` | Unit | 閘門判斷：受保護名稱（含大小寫、JSON escape、重複 key、batch）、無法解析的 body（含註解、尾逗號）都算受保護；`tools/list`、`initialize`、公開 Tool、`arguments` 內的同名欄位不算；`Mcp-Name` header |
-| `tests/WebIntegration/McpAuthorizationTests.cs` | HTTP | 17 個：匿名列出兩支 Tool；匿名公開 Tool 200；匿名受保護 Tool 401（非 302、無 Location）；resource metadata 內容；有效 token 進入 handler 且 sub 正確；缺 scope 403；過期／錯 issuer／錯 audience／錯簽章 401；網站 JWT 當 Bearer 401；只有 `bf_auth` cookie 401；公開 Tool 帶無效 token 401；body 300 KiB 413；2025-11-25 與 2026-07-28 各跑 401 與成功案例；網站頁面 302 與 `/api` 401 不變。每個案例都斷言受保護 Tool 的執行次數 |
+| `tests/WebIntegration/McpAuthorizationTests.cs` | HTTP | 以真實 OAuth 流程取得的 token（MCP-202）：匿名列出 Tool；匿名公開 Tool 200；匿名受保護 Tool 401（非 302、無 Location）；resource metadata 內容；有效 token 進入 handler 且 sub 等於使用者 ID（2025-11-25 與 2026-07-28）；竄改、隨機字串、網站 JWT、只有 `bf_auth` cookie、另一個 host 簽發的 token 都 401；過期（FakeTimeProvider 前進 61 分鐘）401；撤銷 authorization 後 401；token 放在 query string 或 form body 401；validation 的 audience 設定為 `{base}/mcp`，且只從 Authorization header 取 token（直接斷言 options，因為閘門本身只在有 header 時才驗證）；公開 Tool 帶有效 token 200、無效 401；body 300 KiB 413；網站頁面 302 與 `/api` 401 不變。每個案例都斷言受保護 Tool 的執行次數 |
 
-`McpAuthorizationTests` 只在測試 host 註冊測試專用 Tool（`tests/WebIntegration/McpTestTools.cs`：`public_ping`、`recommend_books`），透過 BookFinderFactory 的 `ConfigureMcp` hook 並移除 app 的空 `tools/list` handler；以測試金鑰簽 JWT，`PostConfigure<JwtBearerOptions>("McpBearer")` 注入驗證金鑰。
+`McpAuthorizationTests` 只在測試 host 註冊測試專用 Tool（`tests/WebIntegration/McpTestTools.cs`：`public_ping`、`recommend_books`），透過 BookFinderFactory 的 `ConfigureMcp` hook；token 由 `tests/WebIntegration/OAuthTestClient.cs` 走完整 OAuth 流程（註冊、登入、authorize、consent、PKCE 交換）取得，`OAuthFlowTests` 也共用它。缺 scope 的 token 無法由本站流程取得，改由 `HasScope` 的 unit test 涵蓋。
 
 `McpEndpointTests` 以 raw HTTP 送 JSON-RPC，並同時能解析 SSE 與 JSON 回應。WebFixture 的 `McpEnabled` 控制 `Mcp:Enabled`（預設 false），`Mcp:PublicBaseUrl` 固定為 `https://khwebsc.com`。
 
@@ -33,3 +33,4 @@ dotnet test tests/WebIntegration --filter FullyQualifiedName~McpEndpoint   # 需
 - Mutation 抽查（MCP-002，2026-11-14）：拿掉匿名 challenge、scope 一律通過、無效 token 當匿名、拿掉 body 上限，各自讓 `McpAuthorizationTests` 失敗（4／1／6／1 個）。
 - 尚無真實 OAuth token（M2）與真實 Client 測試（MCP-203）。
 - Mutation 抽查（M1，2026-11-14）：`IBookSearch` 的 pageSize 改成 20，讓 `McpBookSearchServiceTests` 5 個、`McpSearchBooksTests` 2 個失敗。
+- Mutation 抽查（MCP-202，2026-11-14）：拿掉 authorization entry validation、允許 query string 取 token、允許 form body 取 token，各讓 `McpAuthorizationTests` 1 個失敗（後兩者在補上 options 斷言後才被抓到）。
