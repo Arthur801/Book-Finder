@@ -24,9 +24,11 @@ public static class McpServiceCollectionExtensions
         // The URL builder is a singleton (it only holds the base URL); the search service is scoped like the other per-request adapters.
         services.AddSingleton<McpUrlBuilder>();
         services.AddScoped<McpBookSearchService>();
+        services.AddScoped<McpRecommendationService>();
 
-        services.AddMcpServer()
+        services.AddMcpServer(options => options.Filters.Message.OutgoingFilters.Add(ToolSecuritySchemes.Annotate))
             .WithTools<BookSearchTools>()
+            .WithTools<RecommendationTools>()
             // Stateless: no MCP session is kept between requests, so the endpoint can run without session affinity.
             .WithHttpTransport(options => options.Stateless = true);
         services.AddMcpAuthentication();
