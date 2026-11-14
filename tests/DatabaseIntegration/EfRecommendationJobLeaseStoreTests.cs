@@ -633,7 +633,7 @@ public class EfRecommendationJobLeaseStoreTests(PostgresFixture fixture)
         var sql = "INSERT INTO recommendation_jobs (id, user_id, requirement_text, status, attempt_count, run_after, error_code, request_hash, created_at) "
             + "VALUES ({0}, {1}, {2}, {3}, {4}, " + runAfter + ", {5}, '" + Hash + "', " + createdAt + ")";
         await db.Database.ExecuteSqlRawAsync(sql, id, userId, Requirement,
-            StoredEnum.ToStored(RecommendationJobStatus.Queued), attemptCount, errorCode);
+            StoredEnum.ToStored(RecommendationJobStatus.Queued), attemptCount, (object?)errorCode ?? DBNull.Value);
         return id;
     }
 
