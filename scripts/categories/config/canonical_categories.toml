@@ -1,0 +1,93 @@
+# Canonical Category 規則（Docs/plans/canonical-category-browse.md §5 P0 結果，使用者 2026-11-14 審核通過）。
+# slug 是穩定代碼，URL 與規則檔都用它；display_name 可以改，不影響 URL。
+# is_active 省略時視為 true；false 的分類不顯示，查詢時視為不存在。
+
+[[category]]
+slug = "literature"
+display_name = "文學小說"
+sort_order = 1
+
+[[category]]
+slug = "comics-light-novels"
+display_name = "漫畫與輕小說"
+sort_order = 2
+
+[[category]]
+slug = "business"
+display_name = "商業理財"
+sort_order = 3
+
+[[category]]
+slug = "psychology"
+display_name = "心理勵志"
+sort_order = 4
+
+[[category]]
+slug = "humanities"
+display_name = "人文社科"
+sort_order = 5
+
+[[category]]
+slug = "religion"
+display_name = "宗教命理"
+sort_order = 6
+
+[[category]]
+slug = "art-design"
+display_name = "藝術設計"
+sort_order = 7
+
+[[category]]
+slug = "language"
+display_name = "語言學習"
+sort_order = 8
+
+[[category]]
+slug = "exams"
+display_name = "考試與教科書"
+sort_order = 9
+
+[[category]]
+slug = "science"
+display_name = "自然科普"
+sort_order = 10
+
+[[category]]
+slug = "computers"
+display_name = "電腦資訊"
+sort_order = 11
+
+[[category]]
+slug = "health"
+display_name = "醫療保健"
+sort_order = 12
+
+[[category]]
+slug = "food"
+display_name = "飲食"
+sort_order = 13
+
+[[category]]
+slug = "lifestyle"
+display_name = "生活風格"
+sort_order = 14
+
+[[category]]
+slug = "travel"
+display_name = "旅遊"
+sort_order = 15
+
+[[category]]
+slug = "parenting"
+display_name = "親子教養"
+sort_order = 16
+
+[[category]]
+slug = "children-teens"
+display_name = "童書與青少年"
+sort_order = 17
+
+[[category]]
+slug = "simplified-chinese"
+display_name = "簡體書"
+sort_order = 18

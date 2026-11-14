@@ -1,0 +1,3 @@
+# Subject 例外對應（MANUAL）。格式：[[mapping]] 含 source_code、subject、slug、root（記入 provider_root_subject）、note（選填）。
+# 同一個 (source_code, subject) 只能出現一次。這裡的規則會覆蓋推導出的對應，也能解決 AMBIGUOUS 名稱。
+# 目前沒有例外；需要時經使用者審核後再加入。
