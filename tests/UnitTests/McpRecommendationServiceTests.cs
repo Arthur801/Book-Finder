@@ -8,6 +8,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using ModelContextProtocol;
+using TestDoubles;
 
 namespace UnitTests;
 
@@ -204,7 +205,7 @@ public sealed class McpRecommendationServiceTests
 
     private static Harness Build(JobSubmitOutcome? outcome = null, bool enabled = true)
     {
-        var store = new FakeJobStore { SubmitResult = outcome ?? new JobSubmitOutcome.Created(View(RecommendationJobStatus.Queued)) };
+        var store = new FakeRecommendationJobStore { SubmitResult = outcome };
         var jobs = new RecommendationJobService(
             store,
             Options.Create(new RecommendationOptions()),
@@ -218,26 +219,6 @@ public sealed class McpRecommendationServiceTests
         return new Harness(service, store);
     }
 
-    private sealed record Harness(McpRecommendationService Service, FakeJobStore Store);
+    private sealed record Harness(McpRecommendationService Service, FakeRecommendationJobStore Store);
 
-    // Hand-written store: records what the job service asks it to insert and returns the scripted outcome.
-    private sealed class FakeJobStore : IRecommendationJobStore
-    {
-        public List<SubmitCall> Submits { get; } = [];
-        public JobSubmitOutcome SubmitResult { get; set; } = new JobSubmitOutcome.Created(View(RecommendationJobStatus.Queued));
-
-        public Task<JobSubmitOutcome> SubmitAsync(NewRecommendationJob job, int dailyLimit, DateTime dayStartUtc, CancellationToken cancellationToken)
-        {
-            Submits.Add(new SubmitCall(job, dailyLimit, dayStartUtc));
-            return Task.FromResult(SubmitResult);
-        }
-
-        public Task<RecommendationJobPage> ListAsync(Guid userId, int page, int pageSize, CancellationToken cancellationToken) =>
-            Task.FromResult(new RecommendationJobPage([], 0));
-
-        public Task<RecommendationJobView?> GetAsync(Guid userId, Guid jobId, CancellationToken cancellationToken) =>
-            Task.FromResult<RecommendationJobView?>(null);
-
-        public sealed record SubmitCall(NewRecommendationJob Job, int DailyLimit, DateTime DayStartUtc);
-    }
 }
