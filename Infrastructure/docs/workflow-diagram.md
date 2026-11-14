@@ -1,5 +1,6 @@
 # Infrastructure 流程
 
+> 非同步推薦 Job M2 補記：2026-11-14 更新；程式變更以 `6717d8f` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 查核日期：2026-10-24；基準 `91333c3`。本次只做文件靜態檢查，未執行 build、測試、migration、部署或外部服務。
 
 本目錄實作 Application ports：Persistence、Identity、OpenAi、Caching、BackgroundJobs、Hosting；並非 AWS 部署資料夾。[Program](../../Program.cs) 是 DI 與 middleware 組裝點；業務 gate 在 Application。
@@ -102,7 +103,8 @@ sequenceDiagram
   participant D as PostgreSQL
   participant S as EfRecommendationStore
   A->>U: CountSinceAsync(userId, Taipei 日界轉 UTC)
-  U->>D: Count 本人已保存 searches
+  U->>D: Count 本人未由 Job 產生的已保存 searches
+  U->>D: Count 本人非 FAILED 的 jobs（依 job created_at）
   Note over A: 每日 gate 後開始固定 60 秒 timeout
   A->>O: 解析 structured filters 和 query embedding
   A->>C: FindAsync(filters, vector, threshold, topK, ct)

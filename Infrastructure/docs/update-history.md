@@ -1,5 +1,6 @@
 # Infrastructure 修改歷史
 
+> 非同步推薦 Job M2 補記：2026-11-14 更新；程式變更以 `6717d8f` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M5 補記：2026-11-14 更新；程式變更以 `38543fa`、`149c4e0`、`d181add`、`d82c1cc`、`a648a90`、`48b57e0` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M1 補記：2026-11-14 更新；程式變更以 `ad398b8`、`904baca`、`0a11483` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
@@ -156,6 +157,14 @@ git show <SHA> -- Infrastructure
 | 2026-11-14 | `ad398b8` | feat(rec-jobs): add recommendation_jobs table, entity and migration | `Persistence/Configurations/RecommendationJobConfiguration.cs`（新增）；`Persistence/AppDbContext.cs`（DbSet）；`Persistence/Migrations/20261114032619_AddRecommendationJobs.cs`／`.Designer.cs`（新增，只 expand）；`Persistence/Migrations/AppDbContextModelSnapshot.cs` |
 
 驗證（2026-11-14，主 agent 重跑）：`dotnet build` 0 warning；UnitTests 867、DatabaseIntegration 197 通過；mutation 抽查：拿掉 migration 中 `FAILED` 必須有 error_code 的條件，`failed_without_error_code` 案例失敗，已還原。
+
+## 非同步推薦 Job M2 用量計數（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-14 | `6717d8f` | feat(rec-jobs): count jobs in the daily recommendation usage | `Persistence/EfRecommendationUsage.cs`（兩個 count：未由 Job 產生的 Search＋非 FAILED 的 Job） |
+
+驗證（2026-11-14，主 agent 重跑）：`dotnet build` 0 warning；DatabaseIntegration 204、UnitTests 867、WebIntegration 293 通過；mutation 抽查兩處（見 test-suite INF-T15）。
 
 ## Canonical Category P4 分類瀏覽查詢（新增紀錄）
 

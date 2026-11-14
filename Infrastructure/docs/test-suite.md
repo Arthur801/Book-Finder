@@ -1,5 +1,6 @@
 # Infrastructure AI 文字測試案例庫
 
+> 非同步推薦 Job M2 補記：2026-11-14 更新；程式變更以 `6717d8f` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M5 補記：2026-11-14 更新；程式變更以 `38543fa`、`149c4e0`、`d181add`、`d82c1cc`、`a648a90`、`48b57e0` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M1 補記：2026-11-14 更新；程式變更以 `ad398b8`、`904baca`、`0a11483` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
@@ -142,6 +143,7 @@ Authority：[test plan](../../Docs/testing/test-plan.md)、[data model](../../Do
 - Given：A/B、固定 Taipei 日界的 UTC 時間、前日與今日 searches；ranked results 含合法 Book 或不存在 FK；另備零結果與巨大頁碼。
 - When：CountSinceAsync、SaveAsync、ListAsync、GetAsync；成功保存後讓 profile enrichment 失敗；保存前讓 OpenAI 或 timeout 失敗。
 - Then：只計 A 日界以後已保存 search；成功含零結果保存；relevance 五位小數；Result FK 失敗 Search/Results 一起 rollback；B 讀 A search 回 null；巨大 offset 不溢位且空頁；保存後 enrichment 一般失敗降級，caller 取消仍傳播取消但已保存 search 不回滾；保存前 AI failure／timeout 不保存。每日已達上限不呼叫任何外部 adapter（Application gate regression）。
+- Job 用量（M2，2026-11-14，`6717d8f`，DatabaseIntegration 204 項通過）：QUEUED／RUNNING／SUCCEEDED 的 Job 計入、FAILED 不計；SUCCEEDED Job 與它的 Search 合計 1；Job 在日界前提交、Search 在日界後產生 → 0；在日界後提交 → 1；2 筆一般 Search ＋ 1 筆排隊 Job = 3；他人 Job 不計；Job 剛好在日界計入、早一 tick 不計。mutation 抽查：拿掉 NOT EXISTS → 4 項失敗；拿掉 FAILED 排除 → 1 項失敗。
 - 入口：[EfRecommendationStoreTests](../../tests/DatabaseIntegration/EfRecommendationStoreTests.cs)、[EfRecommendationUsageTests](../../tests/DatabaseIntegration/EfRecommendationUsageTests.cs)、[EfRecommendationHistoryTests](../../tests/DatabaseIntegration/EfRecommendationHistoryTests.cs)、[RecommendationServiceTests](../../tests/UnitTests/RecommendationServiceTests.cs)。
 
 ## INF-T16 — 書庫列表、隨機樣本與組裝守衛

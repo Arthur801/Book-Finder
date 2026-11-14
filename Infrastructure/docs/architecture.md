@@ -1,5 +1,6 @@
 # Infrastructure 架構
 
+> 非同步推薦 Job M2 補記：2026-11-14 更新；程式變更以 `6717d8f` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M5 補記：2026-11-14 更新；程式變更以 `38543fa`、`149c4e0`、`d181add`、`d82c1cc`、`a648a90`、`48b57e0` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M1 補記：2026-11-14 更新；程式變更以 `ad398b8`、`904baca`、`0a11483` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
@@ -27,7 +28,7 @@
 | CategoryBrowseService（經 [CachedCategoryBrowse](../Caching/CachedCategoryBrowse.cs)：側邊欄書數、來源清單、全部書籍數依來源分別快取 10 分鐘；書單不快取；slug／source 的存在判斷也用這份快取，最多延遲 10 分鐘） | [EfCategoryBrowse](../Persistence/EfCategoryBrowse.cs) → 分類與書數、來源、全部書籍數、BookBrowsePage | LINQ 轉成 EXISTS；分類以 `(source_code, subject)` 對應，不同來源的同名 Subject 互不套用；側邊欄書數以 DISTINCT book_id 計算（每個分類一個相關子查詢）；書單分頁沿用 BookBrowsePaging |
 | LibraryService／userId、bookId、change | [EfLibraryStore](../Persistence/EfLibraryStore.cs) → Entry／null／List | 本人 filter、composite key、冪等新增、Book FK 特定轉譯 |
 | RecommendationService／filters、vector | [EfCandidateSearch](../Persistence/EfCandidateSearch.cs) → CandidateBook | exact cosine、硬條件、description 只供 AI |
-| RecommendationService／userId、成功 ranked items | [store](../Persistence/EfRecommendationStore.cs)、[usage](../Persistence/EfRecommendationUsage.cs) | 一次 SaveChanges；只計數已保存 search |
+| RecommendationService／userId、成功 ranked items | [store](../Persistence/EfRecommendationStore.cs)、[usage](../Persistence/EfRecommendationUsage.cs) | 一次 SaveChanges；用量（M2）= 未由 Job 產生的已保存 Search ＋ 非 `FAILED` 的 Job（依 Job 的 `created_at`），兩個 count 依序執行（共用 DbContext） |
 | History caller／userId、page 或 searchId | [EfRecommendationHistory](../Persistence/EfRecommendationHistory.cs) | 本人隔離、long offset、目前書目加保存 rank/reason |
 | Application AI interfaces | [OpenAI registration](../OpenAi/OpenAiServiceCollectionExtensions.cs) → filters、vector、ranking、profile | SDK、strict schema、錯誤與 caller cancellation 區分 |
 | EmbeddingBackfillService／pending vector | [EfEmbeddingStore](../Persistence/EfEmbeddingStore.cs) | hash、batch selection、單句 upsert |
