@@ -25,10 +25,15 @@ internal sealed class EfRecommendationJobStore(AppDbContext db, IRecommendationU
                 .SingleOrDefaultAsync(row => row.UserId == job.UserId && row.IdempotencyKey == job.IdempotencyKey, cancellationToken);
             if (sameKey is not null)
             {
+                // Same hash: nothing is written, so the commit only ends the transaction. Different hash: rolled back.
+                if (sameKey.RequestHash == job.RequestHash)
+                {
+                    await transaction.CommitAsync(cancellationToken);
+                    return new JobSubmitOutcome.Existing(ToView(sameKey));
+                }
+
                 await transaction.RollbackAsync(cancellationToken);
-                return sameKey.RequestHash == job.RequestHash
-                    ? new JobSubmitOutcome.Existing(ToView(sameKey))
-                    : new JobSubmitOutcome.IdempotencyConflict();
+                return new JobSubmitOutcome.IdempotencyConflict();
             }
         }
 
