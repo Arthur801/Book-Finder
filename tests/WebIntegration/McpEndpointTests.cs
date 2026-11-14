@@ -68,8 +68,8 @@ public sealed class McpEndpointTests(WebFixture fixture)
         var result = await ReadRpcResponseAsync(response);
         var tools = result.GetProperty("result").GetProperty("tools");
         Assert.Equal(JsonValueKind.Array, tools.ValueKind);
-        // recommend_books is listed for every client; the HTTP gate refuses its calls without a token, so listing reveals no data.
-        Assert.Equal(["search_books", "recommend_books"], tools.EnumerateArray().Select(tool => tool.GetProperty("name").GetString()));
+        // The protected tools are listed for every client; the HTTP gate refuses their calls without a token, so listing reveals no data.
+        Assert.Equal(["search_books", "recommend_books", "get_recommendation_result"], tools.EnumerateArray().Select(tool => tool.GetProperty("name").GetString()));
     }
 
     [Fact]
