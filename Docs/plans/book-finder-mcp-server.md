@@ -1,10 +1,10 @@
-# Book-Finder MCP Server — v1.0 實作計畫
+# Book-Finder MCP Server — v1.1 實作計畫
 
 > Baseline：`origin/main @ 8c8e3ab`（2026-11-14）。
 >
 > 來源：使用者提供的「Book-Finder MCP Server 實作規劃（Proposed）」，經 repo 現況核對後整理成本版。核對時找到的差異列在「核對 repo 現況的結果」與文末「設計變更紀錄」。
 >
-> **狀態：Proposed（待審查，尚未實作）**。下一步是 M0：SDK 釘版與單一 endpoint 授權 Spike（Go/No-Go 關卡），以及使用者決定 D-01～D-04。
+> **狀態：Proposed（尚未實作）**。使用者已決定 D-01～D-06（2026-11-14）。下一步是 M0：SDK 釘版、單一 endpoint 授權 Spike（決定用單一 `/mcp` 還是雙 endpoint），以及 OpenIddict 預註冊可行性。
 >
 > 本文件是實作計畫，不代表功能已實作、測試已通過或取得 production 授權。技術 authority 仍是各模組的 `docs/`（`AGENTS.md` §3.2）；實作時把定案的 contract 寫進 owning module 的 docs（新模組 `Mcp/docs/` 與受影響模組），不只寫在這裡。文中的 Tool JSON 都是格式示意，不是實際查詢結果；SLO 是目標，尚未量測。
 
@@ -53,7 +53,7 @@ MCP 層只做協定轉換：搜尋重用 `IBookSearch`，推薦重用已上線�
 - [AuthServiceCollectionExtensions](../../Infrastructure/Identity/AuthServiceCollectionExtensions.cs)：預設 scheme 是 JwtBearer，但 `OnMessageReceived` **只讀 `bf_auth` cookie**，不讀 `Authorization` header；`aud` 為網站自己。
 - 同檔的 `OnChallenge`：只有 `/api/*`（[ApiRequest.IsApi](../../Infrastructure/Identity/ApiRequest.cs)）回 401 ProblemDetails，**其他路徑一律 302 轉址到 `/account/login`**。`/mcp` 不在 `/api` 下，若沿用預設 scheme，未授權會得到 302 而不是 OAuth 需要的 `401 + WWW-Authenticate`。所以 `/mcp` 必須用獨立 scheme（`McpBearer`）並在 policy 明確指定。
 - [CurrentUser.CurrentUserId](../../Infrastructure/Identity/CurrentUser.cs) 讀 `sub` claim（`MapInboundClaims = false`）。MCP token 的 `sub` 也要是 Book-Finder User ID。
-- [AccountController](../../Controllers/AccountController.cs)：`GET /account/login?returnUrl=…`，經 [SafeReturnUrl](../../Infrastructure/Identity/SafeReturnUrl.cs)（`IUrlHelper.IsLocalUrl`）只放行本地路徑。同站 AS 的 `/oauth/authorize` 可以把自己當 returnUrl 導回。
+- [AccountController](../../Controllers/AccountController.cs)：`GET /account/login?returnUrl=…`，經 [SafeReturnUrl](../../Infrastructure/Identity/SafeReturnUrl.cs)（`IUrlHelper.IsLocalUrl`）只放行本地路徑。OpenIddict 的 `/oauth/authorize` 可以把自己當 returnUrl 導回。
 - 全域 `AutoValidateAntiforgeryTokenAttribute` 只套在 MVC action。`MapMcp` 是 endpoint routing，不受影響；若 OAuth token endpoint 以 MVC controller 實作，需要明確處理 antiforgery（L3 審查點）。
 
 **部署**
@@ -68,18 +68,23 @@ MCP 層只做協定轉換：搜尋重用 `IBookSearch`，推薦重用已上線�
 
 - Google Books fallback 仍未接入（#14、APP-B01）。MCP 對外不得宣稱用了 fallback。
 
-## 待決策事項
+## 使用者決定（2026-11-14）
 
-尚無使用者決定。M0 結束前需要決定 D-01～D-04，才能進 M2。
-
-| # | 問題 | 做決定需要的最小證據 |
+| # | 決定 | 對計畫的影響 |
 |---|---|---|
-| D-01 | 目標 MCP Client：只有 ChatGPT，或同時支援 Claude／IDE？ | 至少一個真實 Client 的 OAuth 連線、Tool call、token refresh 紀錄 |
-| D-02 | OAuth Authorization Server：同站 OpenIddict，或外部 IdP？ | ADR：資料表與金鑰維運、帳號映射、費用、threat model |
-| D-03 | Client Registration：CIMD、預註冊或 DCR？ | 目標 Client 實際支援哪種；AS 能否提供 metadata、PKCE、redirect URI 註冊 |
-| D-04 | 單一 `/mcp` 的 per-tool 401 能否運作？不行時是否接受雙 endpoint（`/mcp/public` + `/mcp/user`）？ | MCP-002 Spike 結果 |
-| D-05 | 正式網域（草稿以 `khwebsc.com` 為例） | DNS、HTTPS、nginx、Cloudflare 設定確認 |
-| D-06 | 公開搜尋的輸入長度上限、rate limit、查詢 timeout | 網站搜尋 baseline 與負載測試 |
+| D-01 | **ChatGPT、Claude 與 IDE Client 都要支援** | MCP-203 與 DoD 要有三類 Client 各自的完整 OAuth E2E 紀錄（ChatGPT、Claude、至少一個 IDE Client）；Tool 描述不得依賴單一 Client 的行為 |
+| D-02 | **同站 OpenIddict** | AS 與網站同 process、同網域；需要 OpenIddict 資料表（migration + DEP-B25 compat seed）、簽章／加密金鑰方案、Consent 頁；全部 L3 |
+| D-03 | **先用預註冊；某個 Client 不支援預註冊時，改用 CIMD** | MCP-003 逐一確認三類 Client 能否填入預先發給的 `client_id`（與 redirect URI）；需要 CIMD 的 Client，要另外確認 OpenIddict 能否支援（不假設原生支援，可能需要自訂 client 解析），結果寫進 ADR。不實作 DCR |
+| D-04 | **先試單一 `/mcp`；不行就接受雙 endpoint**（`/mcp/public` 匿名 + `/mcp/user` 全部需授權） | MCP-002 的結果直接決定採用哪個方案，不必再等使用者決定；改用雙 endpoint 時寫 ADR，並更新 Tool 契約與 Client 設定說明 |
+| D-05 | **正式網域是 `khwebsc.com`** | `Mcp:PublicBaseUrl = https://khwebsc.com`；MCP resource `https://khwebsc.com/mcp`；OpenIddict issuer `https://khwebsc.com/`；nginx 與 Cloudflare 的路由仍由使用者在 host 確認 |
+| D-06 | **公開搜尋比照網站搜尋現有的上限** | 見下方說明 |
+
+**D-06 的現況**：網站一般搜尋（`SearchController` → `BookSearchService` → `EfBookSearch`）目前**沒有**輸入長度上限、沒有應用層 rate limit，程式碼也沒有另外設定查詢 timeout（只剩 Npgsql 與 Kestrel 的預設值；production 連線字串在 SSM，本計畫未查看是否覆寫）。因此 `search_books` 也不另加這三項限制，與網站行為一致。公開搜尋沒有節流這件事，記為已知缺口寫進 `Mcp/docs/backlog.md`（若之後要加，網站與 MCP 一起加）。
+
+仍待 M0 確認的事項（不需要使用者再決定，但結果要回報）：
+
+- MCP-002：單一 `/mcp` 的 per-tool 401 是否可行（決定 D-04 採哪個方案）。
+- MCP-003：三類 Client 各自支援預註冊或 CIMD；OpenIddict 對 CIMD 的支援程度。
 
 ## 1. 範圍
 
@@ -88,7 +93,7 @@ MCP 層只做協定轉換：搜尋重用 `IBookSearch`，推薦重用已上線�
 - `Mcp/` 新模組：Tool、DTO、MCP adapter service、URL builder、options、DI 擴充方法、`Mcp/docs/` 五文件；
 - `/mcp` Streamable HTTP（Stateless），受 `Mcp:Enabled` 控制；
 - `search_books`、`recommend_books`、`get_recommendation_result`；
-- OAuth：Protected Resource Metadata、`McpBearer` scheme、`books:recommend` scope policy、Authorization Server 整合（依 D-02）；
+- OAuth：Protected Resource Metadata、`McpBearer` scheme、`books:recommend` scope policy、同站 OpenIddict Authorization Server（D-02）、預註冊 Client（必要時 CIMD，D-03）；
 - 測試、受影響模組的 `docs/`、`CONTEXT.md` 詞彙、上線手冊與實作報告。
 
 **Out of scope**：
@@ -127,7 +132,9 @@ MCP 層只做協定轉換：搜尋重用 `IBookSearch`，推薦重用已上線�
 | 一般搜尋 | `SearchQuery.Parse` + `IBookSearch` | 查詢與排序只有一份 |
 | AI 推薦 | `RecommendationJobService` + `IRecommendationHistory` | 已上線、持久化、有 retry 與擁有者檢查 |
 | MCP 認證 | OAuth 2.1 Resource Server + 獨立 `McpBearer` scheme | 與網站 cookie 分離 |
-| Authorization Server | 依 D-02 | 不自製 OAuth 核心協定 |
+| Authorization Server | 同站 OpenIddict（D-02） | 不自製 OAuth 核心協定；沿用既有帳號與登入頁 |
+| Client Registration | 預註冊，不支援者改 CIMD（D-03） | 不開放 DCR，減少攻擊面 |
+| 網域 | `https://khwebsc.com`（D-05） | 網站、MCP resource、issuer 同網域 |
 
 ```mermaid
 flowchart TB
@@ -136,7 +143,7 @@ flowchart TB
     subgraph APP[Book-Finder Web App]
         MCP[Mcp/ Tools]
         AUTHN[McpBearer + books:recommend policy]
-        AS[OAuth AS（依 D-02，可能在外部）]
+        AS[OpenIddict AS：/oauth/*]
         WEB[MVC：/account/login、/search、/books、/ai]
         CATALOG[IBookSearch]
         JOB[RecommendationJobService]
@@ -193,7 +200,7 @@ Job 頁與紀錄頁都受網站 `[Authorize]` 保護，使用者需在瀏覽器�
 
 規則：
 
-- `SearchQuery.Parse` 結果為 `Empty` → `VALIDATION_FAILED`，不碰 DB。輸入長度上限依 D-06。
+- `SearchQuery.Parse` 結果為 `Empty` → `VALIDATION_FAILED`，不碰 DB。不另設輸入長度上限，比照網站搜尋（D-06）。
 - 其他 → `IBookSearch.SearchAsync(q, 1, 50, ct)`。
 - `totalCount` = `BookSearchPage.TotalCount`；`returnedCount = books.Count`；`hasMore = totalCount > 50`。
 - 0 本：`books = []`、`hasMore = false`，仍回 `searchUrl`。
@@ -295,25 +302,27 @@ sequenceDiagram
     Mcp-->>Client: succeeded、books、historyUrl
 ```
 
-- 只回登入頁網址，或瀏覽器拿到 `bf_auth` cookie，都**不等於** Client 已取得 MCP token。原請求由 Client 保留並在授權後重送；這個行為要對 D-01 的目標 Client 實測。
-- 同站 AS 時：`/oauth/authorize` 未登入就以自己為 returnUrl 導到 `/account/login`（MCP-201 確認 `SafeReturnUrl` 接受帶 query 的本地路徑、登入後 query 完整保留）。
+- 只回登入頁網址，或瀏覽器拿到 `bf_auth` cookie，都**不等於** Client 已取得 MCP token。原請求由 Client 保留並在授權後重送；這個行為要對 ChatGPT、Claude 與 IDE Client 各自實測（D-01）。
+- `/oauth/authorize` 未登入就以自己為 returnUrl 導到 `/account/login`（MCP-201 確認 `SafeReturnUrl` 接受帶 query 的本地路徑、登入後 query 完整保留）。
 - AS 與 Resource Server 即使同 process，責任也分開；Tool handler 不處理 OAuth。
 
-**路由（設計目標，實際依 SDK 與 D-02）**：
+**路由（設計目標，實際路徑依 SDK 與 OpenIddict 設定）**：
 
 | 路由 | 用途 |
 |---|---|
 | `GET /.well-known/oauth-protected-resource/mcp` | Protected Resource Metadata：resource、authorization server、支援的 scope |
-| AS metadata | issuer、authorize、token、PKCE、registration；可能在外部 |
-| `GET /oauth/authorize`、`POST /oauth/token` | 只有同站 AS 時才有 |
+| `GET /.well-known/oauth-authorization-server`（及／或 `openid-configuration`） | OpenIddict metadata：issuer `https://khwebsc.com/`、authorize、token、PKCE（S256）、支援的 Client 識別方式 |
+| `GET /oauth/authorize`、`POST /oauth/token` | OpenIddict endpoint；authorize 的登入沿用 `/account/login` |
 | `/mcp` | MCP Resource Server |
 
-**Client Registration 與 Consent**（依 D-03）：
+**Client Registration 與 Consent**（D-03）：
 
-- 不假設 OpenIddict 原生支援 CIMD；要實際確認。
+- 預設預註冊：每個 Client 一筆 OpenIddict application（`client_id`、精確的 redirect URI、允許的 scope 只有 `books:recommend`、public client + PKCE）。預註冊資料以設定或 seed 管理，不寫入 secret。
+- 某個 Client 只支援 CIMD 時才加 CIMD：`client_id` 是 HTTPS URL，AS 抓取並驗證 metadata document（只允許 HTTPS、限制大小與逾時、redirect URI 必須在文件內）。不假設 OpenIddict 原生支援 CIMD；MCP-003 確認後寫進 ADR。
+- 不實作 DCR。
 - PKCE 只接受 S256；驗證 `state`；authorization code 一次性；redirect URI 精確比對。
 - Consent 顯示 Client 名稱與 scope；提供撤銷方式。
-- 同站 OpenIddict 會新增資料表與 migration（附 DEP-B25 compat seed），以及簽章／加密金鑰：金鑰需要獨立的持久化、輪替與備份方案，不寫進 repo，不能未經評估就借用 Data Protection volume。這些都是 L3。
+- OpenIddict 會新增資料表與 migration（附 DEP-B25 compat seed），以及簽章／加密金鑰：金鑰需要獨立的持久化、輪替與備份方案，不寫進 repo，不能未經評估就借用 Data Protection volume。這些都是 L3。
 
 ### 3.5 單一 endpoint 的授權關卡（P0 Spike）
 
@@ -334,7 +343,7 @@ MCP-002 必須以真實 HTTP transport 證明：
 
 1. SDK 原生的 HTTP auth／scope 機制。
 2. `MapMcp` 前的受控 middleware：body 有大小上限、只解析 JSON-RPC `method` 與 tool name、驗證後重置 body；不得無限 buffering，失敗的請求不得建立 Job；對不同協定版本做契約測試。
-3. 都不行 → 依 D-04 改雙 endpoint，先寫 ADR、使用者同意 UX 影響後才實作。
+3. 都不行 → 改雙 endpoint（D-04 已接受）：`/mcp/public` 只有 `search_books`、匿名；`/mcp/user` 整個 endpoint 需要 `McpBearer`，含三支 Tool。寫 ADR，更新 Tool 契約與各 Client 的設定說明後實作。
 
 ## 4. 模組（每模組一分支一 PR）
 
@@ -344,11 +353,11 @@ MCP-002 必須以真實 HTTP transport 證明：
 |---|---|---|---|---|
 | M0 | MCP-001 | 釘 SDK 版本；`Mcp/` 骨架、`McpOptions`（`Enabled`、`PublicBaseUrl`）、`AddBookFinderMcp`；`Program.cs` 加註冊與受 `Mcp:Enabled` 控制的 `MapMcp`；匿名 `tools/list` 測試 | L2 | — |
 | M0 | MCP-002 | §3.5 Spike，產出結果與建議（Go/No-Go） | L3 | MCP-001 |
-| M0 | MCP-003 | AS 與 Client Registration ADR（D-02、D-03）、metadata 範例、migration 與金鑰影響 | 文件 | MCP-002 |
+| M0 | MCP-003 | OpenIddict 與 Client Registration ADR：三類 Client 各自支援預註冊或 CIMD、OpenIddict 對 CIMD 的支援、metadata 範例、migration 與金鑰影響；記錄 MCP-002 選定的 endpoint 方案 | 文件 | MCP-002 |
 | M1 | MCP-101／102 | MCP 搜尋 service（50 本）、`search_books`、`McpUrlBuilder`、錯誤對應 | L2 | MCP-001 |
-| M2 | MCP-201 | OAuth AS 整合（依 ADR）：登入、Consent、PKCE、Client Registration、issuer／audience／scope | L3 | MCP-003、使用者決定 D-01～D-04 |
+| M2 | MCP-201 | OpenIddict 整合：登入、Consent、PKCE、預註冊（必要時 CIMD）、issuer／audience／scope、migration + compat seed | L3 | MCP-003 |
 | M2 | MCP-202 | `McpBearer` scheme、`books:recommend` policy、與 `bf_auth` 互不通用 | L3 | MCP-201 |
-| M2 | MCP-203 | 目標 Client 實測：匿名呼叫 → 登入 → Consent → 重送，只產生 1 個 Job | L3 | MCP-202 |
+| M2 | MCP-203 | ChatGPT、Claude、至少一個 IDE Client 各自實測：匿名呼叫 → 登入 → Consent → 重送，只產生 1 個 Job | L3 | MCP-202 |
 | M3 | MCP-301 | `recommend_books`（§3.3） | L3 | MCP-202 |
 | M3 | MCP-302 | 確認 Worker：staging 走完 queued → running → succeeded／failed、中斷恢復；**不改開關** | L3 | MCP-301 |
 | M4 | MCP-401 | `get_recommendation_result`（§3.3） | L3 | MCP-301 |
@@ -426,7 +435,7 @@ M1 只依賴 MCP-001，可以和 MCP-002／003 並行。
 
 ### 資源限制
 
-- 公開搜尋：IP／Client rate limit、查詢 timeout（依 D-06）。
+- 公開搜尋：比照網站搜尋，不另加輸入長度、rate limit 或查詢 timeout（D-06）；沒有節流列為已知缺口（`Mcp/docs/backlog.md`）。
 - AI：每日額度維持業務上限，另加每 Client／User 速率保護。
 - MCP request body 有大小上限；middleware 不得無限 buffering。
 - OAuth endpoint 防暴力嘗試、CSRF、open redirect 與 log 洩漏。
@@ -435,9 +444,9 @@ M1 只依賴 MCP-001，可以和 MCP-002／003 並行。
 
 上線（主 agent 準備 release；host 與 production 操作由使用者執行，`wizard` skill 帶步驟）：
 
-1. MCP-002 通過、ADR 定案、D-01～D-05 決定。
+1. MCP-002 通過（或改採雙 endpoint）、MCP-003 ADR 定案。
 2. 發布含 MCP 程式但不含 `Mcp__Enabled` 的 release，確認網站不受影響。
-3. 同站 AS 時：部署 migration（含 compat seed）與金鑰；以測試 Client 走完 metadata、PKCE、token。
+3. 部署 OpenIddict migration（含 compat seed）、金鑰與預註冊 Client；以測試 Client 走完 metadata、PKCE、token。
 4. 確認 Recommendation Job Worker 正常（已上線，不改開關）。
 5. 使用者在 host nginx／Cloudflare 加 `/mcp`、`/.well-known/oauth-*`、OAuth 路由；確認 `Authorization` header 原樣轉發、不緩衝回應；`ForwardedHeaders` 設定不變。
 6. 發布在 `compose.prod.yaml` 加上 `Mcp__Enabled: "true"` 與 `Mcp__PublicBaseUrl` 的 release（同 DEP-B26 限制：只能隨 release 改）。
@@ -459,7 +468,7 @@ M1 只依賴 MCP-001，可以和 MCP-002／003 並行。
 - 授權後只建立一個屬於該使用者的 Job；完成後拿到真實的書籍與紀錄連結；
 - T01～T25 與安全負向測試通過；`dotnet build --no-incremental` 0 warning；三個測試專案全數通過；
 - 網站 cookie、CSRF、`/search`、`/ai`、job API 無回歸；不阻擋 async 計畫 M9；
-- 至少一個真實 MCP Client 的完整 OAuth E2E 紀錄；
+- ChatGPT、Claude、至少一個 IDE Client 各自的完整 OAuth E2E 紀錄；
 - `Mcp/docs/` 與受影響模組 docs 與程式一致；
 - OAuth、token、migration、production 部署都取得使用者明確授權。
 
@@ -496,8 +505,9 @@ M1 只依賴 MCP-001，可以和 MCP-002／003 並行。
 | MCP-ADR-003 | `search_books` 重用 `IBookSearch`，最多 50 本 | Proposed |
 | MCP-ADR-004 | AI Tool 走已上線的 Recommendation Job，不同步呼叫 OpenAI | Proposed |
 | MCP-ADR-005 | MCP token 與 `bf_auth` 分離（`McpBearer`） | Proposed，高安全優先 |
-| MCP-ADR-006 | 單一 `/mcp`，AI Tool per-tool 401 challenge | **阻擋中**：MCP-002 |
-| MCP-ADR-007 | OAuth AS：同站 OpenIddict 或外部 IdP | **待選型**：D-02、D-03 |
+| MCP-ADR-006 | 單一 `/mcp`，AI Tool per-tool 401 challenge；不可行時雙 endpoint | Accepted（D-04）；採哪個方案由 MCP-002 決定 |
+| MCP-ADR-007 | 同站 OpenIddict；預註冊，不支援者改 CIMD；不做 DCR | Accepted（D-02、D-03）；CIMD 可行性待 MCP-003 |
+| MCP-ADR-009 | 正式網域 `khwebsc.com`；公開搜尋比照網站搜尋的上限 | Accepted（D-05、D-06） |
 | MCP-ADR-008 | 對外連結只用 `Mcp:PublicBaseUrl` | Proposed |
 
 ## 設計變更紀錄
@@ -509,9 +519,18 @@ M1 只依賴 MCP-001，可以和 MCP-002／003 並行。
 3. **輸入驗證由 MCP 呼叫端負責**：`SubmitAsync` 不驗證需求文字，MCP 先呼叫 `RecommendationInputRules`。
 4. **必須用獨立 scheme**：預設 scheme 對非 `/api` 路徑回 302，`/mcp` 若沿用會破壞 OAuth challenge；T09 加「不是 302」。
 5. **反向代理不在 repo**：nginx 與 Cloudflare 由使用者在 host 設定；Transport 優先 JSON response。
-6. **Migration 與金鑰**：同站 AS 的 migration 要附 DEP-B25 compat seed；簽章金鑰要獨立方案。
+6. **Migration 與金鑰**：OpenIddict 的 migration 要附 DEP-B25 compat seed；簽章金鑰要獨立方案。
 7. **登入整合**：利用既有 `returnUrl` 與 `SafeReturnUrl`；token endpoint 的 antiforgery 列為審查點。
 8. **模組位置**：`Mcp/` 頂層模組，`Program.cs` 只加註冊與 `MapMcp`；測試放既有測試專案。
 9. **空輸入**：`IBookSearch` 不接受 `Empty`，由 MCP 端回 `VALIDATION_FAILED`。
 10. **失敗碼**：`failed` 回 `RecommendationJobErrorCodes` 原值。
 11. **依賴圖**：`search_books` 只依賴 MCP-001；`recommend_books` 依賴 `McpBearer` 而非 Client E2E，讓 MCP-203 與 M3 並行。
+
+### v1.1（2026-11-14）：記錄使用者決定 D-01～D-06
+
+1. 支援 ChatGPT、Claude 與 IDE Client；MCP-203 與 DoD 改成三類 Client 各自的 E2E 紀錄。
+2. Authorization Server 定為同站 OpenIddict；架構圖、路由表與上線步驟改寫，不再保留外部 IdP 分支。
+3. Client Registration 先預註冊、必要時 CIMD，不做 DCR；OpenIddict 的 CIMD 支援列為 MCP-003 待確認。
+4. 雙 endpoint 備援已被接受；MCP-002 的結果直接決定方案，MCP-201 不再等使用者決定。
+5. 正式網域 `khwebsc.com`。
+6. 公開搜尋比照網站搜尋現有上限：查證後網站目前沒有輸入長度、rate limit 與查詢 timeout 設定，`search_books` 一致；沒有節流列為已知缺口。
