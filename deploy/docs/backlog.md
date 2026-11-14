@@ -41,6 +41,7 @@
 | DEP-B21 | P1 | L4 | 已緩解；殘留風險已接受（2026-10-25） | 保險 (a) 釋放前等連線結束、(b) 殘留容器拒絕、效果接受前的 final heartbeat；超時後的殘留風險與 host 被 SIGKILL 的風險仍在 |
 | DEP-B23 | P1 | L3 | 大部分已驗證；未驗證項保留 | 真 lock holder 與拋棄式 PG 17 的整合測試已執行（test-suite §3.22）；efbundle 的 SIGTERM／kill 與 RDS 版本仍未驗證 |
 | DEP-B24 | P1 | L3（程式）／L4（擴大 EBS、host 清理） | 已發生（營運觀察，2026-11-14） | EC2 root 磁碟只有 6.7 GB，host 從不刪除舊 image；v0.0.8 的 plan 因 `no space left on device` 失敗 |
+| DEP-B25 | P2 | L2 | 已發生（2026-11-14）；本次已補 seed | 新 migration 部署後沒有補 compat seed，下一次 CD 在 compat 失敗；缺少提醒或檢查 |
 
 ## 2. 項目
 
@@ -262,6 +263,14 @@
 - **必須保留的 image**：`state.json` 的 `runtime`（web、crawler）、`previous_runtime`、`crawler.digest`，以及 **`host.conf` 的 `PSQL_IMAGE`**。只看 `deploy/host` 程式碼找不到 `PSQL_IMAGE` 的 digest。
 - **方向**（待使用者決定）：(a) host 在 deploy 成功後刪除上述清單以外的 `book-finder-*` image，L3 程式修改，需要測試；(b) 擴大 EBS，L4，會產生費用。兩者可以並行。
 - **驗收條件**：連續發布數個 release 後，root 使用率維持在安全範圍；清理永遠不刪除上述必須保留的 image。
+
+### DEP-B25 新 migration 部署後必須補 compat seed
+
+- **狀態**：已發生（2026-11-14）；本次已補，流程缺口未處理。
+- **經過**：v0.0.8 把 `20261114003848_AddCanonicalCategories` 部署到 production 之後，沒有新增以它命名的 seed。下一個 release（v0.0.9）的 CD 在 compat 的 `seed loaded` 失敗（`missing seed file …`），deploy 被跳過，production 沒有變動。補上 seed 並合併後，以 dispatch 重跑 v0.0.9。
+- **原因**：seed 檔頭寫著「release 部署後要補 seed」，但沒有任何檢查會提醒；新增 migration 的 PR 當下也還不能補（compat 會在 applied 仍是舊 head 時用舊 seed）。
+- **方向**（待決定）：(a) 在 CI 加一個檢查：`deploy/migration-test/seeds/` 必須有「最新已發布 release 的最後一個 migration」的 seed；(b) 或允許新增 migration 的 PR 同時附上新 head 的 seed（compat 只讀 applied head 的 seed，提早放入不影響舊 head）；(b) 較簡單，可在 runbook §4.1 與 AGENTS／deploy docs 寫成規則。
+- **驗收**：下一個新增 migration 的 release 部署後，下一次 CD 的 compat 不再因缺 seed 失敗。
 
 ## 3. 已處理
 
