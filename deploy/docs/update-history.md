@@ -361,3 +361,8 @@ git log --reverse --no-merges --format='@@%h' --numstat -- <同上路徑>
 |---|---|---|---|
 | 2026-11-14 | 本 PR | deploy: enable Recommendation Jobs in production | `deploy/release/compose.prod.yaml` 的 `environment` 加上 `RecommendationJobs__Enabled: "true"`；依[推薦 Job 實作報告](../../Docs/Implementation-Report/async-recommendation-jobs.md)上線手冊第 3 步。開關隨 release 生效，回退方式見 backlog DEP-B26 |
 
+## 2026-11-14 AddOpenIddict 的 compat seed（新增紀錄）
+
+| 日期 | commit | subject | 變更 |
+|---|---|---|---|
+| 2026-11-14 | `e16b56f` | test(mcp): compat seed and schema tests for OpenIddict (MCP-201a) | `deploy/migration-test/seeds/20261114082838_AddOpenIddict.sql`（新增）：AddRecommendationJobs seed 全文加四張 OpenIddict 表的虛構資料；與新增 migration 同一個 PR（DEP-B25 方向 (b)）。`dotnet-tools.json` 的 `dotnet-ef` 升到 10.0.14 |

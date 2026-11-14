@@ -13,7 +13,8 @@
 | MCP-B07 | 是否升級 SDK 到 2.4.0 以上（目前 2.3.1）；升級時重跑契約測試 | 改善提案 |
 | MCP-B08 | `McpBearer` 尚無簽章金鑰（任何 token 都失敗）；MCP-201 接上 OpenIddict 的驗證金鑰 | 待 M2 |
 | MCP-B09 | 401 的 `WWW-Authenticate` 沒有 `error="invalid_token"`（SDK handler 不加）；目標 Client 若需要再補 | 待 MCP-203 實測 |
-| MCP-B10 | MCP-201 確認 OpenIddict 7.8 對 RFC 9207（`iss` 回應參數）與 RFC 8707（`resource` 參數）的支援；不支援時自訂 handler | 待 M2 |
+| MCP-B10 | RFC 9207：metadata 已宣告 `authorization_response_iss_parameter_supported = true`（201a），回應實際帶 `iss` 待 201b 驗證；RFC 8707：OpenIddict 以 `RegisterResources` 支援，201b 註冊 `https://khwebsc.com/mcp` | 進行中 |
 | MCP-B11 | ChatGPT 的預註冊介面位置不明；MCP-203 找不到時實作 allowlist 版 CIMD（architecture.md §6.4） | 待 MCP-203 |
 | MCP-B12 | AI Tool 描述加 `securitySchemes`；MCP-203 確認 ChatGPT 對 HTTP 401 的處理，必要時評估 Tool 層錯誤（architecture.md §6.5） | 待 M3／MCP-203 |
 | MCP-B13 | production 簽章／加密憑證的存放、輪替與備份程序（L4，需使用者授權） | 待 M2 上線前 |
+| MCP-B14 | metadata 的 `scopes_supported` 目前含 `openid`、`offline_access`（OpenIddict 預設）。ChatGPT 預設會要求宣告的 OIDC scope，client 沒有該權限時授權會失敗；201b 決定移除宣告或允許，並確認 refresh token 是否需要 `offline_access` | 待 201b |

@@ -109,3 +109,21 @@ HostingSetup 支援設定不等於已驗證容器切換、公開 HTTPS、可信 
 ## 推薦工作的 409 problem（Job 計畫 M7）
 
 [ApiProblemResults](../Identity/ApiProblemResults.cs) 新增 `IdempotencyConflict`：409，type `/errors/idempotency-conflict`，title 「同一個 Idempotency-Key 已用於不同的需求」，沒有建立任何 Job。
+
+## MCP OAuth Authorization Server（MCP 計畫 MCP-201a）
+
+同站 OpenIddict 7.8.0（MCP-ADR-007，見 [Mcp/docs/architecture.md §6](../../Mcp/docs/architecture.md)）。程式在 [Identity/OAuth/](../Identity/OAuth/)：
+
+| 元件 | 責任 |
+|---|---|
+| [OAuthOptions](../Identity/OAuth/OAuthOptions.cs) | `OAuth` 設定：預註冊 `Clients`（ClientId、DisplayName、RedirectUris）、憑證路徑與密碼；規則：ClientId 非空不重複、redirect URI 為 https 或 loopback http、不得有 fragment；兩個憑證路徑同時給或同時不給 |
+| [OAuthServiceCollectionExtensions](../Identity/OAuth/OAuthServiceCollectionExtensions.cs) | `Mcp:Enabled = true` 才註冊 OpenIddict（Core + EF stores + Server）；設定驗證一律執行 |
+| [OAuthClientSync](../Identity/OAuth/OAuthClientSync.cs) | 啟動時依設定建立／更新 public client（explicit consent、精確 redirect URI、PKCE、只有 `books:recommend`）；不在設定中的 application 只記 log、不刪除 |
+
+- Issuer 取自 `Mcp:PublicBaseUrl`（`https://khwebsc.com/`）；discovery 的 authorize、token、jwks endpoint 以 event handler 固定成 issuer 底下的網址，不讀 Host header。
+- Metadata：`/.well-known/oauth-authorization-server` 與 `/.well-known/openid-configuration`；只有 Authorization Code + PKCE（**只接受 S256**，plain 已從設定移除）與 refresh token；`token_endpoint_auth_methods_supported` 加上 `none`；沒有 registration endpoint（不做 DCR）；`authorization_response_iss_parameter_supported = true`（OpenIddict 預設）。
+- Token 期限（D-09）：access 1 小時、refresh 30 天，OpenIddict 預設的 sliding／rolling refresh 不變。
+- 金鑰（D-11）：有設定憑證路徑時載入 PKCS#12（`X509CertificateLoader`）；沒有時用 ephemeral key（開發與測試，重啟後 token 失效）。Production 且 MCP 開啟但沒有憑證路徑 → 啟動失敗。
+- 資料表：`openiddict_applications`、`openiddict_authorizations`、`openiddict_scopes`、`openiddict_tokens`（migration `20261114082838_AddOpenIddict`，key 為預設 string，欄位 snake_case）。`AppDbContext` 一律包含這四張表，與 MCP 開關無關。
+- EF Core 由 10.0.13 升到 10.0.14（OpenIddict.EntityFrameworkCore 7.8.0 需要），`dotnet-ef` 同步升級。
+- 尚未實作：authorize／consent／token 的 passthrough controller（MCP-201b）；`resource`（RFC 8707）註冊；`McpBearer` 驗證 OpenIddict token（MCP-202）。

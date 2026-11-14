@@ -1,0 +1,154 @@
+-- Representative data for the schema at 20261114082838_AddOpenIddict (the OpenIddict tables and the recommendation job table).
+-- Why: compat.sh loads this into a database migrated to the last applied migration once AddOpenIddict is applied.
+-- It covers every table, max-length strings, NULLs in each nullable column and check-constraint boundaries. Data is
+-- fictional; password_hash, client_secret and payload values are placeholders, not credentials.
+-- Base: the full content of the recommendation job seed (20261114032619_AddRecommendationJobs.sql), copied unchanged, plus
+-- the four OpenIddict tables: a public client with every column set (explicit consent, loopback and https redirects, PKCE),
+-- a confidential-looking client with the 100-character client_id and no optional values, a 400-character subject on a
+-- permanent authorization, a valid refresh token, a redeemed token with no owner, and a scope at the 200-character name limit.
+-- Maintenance: after a release with new migrations is deployed, add a seed named after the new last migration id.
+BEGIN;
+
+INSERT INTO books (id, title, subtitle, publisher, published_date, published_date_precision, language, description, table_of_contents, page_count, thumbnail_url, created_at, updated_at) VALUES
+  ('10000000-0000-0000-0000-000000000001', repeat('長', 500), repeat('副', 500), repeat('出', 255), '2024-03-15', 'DAY', 'zh-TW', repeat('簡介文字。', 200), E'第一章 開始\n第二章 進階', 1, 'https://example.invalid/thumb/1.jpg', '2026-01-05 08:00:00+08', '2026-01-05 08:00:00+08'),
+  ('10000000-0000-0000-0000-000000000002', '測試書籍二', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, '2026-01-05 08:00:00+08', '2026-01-05 08:00:00+08'),
+  ('10000000-0000-0000-0000-000000000003', 'Clean Architecture 中譯本', NULL, '測試出版社', '2020-01-01', 'YEAR', 'en', '英文與中文混合 mixed text', '', 2147483647, NULL, '2026-01-06 09:00:00+08', '2026-01-06 09:00:00+08'),
+  ('10000000-0000-0000-0000-000000000004', '第四本書', '副標', '博客來測試出版社', '2019-07-01', 'MONTH', 'zh-CN', NULL, E'目錄\n附錄', 320, 'https://example.invalid/thumb/4.jpg', '2026-01-07 10:00:00+08', '2026-01-07 10:00:00+08');
+
+INSERT INTO book_sources (id, book_id, source_code, external_id, source_url, first_seen_at, last_seen_at) VALUES
+  ('20000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', 'BOOKS_COM_TW', 'DJ0000000001', 'https://www.books.com.tw/products/0010000001', '2026-01-05 08:00:00+08', '2026-01-05 08:00:00+08'),
+  ('20000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000001', 'GOOGLE_BOOKS', repeat('g', 255), 'https://books.google.invalid/books?id=' || repeat('g', 200), '2026-01-05 08:00:00+08', '2026-01-08 08:00:00+08'),
+  ('20000000-0000-0000-0000-000000000003', '10000000-0000-0000-0000-000000000002', 'BOOKS_COM_TW', NULL, 'https://www.books.com.tw/products/0010000002', '2026-01-05 08:00:00+08', '2026-01-05 08:00:00+08');
+
+INSERT INTO book_sources (id, book_id, source_code, external_id, source_url, first_seen_at, last_seen_at) VALUES
+  ('20000000-0000-0000-0000-000000000004', '10000000-0000-0000-0000-000000000003', 'GOOGLE_BOOKS', 'abc-XYZ-3', 'https://books.google.invalid/books?id=abc-XYZ-3', '2026-01-06 09:00:00+08', '2026-01-06 09:00:00+08'),
+  ('20000000-0000-0000-0000-000000000005', '10000000-0000-0000-0000-000000000004', 'BOOKS_COM_TW', 'DJ0000000004', 'https://www.books.com.tw/products/0010000004', '2026-01-07 10:00:00+08', '2026-01-07 10:00:00+08');
+
+INSERT INTO book_sources (id, book_id, source_code, external_id, source_url, first_seen_at, last_seen_at) VALUES
+  ('20000000-0000-0000-0000-000000000006', '10000000-0000-0000-0000-000000000004', 'KINGSTONE', 'K0000000006', 'https://www.kingstone.com.tw/book/k0000000006', '2026-01-07 10:00:00+08', '2026-01-07 10:00:00+08');
+
+INSERT INTO book_subjects (book_id, subject, source_code) VALUES
+  ('10000000-0000-0000-0000-000000000004', '文學', 'KINGSTONE');
+
+INSERT INTO book_offers (source_id, currency, price, list_price, availability, captured_at) VALUES
+  ('20000000-0000-0000-0000-000000000001', 'TWD', 320.00, 380.00, 'IN_STOCK', '2026-10-20 03:00:00+08'),
+  ('20000000-0000-0000-0000-000000000005', NULL, NULL, NULL, 'UNKNOWN', '2026-10-20 03:00:00+08');
+
+INSERT INTO bestsellers (rank, book_id, source_id, captured_at) VALUES
+  (1, '10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001', '2026-10-20 03:00:00+08'),
+  (42, '10000000-0000-0000-0000-000000000004', '20000000-0000-0000-0000-000000000005', '2026-10-20 03:00:00+08'),
+  (100, '10000000-0000-0000-0000-000000000002', '20000000-0000-0000-0000-000000000003', '2026-10-20 03:00:00+08');
+
+INSERT INTO book_identifiers (book_id, identifier_type, identifier_value) VALUES
+  ('10000000-0000-0000-0000-000000000001', 'ISBN', '9786263100001'),
+  ('10000000-0000-0000-0000-000000000001', 'OTHER', repeat('o', 64)),
+  ('10000000-0000-0000-0000-000000000002', 'ISBN', '9786263100001'),
+  ('10000000-0000-0000-0000-000000000003', 'ISBN', '0132350882'),
+  ('10000000-0000-0000-0000-000000000004', 'ISBN', '9786263100002');
+
+INSERT INTO book_subjects (book_id, subject, source_code) VALUES
+  ('10000000-0000-0000-0000-000000000001', '程式設計', 'BOOKS_COM_TW'),
+  ('10000000-0000-0000-0000-000000000003', repeat('主', 255), 'GOOGLE_BOOKS');
+
+INSERT INTO book_subjects (book_id, subject, source_code) VALUES
+  ('10000000-0000-0000-0000-000000000001', 'Programming', 'GOOGLE_BOOKS');
+
+INSERT INTO book_contributors (book_id, contributor_order, name, role) VALUES
+  ('10000000-0000-0000-0000-000000000001', 1, '作者甲', 'AUTHOR'),
+  ('10000000-0000-0000-0000-000000000001', 2, '譯者乙', 'TRANSLATOR'),
+  ('10000000-0000-0000-0000-000000000001', 3, 'Original Name', 'ORIGINAL_AUTHOR'),
+  ('10000000-0000-0000-0000-000000000001', 4, '編輯丙', 'EDITOR'),
+  ('10000000-0000-0000-0000-000000000001', 5, '繪者丁', 'ILLUSTRATOR'),
+  ('10000000-0000-0000-0000-000000000001', 6, '其他戊', 'OTHER'),
+  ('10000000-0000-0000-0000-000000000003', 32767, repeat('名', 255), 'AUTHOR');
+
+INSERT INTO book_ai_profiles (book_id, summary, framework, key_topics, target_audience, difficulty, source_content_hash, model_name, prompt_version, updated_at) VALUES
+  ('10000000-0000-0000-0000-000000000001', '適合入門的測試摘要。', '{"type":"lesson","steps":[1,2]}'::jsonb, ARRAY['測試', '架構'], '初學者', 1, repeat('a', 64), repeat('m', 100), repeat('v', 32), '2026-01-09 11:00:00+08'),
+  ('10000000-0000-0000-0000-000000000002', NULL, NULL, NULL, NULL, NULL, repeat('b', 64), 'model-b', 'v1', '2026-01-09 11:00:00+08'),
+  ('10000000-0000-0000-0000-000000000003', '進階摘要', NULL, '{}', NULL, 5, repeat('c', 64), 'model-c', 'v2', '2026-01-09 11:00:00+08');
+
+INSERT INTO book_embeddings (book_id, embedding, model_name, source_content_hash, updated_at) VALUES
+  ('10000000-0000-0000-0000-000000000001', (SELECT array_agg(sin(i)::real ORDER BY i) FROM generate_series(1, 1536) AS i)::vector, 'text-embedding-3-small', repeat('d', 64), '2026-01-10 12:00:00+08'),
+  ('10000000-0000-0000-0000-000000000003', (SELECT array_agg(cos(i)::real ORDER BY i) FROM generate_series(1, 1536) AS i)::vector, repeat('e', 100), repeat('f', 64), '2026-01-10 12:00:00+08');
+
+INSERT INTO users (id, email, password_hash, display_name, created_at, updated_at) VALUES
+  ('40000000-0000-0000-0000-000000000001', repeat('e', 64) || '@' || repeat('d', 239) || '.example.invalid', 'seed-placeholder-hash', repeat('名', 100), '2026-01-04 07:00:00+08', '2026-01-04 07:00:00+08'),
+  ('40000000-0000-0000-0000-000000000002', 'user2@example.invalid', 'seed-placeholder-hash', '使用者二', '2026-01-04 07:00:00+08', '2026-01-04 07:00:00+08'),
+  ('40000000-0000-0000-0000-000000000003', 'User3@Example.invalid', 'seed-placeholder-hash', 'User Three', '2026-01-04 07:00:00+08', '2026-01-04 07:00:00+08');
+
+INSERT INTO user_books (user_id, book_id, reading_status, rating, added_at, updated_at) VALUES
+  ('40000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', 'FINISHED', 5, '2026-01-11 13:00:00+08', '2026-01-12 13:00:00+08'),
+  ('40000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000002', 'WANT_TO_READ', NULL, '2026-01-11 13:00:00+08', '2026-01-11 13:00:00+08'),
+  ('40000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000003', 'READING', 1, '2026-01-11 13:00:00+08', '2026-01-13 13:00:00+08'),
+  ('40000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000001', 'READING', NULL, '2026-01-14 14:00:00+08', '2026-01-14 14:00:00+08'),
+  ('40000000-0000-0000-0000-000000000003', '10000000-0000-0000-0000-000000000004', 'FINISHED', 3, '2026-01-15 15:00:00+08', '2026-01-15 15:00:00+08');
+
+INSERT INTO recommendation_searches (id, user_id, requirement_text, fallback_used, created_at) VALUES
+  ('50000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000001', repeat('我想找一本關於架構的書。', 40), FALSE, '2026-01-16 16:00:00+08'),
+  ('50000000-0000-0000-0000-000000000002', '40000000-0000-0000-0000-000000000002', 'short', TRUE, '2026-01-16 17:00:00+08'),
+  ('50000000-0000-0000-0000-000000000003', '40000000-0000-0000-0000-000000000001', E'多行\n需求', TRUE, '2026-01-16 18:00:00+08');
+
+INSERT INTO recommendation_results (search_id, rank, book_id, relevance_score, reason) VALUES
+  ('50000000-0000-0000-0000-000000000001', 1, '10000000-0000-0000-0000-000000000001', 9.99999, repeat('理由', 50)),
+  ('50000000-0000-0000-0000-000000000001', 2, '10000000-0000-0000-0000-000000000004', 0.00001, '次之的理由'),
+  ('50000000-0000-0000-0000-000000000001', 10, '10000000-0000-0000-0000-000000000003', NULL, '排名最後的理由'),
+  ('50000000-0000-0000-0000-000000000002', 1, '10000000-0000-0000-0000-000000000002', NULL, 'fallback 理由');
+
+INSERT INTO book_subjects (book_id, subject, source_code) VALUES
+  ('10000000-0000-0000-0000-000000000001', '文學小說', 'BOOKS_COM_TW'),
+  ('10000000-0000-0000-0000-000000000002', repeat('類', 255), 'BOOKS_COM_TW');
+
+INSERT INTO canonical_categories (id, slug, display_name, sort_order, is_active, created_at, updated_at) VALUES
+  ('60000000-0000-0000-0000-000000000001', 'literature', '文學小說', 1, TRUE, '2026-11-14 09:00:00+08', '2026-11-14 09:00:00+08'),
+  ('60000000-0000-0000-0000-000000000002', repeat('a', 100), repeat('名', 100), 2147483647, TRUE, '2026-11-14 09:00:00+08', '2026-11-14 09:30:00+08'),
+  ('60000000-0000-0000-0000-000000000003', 'a', '停用分類', -1, FALSE, '2026-11-14 09:00:00+08', '2026-11-14 09:00:00+08');
+
+INSERT INTO provider_category_mappings (source_code, subject, provider_root_subject, canonical_category_id, mapping_method, updated_at) VALUES
+  ('BOOKS_COM_TW', '文學小說', '文學小說', '60000000-0000-0000-0000-000000000001', 'VERIFIED_RULE', '2026-11-14 09:00:00+08'),
+  ('KINGSTONE', '文學', '文學', '60000000-0000-0000-0000-000000000001', 'VERIFIED_RULE', '2026-11-14 09:00:00+08'),
+  ('ESLITE', '宗教', 'eslite-l2:61', '60000000-0000-0000-0000-000000000003', 'MANUAL', '2026-11-14 09:00:00+08'),
+  ('BOOKS_COM_TW', repeat('類', 255), repeat('根', 255), '60000000-0000-0000-0000-000000000002', 'MANUAL', '2026-11-14 09:00:00+08');
+
+INSERT INTO recommendation_jobs (id, user_id, requirement_text, status, search_id, attempt_count, run_after, lease_token, lease_expires_at, idempotency_key, request_hash, error_code, created_at, started_at, completed_at) VALUES
+  -- QUEUED after a retry: attempt 1 failed with a retryable error, so the job waits with its error code and no lease.
+  ('70000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000001', '想找一本關於架構的書', 'QUEUED', NULL, 1, '2026-11-14 10:05:00+08', NULL, NULL, NULL, repeat('0123456789abcdef', 4), 'AI_TIMEOUT', '2026-11-14 10:00:00+08', '2026-11-14 10:00:30+08', NULL),
+  -- RUNNING with a live lease (the fencing token and its expiry are both set).
+  ('70000000-0000-0000-0000-000000000002', '40000000-0000-0000-0000-000000000002', 'short', 'RUNNING', NULL, 1, '2026-11-14 10:00:00+08', '90000000-0000-0000-0000-000000000001', '2026-11-14 10:05:00+08', 'run-key-2', repeat('a', 64), NULL, '2026-11-14 10:00:00+08', '2026-11-14 10:00:10+08', NULL),
+  -- SUCCEEDED with the 128-character key and a search of the same user (the job and search are written in one transaction).
+  ('70000000-0000-0000-0000-000000000003', '40000000-0000-0000-0000-000000000001', repeat('需', 200), 'SUCCEEDED', '50000000-0000-0000-0000-000000000001', 1, '2026-11-14 09:00:00+08', NULL, NULL, repeat('k', 128), repeat('b', 64), NULL, '2026-11-14 09:00:00+08', '2026-11-14 09:00:05+08', '2026-11-14 09:00:40+08'),
+  -- FAILED after the attempt boundary, with a max-length attempt count and no search.
+  ('70000000-0000-0000-0000-000000000004', '40000000-0000-0000-0000-000000000003', 'failed request', 'FAILED', NULL, 2147483647, '2026-11-14 08:00:00+08', NULL, NULL, 'fail_key-4', repeat('c', 64), 'AI_UNAVAILABLE', '2026-11-14 08:00:00+08', '2026-11-14 08:30:00+08', '2026-11-14 08:45:00+08'),
+  -- QUEUED with nothing optional set: no error, no start, no key.
+  ('70000000-0000-0000-0000-000000000005', '40000000-0000-0000-0000-000000000002', 'plain queued', 'QUEUED', NULL, 0, '2026-11-14 11:00:00+08', NULL, NULL, NULL, repeat('d', 64), NULL, '2026-11-14 11:00:00+08', NULL, NULL);
+
+
+-- OpenIddict rows (MCP-ADR-007). Foreign keys: tokens refer to an application and, for refresh tokens, to an authorization.
+INSERT INTO openiddict_applications (id, application_type, client_id, client_secret, client_type, concurrency_token, consent_type, display_name, display_names, json_web_key_set, permissions, post_logout_redirect_uris, properties, redirect_uris, requirements, settings) VALUES
+  -- Public client with every column set: explicit consent, a https and a loopback redirect, PKCE required, no secret.
+  ('80000000-0000-0000-0000-000000000001', 'web', 'seed-public-client', NULL, 'public', 'concurrency-1', 'explicit', '測試 Client', '{"zh-TW":"測試 Client"}', NULL, '["ept:authorization","ept:token","gt:authorization_code","gt:refresh_token","rst:code","scp:books:recommend"]', NULL, '{}', '["https://client.example.invalid/callback","http://127.0.0.1:33418/callback"]', '["ft:pkce"]', '{}'),
+  -- Longest client_id, the 50-character application type and nothing optional set; the placeholder secret is not a credential.
+  ('80000000-0000-0000-0000-000000000002', repeat('t', 50), repeat('c', 100), 'seed-placeholder-not-a-credential', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+
+INSERT INTO openiddict_scopes (id, concurrency_token, description, descriptions, display_name, display_names, name, properties, resources) VALUES
+  ('90000000-0000-0000-0000-000000000001', 'scope-concurrency-1', '推薦書籍', '{"zh-TW":"推薦書籍"}', '書籍推薦', '{"zh-TW":"書籍推薦"}', 'books:recommend', '{}', '["https://khwebsc.com/mcp"]'),
+  -- Name at the 200-character limit with every optional column NULL.
+  ('90000000-0000-0000-0000-000000000002', NULL, NULL, NULL, NULL, NULL, repeat('s', 200), NULL, NULL);
+
+INSERT INTO openiddict_authorizations (id, application_id, concurrency_token, creation_date, properties, scopes, status, subject, type) VALUES
+  -- Permanent authorization of the public client by a seeded user (D-10: consent remembered until revoked).
+  ('a0000000-0000-0000-0000-000000000001', '80000000-0000-0000-0000-000000000001', 'auth-concurrency-1', '2026-11-01 10:00:00+08', '{}', '["books:recommend"]', 'valid', '40000000-0000-0000-0000-000000000001', 'permanent'),
+  -- Subject at the 400-character limit; the owning application is the confidential-looking client with nothing else set.
+  ('a0000000-0000-0000-0000-000000000002', '80000000-0000-0000-0000-000000000002', NULL, NULL, NULL, NULL, NULL, repeat('u', 400), NULL),
+  -- No owning application: application_id is NULL, which the schema allows.
+  ('a0000000-0000-0000-0000-000000000003', NULL, NULL, '2026-11-02 10:00:00+08', NULL, NULL, 'revoked', '40000000-0000-0000-0000-000000000002', 'permanent');
+
+INSERT INTO openiddict_tokens (id, application_id, authorization_id, concurrency_token, creation_date, expiration_date, payload, properties, redemption_date, reference_id, status, subject, type) VALUES
+  -- Valid refresh token of the permanent authorization (D-09: 30 days, rolling).
+  ('b0000000-0000-0000-0000-000000000001', '80000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001', 'token-concurrency-1', '2026-11-10 10:00:00+08', '2026-12-10 10:00:00+08', NULL, '{}', NULL, 'seed-reference-refresh-1', 'valid', '40000000-0000-0000-0000-000000000001', 'refresh_token'),
+  -- Access token with a 100-character reference id; it has no authorization, only the application.
+  ('b0000000-0000-0000-0000-000000000002', '80000000-0000-0000-0000-000000000001', NULL, NULL, '2026-11-10 11:00:00+08', '2026-11-10 12:00:00+08', 'seed-placeholder-payload', NULL, NULL, repeat('r', 100), 'valid', '40000000-0000-0000-0000-000000000001', repeat('t', 150)),
+  -- Redeemed token with no owner at all: application, authorization, reference id and subject are NULL.
+  ('b0000000-0000-0000-0000-000000000003', NULL, NULL, NULL, '2026-11-03 10:00:00+08', NULL, NULL, NULL, '2026-11-03 10:05:00+08', NULL, 'redeemed', NULL, 'authorization_code');
+
+COMMIT;
+
