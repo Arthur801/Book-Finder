@@ -1,10 +1,10 @@
-# Book-Finder MCP Server — v1.3 實作計畫
+# Book-Finder MCP Server — v1.4 實作計畫
 
 > Baseline：`origin/main @ 8c8e3ab`（2026-11-14）。
 >
 > 來源：使用者提供的「Book-Finder MCP Server 實作規劃（Proposed）」，經 repo 現況核對後整理成本版。核對時找到的差異列在「核對 repo 現況的結果」與文末「設計變更紀錄」。
 >
-> **狀態：Proposed（尚未實作）**。使用者已決定 D-01～D-08（2026-11-14）。MCP-001（SDK 2.3.1 骨架）與 MCP-002（授權 Spike：單一 `/mcp` 可行）已完成，下一步 MCP-003（OpenIddict 與 Client Registration ADR）與 M1。
+> **狀態：Proposed（尚未實作）**。使用者已決定 D-01～D-08（2026-11-14）。M0（MCP-001 骨架、MCP-002 單一 `/mcp` 授權閘門、MCP-003 OpenIddict ADR）與 M1（`search_books`）已完成，下一步 M2（MCP-201 OpenIddict）。
 >
 > 本文件是實作計畫，不代表功能已實作、測試已通過或取得 production 授權。技術 authority 仍是各模組的 `docs/`（`AGENTS.md` §3.2）；實作時把定案的 contract 寫進 owning module 的 docs（新模組 `Mcp/docs/` 與受影響模組），不只寫在這裡。文中的 Tool JSON 都是格式示意，不是實際查詢結果；SLO 是目標，尚未量測。
 
@@ -550,3 +550,9 @@ M1 只依賴 MCP-001，可以和 MCP-002／003 並行。
 4. Protected Resource Metadata 由 app 自行 map（SDK 自動服務時 URI 取自 request host，違反 §3.2）。
 5. 2026-07-28 需要 `Mcp-Method`、`Mcp-Name` header 與 `params._meta`；Tool 以 `JsonRpcRequest.Context.User` 取得使用者。
 
+### v1.4（2026-11-14）：MCP-003 ADR 與 M1
+
+1. MCP-003 定案於 [Mcp/docs/architecture.md §6](../../Mcp/docs/architecture.md)：OpenIddict 7.8.0；Claude、VS Code 預註冊；ChatGPT 先試預註冊，找不到介面就用 allowlist 版 CIMD；不做 DCR。
+2. 新增 OpenIddict 的 metadata 要求（ChatGPT 文件）：S256、RFC 9207 `iss`、RFC 8707 `resource`、`token_endpoint_auth_methods_supported` 含 `none`。
+3. 新風險：ChatGPT 對部分 Tool 需登入另有 Tool 層機制（`securitySchemes` + `_meta["mcp/www_authenticate"]`）。維持 HTTP 401 閘門，AI Tool 描述加 `securitySchemes`，MCP-203 實測後再決定。
+4. M1 `search_books` 完成；Tool 輸出以手動 structured content 提供，不宣告 outputSchema。
