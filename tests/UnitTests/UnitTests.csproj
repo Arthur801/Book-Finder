@@ -26,6 +26,10 @@
     <Compile Include="../Shared/CallGate.cs" Link="Shared/CallGate.cs" />
     <Compile Include="../Shared/FakeRecommendationRanker.cs" Link="Shared/FakeRecommendationRanker.cs" />
     <Compile Include="../Shared/FakeBookProfileGenerator.cs" Link="Shared/FakeBookProfileGenerator.cs" />
+    <Compile Include="../Shared/FakeRecommendationJobLeaseStore.cs" Link="Shared/FakeRecommendationJobLeaseStore.cs" />
+    <Compile Include="../Shared/FakeCandidateSearch.cs" Link="Shared/FakeCandidateSearch.cs" />
+    <Compile Include="../Shared/FakeBookProfileStore.cs" Link="Shared/FakeBookProfileStore.cs" />
+    <Compile Include="../Shared/RecordingLogger.cs" Link="Shared/RecordingLogger.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="../Fixtures/isbn-normalization.json" Link="Fixtures/isbn-normalization.json" CopyToOutputDirectory="PreserveNewest" />
