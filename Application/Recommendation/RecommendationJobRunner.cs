@@ -68,11 +68,13 @@ public sealed class RecommendationJobRunner(
             await RetryOrFailAsync(job, RecommendationJobErrorCodes.InternalError, queueWaitMs, startedAt);
             return;
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            // The exception is logged here because nothing upstream logs it; an AI failure was already logged by the pipeline.
             var failed = await leases.FailAsync(job.JobId, job.LeaseToken, RecommendationJobErrorCodes.InternalError, CancellationToken.None);
             if (failed)
                 logger.LogError(
+                    ex,
                     "Recommendation job {JobId} attempt {Attempt} failed with {ErrorCode}, queue wait {QueueWaitMs} ms, execution {ExecutionMs} ms",
                     job.JobId, job.AttemptCount, RecommendationJobErrorCodes.InternalError, queueWaitMs, ExecutionMs(startedAt));
             else
