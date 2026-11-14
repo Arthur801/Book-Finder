@@ -269,3 +269,10 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter FullyQualifiedNa
 - WebFixture 新增 `McpEnabled`（設定 `Mcp:Enabled`，預設 false），並固定 `Mcp:PublicBaseUrl = https://khwebsc.com`。
 - `McpOptionsTests`（Unit，19 個）：`PublicBaseUrl` 的啟動驗證。
 - `McpEndpointTests`（WebIntegration，5 個）：開關關閉時 `/mcp` 與一般未 map 路徑相同；開啟時匿名 `initialize`、`tools/list`（空陣列）成功，不設 cookie、不需要 antiforgery；首頁不受影響。細節見 [Mcp/docs/test-suite.md](../../Mcp/docs/test-suite.md)。
+
+### TEST-31：MCP 授權閘門（MCP 計畫 MCP-002）
+
+- `McpToolAuthorizationMiddlewareTests`（Unit）：閘門的「受保護呼叫」判斷，fail closed。
+- `McpAuthorizationTests`（WebIntegration，17 個）：401／403／413 與放行，每個案例都斷言受保護 Tool 的執行次數；網站 JWT 與 `bf_auth` cookie 不能冒用 MCP token；兩個協定版本。
+- WebFixture 新增 `ConfigureMcp` hook（只供測試註冊 Tool）；`McpTestTools.cs` 為測試專用 Tool。細節見 [Mcp/docs/test-suite.md](../../Mcp/docs/test-suite.md)。
+
