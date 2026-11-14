@@ -1,5 +1,6 @@
 # Controllers 架構與選型對照
 
+> 非同步推薦 Job M7 補記：2026-11-14 更新；程式變更以 `4db0c98`、`e00cbb5`、`5559870`、`ac88ef2` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > Canonical Category P5 補記：2026-11-14 更新；程式變更以 `a9b7ad1`、`c2d68a1`、`d43ea57` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 整理日期：2026-10-24；程式基準：`91333c3`。本文件是目前 Controller 的導覽與設計說明，不替代 Docs 規格，也不新增 API contract。
@@ -108,3 +109,18 @@ Controller 不寫 SQL、不直接呼叫 OpenAI／Google Books、不持有推薦�
 4. 本次僅新增文件，沒有執行 build、資料庫整合、外部服務或 production 驗證。測試庫內「已有測試」僅表示找到對應程式，不代表本次已通過。
 
 流程細節見 [workflow-diagram.md](workflow-diagram.md)，可執行後續工作見 [backlog.md](backlog.md)，歷史證據見 [update-history.md](update-history.md)。
+
+## 推薦工作 API 與頁面（Job 計畫 M7）
+
+| 端點 | 行為 |
+|---|---|
+| `POST /api/recommendations/jobs`（[RecommendationJobsController](../RecommendationJobsController.cs)） | 以 `RecommendationInputRules` 驗證需求 → `RecommendationJobService.SubmitAsync`（`Idempotency-Key` header 選填）→ 202＋`Location`＋`{ jobId, status, statusUrl }`；key 格式錯 400（欄位 `Idempotency-Key`）、同 key 不同需求 409 `/errors/idempotency-conflict`、每日上限 429。同 key 重送回同一個 Job 的目前狀態 |
+| `GET /api/recommendations/jobs?page=N` | 本人的 Job，每頁 20 筆；`{ items, page, pageSize, totalCount, totalPages }` |
+| `GET /api/recommendations/jobs/{jobId}` | `{ jobId, status, createdAt, completedAt, searchId, resultUrl, errorCode }`；不是 GUID、不存在、他人的一律同一個 404 problem |
+| `/ai`（[AiController](../AiController.cs)） | 開關開啟時加上「推薦工作」列表（`jobsPage` 分頁，超出時顯示最後一頁），表單輸出 `data-recommendation-jobs` |
+| `/ai/jobs/{id}` | Job 狀態頁；不是 GUID、不存在、他人的、開關關閉都是既有的 NotFound 頁（404） |
+
+- `RecommendationJobs:Enabled` 關閉時，所有 Job API 都回 404 problem，`/ai` 與現在相同；既有的 `POST /api/recommendations` 不受影響。
+- 需求文字只從 body 讀取，不出現在 URL、`Location` 或 log。
+- `[Authorize]` 先於開關判斷：未登入的人一律被導向登入頁，所以開關關閉時，未登入的人看到的是登入頁，不是 404。
+- 規格：[Job 計畫](../../Docs/plans/async-recommendation-jobs.md) §3.7、§3.8。

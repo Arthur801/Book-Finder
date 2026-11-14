@@ -1,5 +1,6 @@
 # Views Git 修改歷史
 
+> 非同步推薦 Job M7 補記：2026-11-14 更新；程式變更以 `4db0c98`、`e00cbb5`、`5559870`、`ac88ef2` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > Canonical Category P5 補記：2026-11-14 更新；程式變更以 `a9b7ad1`、`c2d68a1`、`d43ea57` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 查核基準 `91333c3` 的 source history 如下；`Views/docs` 明確排除，不將 PR #100 新增或後續修正的文件 commits 計入 source history。
@@ -82,3 +83,9 @@ git show 894883b -- Views
 |---|---|---|---|
 | 2026-11-14 | `a9b7ad1` | feat(categories): add the 分類 browse page with sidebar and source filter | `Categories/Index.cshtml`、`Categories/_CategorySidebar.cshtml`、`Categories/NotFound.cshtml`（新增）；`Shared/_Layout.cshtml`（`Styles` section、導覽列「分類」）；目錄外：`wwwroot/js/category-sidebar.js`、`wwwroot/css/category-browser.css` |
 | 2026-11-14 | `d43ea57` | fix(categories): show the sidebar buttons only when JavaScript runs | `Categories/Index.cshtml`（兩個按鈕加 `js-only`）；目錄外：JS 與 CSS 對應修改。瀏覽器檢查發現 |
+
+## 非同步推薦 Job M7（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-14 | `e00cbb5` | feat(rec-jobs): show the job list on /ai and the job status page | `Ai/Index.cshtml`、`Ai/_AiJobList.cshtml`（新增）、`Ai/Job.cshtml`（新增） |

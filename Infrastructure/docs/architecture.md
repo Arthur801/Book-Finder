@@ -1,5 +1,6 @@
 # Infrastructure 架構
 
+> 非同步推薦 Job M7 補記：2026-11-14 更新；程式變更以 `4db0c98`、`e00cbb5`、`5559870`、`ac88ef2` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M6 補記：2026-11-14 更新；程式變更以 `54ad51b`、`0d3b3ac`、`93db136`、`11f86b4`、`c0ac2f6` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M4 補記：2026-11-14 更新；程式變更以 `4b31184`、`5d143b4`、`08d8c9a`、`1f36620`、`ef89755` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M2 補記：2026-11-14 更新；程式變更以 `6717d8f` 記入 update-history。原查核基準保留，未重新審查其餘內容。
@@ -104,3 +105,7 @@ HostingSetup 支援設定不等於已驗證容器切換、公開 HTTPS、可信 
 - 每筆 Job 在自己的 scope 執行 Runner：commit 失敗會在 DbContext 留下追蹤中的實體，不能帶到下一筆；
 - heartbeat 迴圈每次續租都另開 scope（DbContext 不能同時被兩處使用）；被拒就取消 lease-lost token，續租出錯只記 log、下一次再試；
 - 除了主機停止造成的取消之外，任何例外都記 log 後等 PollInterval 再繼續：未處理的例外會讓整個 web host 停止。
+
+## 推薦工作的 409 problem（Job 計畫 M7）
+
+[ApiProblemResults](../Identity/ApiProblemResults.cs) 新增 `IdempotencyConflict`：409，type `/errors/idempotency-conflict`，title 「同一個 Idempotency-Key 已用於不同的需求」，沒有建立任何 Job。

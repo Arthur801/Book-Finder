@@ -258,3 +258,9 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter FullyQualifiedNa
 - **Then**：可以載入；AddCanonicalCategories seed 的資料原樣存在；recommendation_jobs 5 筆涵蓋四種狀態、128 字元 idempotency key、attempt_count 2147483647；`SUCCEEDED` 的 Search 屬於同一使用者。
 - **來源與狀態**：[RecommendationJobSeedTests](../DatabaseIntegration/RecommendationJobSeedTests.cs)，2026-11-14 通過。seed 在新增 migration 的 PR 一併提供（DEP-B25 方向 (b)）。
 
+### TEST-29：推薦工作的 WebFixture 控制（Job 計畫 M7）
+
+- WebFixture 新增 `JobsEnabled`（設定 `RecommendationJobs:Enabled`，預設 false）、`RunJobWorker`（預設 false：從 host 移除 `RecommendationJobWorker`，讓 API／頁面測試觀察到的 Job 保持 QUEUED）、`JobPollInterval`。
+- 只有端到端測試同時打開兩者，Worker 以 100 ms 輪詢，用 fake AI 跑完整個 Job。
+- 案例見 Controllers JOB-01～03。2026-11-14 WebIntegration 337 項通過。
+

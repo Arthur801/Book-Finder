@@ -1,5 +1,6 @@
 # Controllers 修改歷史
 
+> 非同步推薦 Job M7 補記：2026-11-14 更新；程式變更以 `4db0c98`、`e00cbb5`、`5559870`、`ac88ef2` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > Canonical Category P5 補記：2026-11-14 更新；程式變更以 `a9b7ad1`、`c2d68a1`、`d43ea57` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 查核基準 `91333c3` 的 source history 如下；`Controllers/docs` 明確排除，不將 PR #100 新增或後續修正的文件 commits 計入 source history。
@@ -87,3 +88,10 @@ git show <commit> -- Controllers
 |---|---|---|---|
 | 2026-11-14 | `a9b7ad1` | feat(categories): add the 分類 browse page with sidebar and source filter | `CategoriesController.cs`（新增） |
 | 2026-11-14 | `ec42a67` | test(categories): cover the sidebar count badges over HTTP | Controllers 無程式變更；CategoryPageTests 新增 CAT-06（Spec review） |
+
+## 非同步推薦 Job M7（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-14 | `4db0c98` | feat(rec-jobs): add the job submit, list and get API | `RecommendationJobsController.cs`（新增） |
+| 2026-11-14 | `e00cbb5` | feat(rec-jobs): show the job list on /ai and the job status page | `AiController.cs`（`jobsPage`、`/ai/jobs/{id}`） |

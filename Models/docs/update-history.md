@@ -1,5 +1,6 @@
 # Models Git 修改歷史
 
+> 非同步推薦 Job M7 補記：2026-11-14 更新；程式變更以 `4db0c98`、`e00cbb5`、`5559870`、`ac88ef2` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR4 M1（#120）補記：2026-10-25 更新；程式變更以 `5052361`、`d864acc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > Canonical Category P5 補記：2026-11-14 更新；程式變更以 `a9b7ad1`、`c2d68a1`、`d43ea57` 記入 update-history。原查核基準保留，未重新審查其餘內容。
@@ -97,3 +98,10 @@ git show cda623f -- Models
 |---|---|---|---|
 | 2026-11-14 | `a9b7ad1` | feat(categories): add the 分類 browse page with sidebar and source filter | `CategoryBrowseViewModel.cs`（新增，含 FilterLinkViewModel） |
 | 2026-11-14 | `b73f23c` | fix(categories): name the source in the empty text when only a source is selected | `CategoryBrowseViewModel.cs`：只選來源且沒有書時顯示「這個來源目前沒有書」（Spec review） |
+
+## 非同步推薦 Job M7（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-14 | `4db0c98` | feat(rec-jobs): add the job submit, list and get API | `RecommendationJobResponse.cs`（新增） |
+| 2026-11-14 | `e00cbb5` | feat(rec-jobs): show the job list on /ai and the job status page | `AiJobListViewModel.cs`、`AiJobViewModel.cs`（新增） |

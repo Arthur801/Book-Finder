@@ -1,5 +1,6 @@
 # Models 文字測試案例庫
 
+> 非同步推薦 Job M7 補記：2026-11-14 更新；程式變更以 `4db0c98`、`e00cbb5`、`5559870`、`ac88ef2` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 查核日期：2026-10-24；基準：`91333c3`；目標：`Models/`。本次只做靜態閱讀，未執行 build、測試、Mermaid renderer、資料庫或外部服務。開始時來源無未提交修改；其他代理既有的 `Controllers/docs/` 不屬本文件範圍。
 > PR4 M1（#120）補記：2026-10-25 更新；程式變更以 `5052361`、`d864acc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > Canonical Category P5 補記：2026-11-14 更新；程式變更以 `a9b7ad1`、`c2d68a1`、`d43ea57` 記入 update-history。原查核基準保留，未重新審查其餘內容。
@@ -134,3 +135,6 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter 'FullyQualifiedN
 - When：`CategoryBrowseViewModel.From`、`UrlFor`。
 - Then：UrlFor 省略空值與第 1 頁、參數順序固定且編碼；分類連結保留來源、來源連結保留分類，兩者都重置頁碼；分頁保留兩者；「全部書籍」「全部來源」與目前分類／來源的 IsCurrent 正確；Heading、SourceLabel、SummaryText（無書為 null）、EmptyText（選了分類：「這個分類目前沒有書」；只選來源：「這個來源目前沒有書」；都沒選：「書庫還沒有書」）。
 
+### M-T15
+
+推薦工作 DTO 與 view model（Job 計畫 M7）。[RecommendationJobResponseTests](../../tests/UnitTests/RecommendationJobResponseTests.cs)、[AiJobViewModelTests](../../tests/UnitTests/AiJobViewModelTests.cs)：四種狀態輸出為儲存用的大寫字串；resultUrl 只在 SUCCEEDED；+08:00 時間；狀態標籤；四種 error code 文案；`jobsPage` 夾在 1 與最後一頁之間。2026-11-14 UnitTests 982 項通過。

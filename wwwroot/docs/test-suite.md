@@ -1,5 +1,6 @@
 # wwwroot 面向 AI 的文字測試案例庫
 
+> 非同步推薦 Job M7 補記：2026-11-14 更新；程式變更以 `4db0c98`、`e00cbb5`、`5559870`、`ac88ef2` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > Canonical Category P5 補記：2026-11-14 更新；程式變更以 `a9b7ad1`、`d43ea57` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 > 查核 2026-10-24；HEAD `91333c334148fa5bfe07055d0e799dc13bb0bb4e`。本次只讀與文件靜態檢查，沒有本次測試通過結果。
@@ -127,3 +128,6 @@ site.js 目前只有模板註解，沒有待實作商業功能；不把它列缺
 - Then：桌面收合／展開、`aria-expanded` 同步、重新整理後記得偏好；localStorage 失敗不影響導覽；手機抽屜開關與 Escape；無 JS 時兩個按鈕不顯示、連結可用。
 - 已知限制：收合偏好在載入後才套用，可能閃現（Views VIEW-B06）。
 
+## WT-14
+
+推薦工作的前端（Job 計畫 M7）。`node --check` 通過（`ai.js`、`ai-job.js`）；伺服器端輸出的 data 屬性與頁面由 WebIntegration 驗證（Controllers JOB-02）。**JS 行為（送出、key 沿用、輪詢、重新載入）尚未在瀏覽器執行**，TEST-B03 網站 E2E 仍暫緩；上線前需要一次本機瀏覽器檢查（Job 計畫 M8）。
