@@ -48,9 +48,12 @@ public sealed class RecommendationJobService(
                 logger.LogInformation("Recommendation job submit refused for user {UserId}: idempotency key reused for a different request", userId);
                 return new RecommendationJobSubmission.IdempotencyConflict();
 
-            default:
+            case JobSubmitOutcome.DailyLimitReached:
                 logger.LogInformation("Recommendation job submit refused for user {UserId}: daily limit reached", userId);
                 return new RecommendationJobSubmission.DailyLimitReached();
+
+            default:
+                throw new InvalidOperationException($"Unexpected job submit outcome {outcome.GetType().Name}.");
         }
     }
 
