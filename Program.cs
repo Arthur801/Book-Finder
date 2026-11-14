@@ -50,6 +50,10 @@ builder.Services.AddScoped<BookSearchService>();
 builder.Services.AddScoped<IBookBrowse, EfBookBrowse>();
 builder.Services.AddScoped<BookBrowseService>();
 
+// 分類瀏覽 (Canonical Category browse): categories, sources and the books of one category, local database only.
+builder.Services.AddScoped<ICategoryBrowse, EfCategoryBrowse>();
+builder.Services.AddScoped<CategoryBrowseService>();
+
 // AI recommendation: one Recommendation Search per request, EF candidate search and store (recommendation.md §3).
 builder.Services.AddScoped<ICandidateSearch, EfCandidateSearch>();
 builder.Services.AddScoped<IRecommendationStore, EfRecommendationStore>();

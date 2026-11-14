@@ -224,3 +224,10 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter FullyQualifiedNa
 - **When**：寫入合法與不合法的 slug、重複 slug、重複 `(source_code, subject)`、未知 source_code／category、詞彙外的 `mapping_method`；刪除有 mapping 的 category；以 EF 讀回 raw SQL 寫入的 mapping。
 - **Then**：CHECK（23514）、UNIQUE／PK（23505）、FK（23503）各自拒絕；同名 Subject 換來源可寫入；三個 index 與兩個 FK 存在；`MappingMethod` 讀回正確。`StoredEnumTests` 加入 `MappingMethod` 詞彙與 roundtrip；`constraints.sql` 的必要資料表清單加入兩張新表。
 - **來源與狀態**：[CanonicalCategorySchemaTests](../DatabaseIntegration/CanonicalCategorySchemaTests.cs)；`e7a105b` 後主 agent 重跑 DatabaseIntegration 162、UnitTests 823、WebIntegration 280 全數通過（2026-11-14）。
+
+### TEST-24：分類瀏覽的 service 與 EF 查詢（分類計畫 P4）
+
+- **Given**：UnitTests 用 fake ICategoryBrowse；DatabaseIntegration 的 `EfCategoryBrowseTests` 用自己的 PostgreSQL 容器與 collection，測試之間 TRUNCATE books、canonical_categories（CASCADE）。
+- **When／Then**：見 Application APP-T24 與 Infrastructure INF-T21。
+- **來源與狀態**：[CategoryBrowseServiceTests](../UnitTests/CategoryBrowseServiceTests.cs)（19 項）、[EfCategoryBrowseTests](../DatabaseIntegration/EfCategoryBrowseTests.cs)（12 項）。`c2e5324`、`cec6bd7` 後主 agent 重跑 UnitTests 842、DatabaseIntegration 174、WebIntegration 280 全數通過（2026-11-14）。
+

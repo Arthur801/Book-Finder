@@ -2,6 +2,7 @@
 
 > PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR4 M1（#120）補記：2026-10-25 更新；程式變更以 `5052361`、`d864acc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+> Canonical Category P4 補記：2026-11-14 更新；程式變更以 `c2e5324`、`cec6bd7` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > Canonical Category P1 補記：2026-11-14 更新；程式變更以 `e7a105b` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 > 查核日期：2026-10-24；基準 `91333c3`。本次只做文件靜態檢查，未執行 build、測試、migration、部署或外部服務。
@@ -173,6 +174,21 @@ dotnet test tests/WebIntegration/WebIntegration.csproj
 ```
 
 以上命令可能產生 build artifacts，本文件任務沒有執行。靜態檢查只核對來源／連結／fences／history；Mermaid 僅結構檢查，沒有 renderer 執行證據。
+
+## INF-T21 — 分類瀏覽查詢
+
+- 責任／風險／狀態：EF 查詢，L3，已有測試；2026-11-14 DatabaseIntegration 174 項通過（`cec6bd7`）。
+- 規格：[分類計畫](../../Docs/plans/canonical-category-browse.md) §4.1。
+- Given：獨立的 PostgreSQL 容器（自有 collection，測試之間 TRUNCATE），內有 active 與停用分類、三家來源的 Mapping、有或沒有 Subject 的書。
+- When：`EfCategoryBrowse` 的四個方法。
+- Then：
+  - 同一本書有兩個 Subject（來自兩家來源）屬於同一分類時，只列一次、只算一次；屬於兩類的書在兩類都出現；
+  - 金石堂對「文學」的 Mapping 不會套用到博客來的同名 Subject；
+  - 來源篩選只看該來源的 Subject；「全部書籍」加來源以 `book_sources` 篩選，含沒有 Subject 的書；
+  - 停用分類不列出；來源清單只列有 Mapping 的 provider，依 Code 排序；
+  - 排序（有日期的新到舊、無日期居後、Id）與第 2 頁正確；超出頁數回空 items 與真實 TotalCount；空分類回 0。
+- Mutation 抽查（2026-11-14）：拿掉 Mapping 的 `source_code` 比對 → 跨來源測試失敗；拿掉側邊欄的 `Distinct()` → 「只算一次」測試失敗。兩處都已還原。
+- 入口：[EfCategoryBrowseTests](../../tests/DatabaseIntegration/EfCategoryBrowseTests.cs)。`BookBrowsePaging` 抽出後，EfBookBrowse 的既有測試（[BookBrowseIntegrationTests](../../tests/WebIntegration/BookBrowseIntegrationTests.cs)，WebIntegration 280 項）仍全數通過。
 
 ## 文件導航
 

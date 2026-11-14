@@ -127,6 +127,13 @@ git show --format= --numstat <sha> -- Application ':(exclude)Application/docs'
 | 2026-10-25 | `5052361` | feat(catalog): contract migration 011 and read only the ISBN type | `Catalog/BookDetail.cs`：`Identifiers` 註解改為只含 ISBN，依值排序（僅註解，型別不變） |
 | 2026-10-25 | 本次 backlog 整理 commit | docs(backlog): tidy application backlog after #113 PR2–PR4 | `docs/backlog.md`：APP-B04 移至「已處理」；補記標頭；其餘狀態未變；未改程式 |
 
+## 分類計畫 P4 分類瀏覽（新增紀錄）
+
+| 提交 | Subject | 影響 |
+|---|---|---|
+| `c2e5324` | feat(categories): add the category browse application service | 新增 `Catalog/CategoryFilter.cs`（CategorySummary、SourceOption）、`ICategoryBrowse.cs`、`CategoryBrowsePage.cs`（CategoryBrowseOutcome、CategoryBrowseResult）、`CategoryBrowseService.cs` |
+| `cec6bd7` | feat(categories): query the category browse from the local database | Application 無變更（EF 實作與 DI 註冊，見 Infrastructure） |
+
 ## 導覽
 
 [流程](workflow-diagram.md)・[架構](architecture.md)・[待辦](backlog.md)・[歷史](update-history.md)・[案例](test-suite.md)

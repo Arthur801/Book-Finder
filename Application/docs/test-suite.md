@@ -2,6 +2,7 @@
 
 > PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR4 M1（#120）補記：2026-10-25 更新；程式變更以 `5052361`、`d864acc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+> Canonical Category P4 補記：2026-11-14 更新；程式變更以 `c2e5324`、`cec6bd7` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 > 查核日期：2026-10-24；Git 基準 `91333c3`。目標 `Application/`；本次僅靜態查核，未執行 build、測試、資料庫或外部服務。規格、實作與測試證據分開記錄。
 
@@ -224,3 +225,15 @@ Auth的Google登入/email驗證/忘記密碼/個資修改/refresh token依identi
 - **Given**：vendored NormalizationTest 15.1 的全部 c1→c4 對（trimmed 檔）；15.1 已指派與未指派的 code point（如 U+1CCF0 OUTLINED DIGIT ZERO 未指派）。
 - **When**：`IsbnNormalizer.ComposeCompatibility`；`EnsureRuntimeUnicodeSupported`。
 - **Then**：所有 c1 的 NFKC 等於 c4；未指派 code point 原樣保留並分段；runtime 的 Unicode 資料至少 15.0。本次 UnitTests 826 項通過。
+
+### APP-T24 — 分類瀏覽的篩選驗證與頁碼
+
+- 風險／狀態：L2；**測試實作：Implemented；執行：2026-11-14 UnitTests 842 項通過（`c2e5324`）**。規格：[分類計畫](../../Docs/plans/canonical-category-browse.md) §4.2。
+- **Given**：fake ICategoryBrowse，記錄每次呼叫與參數。
+- **When**：`CategoryBrowseService.BrowseAsync(slug, source, page, ct)`。
+- **Then**：
+  - 空白值視為未篩選；大小寫不同（`LITERATURE`、`kingstone`）視為不存在；
+  - 未知來源 → `UnknownSource`；未知或停用的分類 → `UnknownCategory`；兩者都未知時回 `UnknownSource`；這些情況下都不查書；
+  - 頁碼小於 1 時改為 1，pageSize 為 20；
+  - 分類清單以來源篩選查詢；查書時傳的是分類 Id（不是 slug）與來源；Found 的每個欄位都有值。
+- 測試來源：[CategoryBrowseServiceTests.cs](../../tests/UnitTests/CategoryBrowseServiceTests.cs)。

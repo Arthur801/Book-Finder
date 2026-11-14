@@ -1,5 +1,7 @@
 # Application 流程與責任
 
+> Canonical Category P4 補記：2026-11-14 更新；程式變更以 `c2e5324`、`cec6bd7` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
 > 查核日期：2026-10-24；Git 基準 `91333c3`。目標 `Application/`；本次僅靜態查核，未執行 build、測試、資料庫或外部服務。規格、實作與測試證據分開記錄。
 
 ## 入口及規格
@@ -7,6 +9,7 @@
 | 入口 | 原始碼與輸出 | Authority |
 |---|---|---|
 | 書庫（#109） | [BookBrowseService](../Catalog/BookBrowseService.cs) ListAsync/SampleHomeAsync → BookBrowsePage / 隨機樣本 | [book-catalog](../../Docs/modules/book-catalog.md) §3.6 書庫瀏覽 |
+| 分類瀏覽（分類計畫 P4） | [CategoryBrowseService](../Catalog/CategoryBrowseService.cs) BrowseAsync → CategoryBrowseResult | [分類計畫](../../Docs/plans/canonical-category-browse.md) §4 |
 | 暢銷榜（後端保留） | [BestsellerService](../Bestsellers/BestsellerService.cs) GetTopAsync/GetAllAsync → snapshot；#109 後 Web 無呼叫者 | [bestseller](../../Docs/modules/bestseller.md) §2～6 |
 | 搜尋/詳細資料 | [BookSearchService](../Catalog/BookSearchService.cs)、[IBookDetailReader](../Catalog/IBookDetailReader.cs) → page/nullable detail | [book-catalog](../../Docs/modules/book-catalog.md) §3～4 |
 | 註冊/登入 | [AccountService](../Identity/AccountService.cs) → typed outcome | [identity-auth](../../Docs/modules/identity-auth.md) §3～6 |
@@ -55,6 +58,23 @@ flowchart TD
 ```
 
 ISBN 判定只驗長度與字元，不是 checksum 檢驗。讀取例外/取消直接傳遞；沒有外部 fallback 或重試。空榜 CapturedAt=null。cache decorator 位於 Infrastructure；PublishedDateText 只依已知 precision 格式化，不自行猜測。
+
+## 分類瀏覽
+
+```mermaid
+flowchart TD
+  C[BrowseAsync slug source page] --> N[空白視為未篩選]
+  N --> S[ICategoryBrowse.ListSourcesAsync]
+  S -->|source 不在清單| US[UnknownSource；不查書]
+  S --> K[ListCategoriesAsync source；active、sort_order、DISTINCT 書數]
+  K -->|slug 不在清單| UC[UnknownCategory；不查書]
+  K --> P[page 最小 1；pageSize 20]
+  P --> A[CountAllBooksAsync source]
+  A --> B[ListBooksAsync categoryId source page]
+  B --> F[Found：分類、來源、全部書籍數、選取項目、BookBrowsePage]
+```
+
+P5（尚未實作）的 Controller 把 `UnknownSource`／`UnknownCategory` 轉成 404，頁碼超過最後一頁時比照 `/books` 轉址到最後一頁。
 
 ## Identity
 
