@@ -66,6 +66,7 @@ builder.Services.AddScoped<IRecommendationUsage, EfRecommendationUsage>();
 builder.Services.AddScoped<IRecommendationHistory, EfRecommendationHistory>();
 // AI profile (#18): difficulty reads and stale checks over book_ai_profiles (recommendation.md §9).
 builder.Services.AddScoped<IBookProfileStore, EfBookProfileStore>();
+builder.Services.AddScoped<RecommendationPipeline>();
 builder.Services.AddScoped<RecommendationService>();
 
 // Library (#11): one Library service over the EF store (user-library.md §2).
