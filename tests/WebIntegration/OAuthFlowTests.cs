@@ -98,7 +98,8 @@ public sealed class OAuthFlowTests(WebFixture fixture)
         var json = await JsonOfAsync(response);
         Assert.False(string.IsNullOrEmpty(json.GetProperty("access_token").GetString()));
         Assert.Equal("Bearer", json.GetProperty("token_type").GetString());
-        Assert.Equal(3600, json.GetProperty("expires_in").GetInt32());
+        // OpenIddict reports the remaining lifetime of the access token, so the value is 3600 minus the seconds already elapsed.
+        Assert.InRange(json.GetProperty("expires_in").GetInt32(), 3590, 3600);
         Assert.False(string.IsNullOrEmpty(json.GetProperty("refresh_token").GetString()));
         Assert.Contains("books:recommend", json.GetProperty("scope").GetString());
     }
@@ -208,6 +209,28 @@ public sealed class OAuthFlowTests(WebFixture fixture)
         Assert.Equal("login_required", QueryOf(location)["error"]);
     }
 
+    // A consent POST whose session has ended goes back to login with the authorize request it carried, so the approval can continue.
+    [Fact]
+    public async Task Consent_post_after_the_session_ends_returns_to_login_with_the_same_authorize_request()
+    {
+        await fixture.ResetDatabaseAsync();
+        await using var app = CreateOAuthFactory();
+        var client = await SignedInClientAsync(app, "expired@x.com");
+        var values = AuthorizeParams();
+        var page = await client.GetPageAsync("/oauth/authorize?" + Query(values));
+        await using (var db = fixture.CreateContext())
+        {
+            await db.Users.Where(user => user.Email == "expired@x.com").ExecuteDeleteAsync();
+        }
+
+        var response = await AccountFlow.PostFormAsync(client, "/oauth/authorize", AntiforgeryToken(page), FormFields(values, "submit.Accept").ToArray());
+
+        Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
+        var location = LocationOf(response);
+        Assert.Equal("/account/login", location.AbsolutePath);
+        Assert.Equal("/oauth/authorize?" + Query(values), QueryHelpers.ParseQuery(location.Query)["returnUrl"].ToString());
+    }
+
     [Fact]
     public async Task Denying_consent_redirects_with_access_denied_and_stores_no_authorization()
     {
@@ -228,13 +251,15 @@ public sealed class OAuthFlowTests(WebFixture fixture)
         Assert.Equal(0, stored);
     }
 
+    // OpenIddict validates these parameters before the passthrough controller runs. In passthrough mode that validation failure is
+    // answered as 400 text/plain "error:<code>" and is not redirected to the client (RFC 6749 4.1.2.1 is not met for these cases).
+    // The redirect_uri is never used for them, so no code or error can reach an address the client did not register.
     [Theory]
     [InlineData("code_challenge", null, "invalid_request")]
     [InlineData("code_challenge_method", "plain", "invalid_request")]
-    [InlineData("scope", "openid", "invalid_scope")]
     [InlineData("scope", "books:recommend profile", "invalid_scope")]
     [InlineData("resource", "https://evil.example/", "invalid_target")]
-    public async Task Invalid_authorize_parameters_are_reported_to_the_registered_callback(string name, string? value, string expectedError)
+    public async Task Parameters_rejected_by_openiddict_validation_get_a_plain_400_and_no_redirect(string name, string? value, string expectedError)
     {
         await fixture.ResetDatabaseAsync();
         await using var app = CreateOAuthFactory();
@@ -242,10 +267,30 @@ public sealed class OAuthFlowTests(WebFixture fixture)
 
         var response = await client.GetAsync("/oauth/authorize?" + Query(AuthorizeParams((name, value))));
 
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Null(response.Headers.Location);
+        // The plain-text body is "error:<code>" followed by an error_description line.
+        Assert.StartsWith("error:" + expectedError + "\n", await response.Content.ReadAsStringAsync());
+    }
+
+    // scope=openid is a known OpenIddict scope, so validation passes and the controller refuses it. That refusal is a normal
+    // authorization error, redirected to the registered callback with state and iss.
+    [Fact]
+    public async Task Scope_other_than_books_recommend_is_refused_by_the_controller_on_the_callback()
+    {
+        await fixture.ResetDatabaseAsync();
+        await using var app = CreateOAuthFactory();
+        var client = await SignedInClientAsync(app, "openidscope@x.com");
+
+        var response = await client.GetAsync("/oauth/authorize?" + Query(AuthorizeParams(("scope", "openid"))));
+
         Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
         var location = LocationOf(response);
         Assert.Equal(Callback, location.GetLeftPart(UriPartial.Path));
-        Assert.Equal(expectedError, QueryOf(location)["error"]);
+        var parameters = QueryOf(location);
+        Assert.Equal("invalid_scope", parameters["error"]);
+        Assert.Equal(State, parameters["state"]);
+        Assert.Equal(Issuer, parameters["iss"]);
     }
 
     [Fact]
