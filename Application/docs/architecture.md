@@ -1,5 +1,6 @@
 # Application 架構選型
 
+> 非同步推薦 Job M3 補記：2026-11-14 更新；程式變更以 `b81a322`、`dc2d903` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR4 M1（#120）補記：2026-10-25 更新；程式變更以 `5052361`、`d864acc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > Canonical Category P4 補記：2026-11-14 更新；程式變更以 `c2e5324`、`cec6bd7` 記入 update-history。原查核基準保留，未重新審查其餘內容。
@@ -26,6 +27,7 @@ Application-level policy 包含 [LibraryService.AddPendingAsync](../Library/Libr
 | Identity | [AccountService](../Identity/AccountService.cs)、IUserStore、IPasswordHashing → typed result | Account controller → EF/hashing |
 | Library | [LibraryService](../Library/LibraryService.cs)、ILibraryStore、LibraryChange → Entry/null | Library/Books/Account controllers → EF |
 | 推薦 | [RecommendationService](../Recommendation/RecommendationService.cs) → RecommendationAttempt | Recommendation controller → parser/embedding/candidate/ranker/store/usage ports |
+| 推薦流程（[Job 計畫](../../Docs/plans/async-recommendation-jobs.md) M3） | [RecommendationPipeline](../Recommendation/RecommendationPipeline.cs).RunAsync(requirementText, save, ct) → RecommendationPipelineResult | RecommendationService（之後的 Job runner）→ parser/embedding/candidate/ranker ports＋呼叫端傳入的 `save` 步驟。60 秒預算、步驟計時、summary log、逾時與 AI 失敗的轉換都在這裡；`save` 以預算 token 在預算內執行。不含額度檢查與 difficulty／Profile。RecommendationService 只剩額度檢查 → `RunAsync`（`save` = `IRecommendationStore.SaveAsync`）→ difficulty／Profile |
 | 歷史 | [IRecommendationHistory](../Recommendation/IRecommendationHistory.cs) → page/detail/null | Ai controller → user-scoped EF reader |
 | 背景工作 | [EmbeddingBackfillService](../Recommendation/EmbeddingBackfillService.cs)、[BookProfileGenerationService](../Recommendation/BookProfileGenerationService.cs) | Infrastructure workers → store/generator ports |
 | Profile顯示/排程 | [BookDifficultyReader](../Recommendation/BookDifficultyReader.cs)、[BookProfileScheduler](../Recommendation/BookProfileScheduler.cs) | 推薦/歷史 caller → profile store與queue |
