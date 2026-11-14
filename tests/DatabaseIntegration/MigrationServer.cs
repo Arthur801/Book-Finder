@@ -15,6 +15,7 @@ internal static class MigrationIds
     public const string Contract011 = "20261025120000_ContractMultiSourceCatalog";
     public const string AddCanonicalCategories = "20261114003848_AddCanonicalCategories";
     public const string AddRecommendationJobs = "20261114032619_AddRecommendationJobs";
+    public const string AddOpenIddict = "20261114082838_AddOpenIddict";
 }
 
 // One disposable pgvector container per test class. Each test gets its own empty database, so it can migrate to a
