@@ -112,7 +112,7 @@ ChatGPT 文件描述兩種機制：
 ### 6.6 影響
 
 - 新增 OpenIddict 資料表（applications、authorizations、scopes、tokens）→ EF migration + `deploy/migration-test/seeds/<head>.sql`（DEP-B25），L3。
-- 簽章與加密金鑰（D-11、D-12）：production 用兩張**不設密碼**的 PKCS#12 憑證，放在 root-only 權限的 host named volume，container 唯讀掛載（與 Data Protection keys 相同保護方式）；不進 repo、不進 image；需要輪替與備份程序（L4，需使用者授權）。開發與測試用 ephemeral key。
+- 簽章與加密金鑰（D-11、D-12）：production 用兩張**不設密碼**的 PKCS#12 憑證，放在 external named volume `book-finder-oauth-certs`（`/var/lib/docker/volumes` 只有 host root 進得去；檔案擁有者是 container 使用者 UID 1654、權限 0400，因為 container 不以 root 執行），container 唯讀掛載於 `/oauth-certs`（與 Data Protection keys 相同保護方式）；不進 repo、不進 image；需要輪替與備份程序（L4，需使用者授權）。開發與測試用 ephemeral key。
 - 預註冊 Client 以設定或 seed 建立（client_id、redirect URI、scope），無 client secret。
 - Consent 頁：沿用網站版面與 `bf_auth` 登入；顯示 Client 名稱與 scope。
 - `/mcp` 的 bearer 驗證改用 OpenIddict validation（已完成，MCP-202）。

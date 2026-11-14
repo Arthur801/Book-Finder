@@ -16,7 +16,7 @@
 | MCP-B10 | RFC 9207 `iss`、RFC 8707 `resource` | 已完成（MCP-201b）：回應帶 `iss`；只接受 `{base}/mcp` |
 | MCP-B11 | ChatGPT 的預註冊介面位置不明；MCP-203 找不到時實作 allowlist 版 CIMD（architecture.md §6.4） | 待 MCP-203 |
 | MCP-B12 | `securitySchemes` 已加（M3，頂層與 `_meta`）。OpenAI 文件說明連結帳號 UI 由 Tool 錯誤加 `_meta["mcp/www_authenticate"]` 觸發，而不是 HTTP 401；授權後是否重送原請求未記載。MCP-203 實測 ChatGPT，必要時評估 Tool 層錯誤（architecture.md §6.5） | 待 MCP-203 |
-| MCP-B13 | production 簽章／加密憑證：不設密碼、root-only volume（D-12）；建立、輪替與備份程序（L4，需使用者授權） | 上線前（上線手冊步驟 2） |
+| MCP-B13 | production 簽章／加密憑證：不設密碼、external volume `book-finder-oauth-certs`、檔案屬 UID 1654 權限 0400（D-12）；建立程序見實作報告上線手冊步驟 2；輪替與備份程序待定（L4，需使用者授權） | 建立：上線前；輪替與備份：待定 |
 | MCP-B14 | `scopes_supported` 的 `openid`、`offline_access` | 已完成（MCP-201b）：只宣告 `books:recommend`，核准時隱含 `offline_access` |
 | MCP-B15 | OpenIddict 驗證階段的錯誤（未註冊 redirect_uri 以外的情況，例如缺 PKCE）回 400 而非導回 client（RFC 6749 §4.1.2.1 建議導回）；MCP-203 若 Client 因此體驗不佳再評估 | 改善提案 |
 | MCP-B16 | 網站沒有全站的 framing 政策；目前只有 OAuth consent 頁設 `X-Frame-Options: DENY` 與 `frame-ancestors 'none'`。是否全站加上另行決定 | 待決策 |

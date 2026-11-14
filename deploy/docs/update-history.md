@@ -366,3 +366,9 @@ git log --reverse --no-merges --format='@@%h' --numstat -- <同上路徑>
 | 日期 | commit | subject | 變更 |
 |---|---|---|---|
 | 2026-11-14 | `e16b56f` | test(mcp): compat seed and schema tests for OpenIddict (MCP-201a) | `deploy/migration-test/seeds/20261114082838_AddOpenIddict.sql`（新增）：AddRecommendationJobs seed 全文加四張 OpenIddict 表的虛構資料；與新增 migration 同一個 PR（DEP-B25 方向 (b)）。`dotnet-tools.json` 的 `dotnet-ef` 升到 10.0.14 |
+
+## 2026-11-15 開啟 MCP Server（新增紀錄）
+
+| 日期 | commit | subject | 變更 |
+|---|---|---|---|
+| 2026-11-15 | 本 PR | deploy: enable the MCP server in production | `deploy/release/compose.prod.yaml`：`environment` 加 `Mcp__Enabled: "true"`、兩個 `OAuth__…CertificatePath`、三個預註冊 Client（`claude`、`vscode`、`chatgpt`）；唯讀掛載 external volume `book-finder-oauth-certs` 於 `/oauth-certs`。volume 不存在時 compose 直接失敗，所以部署前要先在 host 建立憑證；依 [MCP 實作報告](../../Docs/Implementation-Report/book-finder-mcp-server.md)上線手冊步驟 2～3。回退：重新部署 v0.0.12（DEP-B26） |
