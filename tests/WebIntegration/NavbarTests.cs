@@ -88,6 +88,19 @@ public sealed class NavbarTests(WebFixture fixture)
         Assert.DoesNotContain(LogoutAction, html);
     }
 
+    [Fact]
+    public async Task Navbar_links_to_the_category_browse_right_after_the_bookstore()
+    {
+        await fixture.ResetDatabaseAsync();
+        await using var app = fixture.CreateFactory();
+        var client = app.CreateClient(ClientOptions);
+
+        var html = await client.GetPageAsync("/");
+
+        // Razor adds scoped-CSS attributes (b-…) to the navbar items, so only the parts that matter are matched.
+        Assert.Matches("書庫</a></li>\\s*<li [^>]*><a [^>]*href=\"/categories\"[^>]*>分類</a></li>", html);
+    }
+
     private static async Task SignUpAsync(HttpClient client, string email, string displayName)
     {
         var response = await AccountFlow.RegisterAsync(client, email, Password, displayName);

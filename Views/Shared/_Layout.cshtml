@@ -7,6 +7,7 @@
     <script type="importmap"></script>
     <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+    @await RenderSectionAsync("Styles", required: false)
     <link rel="stylesheet" href="~/Book_Finder.styles.css" asp-append-version="true" />
 </head>
 <body>
@@ -21,6 +22,7 @@
                 <div class="collapse navbar-collapse" id="main-navbar">
                     <ul class="navbar-nav me-auto">
                         <li class="nav-item"><a class="nav-link" href="/books">書庫</a></li>
+                        <li class="nav-item"><a class="nav-link" href="/categories">分類</a></li>
                         <li class="nav-item"><a class="nav-link" href="/ai">AI 推薦</a></li>
                         <li class="nav-item"><a class="nav-link" href="/library">個人書單</a></li>
                     </ul>
