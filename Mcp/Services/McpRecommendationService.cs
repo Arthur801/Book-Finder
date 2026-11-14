@@ -54,7 +54,8 @@ public sealed class McpRecommendationService(
         Message = SubmittedMessage,
     };
 
-    private static string StatusName(RecommendationJobStatus status) => status switch
+    // Shared with get_recommendation_result, so both tools name a job state the same way.
+    internal static string StatusName(RecommendationJobStatus status) => status switch
     {
         RecommendationJobStatus.Queued => "queued",
         RecommendationJobStatus.Running => "running",

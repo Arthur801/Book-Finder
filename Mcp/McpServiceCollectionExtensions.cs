@@ -25,6 +25,7 @@ public static class McpServiceCollectionExtensions
         services.AddSingleton<McpUrlBuilder>();
         services.AddScoped<McpBookSearchService>();
         services.AddScoped<McpRecommendationService>();
+        services.AddScoped<McpRecommendationResultService>();
 
         services.AddMcpServer(options => options.Filters.Message.OutgoingFilters.Add(ToolSecuritySchemes.Annotate))
             .WithTools<BookSearchTools>()

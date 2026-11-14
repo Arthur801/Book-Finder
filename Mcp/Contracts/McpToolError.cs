@@ -9,6 +9,8 @@ public sealed class McpToolError
     public const string ServiceUnavailable = "SERVICE_UNAVAILABLE";
     public const string IdempotencyConflict = "IDEMPOTENCY_CONFLICT";
     public const string DailyLimitReached = "DAILY_LIMIT_REACHED";
+    public const string NotFound = "NOT_FOUND";
+    public const string InternalError = "INTERNAL_ERROR";
 
     public string Status { get; } = "error";
 
