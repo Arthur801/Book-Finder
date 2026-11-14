@@ -54,6 +54,6 @@
 
 [流程](workflow-diagram.md)・[架構](architecture.md)・[待辦](backlog.md)・[歷史](update-history.md)・[案例](test-suite.md)
 
-- **APP-B06**（2026-11-14，推薦 Job M8）：production 驗收推薦 Job 之後執行 M9：移除舊的 `POST /api/recommendations`、`RecommendationService` 的同步入口與 `ai.js` 中開關關閉時的流程（[Job 計畫](../../Docs/plans/async-recommendation-jobs.md) 決定 #2）。前提：開關已在 production 開啟並觀察穩定。
+- **APP-B06**（2026-11-14，推薦 Job M8）：production 驗收推薦 Job 之後執行 M9：移除舊的 `POST /api/recommendations`、`RecommendationService` 的同步入口與 `ai.js` 中開關關閉時的流程（[Job 計畫](../../Docs/plans/async-recommendation-jobs.md) 決定 #2）。前提：開關已在 production 開啟並觀察穩定。2026-11-14 已隨 v0.0.11 開啟，使用者驗收通過；可在觀察一段時間後進行。
 - **APP-B07**（2026-11-14，推薦 Job M8）：Job 執行是 at-least-once，當機恢復或重試會讓同一個 Job 最多呼叫 OpenAI 兩次；Job 與需求文字目前不刪除（D-07）。上線後依 log 的重試與恢復次數決定是否需要保留政策或費用告警。
 

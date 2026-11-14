@@ -25,7 +25,7 @@
 |---|---|
 | [kingstone-category-crawler.md](kingstone-category-crawler.md) 金石堂分類 crawler（v11，使用者提供分類頁清單） | E0 完成（fixture、source contract、contract test 在 `kingstone-e0-fixtures`），待使用者 review；production activation 待 P1–P5 |
 | [canonical-category-browse.md](canonical-category-browse.md) Canonical Category 分類瀏覽（v2.4） | P0～P3 完成，Mapping 已匯入 production；下一步 P4 分類查詢 |
-| [async-recommendation-jobs.md](async-recommendation-jobs.md) 非同步 AI 推薦 Job（v1.4） | M1～M8 完成（M1～M6 已合併）；尚未部署，上線手冊見[實作報告](../Implementation-Report/async-recommendation-jobs.md) |
+| [async-recommendation-jobs.md](async-recommendation-jobs.md) 非同步 AI 推薦 Job（v1.4） | 已上線（v0.0.11，2026-11-14，使用者驗收通過）；下一步 M9 移除舊的同步 endpoint |
 
 ## 2. 共通的模組化原則
 

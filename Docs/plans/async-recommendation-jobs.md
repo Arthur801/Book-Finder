@@ -4,7 +4,7 @@
 >
 > 來源：使用者提供的「Book-Finder 非同步 AI 推薦工作系統：實作規劃 v1.0（Proposed）」，經 repo 現況核對與使用者決定（下表）整理成本版。
 >
-> **狀態：M1～M8 已合併（#193～#200）；開啟 PR 已開（2026-11-14）**：`deploy/release/compose.prod.yaml` 加上 `RecommendationJobs__Enabled: "true"`，合併並發布後才會在 production 生效。上線手冊見[實作報告](../Implementation-Report/async-recommendation-jobs.md)；驗收後 M9。
+> **狀態：已上線（2026-11-14）**：M1～M8 已合併（#193～#200），開關由 #201 開啟並隨 v0.0.11 發布（v0.0.10 為開關關閉、只帶 migration 的版本）。使用者驗收通過，排隊與背景執行在 production 正常運作。下一步 M9：移除舊的同步 endpoint（Application backlog APP-B06）。
 >
 > 本文件是實作計畫，不代表功能已實作、測試已通過或取得 production 授權。技術 authority 仍是各模組的 `docs/`（`AGENTS.md` §3.2）；實作時把定案的 contract 寫進 owning module 的 docs，不只寫在這裡。變更記在文末「設計變更紀錄」。
 
