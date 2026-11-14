@@ -1,10 +1,10 @@
-# Book-Finder MCP Server — v1.1 實作計畫
+# Book-Finder MCP Server — v1.2 實作計畫
 
 > Baseline：`origin/main @ 8c8e3ab`（2026-11-14）。
 >
 > 來源：使用者提供的「Book-Finder MCP Server 實作規劃（Proposed）」，經 repo 現況核對後整理成本版。核對時找到的差異列在「核對 repo 現況的結果」與文末「設計變更紀錄」。
 >
-> **狀態：Proposed（尚未實作）**。使用者已決定 D-01～D-06（2026-11-14）。下一步是 M0：SDK 釘版、單一 endpoint 授權 Spike（決定用單一 `/mcp` 還是雙 endpoint），以及 OpenIddict 預註冊可行性。
+> **狀態：Proposed（尚未實作）**。使用者已決定 D-01～D-08（2026-11-14）。下一步是 M0：SDK 釘版、單一 endpoint 授權 Spike（決定用單一 `/mcp` 還是雙 endpoint），以及 OpenIddict 預註冊可行性。
 >
 > 本文件是實作計畫，不代表功能已實作、測試已通過或取得 production 授權。技術 authority 仍是各模組的 `docs/`（`AGENTS.md` §3.2）；實作時把定案的 contract 寫進 owning module 的 docs（新模組 `Mcp/docs/` 與受影響模組），不只寫在這裡。文中的 Tool JSON 都是格式示意，不是實際查詢結果；SLO 是目標，尚未量測。
 
@@ -59,7 +59,7 @@ MCP 層只做協定轉換：搜尋重用 `IBookSearch`，推薦重用已上線�
 **部署**
 
 - [Program.cs](../../Program.cs) 使用 `AddControllersWithViews`、`UseForwardedHeaders`、`UseAuthentication`／`UseAuthorization`，沒有其他 endpoint mapping。
-- host nginx 不在 repo（[deploy architecture](../../deploy/docs/architecture.md)，runbook §7.2 #7 待確認），前方有 Cloudflare。`/mcp`、`/.well-known/oauth-*`、OAuth endpoint 的轉發規則必須由使用者在 host 設定。
+- host nginx 不在 repo（[deploy architecture](../../deploy/docs/architecture.md)，runbook §7.2 #7 待確認），前方有 Cloudflare。實測前由使用者在 host 確認 `/mcp`、`/.well-known/*`、`/oauth/*` 都轉到 web container（整站轉發時不需新增路由）、`Authorization` header 原樣轉發、回應不被緩衝。
 - 非 secret 設定只能隨 release 改變（deploy backlog DEP-B26）；`Mcp:Enabled` 也一樣。
 - 新 migration 上線需在同一個 PR 提供 `deploy/migration-test/seeds/<head>.sql`（DEP-B25）。
 - Data Protection keys 已持久化在 `/data-protection-keys` volume。
@@ -78,6 +78,8 @@ MCP 層只做協定轉換：搜尋重用 `IBookSearch`，推薦重用已上線�
 | D-04 | **先試單一 `/mcp`；不行就接受雙 endpoint**（`/mcp/public` 匿名 + `/mcp/user` 全部需授權） | MCP-002 的結果直接決定採用哪個方案，不必再等使用者決定；改用雙 endpoint 時寫 ADR，並更新 Tool 契約與 Client 設定說明 |
 | D-05 | **正式網域是 `khwebsc.com`** | `Mcp:PublicBaseUrl = https://khwebsc.com`；MCP resource `https://khwebsc.com/mcp`；OpenIddict issuer `https://khwebsc.com/`；nginx 與 Cloudflare 的路由仍由使用者在 host 確認 |
 | D-06 | **公開搜尋比照網站搜尋現有的上限** | 見下方說明 |
+| D-07 | **AI Tool 呼叫不限頻率**；只有 AI 推薦受既有每日額度限制，與網站共用 | 不新增 MCP 專用的速率限制；額度一律由 `RecommendationJobService` 計算 |
+| D-08 | **真實 Client 實測直接在 production（`https://khwebsc.com/mcp`）進行** | 沒有 staging；計畫中原寫 staging 的驗證改在 production canary；每次發布前需使用者明確授權 |
 
 **D-06 的現況**：網站一般搜尋（`SearchController` → `BookSearchService` → `EfBookSearch`）目前**沒有**輸入長度上限、沒有應用層 rate limit，程式碼也沒有另外設定查詢 timeout（只剩 Npgsql 與 Kestrel 的預設值；production 連線字串在 SSM，本計畫未查看是否覆寫）。因此 `search_books` 也不另加這三項限制，與網站行為一致。公開搜尋沒有節流這件事，記為已知缺口寫進 `Mcp/docs/backlog.md`（若之後要加，網站與 MCP 一起加）。
 
@@ -359,7 +361,7 @@ MCP-002 必須以真實 HTTP transport 證明：
 | M2 | MCP-202 | `McpBearer` scheme、`books:recommend` policy、與 `bf_auth` 互不通用 | L3 | MCP-201 |
 | M2 | MCP-203 | ChatGPT、Claude、至少一個 IDE Client 各自實測：匿名呼叫 → 登入 → Consent → 重送，只產生 1 個 Job | L3 | MCP-202 |
 | M3 | MCP-301 | `recommend_books`（§3.3） | L3 | MCP-202 |
-| M3 | MCP-302 | 確認 Worker：staging 走完 queued → running → succeeded／failed、中斷恢復；**不改開關** | L3 | MCP-301 |
+| M3 | MCP-302 | 確認 Worker：production canary 走完 queued → running → succeeded／failed、中斷恢復；**不改開關** | L3 | MCP-301 |
 | M4 | MCP-401 | `get_recommendation_result`（§3.3） | L3 | MCP-301 |
 | M4 | MCP-402 | Tool 描述與跨呼叫流程；真實 Client 不靠 cookie／密碼取得完成結果 | L2 | MCP-401、MCP-203 |
 | M5 | MCP-501～503 | 完整測試、兩軸 `code-review`、structured log 欄位、rate limit、`Mcp/docs/` 五文件與受影響模組 docs、`CONTEXT.md`、實作報告、上線手冊 | L3 | 全部 |
@@ -413,7 +415,7 @@ M1 只依賴 MCP-001，可以和 MCP-002／003 並行。
 | T21 | Security | 別人的 Job、非 GUID、不存在 | 一律 `NOT_FOUND` |
 | T22 | DB | failed（各 `ErrorCode`）、Worker 重啟 | 狀態與 retry／lease 規則一致；無 `historyUrl` |
 | T23 | Regression | 網站 cookie、CSRF、`/search`、`/ai`、`/api/recommendations/jobs` | 行為與狀態碼不變 |
-| T24 | Performance | 搜尋與 Job 提交負載 | 量測 p50／p95／p99（staging） |
+| T24 | Performance | 搜尋與 Job 提交負載 | 量測 p50／p95／p99（production canary，低流量） |
 | T25 | Deployment | `Mcp:Enabled` 開／關、`RecommendationJobs:Enabled = false` 時 AI Tool | 關閉時 `/mcp` 不存在、網站不受影響；Job 關閉時 AI Tool 回 `SERVICE_UNAVAILABLE` 且 0 Job |
 
 另外：`McpBearer` 與 scope policy 做 mutation 抽查（L3）；Tool 契約（名稱、描述、schema）做 snapshot 測試。
@@ -436,7 +438,7 @@ M1 只依賴 MCP-001，可以和 MCP-002／003 並行。
 ### 資源限制
 
 - 公開搜尋：比照網站搜尋，不另加輸入長度、rate limit 或查詢 timeout（D-06）；沒有節流列為已知缺口（`Mcp/docs/backlog.md`）。
-- AI：每日額度維持業務上限，另加每 Client／User 速率保護。
+- AI：Tool 呼叫本身不限頻率；只有 AI 推薦受既有每日額度限制，與網站共用同一份額度（D-07）。
 - MCP request body 有大小上限；middleware 不得無限 buffering。
 - OAuth endpoint 防暴力嘗試、CSRF、open redirect 與 log 洩漏。
 
@@ -448,9 +450,9 @@ M1 只依賴 MCP-001，可以和 MCP-002／003 並行。
 2. 發布含 MCP 程式但不含 `Mcp__Enabled` 的 release，確認網站不受影響。
 3. 部署 OpenIddict migration（含 compat seed）、金鑰與預註冊 Client；以測試 Client 走完 metadata、PKCE、token。
 4. 確認 Recommendation Job Worker 正常（已上線，不改開關）。
-5. 使用者在 host nginx／Cloudflare 加 `/mcp`、`/.well-known/oauth-*`、OAuth 路由；確認 `Authorization` header 原樣轉發、不緩衝回應；`ForwardedHeaders` 設定不變。
+5. 使用者在 host 確認 nginx／Cloudflare 把 `/mcp`、`/.well-known/*`、`/oauth/*` 轉到 web container，`Authorization` header 原樣轉發、不緩衝回應；`ForwardedHeaders` 設定不變。
 6. 發布在 `compose.prod.yaml` 加上 `Mcp__Enabled: "true"` 與 `Mcp__PublicBaseUrl` 的 release（同 DEP-B26 限制：只能隨 release 改）。
-7. 指定 Client canary：匿名搜尋、OAuth、AI Job、書籍與紀錄連結。
+7. 在 `https://khwebsc.com/mcp` 直接做真實 Client 實測（D-08；沒有 staging）：ChatGPT、Claude、IDE Client 各走一次匿名搜尋、OAuth、AI Job、書籍與紀錄連結。這一步是 production 變更，發布前需使用者明確授權。
 8. 觀察 401 次數、錯誤率、Job queue 等待時間，再擴大使用。
 
 回復：
@@ -534,3 +536,8 @@ M1 只依賴 MCP-001，可以和 MCP-002／003 並行。
 4. 雙 endpoint 備援已被接受；MCP-002 的結果直接決定方案，MCP-201 不再等使用者決定。
 5. 正式網域 `khwebsc.com`。
 6. 公開搜尋比照網站搜尋現有上限：查證後網站目前沒有輸入長度、rate limit 與查詢 timeout 設定，`search_books` 一致；沒有節流列為已知缺口。
+
+### v1.2（2026-11-14）：D-07、D-08
+
+1. AI Tool 不另加頻率限制，刪除「每 Client／User 速率保護」；額度與網站共用。
+2. 專案沒有 staging：真實 Client 實測、Worker 確認與效能量測改在 `https://khwebsc.com/mcp` 的 production canary；nginx 若整站轉發則不需新增路由，只確認 header 轉發與不緩衝。
