@@ -19,6 +19,7 @@
 | 帳號 | AccountController、LoginForm／RegisterForm | server field errors／summary、hidden ReturnUrl/PendingAction；post success redirect |
 | AI 主頁／列表 | AiController、AiHistoryListViewModel | #ai-form／#ai-status／#ai-results；_AiHistoryList 是唯一列表 HTML，fragment 不含 layout |
 | AI 詳情 | AiController、AiHistoryDetailViewModel | 本人紀錄；快照 rank/reason/relevance＋即時 Book 與 difficulty |
+| MCP 操作手冊 | McpGuideController（無 model） | `McpGuide/Index.cshtml` 靜態內容：MCP 網址、ChatGPT／Claude／VS Code 連線步驟與預註冊 client_id、AI 推薦與每日額度、授權、常見問題、錯誤碼對照；不含技術 metadata。內容要與 production 設定（`deploy/release/compose.prod.yaml` 的 OAuth Client、`Recommendation:DailyLimit`、token 效期）一致，任何一邊改變都要同步。Layout 導覽列右側（登入／註冊或登出之後）固定顯示「MCP 說明」連結，不分登入狀態 |
 | 404／錯誤 | Books/Ai NotFound、Home.Error／ErrorViewModel | controller 明確 404；Error 只有 request ID，無 stack trace；Development pipeline 不同 |
 
 主要依賴可查：[Controllers](../../Controllers/BooksController.cs)、[Models](../../Models/BookDetailViewModel.cs)、[ai.js](../../wwwroot/js/ai.js)、[library.js](../../wwwroot/js/library.js)、[Program](../../Program.cs)。具體入口全表見 [流程](workflow-diagram.md)。

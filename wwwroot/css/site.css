@@ -48,3 +48,8 @@ body {
   overflow: hidden;
   overflow-wrap: anywhere;
 }
+
+/* MCP guide (Views/McpGuide/Index.cshtml): a readable line length for a long text page. */
+.mcp-guide {
+  max-width: 52rem;
+}

@@ -59,6 +59,7 @@ Controller 不寫 SQL、不直接呼叫 OpenAI／Google Books、不持有推薦�
 | Account.Logout | POST `/account/logout` | 是 | `AuthCookie.Delete` → Redirect `/` |
 | OAuth.Authorize | GET、POST `/oauth/authorize` | 讀 `bf_auth`；未登入導向 `/account/login?returnUrl=` | OpenIddict passthrough（MCP-201b）：GET 顯示 consent 或依 permanent authorization 直接核准；POST 為 consent 表單（antiforgery）；只用 OpenIddict scheme SignIn／Forbid；`Mcp:Enabled = false` 時 404 |
 | OAuth.Token | POST `/oauth/token` | 否（`[IgnoreAntiforgeryToken]`，public client + PKCE） | code／refresh_token grant；確認使用者仍存在後 SignIn；其他 grant `unsupported_grant_type` |
+| McpGuide.Index | GET `/mcp-guide` | 否 | 不讀資料、不依賴任何 service → 靜態 View（MCP 操作手冊）；不在 `/mcp` 底下，MCP 閘門不處理，`Mcp:Enabled` 開關不影響 |
 | Library.Index | GET `/library` | 是 | `LibraryService.ListAsync` → 書單 View |
 | LibraryApi.Add | PUT `/api/library/{bookId}` | 是 | `LibraryService.AddAsync`、`ProblemDetailsFactory` → 200 / 404 |
 | LibraryApi.Update | PATCH `/api/library/{bookId}` | 是 | JSON reader、`LibraryPatchParser`、`LibraryService.UpdateAsync` → 200 / 400 / 404 |

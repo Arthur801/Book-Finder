@@ -1,0 +1,205 @@
+@{
+    ViewData["Title"] = "MCP 操作手冊";
+}
+
+<article class="mcp-guide mx-auto">
+    <h1 class="h3 mb-3">在 AI 助理中使用好想找書</h1>
+    <p>
+        好想找書提供 <strong>MCP（Model Context Protocol）</strong>連線，讓你在 ChatGPT、Claude、VS Code 等 AI 助理裡直接查書、請 AI 推薦書，不用切換到網站。
+    </p>
+    <ul>
+        <li><strong>MCP 網址</strong>：<code>https://khwebsc.com/mcp</code></li>
+        <li><strong>費用</strong>：免費；AI 推薦與網站共用每日額度。</li>
+    </ul>
+
+    <nav aria-label="目錄" class="mb-4">
+        <ol class="small">
+            <li><a href="#features">可以做什麼</a></li>
+            <li><a href="#before">開始之前</a></li>
+            <li><a href="#setup">連線設定</a>（<a href="#chatgpt">ChatGPT</a>、<a href="#claude">Claude</a>、<a href="#vscode">VS Code</a>）</li>
+            <li><a href="#recommend">使用 AI 推薦</a></li>
+            <li><a href="#sign-in">登入狀態與授權</a></li>
+            <li><a href="#faq">常見問題</a></li>
+            <li><a href="#errors">錯誤訊息對照</a></li>
+        </ol>
+    </nav>
+
+    <section id="features" class="mb-5">
+        <h2 class="h4">1. 可以做什麼</h2>
+        <div class="table-responsive">
+            <table class="table table-sm align-middle">
+                <thead>
+                    <tr><th scope="col">功能</th><th scope="col">說明</th><th scope="col">需要登入</th></tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>搜尋書籍（<code>search_books</code>）</td>
+                        <td>用書名、作者、關鍵字或 ISBN 查詢好想找書的書庫，最多回傳 50 本，附書籍頁連結</td>
+                        <td>不需要</td>
+                    </tr>
+                    <tr>
+                        <td>AI 推薦（<code>recommend_books</code>）</td>
+                        <td>用一句話描述想看的書，例如「想看輕鬆的推理小說」，由 AI 從書庫中挑選</td>
+                        <td>需要</td>
+                    </tr>
+                    <tr>
+                        <td>查詢推薦結果（<code>get_recommendation_result</code>）</td>
+                        <td>取得推薦的書、推薦理由，以及網站上的推薦紀錄連結</td>
+                        <td>需要</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <p>你不需要記住這些工具名稱，用自然的句子跟 AI 助理說就可以，例如：</p>
+        <ul>
+            <li>「用好想找書搜尋東野圭吾」</li>
+            <li>「用好想找書推薦我適合週末讀的輕鬆推理小說」</li>
+        </ul>
+        <p class="text-muted small">只會查詢好想找書自己的書庫，不會查其他網站。</p>
+    </section>
+
+    <section id="before" class="mb-5">
+        <h2 class="h4">2. 開始之前</h2>
+        <ul>
+            <li><strong>搜尋</strong>：不需要帳號。</li>
+            <li><strong>AI 推薦</strong>：需要好想找書帳號。還沒有帳號，請先到網站右上角「<a href="/account/register">註冊</a>」。</li>
+            <li>
+                第一次使用推薦時，AI 助理會帶你到好想找書的登入頁與<strong>授權頁</strong>。授權頁會列出要連線的應用程式（例如 Claude）與權限
+                「books:recommend：以你的帳號提交 AI 推薦並查看推薦結果」，按「同意」後就完成連結。
+            </li>
+            <li>
+                <strong>請只在好想找書的網站（khwebsc.com）輸入密碼。</strong>AI 助理不需要、也不應該向你索取帳號密碼或 token；如果它在對話中要求，請不要提供。
+            </li>
+        </ul>
+    </section>
+
+    <section id="setup" class="mb-5">
+        <h2 class="h4">3. 連線設定</h2>
+
+        <h3 id="chatgpt" class="h5 mt-4">3.1 ChatGPT</h3>
+        <ol>
+            <li>開啟 <a href="https://chatgpt.com/plugins" target="_blank" rel="noopener noreferrer">https://chatgpt.com/plugins</a>。</li>
+            <li>按 <strong>＋</strong> → <strong>Add custom MCP server</strong>。</li>
+            <li><strong>Name</strong> 填「好想找書」；<strong>Connection</strong> 的 <strong>Server URL</strong> 填 <code>https://khwebsc.com/mcp</code>。</li>
+            <li><strong>Authentication</strong> 選 <strong>OAuth or no authentication</strong>；打開進階 OAuth 設定，在「用戶端註冊」下的「OAuth 用戶端 ID」填入 <code>chatgpt</code>。</li>
+            <li>閱讀風險提示後按 <strong>I understand and want to continue</strong> → <strong>Create as a plugin</strong>。</li>
+            <li>按 <strong>Install</strong> 安裝，會出現與好想找書連線的視窗，選擇連接好想找書並註冊或登入。</li>
+            <li>在對話框輸入 <code>@@</code>，選擇「好想找書」，再輸入你的需求。</li>
+            <li>若之後要求重新登入（例如超過 30 天沒有使用），ChatGPT 會在對話中顯示連結帳號的按鈕，按下後依<a href="#before">第 2 節</a>登入。</li>
+        </ol>
+        <p class="text-muted small">能否新增自訂 MCP server 取決於你的 ChatGPT 方案與 workspace 權限。</p>
+
+        <h3 id="claude" class="h5 mt-4">3.2 Claude（claude.ai）</h3>
+        <ol>
+            <li>開啟 <strong>Settings → Customize → Connectors</strong>，按 <strong>Add custom connector</strong>。</li>
+            <li><strong>Name</strong> 填「好想找書」，<strong>URL</strong> 填 <code>https://khwebsc.com/mcp</code>。</li>
+            <li>展開 <strong>Advanced settings</strong>：<strong>OAuth Client ID</strong> 填 <code>claude</code>，<strong>OAuth Client Secret</strong> 留空。</li>
+            <li>按 <strong>Add</strong>。</li>
+            <li>
+                <strong>要使用 AI 推薦，請先在 Connectors 頁面對「好想找書」按 Disconnect 後重新按 Connect</strong>，完成登入與授權。
+                Claude 不會在對話中途自動跳出登入；沒有先 Connect 時，搜尋可以用，但推薦會失敗。
+            </li>
+            <li>在對話的工具選單中啟用「好想找書」，輸入你的需求。</li>
+        </ol>
+
+        <h3 id="vscode" class="h5 mt-4">3.3 VS Code（GitHub Copilot Chat）</h3>
+        <ol>
+            <li>
+                在你的專案資料夾建立 <code>.vscode/mcp.json</code>：
+                <pre class="bg-light border rounded p-3 mt-2"><code>{
+  "servers": {
+    "book-finder": {
+      "type": "http",
+      "url": "https://khwebsc.com/mcp",
+      "oauth": { "clientId": "vscode" }
+    }
+  }
+}</code></pre>
+            </li>
+            <li>在 <code>mcp.json</code> 中按 server 上方的 <strong>Start</strong>。</li>
+            <li>開啟 Copilot Chat，切換到 <strong>Agent</strong> 模式，輸入你的需求。</li>
+            <li>第一次使用推薦時，VS Code 會開啟瀏覽器到好想找書登入與授權；完成後回到 VS Code。如果 VS Code 要求輸入 Client ID，請填 <code>vscode</code>。</li>
+        </ol>
+
+        <h3 class="h5 mt-4">3.4 其他 MCP Client</h3>
+        <p>
+            支援 MCP Streamable HTTP 與 OAuth 2.1 的 Client 都可以連線，但目前只開放上述三個預先註冊的 Client（<code>chatgpt</code>、<code>claude</code>、<code>vscode</code>）。其他 Client 暫不支援登入，只能使用搜尋。
+        </p>
+    </section>
+
+    <section id="recommend" class="mb-5">
+        <h2 class="h4">4. 使用 AI 推薦</h2>
+        <ol>
+            <li>
+                跟 AI 助理描述你想看的書，例如「推薦我幾本適合入門的台灣歷史書」。
+                <ul>
+                    <li>描述最多 <strong>500 字</strong>。</li>
+                    <li>描述越具體（類型、心情、篇幅、想避開的內容），結果越準確。</li>
+                </ul>
+            </li>
+            <li>AI 助理會提交推薦工作，通常幾秒到數十秒完成；助理會自動查詢結果。</li>
+            <li>完成後會列出最多 <strong>10 本</strong>推薦書、每本的推薦理由與書籍頁連結。</li>
+            <li>每次推薦都會存進你在網站上的<strong>推薦紀錄</strong>，之後可以在網站登入後查看。</li>
+            <li>若等待超過約 2 分鐘，AI 助理會提供一個網址，你可以稍後到網站查看結果。</li>
+        </ol>
+        <h3 class="h5 mt-4">每日額度</h3>
+        <ul>
+            <li>每個帳號每天最多 <strong>20 次</strong> AI 推薦，<strong>網站與所有 AI 助理共用</strong>。</li>
+            <li>額度在<strong>台灣時間每天 0 點</strong>重置。</li>
+            <li>搜尋不受額度限制。</li>
+        </ul>
+    </section>
+
+    <section id="sign-in" class="mb-5">
+        <h2 class="h4">5. 登入狀態與授權</h2>
+        <ul>
+            <li>授權後，AI 助理會自動維持登入；只要 <strong>30 天內有使用</strong>，就不需要重新登入。</li>
+            <li>超過 30 天沒有使用，下次推薦時需要重新登入。</li>
+            <li>同意過一次後，同一個 AI 助理再次連結時不會再顯示授權頁。</li>
+            <li><strong>停止使用</strong>：在 AI 助理中移除或中斷「好想找書」連線即可。網站上的授權管理頁目前尚未提供。</li>
+            <li>AI 助理只能<strong>提交推薦與查看推薦結果</strong>，不能修改你的帳號、密碼或其他資料。</li>
+        </ul>
+    </section>
+
+    <section id="faq" class="mb-5">
+        <h2 class="h4">6. 常見問題</h2>
+        <dl>
+            <dt>搜尋可以用，但推薦一直失敗或要求登入？</dt>
+            <dd>
+                你還沒有完成授權。ChatGPT 請按對話中的連結帳號按鈕；Claude 請到 <strong>Settings → Customize → Connectors</strong> 對「好想找書」按
+                <strong>Disconnect</strong> 後重新按 <strong>Connect</strong>；VS Code 請重新啟動 server 後再試一次。
+            </dd>
+            <dt>出現「今日推薦次數已用完」？</dt>
+            <dd>你今天已使用 20 次 AI 推薦（含網站上的使用），請等台灣時間隔天 0 點後再試。</dd>
+            <dt>推薦結果一直顯示處理中？</dt>
+            <dd>請稍候再請 AI 助理查詢；若超過幾分鐘，請開啟它提供的網址，或到網站的推薦紀錄查看。</dd>
+            <dt>搜尋結果只有部分書？</dt>
+            <dd>每次最多回傳 50 本；AI 助理會提供網站搜尋連結，你可以在網站上看完整結果。</dd>
+            <dt>AI 助理說找不到推薦工作？</dt>
+            <dd>推薦工作只有提交它的帳號能查看。請確認 AI 助理連結的是同一個好想找書帳號。</dd>
+            <dt>授權頁的網址不是 khwebsc.com？</dt>
+            <dd>請不要輸入密碼並關閉頁面。好想找書的登入與授權頁一定在 <code>https://khwebsc.com/</code>。</dd>
+        </dl>
+    </section>
+
+    <section id="errors" class="mb-5">
+        <h2 class="h4">7. 錯誤訊息對照</h2>
+        <p>AI 助理通常會直接把訊息轉述給你。若看到以下代碼：</p>
+        <div class="table-responsive">
+            <table class="table table-sm align-middle">
+                <thead>
+                    <tr><th scope="col">代碼</th><th scope="col">意思</th><th scope="col">怎麼處理</th></tr>
+                </thead>
+                <tbody>
+                    <tr><td><code>VALIDATION_FAILED</code></td><td>輸入不正確，例如搜尋字詞空白、推薦描述超過 500 字</td><td>修改後重新輸入</td></tr>
+                    <tr><td><code>UNAUTHORIZED</code></td><td>尚未登入或授權已失效</td><td>依<a href="#faq">第 6 節</a>重新連結帳號</td></tr>
+                    <tr><td><code>DAILY_LIMIT_REACHED</code></td><td>今日 AI 推薦額度已用完</td><td>台灣時間隔天 0 點後再試</td></tr>
+                    <tr><td><code>NOT_FOUND</code></td><td>找不到這個推薦工作</td><td>重新提交推薦</td></tr>
+                    <tr><td><code>IDEMPOTENCY_CONFLICT</code></td><td>同一個重試識別碼被用在不同的需求</td><td>直接重新提出需求</td></tr>
+                    <tr><td><code>SERVICE_UNAVAILABLE</code></td><td>AI 推薦暫時無法使用</td><td>稍後再試</td></tr>
+                    <tr><td><code>INTERNAL_ERROR</code></td><td>系統發生錯誤</td><td>稍後再試</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+</article>

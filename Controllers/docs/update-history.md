@@ -97,3 +97,9 @@ git show <commit> -- Controllers
 | 2026-11-14 | `e00cbb5` | feat(rec-jobs): show the job list on /ai and the job status page | `AiController.cs`（`jobsPage`、`/ai/jobs/{id}`） |
 | 2026-11-14 | `48b2edd`、`3a41690`、`a93db00` | feat／fix(mcp): OAuth authorize, consent and token endpoints (MCP-201b) | `OAuthController.cs`（新增）；consent 回應加 `X-Frame-Options: DENY` 與 `frame-ancestors 'none'` |
 | 2026-11-14 | `1829507` | fix(mcp): send the OAuth login redirects through LocalRedirect | `OAuthController.cs`：兩個導向登入頁的回應改用 `LocalRedirect`（CodeQL code scanning alert 5，URL redirection） |
+
+## 2026-11-15 MCP 操作手冊頁（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | 本 PR | feat(mcp): public MCP guide page linked from the navbar | `McpGuideController.cs`（新增）：`GET /mcp-guide` 回傳靜態 View |
