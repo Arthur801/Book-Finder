@@ -3,6 +3,7 @@ using Book_Finder.Infrastructure.Identity;
 using Book_Finder.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace Book_Finder.Controllers;
 
@@ -16,8 +17,10 @@ public class AccountDeletionController(AccountDeletionService deletion) : Contro
     [HttpGet("/account/delete")]
     public IActionResult Index() => View(new AccountDeletionForm());
 
+    // The current password is checked here, so the POST shares the per-IP account-auth limit with login (D-C).
     [Authorize]
     [HttpPost("/account/delete")]
+    [EnableRateLimiting(AccountRateLimitPolicies.AccountAuth)]
     public async Task<IActionResult> Delete(AccountDeletionForm form, CancellationToken cancellationToken)
     {
         var result = await deletion.DeleteAsync(User.CurrentUserId(), form.Password, form.Confirmed, cancellationToken);

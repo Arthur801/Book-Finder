@@ -293,5 +293,6 @@ dotnet test tests/WebIntegration/WebIntegration.csproj
 | MEM-25／已有測試 | 重寄限流為 2 次（測試用） | 第 3 次 POST 重寄 | 429；頁面含「請求過於頻繁」；有 `Retry-After` |
 | MEM-26／已有測試 | 登入限流為 2 次（測試用） | 連續 3 次登入 POST | 第 3 次 429 |
 | MEM-27／已有測試 | 正式 `appsettings.json` | 讀取 `AccountActionTokens` | 驗證連結 24 小時、重設 1 小時、申請間隔 1 小時（迴歸：舊值 `24:00:00` 被解析為 24 天） |
+| MEM-28／已有測試 | `account-auth` 限流為 3 次（測試用），已登入 | 註冊 1 次後，以錯誤密碼送出刪除帳號 3 次 | 前 2 次 200（顯示密碼錯誤），第 3 次 429；帳號仍存在（`AccountRateLimitTests`） |
 
 單元與資料庫層的對應案例見 Application（APP-T31～APP-T33）與 Infrastructure（INF-T33～INF-T31），限流 web 案例見 TEST-49。

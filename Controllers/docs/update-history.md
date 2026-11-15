@@ -141,3 +141,11 @@ git show <commit> -- Controllers
 行為變更（開關開啟）：註冊不再登入，改為寄信與「請收信」；未驗證帳號登入被擋並附重寄連結；確認連結後導向登入頁。
 
 標頭與限流：token 頁加上 `no-store` 與 `no-referrer`；login、register、verify POST 與 resend POST 受 ASP.NET Core rate limiter 限制，429 回傳短頁。
+
+## 會員中心 C3：刪除帳號套用 account-auth 限流（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | 本次 commit | feat(member): rate-limit the account deletion POST like login | `AccountDeletionController.cs`：`POST /account/delete` 加上 `[EnableRateLimiting(account-auth)]`，因為它會檢查目前密碼；`tests/WebIntegration/AccountRateLimitTests.cs` 新增 MEM-28 |
+
+驗證（2026-11-15）：新測試先失敗（三次都 200），加上限流後 `AccountRateLimitTests` 與 `AccountDeletionTests` 共 12 項通過。

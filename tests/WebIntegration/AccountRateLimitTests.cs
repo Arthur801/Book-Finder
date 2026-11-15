@@ -53,6 +53,31 @@ public sealed class AccountRateLimitTests(WebFixture fixture)
         Assert.Equal([HttpStatusCode.OK, HttpStatusCode.OK, HttpStatusCode.TooManyRequests], responses);
     }
 
+    // The deletion POST checks the current password, so it shares the account-auth limit with login (D1 + D-C).
+    // Registering spends one permit, then two wrong-password attempts pass and the third is refused.
+    [Fact]
+    public async Task The_account_deletion_post_past_its_limit_gets_429_and_deletes_nothing()
+    {
+        await fixture.ResetDatabaseAsync();
+        await using var app = fixture.CreateFactory();
+        app.AccountAuthPermitLimit = 3;
+        var client = app.CreateClient(ClientOptions);
+        await AccountFlow.RegisterAsync(client, "limit@x.com", Password, "Limit");
+
+        var responses = new List<HttpStatusCode>();
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            var page = await client.GetPageAsync("/account/delete");
+            var response = await AccountFlow.PostFormAsync(client, "/account/delete", AntiforgeryToken(page),
+                ("Password", "wrong-password-123"), ("Confirmed", "true"));
+            responses.Add(response.StatusCode);
+        }
+
+        Assert.Equal([HttpStatusCode.OK, HttpStatusCode.OK, HttpStatusCode.TooManyRequests], responses);
+        await using var db = fixture.CreateContext();
+        Assert.True(db.Users.Any(user => user.Email == "limit@x.com"));
+    }
+
     private static async Task<HttpResponseMessage> ResendAsync(HttpClient client, string email)
     {
         var page = await client.GetPageAsync(ResendPath);
