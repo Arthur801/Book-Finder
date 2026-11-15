@@ -191,3 +191,11 @@ git show --format= --numstat <sha> -- Application ':(exclude)Application/docs'
 | `29b6a8b` | feat(member-center): add the recommendation quota reader (A2) | 新增 `Recommendation/RecommendationQuota.cs`（record）、`Recommendation/RecommendationQuotaReader.cs`；`Program.cs` 註冊 scoped；新增 `tests/UnitTests/RecommendationQuotaReaderTests.cs`（8 項）。RecommendationService 與計數規則不變 |
 
 驗證（2026-11-15）：`dotnet build --no-incremental` 0 warning、0 error；`dotnet test tests/UnitTests` 1151 項通過。尚無呼叫端，待 A3 `/account` 接入。
+
+## 帳號驗證 B1（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | `a7ec1b2` | feat(identity): add email verification columns and account action tokens (B1) | `Identity/AccountService.cs`（RegisterAsync 寫入 `EmailVerifiedAt = now`、`AuthVersion = 0`）；`tests/UnitTests/AccountServiceTests.cs`（斷言擴充） |
+
+驗證（2026-11-15）：UnitTests 1143 通過。行為變更：註冊後立即驗證，與目前行為相同；登入流程未改。

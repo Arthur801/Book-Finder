@@ -1,5 +1,6 @@
 # Domain 架構與映射
 
+> 帳號驗證 B1 補記：2026-11-15 更新；程式變更以 `a7ec1b2` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M1 補記：2026-11-14 更新；程式變更以 `ad398b8`、`904baca`、`0a11483` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR4 M1（#120）補記：2026-10-25 更新；程式變更以 `5052361`、`d864acc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
@@ -9,7 +10,7 @@
 
 ## 責任與 contract
 
-Domain/Entities 有 16 個資料類別、7 個 enum 與常數類別 SourceCodes，全部公開可變 setter；無 navigation、行為方法、event 或專屬 csproj，由根 [專案](../../Book-Finder.csproj) 編譯。依 [system architecture §4.1](../../Docs/architecture/system-architecture.md)，Domain 在架構上擁有核心 business rules／invariants；Application 負責 use case orchestration、application-level policy／validation 與 atomic boundary，Infrastructure 負責 EF mapping、查詢投影及 transaction mechanics。目前 Domain 偏 anemic model，規則的實際 enforcement 分散於 Application helpers 與 DB constraints；這個實作現況不代表規則 ownership 移交 Application。
+Domain/Entities 有 17 個資料類別、8 個 enum 與常數類別 SourceCodes，全部公開可變 setter；無 navigation、行為方法、event 或專屬 csproj，由根 [專案](../../Book-Finder.csproj) 編譯。依 [system architecture §4.1](../../Docs/architecture/system-architecture.md)，Domain 在架構上擁有核心 business rules／invariants；Application 負責 use case orchestration、application-level policy／validation 與 atomic boundary，Infrastructure 負責 EF mapping、查詢投影及 transaction mechanics。目前 Domain 偏 anemic model，規則的實際 enforcement 分散於 Application helpers 與 DB constraints；這個實作現況不代表規則 ownership 移交 Application。
 
 | 型別 | 輸入／表示 | 映射與 consumer |
 |---|---|---|
@@ -23,7 +24,8 @@ Domain/Entities 有 16 個資料類別、7 個 enum 與常數類別 SourceCodes�
 | [ProviderCategoryMapping](../Entities/ProviderCategoryMapping.cs) | SourceCode、Subject、ProviderRootSubject、CanonicalCategoryId、MappingMethod、UpdatedAt | provider_category_mappings；PK `(source_code, subject)`，FK 至 source_providers 與 canonical_categories（皆 Restrict）；與 book_subjects 以同兩欄邏輯 JOIN，無 FK |
 | [BookOffer](../Entities/BookOffer.cs) | SourceId、Currency?、Price?、ListPrice?、Availability、CapturedAt | book_offers current snapshot；尚無 writer |
 | [SourceCodes](../Entities/SourceCodes.cs) | BOOKS_COM_TW、GOOGLE_BOOKS、KINGSTONE、ESLITE 常數 | 與 registry seed 對應；不是 enum，新增 provider 不改 DB |
-| [User](../Entities/User.cs) | email/hash/display name/time | users；認證 store |
+| [User](../Entities/User.cs) | email/hash/display name、nullable `EmailVerifiedAt`、`AuthVersion`（int，預設 0）/time | users；認證 store。`EmailVerifiedAt` 為 null 代表尚未驗證；`AuthVersion` 在重設密碼時遞增（B2 之後用於 Cookie 失效） |
+| [AccountActionToken](../Entities/AccountActionToken.cs)、[AccountActionTokenPurpose](../Entities/AccountActionTokenPurpose.cs) | user、purpose enum、token_hash、created/expires/consumed | account_action_tokens；purpose 以 StoredEnum 存為 `EMAIL_VERIFICATION`／`PASSWORD_RESET`（CHECK）；token_hash 為小寫 SHA-256 hex（CHECK、UNIQUE），原始 token 不落庫；user FK Cascade |
 | [LibraryEntry](../Entities/LibraryEntry.cs) | user/book/status/nullable short rating | user_books；user/book PK |
 | [Bestseller](../Entities/Bestseller.cs) | short rank/book/source/captured time | rank PK、book unique；crawler 寫、Web 讀 |
 | [RecommendationSearch](../Entities/RecommendationSearch.cs) | 非 nullable user UUID、requirement、fallback/time | recommendation_searches；成功含零結果 |
@@ -32,7 +34,7 @@ Domain/Entities 有 16 個資料類別、7 個 enum 與常數類別 SourceCodes�
 | [BookAiProfile](../Entities/BookAiProfile.cs) | nullable JsonDocument/string[]/difficulty；hash/model/prompt/time | 每 Book 一列，jsonb/text[]，只供推薦內部 |
 | [BookEmbedding](../Entities/BookEmbedding.cs) | Pgvector.Vector、hash/model/time | 每 Book 一列 vector(1536) |
 
-七組 enum 為 IdentifierType（`Isbn`、`Other`；011 移除 ISBN_10／ISBN_13）、ContributorRole、PublishedDatePrecision、ReadingStatus、ProviderKind、OfferAvailability、MappingMethod（`Manual`、`VerifiedRule`）。[StoredEnum](../../Infrastructure/Persistence/StoredEnum.cs) 將 C# PascalCase 映射 UPPER_SNAKE，並產生相同詞彙 CHECK；未知 persisted value 讀取時丟 InvalidOperationException。欄名由 [AppDbContext](../../Infrastructure/Persistence/AppDbContext.cs) 統一 snake_case，型別、鍵、關聯在 [Configurations](../../Infrastructure/Persistence/Configurations/BookConfiguration.cs)。
+八組 enum 為 AccountActionTokenPurpose（`EmailVerification`、`PasswordReset`）、IdentifierType（`Isbn`、`Other`；011 移除 ISBN_10／ISBN_13）、ContributorRole、PublishedDatePrecision、ReadingStatus、ProviderKind、OfferAvailability、MappingMethod（`Manual`、`VerifiedRule`）。[StoredEnum](../../Infrastructure/Persistence/StoredEnum.cs) 將 C# PascalCase 映射 UPPER_SNAKE，並產生相同詞彙 CHECK；未知 persisted value 讀取時丟 InvalidOperationException。欄名由 [AppDbContext](../../Infrastructure/Persistence/AppDbContext.cs) 統一 snake_case，型別、鍵、關聯在 [Configurations](../../Infrastructure/Persistence/Configurations/BookConfiguration.cs)。
 
 ## 選型、替代與代價
 

@@ -223,3 +223,11 @@ Git 歷史不證明 runtime 或 CI 已通過。
 | Author 日期 | SHA | subject | 本目錄實際改動檔案 | 對應案例 |
 |---|---|---|---|---|
 | 2026-11-15 | 本分支 | refactor(views): share the library list and job list partials (member center A1) | `tests/UnitTests/LibraryPageViewModelTests.cs`（新增）、`tests/UnitTests/AiJobViewModelTests.cs`（新增 URL 案例，既有斷言不變）；既有 `LibraryPageTests`、`AiJobPageTests` 未改動，作為 HTML 回歸 | M-T06、M-T15 |
+
+## 帳號驗證 B1（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | `a7ec1b2` | feat(identity): add email verification columns and account action tokens (B1) | `tests/UnitTests/AccountServiceTests.cs`；`tests/DatabaseIntegration/AccountActionTokenSchemaTests.cs`、`EmailVerificationSeedTests.cs`（新增）；`EfUserStoreTests.cs`、`MigrationServer.cs`（新增 `AddEmailVerificationAndAccountTokens` id）、`OpenIddictSchemaTests.cs`（target 固定為 AddOpenIddict） |
+
+驗證（2026-11-15）：UnitTests 1143、DatabaseIntegration 276、WebIntegration `FullyQualifiedName~Account` 13 通過。

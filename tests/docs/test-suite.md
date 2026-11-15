@@ -305,3 +305,9 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter FullyQualifiedNa
 ### TEST-38：MCP code review 修正（MCP 計畫 M5）
 
 - `McpTokenIsolationTests`（MCP token 不能登入網站）、預設拒絕的 Tool 歸類測試、`McpAuthSetupTests`（scope 常數一致）；`tests/Shared/FakeRecommendationJobStore.cs`、`FakeRecommendationHistory.cs` 取代三份重複的 fake。
+
+### TEST-39：帳號驗證 schema、migration 與 seed（B1）
+
+- **Given**：共用 PostgreSQL fixture 已套到 head；`MigrationServer` 另開獨立資料庫做 migration 測試。
+- **When／Then**：見 Infrastructure INF-T25 與 Domain DOM-T13。`EmailVerificationSeedTests` 讓 AddEmailVerificationAndAccountTokens 的 compat seed 可載入（users 5、tokens 4、NULL verification 4）；`OpenIddictSchemaTests` 的 migration 測試固定 target 為 AddOpenIddict。
+- **來源與狀態**：[AccountActionTokenSchemaTests](../DatabaseIntegration/AccountActionTokenSchemaTests.cs)、[EmailVerificationSeedTests](../DatabaseIntegration/EmailVerificationSeedTests.cs)、[EfUserStoreTests](../DatabaseIntegration/EfUserStoreTests.cs)、[AccountServiceTests](../UnitTests/AccountServiceTests.cs)；2026-11-15 本地結果：UnitTests 1143、DatabaseIntegration 276、WebIntegration `Account` 篩選 13 通過。

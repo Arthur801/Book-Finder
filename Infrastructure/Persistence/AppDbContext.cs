@@ -16,6 +16,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<CanonicalCategory> CanonicalCategories => Set<CanonicalCategory>();
     public DbSet<ProviderCategoryMapping> ProviderCategoryMappings => Set<ProviderCategoryMapping>();
     public DbSet<User> Users => Set<User>();
+    public DbSet<AccountActionToken> AccountActionTokens => Set<AccountActionToken>();
     public DbSet<LibraryEntry> LibraryEntries => Set<LibraryEntry>();
     public DbSet<Bestseller> Bestsellers => Set<Bestseller>();
     public DbSet<RecommendationSearch> RecommendationSearches => Set<RecommendationSearch>();
