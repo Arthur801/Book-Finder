@@ -1,6 +1,7 @@
 # Application 架構選型
 
 
+> 會員中心 A2 補記：2026-11-15 更新；程式變更以 `29b6a8b` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M6 補記：2026-11-14 更新；程式變更以 `54ad51b`、`0d3b3ac`、`93db136`、`11f86b4`、`c0ac2f6` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M4 補記：2026-11-14 更新；程式變更以 `4b31184`、`5d143b4`、`08d8c9a`、`1f36620`、`ef89755` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M2 補記：2026-11-14 更新；程式變更以 `6717d8f` 記入 update-history。原查核基準保留，未重新審查其餘內容。
@@ -33,6 +34,7 @@ Application-level policy 包含 [LibraryService.AddPendingAsync](../Library/Libr
 | Identity | [AccountService](../Identity/AccountService.cs)、IUserStore、IPasswordHashing → typed result | Account controller → EF/hashing |
 | Library | [LibraryService](../Library/LibraryService.cs)、ILibraryStore、LibraryChange → Entry/null | Library/Books/Account controllers → EF |
 | 推薦 | [RecommendationService](../Recommendation/RecommendationService.cs) → RecommendationAttempt | Recommendation controller → parser/embedding/candidate/ranker/store/usage ports |
+| 推薦額度顯示（會員中心 A2） | [RecommendationQuotaReader](../Recommendation/RecommendationQuotaReader.cs).ReadAsync(userId, ct) → [RecommendationQuota](../Recommendation/RecommendationQuota.cs)（Used、Limit、Remaining）| 之後的 `/account` 頁（A3，尚未實作）→ IRecommendationUsage。只讀，與 RecommendationService 使用同一個台北日界 UTC 起點與計數；不做拒絕判斷，Remaining 不為負 |
 | 推薦流程（[Job 計畫](../../Docs/plans/async-recommendation-jobs.md) M3） | [RecommendationPipeline](../Recommendation/RecommendationPipeline.cs).RunAsync(requirementText, save, ct) → RecommendationPipelineResult | RecommendationService（之後的 Job runner）→ parser/embedding/candidate/ranker ports＋呼叫端傳入的 `save` 步驟。60 秒預算、步驟計時、summary log、逾時與 AI 失敗的轉換都在這裡；`save` 以預算 token 在預算內執行。不含額度檢查與 difficulty／Profile。RecommendationService 只剩額度檢查 → `RunAsync`（`save` = `IRecommendationStore.SaveAsync`）→ difficulty／Profile |
 | 推薦工作提交與查詢（[Job 計畫](../../Docs/plans/async-recommendation-jobs.md) M4） | [RecommendationJobService](../Recommendation/RecommendationJobService.cs) SubmitAsync → RecommendationJobSubmission（Accepted／InvalidIdempotencyKey／IdempotencyConflict／DailyLimitReached）；ListAsync、GetAsync → [read models](../Recommendation/RecommendationJobReadModels.cs) | Controller（M7）、MCP `recommend_books`（[McpRecommendationService](../../Mcp/Services/McpRecommendationService.cs)，先以 `RecommendationInputRules` 驗證文字）與 `get_recommendation_result`（[McpRecommendationResultService](../../Mcp/Services/McpRecommendationResultService.cs)，再以 `IRecommendationHistory` 讀結果）→ [IRecommendationJobStore](../Recommendation/IRecommendationJobStore.cs)。Application 擁有：[Idempotency-Key 規則](../Recommendation/IdempotencyKeyRules.cs)（1～128 字元 `[A-Za-z0-9_-]`，不 trim）、request hash（`ContentHash.Sha256Hex`）、台北日界與每日上限值、v7 JobId。store 擁有交易：鎖使用者 → idempotency → 計數 → 新增，四步在同一筆交易內完成。不呼叫任何 AI |
 | 歷史 | [IRecommendationHistory](../Recommendation/IRecommendationHistory.cs) → page/detail/null | Ai controller → user-scoped EF reader |
@@ -145,6 +147,16 @@ History的reason/rank/relevance是snapshot，Book標題等為目前資料；diff
 可重試＝`attempt_count < MaxAttempts` 時 `RequeueAsync(RetryDelay)`，否則 `FailAsync`。失敗處理的寫入使用 `CancellationToken.None`，主機停止時也不會只寫一半；store 回 false（lease 已不在）時只記 log。Application 只用 BCL 的 `DbException`，不引用 Npgsql 或 EF。
 
 [RecommendationJobOptions](../Recommendation/RecommendationJobOptions.cs)（section `RecommendationJobs`）：`Enabled` false、`PollInterval` 2 秒、`LeaseDuration` 45 秒、`HeartbeatInterval` 10 秒（必須小於 LeaseDuration）、`MaxAttempts` 2、`RetryDelay` 5 秒；啟動時驗證。併行度固定為 1，不是設定。
+
+## 外部 OAuth 憑證撤銷 port（會員中心 B3）
+
+[IExternalCredentialRevoker](../Identity/IExternalCredentialRevoker.cs) 是 Application 對 OAuth 憑證的唯一入口，不暴露 OpenIddict 型別：
+
+- `RevokeAllForUserAsync(userId)`：把該使用者所有 authorization 與 token 標為 revoked。預計由 C4（重設密碼）與 D1（刪除帳號）呼叫。
+- `DeleteAllForUserAsync(userId)`：先刪 token、再刪 authorization。預計由 D1 呼叫；OpenIddict 資料沒有外鍵指向 `users`，刪除使用者不會連帶清除它，而 token 指向 authorization 的外鍵沒有 cascade，所以順序固定。
+- 兩者都以 OpenIddict subject（Book-Finder user id 的字串）篩選；沒有資料時不是錯誤。
+- 呼叫端必須在自己的 transaction 內呼叫，且使用同一個 scoped `AppDbContext`，撤銷才會和呼叫端的其他寫入一起 commit 或 rollback。實作在 Infrastructure（見 Infrastructure/docs/architecture.md）。
+- 現況：介面與實作已存在並有測試；C4、D1 尚未實作，目前沒有呼叫端。
 
 ## 寄信 port、信件內容與網站連結（會員中心 C1）
 

@@ -1,5 +1,6 @@
 # Application 文字測試案例庫
 
+> 會員中心 A2 補記：2026-11-15 更新；程式變更以 `29b6a8b` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M6 補記：2026-11-14 更新；程式變更以 `54ad51b`、`0d3b3ac`、`93db136`、`11f86b4`、`c0ac2f6` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M4 補記：2026-11-14 更新；程式變更以 `4b31184`、`5d143b4`、`08d8c9a`、`1f36620`、`ef89755` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M2 補記：2026-11-14 更新；程式變更以 `6717d8f` 記入 update-history。原查核基準保留，未重新審查其餘內容。
@@ -57,6 +58,7 @@ dotnet test tests/WebIntegration/WebIntegration.csproj
 - **Given**：fake store/hash、可控time；無效輸入、duplicate email、未知email、錯密碼、rehash-needed。
 - **When**：分別RegisterAsync/LoginAsync。
 - **Then**：無效不寫入；email/name trim但password不trim；duplicate為email error；未知/錯密碼同訊息；未知仍Verify；rehash更新hash與UTC。
+- 2026-11-15 B1：註冊成功時 `EmailVerifiedAt` 等於注入時間（UTC），`AuthVersion` 為 0（驗證開關關閉的行為）。
 - 測試來源／擴充入口：[AccountInputRulesTests.cs](../../tests/UnitTests/AccountInputRulesTests.cs)、[AccountServiceTests.cs](../../tests/UnitTests/AccountServiceTests.cs)。
 
 ### APP-T04 — Bestseller保留缺號與空榜
@@ -283,6 +285,16 @@ Auth的Google登入/email驗證/忘記密碼/個資修改/refresh token依identi
   - 設定：預設值；HeartbeatInterval 等於 LeaseDuration 不合法；MaxAttempts 0 不合法；RetryDelay 0 合法。
 - mutation（主 agent）：把重試判斷 `<` 改成 `<=` → `Ai_unavailable_on_attempt_two_of_two_fails_the_job` 失敗，已還原。
 - 測試來源：[RecommendationJobRunnerTests.cs](../../tests/UnitTests/RecommendationJobRunnerTests.cs)、[RecommendationJobOptionsTests.cs](../../tests/UnitTests/RecommendationJobOptionsTests.cs)。
+
+### APP-T28 — 推薦額度讀取與台北日界線
+
+- 風險／狀態：L2；**測試實作：Implemented；執行：2026-11-15 UnitTests 1151 項通過（`29b6a8b`）**。規格：[recommendation](../../Docs/modules/recommendation.md) §11；會員中心 A2 計畫。
+- **Given**：`FakeRecommendationUsage` 回傳指定已用次數並記錄 `sinceUtc`；`FakeTimeProvider` 固定 UTC 時刻；`IOptions<RecommendationOptions>` 的 DailyLimit 預設 20 或設為 5。
+- **When**：`RecommendationQuotaReader.ReadAsync(userId, ct)`。
+- **Then**：used 0／1／19／20／25 分別得到 remaining 20／19／1／0／0（不為負）；Limit 與 Used 原樣回傳；DailyLimit=5 時 Limit 為 5；`sinceUtc` 在 `2026-11-15T15:59:59Z` 為 `2026-11-14T16:00Z`，在 `16:00:00Z` 為 `2026-11-15T16:00Z`。
+- 測試來源：[RecommendationQuotaReaderTests.cs](../../tests/UnitTests/RecommendationQuotaReaderTests.cs)。
+
+> 會員中心 B3 補記：2026-11-15 更新；程式變更記入 update-history 的 B3 段落。新增的撤銷 port 測試位於 DatabaseIntegration（`OAuthCredentialRevokerTests`）與 WebIntegration（`McpCredentialRevocationTests`），見 Infrastructure 與 Mcp 的 test-suite。
 
 ### APP-T29 — 寄信 port、信件範本、站點網址與寄信設定（會員中心 C1）
 

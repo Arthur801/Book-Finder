@@ -372,3 +372,9 @@ git log --reverse --no-merges --format='@@%h' --numstat -- <同上路徑>
 | 日期 | commit | subject | 變更 |
 |---|---|---|---|
 | 2026-11-15 | 本 PR | deploy: enable the MCP server in production | `deploy/release/compose.prod.yaml`：`environment` 加 `Mcp__Enabled: "true"`、兩個 `OAuth__…CertificatePath`、三個預註冊 Client（`claude`、`vscode`、`chatgpt`）；唯讀掛載 external volume `book-finder-oauth-certs` 於 `/oauth-certs`。volume 不存在時 compose 直接失敗，所以部署前要先在 host 建立憑證；依 [MCP 實作報告](../../Docs/Implementation-Report/book-finder-mcp-server.md)上線手冊步驟 2～3。回退：重新部署 v0.0.12（DEP-B26） |
+
+## 帳號驗證 B1 compat seed（新增紀錄）
+
+| 日期 | commit | subject | 變更 |
+|---|---|---|---|
+| 2026-11-15 | `a7ec1b2` | feat(identity): add email verification columns and account action tokens (B1) | `deploy/migration-test/seeds/20261115055411_AddEmailVerificationAndAccountTokens.sql`（新增）：AddOpenIddict seed 全文不變，加上 2 位使用者與 4 筆 `account_action_tokens`；與新增 migration 同一個 PR（DEP-B25 方向 (b)）。驗證：`deploy/tests` 722 通過、17 skip（pytest，2026-11-15）；`check_migrations.py` 通過（無 released manifest 時跳過不可變檢查）；compat.sh 端到端未在本機執行（需 Docker 與 GHCR image digest） |

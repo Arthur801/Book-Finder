@@ -1,5 +1,6 @@
 # Infrastructure 架構
 
+> 帳號驗證 B1 補記：2026-11-15 更新；程式變更以 `a7ec1b2` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M7 補記：2026-11-14 更新；程式變更以 `4db0c98`、`e00cbb5`、`5559870`、`ac88ef2` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M6 補記：2026-11-14 更新；程式變更以 `54ad51b`、`0d3b3ac`、`93db136`、`11f86b4`、`c0ac2f6` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M4 補記：2026-11-14 更新；程式變更以 `4b31184`、`5d143b4`、`08d8c9a`、`1f36620`、`ef89755` 記入 update-history。原查核基準保留，未重新審查其餘內容。
@@ -41,6 +42,7 @@
 | Multi-source contract（011） | [ContractMultiSourceCatalog](../Persistence/Migrations/20261025120000_ContractMultiSourceCatalog.cs)：`ISBN_10`／`ISBN_13` 轉 `ISBN`，移除 `source_type`、trigger、legacy partial unique；`book_subjects` PK 換成 `source_code`；Up 自我守衛（gate 4、5）；Down 還原 010 實體 schema | KINGSTONE／ESLITE 無 010 對應 source_type，Down 拒絕執行（data-model §11.3、§11.5） |
 | 分類 schema（Canonical Category P1） | [AddCanonicalCategories](../Persistence/Migrations/20261114003848_AddCanonicalCategories.cs)：新增 `canonical_categories`、`provider_category_mappings` 與 `IX_book_subjects_source_code_subject`；[CanonicalCategoryConfiguration](../Persistence/Configurations/CanonicalCategoryConfiguration.cs)、[ProviderCategoryMappingConfiguration](../Persistence/Configurations/ProviderCategoryMappingConfiguration.cs) | 只 expand，不改既有欄位；`IX_book_subjects_source_code`（source_code FK 索引）在 [BookSubjectConfiguration](../Persistence/Configurations/BookSubjectConfiguration.cs) 明確宣告，避免 EF 視為重複而刪除；兩個預設名稱超過 PostgreSQL 63 bytes，改用明確名稱。P1 尚無 adapter 讀寫這兩張表（[分類計畫](../../Docs/plans/canonical-category-browse.md) P2 寫入、P4 讀取） |
 | Recommendation Job schema（[Job 計畫](../../Docs/plans/async-recommendation-jobs.md) M1） | [AddRecommendationJobs](../Persistence/Migrations/20261114032619_AddRecommendationJobs.cs)：新增 `recommendation_jobs`；[RecommendationJobConfiguration](../Persistence/Configurations/RecommendationJobConfiguration.cs) | 只 expand，不改既有欄位，舊 release 不讀此表。狀態機由 5 個 CHECK 在 DB 端保證（status 詞彙、attempt ≥ 0、request_hash 小寫 hex、idempotency key 字元集、lease 只在 `RUNNING`、終態欄位）；index：`(status, run_after, created_at)` 供領取、`(status, lease_expires_at)` 供逾期恢復、`(user_id, created_at DESC)` 供列表與額度、`search_id` UNIQUE、`(user_id, idempotency_key)` 部分 UNIQUE。`search_id` FK 用 Cascade：刪除使用者同時 cascade 到 Search 與 Job，Restrict 會讓刪除失敗。M1 尚無 adapter 讀寫此表 |
+| 帳號驗證 schema（[Identity 計畫](../../Docs/plans/member-center-email-verification.md) B1） | [AddEmailVerificationAndAccountTokens](../Persistence/Migrations/20261115055411_AddEmailVerificationAndAccountTokens.cs)：`users` 新增 `email_verified_at`（nullable）與 `auth_version`（NOT NULL DEFAULT 0）；Up 以 `UPDATE users SET email_verified_at = created_at WHERE email_verified_at IS NULL` 回填既有帳號（U-01）；新增 `account_action_tokens`，[AccountActionTokenConfiguration](../Persistence/Configurations/AccountActionTokenConfiguration.cs)。只 expand：舊 release 不需要新欄位，`auth_version` 由 DB default 補 0，`email_verified_at` 為 NULL 也合法。Down 只移除本 migration 新增的表與兩欄，不還原回填資料。CHECK：purpose 詞彙、token_hash 小寫 SHA-256 hex；UNIQUE：token_hash；FK：user Cascade；index：`(user_id, purpose, created_at)` 供同使用者同用途的節流查詢。回填只在本 migration 執行一次；開關開啟前的第二次回填由後續 release 負責（計畫 Feature E） |
 | 推薦工作提交（Job 計畫 M4） | [EfRecommendationJobStore](../Persistence/EfRecommendationJobStore.cs) | 提交在一筆明確交易內：`SELECT id FROM users … FOR UPDATE` → 同使用者同 key 查詢（同 hash commit 回既有 Job；不同 hash rollback）→ `IRecommendationUsage`（同一個 scoped DbContext，所以在同一交易內）→ INSERT `QUEUED`。沒有設定 EF retry strategy，所以可以使用手動交易。列表 `created_at DESC, id DESC`，offset 以 long 計算；Get 以 user 過濾，他人與不存在都回 null |
 | Domain entities | [AppDbContext](../Persistence/AppDbContext.cs)、[snapshot](../Persistence/Migrations/AppDbContextModelSnapshot.cs) | 12 application tables、snake_case、vector、constraints |
 
@@ -135,6 +137,17 @@ HostingSetup 支援設定不等於已驗證容器切換、公開 HTTPS、可信 
   - `EfUserStore.FindByIdAsync`：token endpoint 拒絕已刪除的使用者。
 - MCP-202：同一處註冊 OpenIddict validation（只在 `Mcp:Enabled = true`）：`UseLocalServer`、`AddAudiences({base}/mcp)`（與 `ResourceOf` 同一來源）、`EnableAuthorizationEntryValidation`、`EnableTokenEntryValidation`；**關閉** query string 與 form body 取 token（OpenIddict 7.8 預設兩者都開）。Validation 的 scheme 由 `/mcp` 閘門使用，不是預設 scheme。
 - 尚未實作：撤銷管理頁（D-10，不在本期）。
+
+## OAuth 憑證撤銷（會員中心 B3）
+
+[OAuthCredentialRevoker](../Identity/OAuth/OAuthCredentialRevoker.cs) 實作 Application 的 [IExternalCredentialRevoker](../../Application/Identity/IExternalCredentialRevoker.cs)：
+
+- 註冊在 `AddBookFinderOAuth` 中，**不受 `Mcp:Enabled` 控制**（scoped，在 MCP 開關的 early return 之前）。MCP 關閉時 OpenIddict 表仍存在，沒有資料就是 no-op。
+- 直接在 scoped `AppDbContext` 上用 `Set<OpenIddictEntityFrameworkCoreAuthorization／Token>()` 執行 `ExecuteUpdateAsync`（撤銷）與 `ExecuteDeleteAsync`（刪除）。沒有使用 `IOpenIddictAuthorizationManager`／`IOpenIddictTokenManager`：manager 逐筆 `TryRevokeAsync` 並各自保存，無法保證與呼叫端的 transaction 原子性；直接 SQL 一句就在呼叫端的連線與 transaction 上執行。
+- 撤銷同時把 `concurrency_token` 換成新值。OpenIddict 的 manager 若持有舊的列，更新時會遇到並行衝突，不會把自己的 status 寫回去覆蓋撤銷。
+- 撤銷生效的路徑：`EnableAuthorizationEntryValidation` 與 `EnableTokenEntryValidation`（只在 `Mcp:Enabled = true` 時註冊）讓 access token 立即 401；refresh grant 查 token 狀態後回 `invalid_grant`。
+- 刪除順序：先 token、再 authorization（token 對 authorization 的外鍵沒有 cascade）。
+- 限制：Mcp 關閉時撤銷仍會寫入資料表，但沒有驗證端會讀取它；這是刻意的，因為 C4、D1 不依賴 MCP 開關。
 
 ## 寄信 adapter 與 provider 選擇（會員中心 C1）
 

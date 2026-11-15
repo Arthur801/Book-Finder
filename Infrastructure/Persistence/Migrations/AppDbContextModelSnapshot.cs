@@ -25,6 +25,54 @@ namespace Book_Finder.Infrastructure.Persistence.Migrations
             NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "vector");
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("Book_Finder.Domain.Entities.AccountActionToken", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime?>("ConsumedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("consumed_at");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("expires_at");
+
+                    b.Property<string>("Purpose")
+                        .IsRequired()
+                        .HasColumnType("varchar(32)")
+                        .HasColumnName("purpose");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasColumnType("char(64)")
+                        .HasColumnName("token_hash");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique();
+
+                    b.HasIndex("UserId", "Purpose", "CreatedAt");
+
+                    b.ToTable("account_action_tokens", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_account_action_tokens_purpose", "purpose IN ('EMAIL_VERIFICATION', 'PASSWORD_RESET')");
+
+                            t.HasCheckConstraint("ck_account_action_tokens_token_hash", "token_hash ~ '^[0-9a-f]{64}$'");
+                        });
+                });
+
             modelBuilder.Entity("Book_Finder.Domain.Entities.Bestseller", b =>
                 {
                     b.Property<short>("Rank")
@@ -705,6 +753,12 @@ namespace Book_Finder.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
+                    b.Property<int>("AuthVersion")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0)
+                        .HasColumnName("auth_version");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamptz")
                         .HasColumnName("created_at");
@@ -718,6 +772,10 @@ namespace Book_Finder.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasColumnType("varchar(320)")
                         .HasColumnName("email");
+
+                    b.Property<DateTime?>("EmailVerifiedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("email_verified_at");
 
                     b.Property<string>("PasswordHash")
                         .IsRequired()
@@ -986,6 +1044,15 @@ namespace Book_Finder.Infrastructure.Persistence.Migrations
                     b.HasIndex("ApplicationId", "Status", "Subject", "Type");
 
                     b.ToTable("openiddict_tokens", (string)null);
+                });
+
+            modelBuilder.Entity("Book_Finder.Domain.Entities.AccountActionToken", b =>
+                {
+                    b.HasOne("Book_Finder.Domain.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Book_Finder.Domain.Entities.Bestseller", b =>

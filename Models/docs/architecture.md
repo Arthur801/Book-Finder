@@ -22,7 +22,7 @@ Models 是 HTTP／Razor 的表示層，從 Application read model 或已完成 u
 | 書庫／首頁列表 | BookBrowsePage、BookBrowseItem、BookSearchHit → BookListItemViewModel、BookBrowseViewModel、HomeViewModel | 不依 Bestseller rank；列項不含簡介／目錄；空 Catalog 的 SummaryText 為 null |
 | 分類瀏覽 | CategoryBrowseResult → [CategoryBrowseViewModel](../CategoryBrowseViewModel.cs)、FilterLinkViewModel、BookListItemViewModel、PagerViewModel | `UrlFor(category, source, page)` 省略空值與第 1 頁、值以 `Uri.EscapeDataString` 編碼；切換分類保留來源、切換來源保留分類，兩者都重置頁碼；分頁保留兩者；第一個分類連結是「全部書籍」 |
 | AI history list／detail | RecommendationSearchPage／Detail + difficulty dictionary → 展示文字、頁碼、結果 | 本人隔離先由 history reader／Controller 保證；VM 不做授權 |
-| Library page／section／controls | 本人 LibraryItem／LibraryEntry → tabs、rows、edit state | 使用者區塊不得加入共享 catalog cache |
+| Library page／section／controls | 本人 LibraryItem／LibraryEntry → tabs、rows、edit state；tab 連結的 base path 與 fragment 由呼叫端傳入（預設 `/library`） | 使用者區塊不得加入共享 catalog cache；`/account#library` 的參數只影響連結，不改資料範圍 |
 | Recommendation request／response | nullable requirementText → Application 驗證；Outcome → 明列 response 欄位 | 外部服務 gate、Candidate Set、20 次限制不在 DTO |
 | Library parser／response | JsonElement → LibraryChange；Entry → 精確 JSON 欄位 | 省略／null／Set 分開，未知欄位忽略 |
 | Account forms／LoginLink | nullable 表單欄位與 returnUrl／pendingAction | AccountInputRules、SafeReturnUrl、PendingLibraryAction 執行安全政策 |
@@ -62,5 +62,5 @@ fallbackUsed 固定 false 且 Outcome 無 fallback flag，對照規格 fallback 
 ## 推薦工作 DTO 與 view model（Job 計畫 M7）
 
 - [RecommendationJobResponse](../RecommendationJobResponse.cs)：API 的 accepted、list、single 回應；`status` 為儲存用的大寫字串，由 [RecommendationJobStatusCodes](../RecommendationJobStatusCodes.cs) 對照（Models 不依賴 Infrastructure 的 `StoredEnum`；DatabaseIntegration `StoredEnumTests` 確認兩者一致）；時間以 `TaipeiTimeZone.FromUtc`（+08:00）輸出；只有 SUCCEEDED 才有 `resultUrl`；只有 FAILED 才有 `errorCode`（重排或恢復後的 Job 在資料庫留有上一次的 error_code，但它還沒失敗）。
-- [AiJobListViewModel](../AiJobListViewModel.cs)：`/ai` 的工作列表、狀態中文標籤（排隊中、推薦中、已完成、失敗）、`jobsPage` 超出範圍時改為最後一頁。
+- [AiJobListViewModel](../AiJobListViewModel.cs)：`/ai` 的工作列表、狀態中文標籤（排隊中、推薦中、已完成、失敗）、`jobsPage` 超出範圍時改為最後一頁。`From`／`UrlFor` 可指定 base path、需保留的 query（如 `status`）與 fragment（如 `#ai-history`）；預設仍是 `/ai`、`/ai?jobsPage=N`，query 的 key 與值以 `Uri.EscapeDataString` 編碼。
 - [AiJobViewModel](../AiJobViewModel.cs)：狀態頁；error code 對應固定文案（AI_UNAVAILABLE、AI_TIMEOUT、WORKER_INTERRUPTED、其他）。文案只在這裡，JS 在終態時重新載入頁面，不另存一份。

@@ -12,7 +12,7 @@
 | 資產 | 觸發入口／責任 |
 |---|---|
 | [ai.js](../js/ai.js) | [Home](../../Views/Home/Index.cshtml) 的 home-ai-form；[Ai](../../Views/Ai/Index.cshtml) 的 ai-form、ai-requirement、ai-submit、ai-status、ai-results |
-| [library.js](../js/library.js) | [Book section](../../Views/Books/_LibrarySection.cshtml)、[Library 頁](../../Views/Library/Index.cshtml)、[共用 controls](../../Views/Shared/_LibraryControls.cshtml) 的 data attributes |
+| [library.js](../js/library.js) | [Book section](../../Views/Books/_LibrarySection.cshtml)、[Library 頁](../../Views/Library/Index.cshtml)、[Library 內容](../../Views/Shared/_LibraryContent.cshtml)、[共用 controls](../../Views/Shared/_LibraryControls.cshtml) 的 data attributes |
 | [site.js](../js/site.js) | [Layout](../../Views/Shared/_Layout.cshtml) 載入；目前只有模板註解，無行為 |
 | [site.css](../css/site.css) | Layout；響應字級、focus、stars、history 兩行截斷 |
 | [category-sidebar.js](../js/category-sidebar.js) | [Categories/Index](../../Views/Categories/Index.cshtml) 的 `.category-browser`、`#category-sidebar-toggle`、`.js-only`；不發 request |

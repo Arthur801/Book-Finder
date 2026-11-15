@@ -256,6 +256,31 @@ dotnet test tests/WebIntegration/WebIntegration.csproj
 - 入口：[RecommendationJobWorkerTests](../../tests/UnitTests/RecommendationJobWorkerTests.cs)。
 
 
+## INF-T25 — 帳號驗證 schema、migration 與 compat seed（B1）
+
+- 責任／風險／狀態：EF schema 與 expand migration，L3，已有測試；2026-11-15 DatabaseIntegration 276 項通過。
+- Given：共用 PostgreSQL fixture（已套到 head）；migration 測試使用 `MigrationServer` 的獨立資料庫。
+- When／Then：
+  - 欄位型別與 nullability：`email_verified_at` timestamptz NULL；`auth_version` integer NOT NULL 預設 0；`account_action_tokens` 的欄位、`purpose varchar(32)`、`token_hash char(64)`；
+  - 舊 release 的 INSERT（不含新欄位）得到 `auth_version = 0`、`email_verified_at IS NULL`；
+  - CHECK：purpose 只接受兩個詞彙（大小寫與空字串拒絕）；token_hash 非小寫 hex、長度不足或含非 hex 字元拒絕；UNIQUE：重複 token_hash 回 23505；FK：未知 user 回 23503；刪除 user 只刪自己的 token；
+  - index `(user_id, purpose, created_at)` 存在；EF 寫入的 purpose 以 `PASSWORD_RESET` 儲存並讀回 enum；
+  - Up 從 AddOpenIddict 升級時，既有 users 的 `email_verified_at = created_at`；只新增 `account_action_tokens` 與兩個 users 欄位；Down 只移除這些；
+  - EfUserStore 寫入與讀回 `EmailVerifiedAt`、`AuthVersion`（有值與 NULL／0 兩種）。
+- 入口：[AccountActionTokenSchemaTests](../../tests/DatabaseIntegration/AccountActionTokenSchemaTests.cs)（含 `AccountActionTokenMigrationTests`）、[EfUserStoreTests](../../tests/DatabaseIntegration/EfUserStoreTests.cs)、[OpenIddictSchemaTests](../../tests/DatabaseIntegration/OpenIddictSchemaTests.cs)（`AddOpenIddict_creates_only_the_four_openiddict_tables` 改為固定 target 為 AddOpenIddict，避免之後的 migration 讓它失效）。
+
+## INF-T26 — OAuth 憑證撤銷 port（會員中心 B3）
+
+- 責任／風險／狀態：Scoped port，L3（撤銷 access／refresh token，影響 MCP 授權），已有測試。
+- 入口：[OAuthCredentialRevokerTests](../../tests/DatabaseIntegration/OAuthCredentialRevokerTests.cs)（DatabaseIntegration）、[McpCredentialRevocationTests](../../tests/WebIntegration/McpCredentialRevocationTests.cs)（WebIntegration）。
+- Given／When／Then：
+  - 兩位使用者各有一筆 permanent authorization 與一筆 refresh token → `RevokeAllForUserAsync(A)` 後，A 的兩張表都是 `revoked`，B 仍是 `valid`；
+  - 沒有 OAuth 資料的使用者 → 不拋出例外；
+  - 撤銷放在 `BeginTransactionAsync` 內，rollback 後仍是 `valid`，commit 後是 `revoked`；
+  - `DeleteAllForUserAsync(A)` → A 的 token 與 authorization 都消失（先刪 token，否則外鍵失敗），B 不變；刪除在 rollback 後保留資料；
+  - Web：A、B 以真實 OAuth 流程取得 token；撤銷 A 後，A 的 access token 打 `/mcp` 回 401，A 的 refresh token 到 `/oauth/token` 回 `invalid_grant`，B 的 access token 仍 200。
+- 驗證基準（2026-11-15）：`dotnet build --no-incremental` 0 warning、0 error；UnitTests 1143 通過；DatabaseIntegration 260 通過（本次新增 `OAuthCredentialRevokerTests` 6 項）；WebIntegration `--filter "FullyQualifiedName~Mcp|FullyQualifiedName~OAuth"` 112 通過（本次新增 `McpCredentialRevocationTests` 1 項）。 詳見 [update-history](update-history.md)。
+- Mutation（B3 實作時）：把撤銷的 status 改回 `valid`，`McpCredentialRevocationTests` 失敗（`Expected: Unauthorized, Actual: OK`），已還原。
 
 ### INF-T27 — 寄信 adapter 與 provider 選擇（會員中心 C1）
 
