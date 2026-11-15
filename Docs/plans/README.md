@@ -28,7 +28,7 @@
 | [async-recommendation-jobs.md](async-recommendation-jobs.md) 非同步 AI 推薦 Job（v1.4） | 已上線（v0.0.11，2026-11-14，使用者驗收通過）；下一步 M9 移除舊的同步 endpoint |
 | [book-finder-mcp-server.md](book-finder-mcp-server.md) MCP Server（v1.6） | 實作中：M0～M4 完成（三支 Tool、OpenIddict、`/mcp` 驗證）；M5 進行中，MCP-203 待 production 授權 |
 | [member-center-email-verification.md](member-center-email-verification.md) 會員中心、Email 驗證、忘記密碼、刪除帳號 | 程式完成（#216～#228 已合併，2026-11-15）；待 v0.0.15 上線，SES 設定後以 v0.0.16 開啟 Email 開關。報告：[member-center-email-verification.md](../Implementation-Report/member-center-email-verification.md) |
-| [header-category-onboarding.md](header-category-onboarding.md) Header「更多」選單（含登出）、分類頁搜尋與六欄網格、首次造訪導引 | P0～P2 已合併（#231～#233）；P3～P5 程式與驗收完成（瀏覽器 80／80），待合併。報告：[header-category-onboarding.md](../Implementation-Report/header-category-onboarding.md) |
+| [header-category-onboarding.md](header-category-onboarding.md) Header「更多」選單（含登出）、分類頁搜尋與六欄網格、首次造訪導引 | P0～P2 已合併（#231～#233）；P3～P5 程式與驗收完成（瀏覽器 80／80），#234～#236 待合併。報告：[header-category-onboarding.md](../Implementation-Report/header-category-onboarding.md) |
 
 ## 2. 共通的模組化原則
 

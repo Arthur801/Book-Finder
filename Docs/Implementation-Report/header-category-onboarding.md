@@ -7,9 +7,9 @@
 | P0 計畫 | `ui-plan` | #231 | 已合併 |
 | P1 Header「更多」選單 | `ui-p1-header-more-menu` | #232 | 已合併 |
 | P2 分類頁搜尋與網格 | `ui-p2-category-grid` | #233 | 已合併 |
-| P3 首頁與空書單入口 | `ui-p3-catalog-ctas` | 待開 | 本報告一併送出 |
-| P4 首次造訪導引 | `ui-p4-onboarding` | 待開 | 疊在 P3 上 |
-| P5 瀏覽器驗收與報告 | `ui-p5-verification` | 待開 | 疊在 P4 上 |
+| P3 首頁與空書單入口 | `ui-p3-catalog-ctas` | #234 | 待合併 |
+| P4 首次造訪導引 | `ui-p4-onboarding` | #235 | 待合併（疊在 #234 上） |
+| P5 瀏覽器驗收與報告 | `ui-p5-verification` | #236 | 待合併（疊在 #235 上） |
 
 ## 變更檔案
 
