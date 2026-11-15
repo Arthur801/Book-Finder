@@ -182,3 +182,32 @@ git show 894883b -- Views
 驗證（2026-11-15）：`dotnet build --no-incremental` 0 warning、0 error；`dotnet test tests/WebIntegration` 531 通過、0 失敗；`dotnet test tests/UnitTests` 1330 通過、0 失敗。
 
 測試修正 `cd83d86`：P1 header 的 `<noscript>` 導覽備援使 CAT-08 原本「整頁無 `<noscript`」的斷言失敗；改為只檢查 header 以外的頁面（目錄外：`tests/WebIntegration/CategoryPageTests.cs`）。
+
+## 首次造訪導覽 P4（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | `e7797a4` | test(onboarding): expect the first-visit tour markup on public pages | 目錄外：`tests/WebIntegration/OnboardingTests.cs`（新增）。先寫測試；此 commit 單獨檢出時 14 案例為紅燈，屬 TDD 中間狀態 |
+| 2026-11-15 | `3ba0acb` | feat(onboarding): guided first-visit tour on categories | `Shared/_Onboarding.cshtml`（新增）；`Shared/_Layout.cshtml`（autostart 規則、載入 css／js、render partial）；目錄外：`wwwroot/js/onboarding.js`、`wwwroot/css/onboarding.css`（新增） |
+| 2026-11-15 | 本 commit | docs: record the first-visit tour in folder docs | 本目錄五份文件；`wwwroot/docs` 同步 |
+
+使用者可見行為：白名單公開頁首次造訪顯示歡迎卡，可跳過或開始；開始後在 `/categories` 依序說明搜尋、分類、來源、AI 推薦與「更多」。跳過或完成後不再自動出現，「更多 → 功能導覽」可重新觀看。登入、註冊、驗證、重設、OAuth 與錯誤頁不自動顯示。
+
+驗證（2026-11-15，`3ba0acb` 之後）：`dotnet build --no-incremental` 0 warning、0 error；`dotnet test tests/WebIntegration` 545 案例中 544 通過、1 失敗（`CategoryPageTests.Page_has_no_sidebar_drawer_toggle_or_noscript_list_and_no_sidebar_script`，失敗原因為 P1 `f4ccdc4` 已在 Layout 加入的 navbar `<noscript>`，與本次變更無關，見 VIEW-B10）；`dotnet test tests/UnitTests` 1330 通過、0 失敗；`node --check wwwroot/js/onboarding.js` 通過。瀏覽器行為未執行，見 VIEW-B09。
+
+## 首次導覽 P4：404 頁不自動彈出（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | 本次 commit | fix(onboarding): keep the tour from autostarting on 404 pages | `Shared/_Layout.cshtml`：autostart 另檢查 View 不是 `NotFound.cshtml`；本目錄 `architecture.md`、`test-suite.md`、`backlog.md`（VIEW-B10 已由 P2 解決） |
+
+原因：`/books/{不存在}` 與 `/categories?category=不存在` 的路由值仍是 Books/Detail、Categories/Index，會讓 404 頁自動彈出導覽，違反計畫 §5.3。先寫失敗測試（2 失敗），修正後 OnboardingTests 16 通過。
+
+## 首次導覽 P4：review 修正（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | 本次 commit | fix(onboarding): address the two-axis review | `Shared/_Onboarding.cshtml`：進度 `aria-live` 區塊不再預設 `hidden`；本目錄 `architecture.md`、`update-history.md` |
+
+review 發現並修正：Bootstrap 5 的 Collapse 事件是 `shown.bs.collapse`，原本監聽 `shown` 從未觸發，只靠 400ms 計時器，且關閉時 navbar 若仍在展開動畫中就不會收回；storage 讀取拋例外時每頁都會彈歡迎卡（plan §5.3）；`aria-live` 區塊先隱藏再顯示可能不被朗讀（§5.6）；窄螢幕 AI → 更多兩步之間 navbar 會先收再開。
+

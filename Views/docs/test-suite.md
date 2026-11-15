@@ -164,3 +164,15 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter 'FullyQualifiedN
 | VIEW-T24 — 已登入選單順序與 POST 登出 | `NavbarTests`（`Signed_in_more_menu_lists_library_mcp_guide_then_a_divider_then_logout_and_the_name_stays_outside`、`Signed_in_logout_is_a_post_form_inside_the_more_menu_and_never_a_get_link`、`Signed_in_home_shows_display_name_and_a_logout_form_with_antiforgery_token_instead_of_login_links`、`Logout_form_from_the_navbar_signs_out_and_the_home_page_shows_login_links_again`） | 選單順序為個人書單 → MCP 說明 → 功能導覽 → 分隔線 → 登出；登出是帶 `__RequestVerificationToken` 的 POST button，沒有 `href="/account/logout"`；會員名稱連到 `/account` 且在選單外；登出後首頁回到登入與註冊 |
 | VIEW-T25 — noscript fallback | `NavbarTests`（`Noscript_fallback_keeps_library_mcp_guide_and_logout_when_javascript_is_off`、`Anonymous_noscript_fallback_keeps_only_the_mcp_guide`） | 已登入的 noscript 含個人書單、MCP 說明與第二份帶 token 的 POST 登出，全頁共 2 個 `action="/account/logout"`；匿名 noscript 只含 MCP 說明 |
 | VIEW-T26 — 既有頁面的 MCP 與登入導覽 | `tests/WebIntegration/McpGuidePageTests.cs`（`Signed_out_navbar_links_to_the_guide_from_the_more_menu_beside_login_and_register`、`Signed_in_navbar_still_links_to_the_guide`） | MCP 說明位於「更多」選單內；匿名的登入與註冊仍在 header；已登入仍可看到 logout form |
+
+## P4 首次造訪導覽（新增案例）
+
+風險 L2；已有 WebIntegration 測試，本次執行 `OnboardingTests` 14 案例全數通過（紅燈證據：實作前 14 案例全數失敗）。WebIntegration 不執行 JavaScript，以下案例只驗 HTML 契約；ONB-01～ONB-09 與 ONB-11 的瀏覽器部分尚未執行，見 [backlog](backlog.md) VIEW-B09。
+
+| 案例 | 測試位置 | 驗證內容 |
+|---|---|---|
+| VIEW-T29 — 首次導覽 HTML 契約 | `tests/WebIntegration/OnboardingTests.cs`（`Public_browse_pages_render_a_hidden_dialog_that_autostarts`、`Book_detail_page_renders_a_hidden_dialog_that_autostarts`、`Account_and_guide_pages_render_the_dialog_with_autostart_off`、`Forgot_password_page_renders_the_dialog_with_autostart_off`、`Signed_in_account_page_renders_the_dialog_with_autostart_off_and_signed_in_true`、`Data_signed_in_is_false_for_anonymous_visitors_on_the_categories_page`、`Data_signed_in_is_true_for_signed_in_visitors_on_the_categories_page`、`Categories_page_keeps_every_anchor_the_tour_steps_target`、`Step_list_has_welcome_five_spotlight_steps_and_done_with_no_form_or_network_markup`、`Not_found_pages_on_browse_routes_render_the_dialog_with_autostart_off`） | 白名單頁（`/`、`/categories`、`/search?q=x`、`/books`、書籍詳情）`data-onboarding-autostart="true"`；帳號、忘記密碼、MCP 說明、已登入 `/account`，以及書籍詳情與分類頁的 404 為 `false`（ONB-10 的 HTML 部分）；根節點 `hidden`、`role="dialog"`、`aria-modal`、`aria-labelledby`／`aria-describedby`、`aria-live="polite"`；載入 `onboarding.js`（defer）與 `onboarding.css`；`data-signed-in` 依登入狀態；`/categories` 含 5 個 `data-tour` 錨點；步驟順序為歡迎、5 步、完成；導覽區塊沒有 `<form>`、沒有「登出」字樣（ONB-11 靜態部分） |
+
+全量 WebIntegration（545 案例）中僅 `CategoryPageTests` 的 sidebar／noscript 案例失敗，原因見 [backlog](backlog.md) VIEW-B10 的衝突說明，與 P4 無關。
+
+尚未由 HTML 測試覆蓋：OAuth consent 頁的 autostart false（只由 Layout 規則推導，需要 OAuth 流程）；email 驗證與 reset 頁（需要 token）。

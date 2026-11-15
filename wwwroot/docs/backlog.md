@@ -31,4 +31,12 @@
 - 前置：可用 browser，無需真外部 API。驗收：WT-10 鍵盤與桌機／窄螢幕觀測可追溯，無未記錄外部呼叫；不擅改其他 UI 軸。
 - 入口：[site.css](../css/site.css)、[LibraryPageTests](../../tests/WebIntegration/LibraryPageTests.cs)；視覺測試待建。
 
+## WB-04 — 首次導覽的瀏覽器驗收
+
+- P2；L2；狀態：待驗證。
+- 證據：`onboarding.js` 只有 `node --check` 與靜態搜尋；`OnboardingTests` 只驗 HTML。Spotlight 定位、窄螢幕 Collapse 還原、focus trap、Escape、localStorage 拋例外、hash 清理與 reduced motion 都沒有執行過。
+- 影響：HTML 與語法檢查不能證明導覽在瀏覽器中運作。不是已重現錯誤。
+- 方向：與 WB-01 相同，一次性本機瀏覽器執行 plan §8 ONB-01～ONB-09；核准前不加入 CI。
+- 入口：[onboarding.js](../js/onboarding.js)、[onboarding.css](../css/onboarding.css)、[Views VIEW-B09](../../Views/docs/backlog.md)。
+
 相關：[流程](workflow-diagram.md)／[架構](architecture.md)／[待辦](backlog.md)／[歷史](update-history.md)／[案例](test-suite.md)。

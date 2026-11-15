@@ -58,7 +58,7 @@ flowchart TD
     B -->|否| C[更多：MCP 說明、功能導覽；右側登入、註冊]
     B -->|是| D[更多：個人書單、MCP 說明、功能導覽、分隔線、登出；右側會員名稱]
     C -->|MCP 說明| E[GET /mcp-guide]
-    C -->|功能導覽| G[GET /categories#guide；導引元件待 P4]
+    C -->|功能導覽| G[GET /categories#guide；由 onboarding.js 啟動導覽]
     D -->|個人書單| F[GET /account#library]
     D -->|登出| H[POST /account/logout 含 antiforgery token]
     H -->|token 缺或錯| I[400；不登出]
@@ -162,3 +162,35 @@ Library interaction area 共用可用 request token；完整 authenticated docum
 - 寄信失敗的「請收信」頁顯示警告與重寄連結。
 
 完整時序見 [Controllers 流程](../../Controllers/docs/workflow-diagram.md) 的「會員中心 C3」。
+
+## 首次造訪導覽（P4）
+
+依 autostart 與 localStorage 狀態決定是否顯示歡迎卡；`/categories#guide` 不受狀態限制。
+
+```mermaid
+flowchart TD
+    A[進入使用 Layout 的頁面] --> B{autostart 為 true?}
+    B -->|否| N[正常瀏覽]
+    B -->|是| C{已有 completed 或 skipped?}
+    C -->|是| N
+    C -->|否| W[歡迎卡]
+    W -->|跳過| S[寫入 skipped，關閉]
+    W -->|開始，目前在 /categories| SP[Spotlight 第 1 至 5 步]
+    W -->|開始，其他頁| G[location.assign 到 /categories#guide]
+    G --> H{hash 為 #guide 且路徑為 /categories?}
+    H -->|是| SP
+    SP -->|上一步、下一步| SP
+    SP -->|跳過或 Escape| S
+    SP -->|第 5 步之後的下一步| D[完成卡]
+    D -->|上一步| SP
+    D -->|完成| F[寫入 completed，焦點移到搜尋框]
+    S --> N
+    F --> N
+    N -->|更多 → 功能導覽| K[GET /categories#guide]
+    K --> H
+```
+
+- 啟動時 JS 先移除 hash（`history.replaceState`，保留 query string）；之後 `hashchange` 也會再次判斷。
+- Spotlight 的錨點為 `category-search`、`category-grid`、`category-sources`、`nav-ai`、`nav-more`。錨點缺失或零尺寸時改用中央卡片，仍可下一步或跳過。
+- 跳過與 Escape 不覆寫已存在的 `completed`；重新觀看不會清除既有狀態。
+- 導覽期間不送出搜尋、AI 推薦、書單或 OAuth 請求，也不點擊頁面元素（`onboarding.js` 靜態檢查見 [wwwroot test-suite](../../wwwroot/docs/test-suite.md) WT-15）。

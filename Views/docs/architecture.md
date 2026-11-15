@@ -35,7 +35,7 @@
 - 「登出」是 POST 表單（`asp-controller="Account" asp-action="Logout"`，antiforgery token 由 tag helper 產生），以 button 送出，不是 GET 連結。
 - 會員名稱（`/account`）位於「更多」右側；匿名時為「登入」「註冊」。
 - `<noscript>` fallback 位於 `#main-navbar` 內，供停用 JS 時使用：已登入含「個人書單」「MCP 說明」與第二份 POST 登出表單；匿名只含「MCP 說明」。因此已登入頁面的 HTML 有兩個 `action="/account/logout"`，一份在選單內，測試以 `ul#nav-more-menu` 範圍定位。
-- 「功能導覽」目前只是指向 `/categories#guide` 的連結，導引元件尚未實作（計畫 P4）；在此之前點擊只會開啟分類頁。
+- 「功能導覽」連結指向 `/categories#guide`；在 `/categories` 由 `onboarding.js` 直接啟動完整導覽，其他頁面點擊後先載入分類頁，再由同一段邏輯啟動（P4）。
 - 樣式與互動沿用 Bootstrap，本次未新增 CSS 或 JS。
 
 主要依賴可查：[Controllers](../../Controllers/BooksController.cs)、[Models](../../Models/BookDetailViewModel.cs)、[ai.js](../../wwwroot/js/ai.js)、[library.js](../../wwwroot/js/library.js)、[Program](../../Program.cs)。具體入口全表見 [流程](workflow-diagram.md)。
@@ -108,3 +108,15 @@ ai.js 沒 browser AbortController timeout，server 60 秒限制才是契約；hi
 - `Views/PasswordReset/LinkInvalid.cshtml`：「連結無效或已過期」，連結到忘記密碼頁。沒有表單，也沒有 token。
 - `Views/Account/Login.cshtml`：開關開啟時，在「重寄驗證信」連結下方顯示「忘記密碼？」。
 - `Views/Member/Index.cshtml`：`#account-security` 在開關開啟時多一個「重設密碼」連結，位於「刪除帳號」之上。
+
+## 首次造訪導覽（P4，2026-11-15）
+
+實作計畫見 [header-category-onboarding](../../Docs/plans/header-category-onboarding.md) §5、§6.1～6.2、§7 P4，計畫非規格；以下是目前行為。
+
+- **承載標記**：[`Shared/_Onboarding.cshtml`](../Shared/_Onboarding.cshtml) 是 `@model bool`（autostart），輸出隱藏根節點 `#onboarding`，屬性 `data-onboarding-autostart`、`data-signed-in`；卡片為 `role="dialog"`、`aria-modal="true"`，進度行 `aria-live="polite"`。文案與目標都在隱藏的 `ol.onboarding-steps`：歡迎、5 個 spotlight 步驟（各指向一個 `data-tour` 錨點）、完成。HTML 沒有 `<form>`。
+- **Autostart 規則**：在 [`_Layout.cshtml`](../Shared/_Layout.cshtml) 依 `ViewContext.RouteData` 判斷。只有 Home/Index、Categories/Index、Search/Index、Books/Index、Books/Detail 為 true，但這些路由回 404 時（render `NotFound.cshtml`）仍為 false。其餘頁面（帳號、OAuth、MCP 說明、會員中心、AI、錯誤頁、NotFound）為 false。所有 View 都經 `_ViewStart` 使用 `_Layout`，因此非白名單頁仍有隱藏根節點，只是 autostart 為 false。
+- **資產**：`css/onboarding.css`（遮罩、spotlight、卡片、窄螢幕 bottom sheet、safe area、reduced motion）與 `js/onboarding.js`（`defer`，位於 Bootstrap 與 site.js 之後）。JS 行為與儲存見 [wwwroot docs](../../wwwroot/docs/architecture.md)。
+- **無 JS**：所有導覽元素都是 `hidden`，不會出現遮罩，網站其他功能不受影響。
+- **Header 協調**：窄螢幕時目標若位於收合的 `#main-navbar`，JS 以 Bootstrap `Collapse` API（`toggle:false`）暫時展開，離開步驟或關閉時恢復（相鄰兩步的目標都在 navbar 內時保持展開，不閃動）；Bootstrap 不可用時退回中央卡片。Dropdown 只高亮觸發器，JS 不會開啟「更多」選單。
+- **取捨**：沒有使用 Bootstrap Modal，因為 spotlight、焦點陷阱與錨點定位需要自行控制；沒有新增 API、資料表或 Query String 參數。
+- **已知限制**：WebIntegration 不執行 JavaScript。spotlight 定位、焦點、Storage 失敗與鍵盤行為只有靜態證據，瀏覽器案例見 [backlog](backlog.md) VIEW-B09。

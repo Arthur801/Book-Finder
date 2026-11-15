@@ -17,7 +17,9 @@
 | category-sidebar.js（已移除，P2 `c6a83bb`） | 原本由分類頁的 Scripts section 載入，負責桌面收合與 `.js-only` 按鈕；已刪除。分類頁現在不載入任何分類專用 JS，網格與來源都是一般連結，不發 request |
 | Razor DOM | ai-form 等 ID；data-library-controls、book-id、login-url、status、rating、clear-rating、unrated、remove、error、failed-text、add、add-error；[Controls](../../Views/Shared/_LibraryControls.cshtml) 與 [Book section](../../Views/Books/_LibrarySection.cshtml) 必須同步修改 |
 | CSS | [site.css](../css/site.css) 基礎樣式，768px 字級 14→16；library-star 依 aria-pressed 著色；ai-history-requirement 截兩行且 title 保全文。[category-browser.css](../css/category-browser.css) 只給分類頁，規則全部限於 `.category-browser`：`.category-grid` 以 CSS Grid 排 2／3／4／6 欄（576／768／1200px 斷點），`gap: .75rem`；卡片等高、`overflow-wrap:anywhere`、`:focus-visible` 外框、選取狀態用 Bootstrap 的 `--bs-primary`；已沒有側欄與 `.js-only` 規則 |
-| Layout | [Layout](../../Views/Shared/_Layout.cshtml) 使用 Bootstrap、jQuery、site.js 與版本化 site.css；`<head>` 有 `Styles` section 讓頁面載入自己的 CSS（目前只有分類頁）；頁面按責任再載 ai／library |
+| onboarding.js | Layout 每頁以 `defer` 載入（P4）；只在 `#onboarding` 存在時初始化；不呼叫網路、不送出表單、不點擊頁面元素；讀寫 localStorage `bf.onboarding.v1.status`；窄螢幕時可透過 `window.bootstrap.Collapse` 暫開 `#main-navbar` |
+| onboarding.css | 導覽遮罩、spotlight、卡片與窄螢幕 bottom sheet；所有規則限於 `.onboarding`，根節點 hidden 時不顯示 |
+| Layout | [Layout](../../Views/Shared/_Layout.cshtml) 使用 Bootstrap、jQuery、site.js 與版本化 site.css；載入 onboarding.css／onboarding.js（P4）；`<head>` 有 `Styles` section 讓頁面載入自己的 CSS（目前只有分類頁）；頁面按責任再載 ai／library |
 | lib vendor | Bootstrap／jQuery／jquery-validation／unobtrusive 的 distribution、map、license；不屬自有業務程式，更新需保留授權與相依關係 |
 | 靜態發布 | [Program](../../Program.cs) MapStaticAssets；[Web csproj](../../Book-Finder.csproj) 沒有 wwwroot/docs 專用排除 |
 
@@ -51,3 +53,12 @@ AiPageTests 明言沒有執行 JS；現有 WebIntegration 驗證 HTML／API，�
 
 - [ai.js](../js/ai.js)：`data-recommendation-jobs="true"` 時，送出改呼叫 `POST /api/recommendations/jobs`，帶 `Idempotency-Key`（每次送出以 `crypto.randomUUID()` 產生；沒有這個 API 時不送 header）。網路錯誤時保留 key，同一段文字再送出會沿用；收到任何 HTTP 回應就清除。202 導向 `/ai/jobs/{jobId}`；401 保存文字後導向登入；429 每日上限文案；400 伺服器的驗證訊息；409 與其他狀態用通用文案。`false` 時維持原本的同步流程。
 - [ai-job.js](../js/ai-job.js)：狀態為 QUEUED／RUNNING 時，分頁可見就每 3 秒查詢 `data-job-status-url`；切到背景時停止，回到前景立刻查一次並恢復輪詢；狀態變成 SUCCEEDED 或 FAILED 就重新載入頁面。查詢回 401（登出）或 404（頁面已不存在，例如功能被關閉）時停止並重新載入，讓伺服器顯示登入頁或找不到頁；其他失敗會在下一次重試。不使用 innerHTML，也不含任何訊息文案。
+
+## 首次造訪導覽（P4）
+
+- `onboarding.js` 是 IIFE，沒有 export，沒有外部依賴；唯一的外部物件是可選的 `window.bootstrap.Collapse`。
+- 儲存：localStorage 鍵 `bf.onboarding.v1.status`，值只可能是 `completed` 或 `skipped`；每次讀寫都在 try/catch 中。寫入失敗時以記憶體變數保留狀態，同一頁不會重新彈出歡迎卡；讀取就拋例外（storage 被封鎖）時不自動顯示歡迎卡，避免每頁都彈出（plan §5.3），仍可從「更多 → 功能導覽」手動開啟。進度文字放在一直存在的 `aria-live` 區塊，只改文字，讓報讀器能朗讀。窄螢幕展開 navbar 後監聽 Bootstrap 的 `shown.bs.collapse`。鍵名與值不包含任何個資、閱讀需求或憑證。
+- 網路：此檔沒有 `fetch`、`XMLHttpRequest` 或表單提交；導覽不會觸發搜尋、AI 推薦、書單或 OAuth 請求。靜態檢查見 [test-suite](test-suite.md) WT-15。
+- 焦點與無障礙：卡片內以 Tab／Shift+Tab 循環，Escape 視同跳過，關閉後把焦點還原到開啟前的元素；狀態用 `aria-live` 朗讀進度。`prefers-reduced-motion` 時不使用平滑捲動，CSS 也停用動畫。
+- 初始化失敗：任一例外都會隱藏根節點、還原收合的 navbar 並移除監聽器，頁面維持可用。
+- 不變的 contract：`/categories` 的 `data-tour` 錨點是此檔的依賴，改名前必須同步 `Views/Shared/_Onboarding.cshtml` 與 [Views](../../Views/docs/architecture.md) 首次造訪導覽。

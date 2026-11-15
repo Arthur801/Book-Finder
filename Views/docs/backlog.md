@@ -49,4 +49,19 @@
 ### VIEW-B08 — 更多選單與功能導覽的待驗證項目
 
 - [ ] **P2／L2／待驗證**。WebIntegration 只驗 HTML；「更多」的 Bootstrap 開關、Escape、點擊外部關閉、鍵盤 Enter／Space、手機 navbar 展開後的可點擊與不溢位，尚未以瀏覽器執行。方向：一次性本機瀏覽器驗收並把證據寫入 update-history；是否把 Browser E2E 納入 CI 仍待決定（計畫 D8）。
-- [ ] **P2／L1／待實作**。「功能導覽」連到 `/categories#guide`，但導引元件尚未建立（計畫 P4），目前點擊只會開啟分類頁。驗收：P4 完成後 `/categories#guide` 啟動導覽，本條由 P4 結案。
+- [x] **P2／L1／已由 P4 結案**。「功能導覽」連到 `/categories#guide`，`onboarding.js` 已在 `/categories` 啟動導覽（見 [architecture](architecture.md) 首次造訪導覽）。WebIntegration 只驗連結與 hash 的 HTML 契約；實際啟動行為待 VIEW-B09 的瀏覽器驗收。
+
+## P4 首次造訪導覽新待辦
+
+### VIEW-B09 — 首次導覽的瀏覽器驗收
+
+- [ ] **P2／L2／待驗證**。`onboarding.js` 的 spotlight 定位、窄螢幕 Collapse 展開與還原、焦點陷阱、Escape、localStorage 失敗、`/categories#guide` 的 hash 清理、以及「更多」步驟不展開選單，都還沒有在瀏覽器執行。對應 plan §8 ONB-01～ONB-09、ONB-11 的瀏覽器部分。方向：與 VIEW-B01、VIEW-B08 相同，一次性本機瀏覽器驗收並記錄證據；未核准前不加入 CI。
+
+### VIEW-B10 — 分類頁 noscript 斷言與共用 Header 衝突
+
+- [x] **已解決（2026-11-15，P2 `4e21229`）**：CAT-08 改為只檢查 `<main>` 之後的頁面內容，P1 header 的 noscript 不再影響。以下為原始紀錄。
+- [ ] ~~**P2／L1／待決策**~~。`CategoryPageTests.Page_has_no_sidebar_drawer_toggle_or_noscript_list_and_no_sidebar_script` 在 `/categories` 斷言沒有 `<noscript`，但 P1 `f4ccdc4` 已把 navbar 的 `<noscript>` 放進共用 Layout，所以該案例失敗（P4 未改動它）。方向：決定是只檢查分類清單的 noscript，或改為斷言共用 navbar 的 noscript 與 P1 契約一致；需由 P1／P2 的負責人確認，不在 P4 內擅改。
+
+### VIEW-B11 — OAuth consent 頁的 autostart 驗證
+
+- [ ] **P3／L1／待確認**。OAuth consent 頁的 autostart false 只由 Layout 規則推導，尚無 WebIntegration 案例（需要 OAuth 流程）。方向：補一個已登入 OAuth consent 的 HTML 斷言。
