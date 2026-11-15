@@ -128,3 +128,9 @@ git show 894883b -- Views
 驗證（2026-11-15）：`dotnet build --no-incremental` 0 warning、0 error；WebIntegration 494 通過（含 `EmailVerificationFlowTests` 與 `EmailVerificationSwitchOffTests`，C3 相關頁面斷言見 test-suite）。
 
 行為變更（開關關閉）：無；登入頁只有在 `ShowResendLink` 或 `Notice` 存在時多出區塊。
+
+## 會員中心 C4：忘記密碼與重設頁（新增紀錄）
+
+- 2026-11-15：`feat(identity): forgot password by email with transactional reset (C4)`，commit `8934ba4`。新增 `Views/PasswordReset/` 三個頁面；`Views/Account/Login.cshtml` 增加「忘記密碼？」連結；`Views/Member/Index.cshtml` 的 `#account-security` 增加「重設密碼」連結（開關開啟時）。
+- 驗證（2026-11-15，commit `8934ba4` 之後）：`dotnet build --no-incremental` 0 warning、0 error；`dotnet test tests/UnitTests` 1326 通過；`tests/DatabaseIntegration` 313 通過；`tests/WebIntegration` 522 通過。
+- 行為變更（開關關閉）：無，三個頁面不可達，兩個連結不顯示。

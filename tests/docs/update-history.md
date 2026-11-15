@@ -295,3 +295,13 @@ Git 歷史不證明 runtime 或 CI 已通過。
 測試替身：`CapturingEmailSender` 增加 `FailWith`；`BookFinderFactory` 增加三個設定屬性，預設值保證既有測試不受限流與開關影響。
 
 過程中發現的問題：WebIntegration 的 `An_expired_link…` 測試揭露 `appsettings.json` 的 `EmailVerificationLifetime` 為 24 天（見 Infrastructure update-history）；另外兩個表單缺少 antiforgery token（Resend、確認頁），由 web 測試發現並修正。
+
+## 會員中心 C4：忘記密碼（新增紀錄）
+
+- 2026-11-15：`feat(identity): forgot password by email with transactional reset (C4)`，commit `8934ba4`。新增 `PasswordResetServiceTests`（UnitTests）、`EfPasswordResetStoreTests`（DatabaseIntegration）、`PasswordResetFlowTests`（WebIntegration）；`AccountEmailDispatcherTests` 的「沒有分支會拋例外」案例改為 PasswordReset 分支的四個案例；`AccountRateLimitTests` 新增忘記密碼限流案例。
+- 既有測試（含 `EmailVerificationSwitchOffTests`）未修改。
+
+## 會員中心 C4 驗證紀錄（2026-11-15）
+
+- 驗證（2026-11-15，commit `8934ba4` 之後）：`dotnet build --no-incremental` 0 warning、0 error；`dotnet test tests/UnitTests` 1326 通過；`tests/DatabaseIntegration` 313 通過；`tests/WebIntegration` 522 通過。
+- 指令：`dotnet test tests/UnitTests/UnitTests.csproj`、`dotnet test tests/DatabaseIntegration/DatabaseIntegration.csproj`、`dotnet test tests/WebIntegration/WebIntegration.csproj`；C4 相關的聚焦執行為 `--filter "FullyQualifiedName~PasswordReset|FullyQualifiedName~AccountEmailDispatcher"`（UnitTests 16）、`--filter "FullyQualifiedName~EfPasswordResetStoreTests"`（DatabaseIntegration 7）、`--filter "FullyQualifiedName~PasswordResetFlowTests|FullyQualifiedName~AccountRateLimitTests"`（WebIntegration 20）。

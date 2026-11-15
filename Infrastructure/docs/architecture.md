@@ -224,3 +224,17 @@ appsettings：`appsettings.json` 為 `Email:Provider = None`、`EmailVerificatio
 - 頻率限制與佇列都在單一 process 的記憶體中。部署多個 instance 時，限制不會跨 instance 共用，佇列也不會分享（見 backlog INF-B15）。
 - 分區鍵依賴 `ForwardedHeaders:KnownNetworks`。只有受信任的 proxy 才能改寫 `RemoteIpAddress`；不可信任任意 caller 偽造的 forwarded IP（既有 HostingSetup 規則）。
 - `EmailVerification:Enabled` 為 true 時，`EmailOptions.ValidationError` 要求 `Email:Provider` 不為 None，因此開關開啟時啟動檢查會擋下未設定寄信的組態。
+
+## 忘記密碼 C4：EfPasswordResetStore
+
+- `EfPasswordResetStore`（internal sealed，實作 `IPasswordResetStore`）是 scoped，依賴 `AppDbContext`、`IAccountActionTokenStore`、`IExternalCredentialRevoker`。註冊在 `AddBookFinderAuth`，與 `EfEmailVerificationStore` 放在一起。
+- 一個 `BeginTransactionAsync` 內依序執行：
+  1. `SELECT u.id FROM users u JOIN account_action_tokens t ON t.user_id = u.id WHERE t.token_hash = … AND t.purpose = … FOR UPDATE OF u`。先鎖使用者列，找不到列就 rollback 並回 `false`。
+  2. `IAccountActionTokenStore.ConsumeAsync(PASSWORD_RESET)`：條件式 `UPDATE … RETURNING user_id`。失敗就 rollback 並回 `false`。
+  3. `ExecuteUpdateAsync` 更新 users：`password_hash = @hash`、`auth_version = auth_version + 1`、`email_verified_at = COALESCE(email_verified_at, @now)`、`updated_at = @now`。
+  4. `IExternalCredentialRevoker.RevokeAllForUserAsync(userId)`，使用同一個 DbContext 與交易，撤銷 OpenIddict 的 authorization 與 token。
+  5. `CommitAsync`，回 `true`。
+- 鎖順序的理由：先鎖 users、再動 token，與帳號刪除（D1：先鎖 users，再由 cascade 刪 token）一致，所以兩者不會互相等待。若先鎖 token 再鎖 users，就會與刪除形成 deadlock。
+- 任何例外（包括撤銷失敗）都讓交易 rollback：token 仍未消耗、密碼與 `auth_version` 不變、OAuth 憑證不變。
+- 時間全部來自 service 傳入的 `nowUtc`，store 不讀時鐘，不使用資料庫的 `now()`。
+- 併發：同一連結同時送出兩次，使用者列鎖讓兩筆交易序列化，條件式 consume 保證只有一次成功。

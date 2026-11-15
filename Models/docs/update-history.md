@@ -134,3 +134,9 @@ git show cda623f -- Models
 | 2026-11-15 | `c3f09dc` | feat(identity): email verification, resend, login gating and per-IP limits (C3) | `VerifyEmailForm.cs`、`ResendVerificationForm.cs`、`VerificationSentViewModel.cs`（新增） |
 
 驗證：隨 WebIntegration 驗證（494 通過）。行為變更：無；僅新增 Model。
+
+## 會員中心 C4：忘記密碼表單與 MemberPageViewModel（新增紀錄）
+
+- 2026-11-15：`feat(identity): forgot password by email with transactional reset (C4)`，commit `8934ba4`。新增 `ForgotPasswordForm`、`PasswordResetForm`；`MemberPageViewModel` 新增 `PasswordResetEnabled` 參數。
+- 驗證（2026-11-15，commit `8934ba4` 之後）：`dotnet build --no-incremental` 0 warning、0 error；`dotnet test tests/UnitTests` 1326 通過；`tests/DatabaseIntegration` 313 通過；`tests/WebIntegration` 522 通過。
+- 行為變更（開關關閉）：無。

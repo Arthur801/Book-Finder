@@ -85,3 +85,11 @@ ai.js 沒 browser AbortController timeout，server 60 秒限制才是契約；hi
 **第三方資源**：檢查 [_Layout.cshtml](../Shared/_Layout.cshtml) 後，確認只載入同源資源，沒有第三方 CDN；`importmap` 為空。
 
 **文案**：所有新文案為本次撰寫（繁中），尚未經過使用者審閱，見 backlog VIEW-B07。
+
+## 會員中心 C4：忘記密碼與重設頁（新增）
+
+- `Views/PasswordReset/Forgot.cshtml`：只有 Email 欄位與 antiforgery；`Notice` 區塊顯示固定通知（`alert alert-success py-2`）。
+- `Views/PasswordReset/Reset.cshtml`：新密碼與確認新密碼欄位（`autocomplete="new-password"`），隱藏欄位 `Token`，驗證錯誤用 `asp-validation-for` 顯示在欄位旁。表單不回填密碼。
+- `Views/PasswordReset/LinkInvalid.cshtml`：「連結無效或已過期」，連結到忘記密碼頁。沒有表單，也沒有 token。
+- `Views/Account/Login.cshtml`：開關開啟時，在「重寄驗證信」連結下方顯示「忘記密碼？」。
+- `Views/Member/Index.cshtml`：`#account-security` 在開關開啟時多一個「重設密碼」連結，位於「刪除帳號」之上。

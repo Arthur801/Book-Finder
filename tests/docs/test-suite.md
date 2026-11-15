@@ -401,3 +401,17 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter FullyQualifiedNa
 | Unit | `dotnet test tests/UnitTests` | 1303 通過、0 失敗 |
 | DB | `dotnet test tests/DatabaseIntegration` | 300 通過、0 失敗（PostgreSQL 容器） |
 | Web | `dotnet test tests/WebIntegration` | 494 通過、0 失敗 |
+
+## 會員中心 C4：忘記密碼（新增）
+
+### TEST-50：忘記密碼與重設流程（WebIntegration）
+
+- 檔案：`tests/WebIntegration/PasswordResetFlowTests.cs`，16 案例，`EmailVerificationEnabled=true`，寄信由 `CapturingEmailSender` 接收，佇列以 `WaitForIdleAsync` 等待（不用 sleep）。
+- 時間：`FakeTimeProvider` 控制 1 小時節流與過期。
+- 帳號：需要可登入的帳號時，先用開關關閉的 host 註冊（U-01，直接已驗證）；MCP 案例的 token 也來自關閉的 host，重設在開啟的 host 上執行，兩者共用同一個資料庫。
+- 對應的單元、DB、限流與視圖案例：APP-T34、APP-T35、INF-T34、MEM-29～MEM-31、VIEW-T21、VIEW-T22、MCP-204。
+
+### TEST-51：忘記密碼限流（WebIntegration）
+
+- `AccountRateLimitTests` 新增一案例：忘記密碼 POST 的 `account-email` 限制為 2 次，第 3 次回 429（MEM-31）。
+- 重設 POST 的 `account-auth` 限流沒有單獨的測試，見 TEST-B07。

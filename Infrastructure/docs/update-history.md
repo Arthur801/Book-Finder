@@ -279,3 +279,10 @@ git show <SHA> -- Infrastructure
 行為變更（開關關閉）：無。限流會套用到登入與註冊 POST（預設值遠高於正常使用），但正常操作不會觸發。
 
 設定修正：`EmailVerificationLifetime` 由 24 天修正為 24 小時。此設定自 C2 起在 `appsettings.json` 中，但 C2 的單元測試使用程式預設值，因此沒有發現。修正於 C3 中被 web 設定迴歸測試發現。
+
+## 會員中心 C4：忘記密碼重設交易（新增紀錄）
+
+- 2026-11-15：`feat(identity): forgot password by email with transactional reset (C4)`，commit `8934ba4`。新增 `EfPasswordResetStore`（DI 與 `EfEmailVerificationStore` 同組註冊）；INF-B10 全部關閉。
+- 驗證（2026-11-15，commit `8934ba4` 之後）：`dotnet build --no-incremental` 0 warning、0 error；`dotnet test tests/UnitTests` 1326 通過；`tests/DatabaseIntegration` 313 通過；`tests/WebIntegration` 522 通過。
+- 行為變更（開關關閉）：無。
+- 行為變更（開關開啟）：重設交易會呼叫 OAuth 撤銷；交易的鎖順序與帳號刪除一致。

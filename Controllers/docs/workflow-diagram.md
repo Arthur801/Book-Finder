@@ -408,3 +408,23 @@ sequenceDiagram
 ```
 
 依 D-B，`EmailNotVerified` 只在密碼正確時回傳，所以不會讓不知道密碼的人得知帳號是否已驗證。
+
+## 忘記密碼頁的 HTTP 結果（會員中心 C4）
+
+```mermaid
+flowchart TD
+    A[POST /account/password/reset] --> B{EmailVerification:Enabled?}
+    B -- 否 --> N[404]
+    B -- 是 --> C[PasswordResetService.ResetAsync]
+    C -- Reset --> D[AuthCookie.Delete，LocalRedirect /account/login?reset=1]
+    C -- InvalidInput --> E[表單重新顯示，密碼欄位清空，token 保留]
+    C -- InvalidLink --> F[連結無效或已過期頁]
+```
+
+```mermaid
+flowchart TD
+    A[POST /account/password/forgot] --> B{EmailVerification:Enabled?}
+    B -- 否 --> N[404]
+    B -- 是 --> C[TryEnqueue PasswordReset 請求]
+    C --> D[固定通知，與帳號是否存在無關]
+```

@@ -175,3 +175,27 @@ Controller 只做 HTTP 對應與 outcome 分支，不含業務規則。Token 的
 - 頻率限制與重寄佇列都在單一 process 的記憶體內。多 instance 部署時，限制不會跨 instance 共用（見 Infrastructure backlog）。
 - 佇列未持久化：程序重啟時，尚未寄出的重寄請求會遺失；使用者重新送出即可。
 - 註冊頁的「此 email 已被註冊」仍會顯示帳號是否存在，這是既有行為，不在 C3 的 D-B 範圍內（見 backlog CTL-13）。
+
+## 會員中心 C4：忘記密碼頁（新增）
+
+`PasswordResetController`（`Controllers/PasswordResetController.cs`）負責四個頁面，業務判斷全部在 `PasswordResetService`，控制器只把結果換成回應。
+
+| 路由 | 方法 | 行為 |
+|---|---|---|
+| `/account/password/forgot` | GET | 顯示 Email 欄位。匿名或已登入都可用，不因已登入導走 |
+| `/account/password/forgot` | POST | `account-email` 限流；只把 `(PasswordReset, 去空白的 Email)` 放進 `IAccountEmailQueue`，回應固定為「如果這個 Email 已註冊，我們已寄出重設密碼信，請收信」。空字串也入列，由 worker 忽略 |
+| `/account/password/reset?token=` | GET | `[TokenLinkPage]`。`IsUsableAsync` 為假時顯示「連結無效或已過期」；可用時顯示新密碼與確認表單，token 放在隱藏欄位。GET 不消耗 |
+| `/account/password/reset` | POST | `[TokenLinkPage]` 與 `account-auth` 限流。結果見下 |
+
+reset POST 的三種結果：
+- `Reset`：刪除此瀏覽器的 Cookie，`LocalRedirect("/account/login?reset=1")`。
+- `InvalidInput`：表單重新顯示，兩個密碼欄位清空、錯誤顯示在欄位旁，token 保留，可再次送出。
+- `InvalidLink`：顯示無效頁。
+
+開關（D-A）：四個 action 在 `EmailVerification:Enabled=false` 時都回 404。條件只讀設定，不讀 request 值，因此不會成為敏感動作的 request 控制條件（CodeQL `cs/user-controlled-bypass`）。
+
+重導一律是 `LocalRedirect`（CodeQL `cs/url-redirection`）。
+
+其他 Controller 的變更：
+- `AccountController`：登入 GET 接受 `reset=1`，顯示「密碼已重設，請重新登入」。登入 GET 與 POST 都設定 `ViewData["ShowPasswordResetLink"]`，開關開啟時顯示「忘記密碼？」連結。
+- `MemberController`：`MemberPageViewModel.PasswordResetEnabled` 由開關決定，`#account-security` 區塊只在開啟時顯示「重設密碼」連結（指向同一個忘記密碼頁）。沒有需要登入的修改密碼流程（U-05）。

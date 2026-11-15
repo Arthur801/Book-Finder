@@ -29,6 +29,13 @@ watcher 耗盡（f233b9d）與 image pin（dccad53）是已修歷史，不列未
 
 [流程](workflow-diagram.md) · [架構](architecture.md) · [歷史](update-history.md) · [案例](test-suite.md)
 
+## 會員中心 C4 新增待辦
+
+### TEST-B07 — 重設 POST 的 account-auth 限流未有測試
+
+- [ ] **P3／待驗證／L2**。`PasswordResetController.Reset`（POST）標上 `account-auth`，但沒有測試證明第 N+1 次會回 429。同一個政策已由登入、註冊與刪除帳號的測試覆蓋，風險低。
+- 待辦：在 `AccountRateLimitTests` 加入一案例，限制設為 2，連續送出三次錯誤連結的重設 POST，第 3 次為 429。
+
 ## 會員中心 C3 新增待辦
 
 ### TEST-B06 — 真實瀏覽器與真實寄信未驗證

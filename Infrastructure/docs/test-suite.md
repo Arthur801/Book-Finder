@@ -354,3 +354,11 @@ dotnet test tests/WebIntegration/WebIntegration.csproj
 | INF-T32 — 限流行為（Web 整合） | `tests/WebIntegration/AccountRateLimitTests.cs` | 同一 client 超過上限回 429、含「請求過於頻繁」與 `Retry-After`；登入 POST 超過上限回 429。見 TEST-49 |
 
 設定迴歸：`EmailVerificationFlowTests` 中的 `The_shipped_configuration_gives_a_24_hour_verification_link_and_a_1_hour_reset_link`（見 TEST-47）讀取 `appsettings.json` 的實際值，防止再次出現 24 天的設定。
+
+## 忘記密碼 C4（會員中心計畫）
+
+| 案例 | 測試位置 | 驗證內容 |
+|---|---|---|
+| INF-T34 — 重設交易（DB 整合，7 案例） | `tests/DatabaseIntegration/EfPasswordResetStoreTests.cs` | 有效 token 寫入新 hash、`auth_version` 加 1、未驗證者補上 `email_verified_at`、撤銷被呼叫；已驗證者保留原時間；重放失敗且第二次不寫入；過期失敗；EMAIL_VERIFICATION token 被拒絕且無寫入；撤銷拋例外時整筆 rollback，token 之後仍可使用；同一連結併發兩次恰好一次成功 |
+
+- 撤銷的實際 OpenIddict 效果（`/mcp` 回 401、refresh 回 `invalid_grant`）不在這裡測，而在 WebIntegration `PasswordResetFlowTests`（TEST-50）中測。

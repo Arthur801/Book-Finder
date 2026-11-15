@@ -241,7 +241,7 @@ Application 不知道 SES、檔案系統或 AWS；寄信失敗的語意（例如
 
 - 本段的流程見 [workflow-diagram.md](workflow-diagram.md)「帳號刪除（會員中心 D1）」。
 - 測試案例見 [test-suite.md](test-suite.md)「會員中心 D1」。
-- 待辦與已知缺口見 [backlog.md](backlog.md)（APP-B08 刪除部分已關閉，APP-B10 為同步推薦路徑的剩餘風險）。
+- 待辦與已知缺口見 [backlog.md](backlog.md)（APP-B08 已於 C4 全部關閉，APP-B13 為重設後的通知信待決定，APP-B10 為同步推薦路徑的剩餘風險）。
 
 ## 會員中心 C3：驗證流程、寄信佇列與派送（新增）
 
@@ -272,3 +272,16 @@ Application 不知道 SES、檔案系統或 AWS；寄信失敗的語意（例如
 
 - 佇列只在單一 process 內有效；重啟時遺失（見 backlog APP-B11）。
 - 目前沒有實際 SES 寄信測試；SES 行為由 Infrastructure 既有的 adapter 測試與部署流程（L4）驗證。
+
+## 忘記密碼 C4（PasswordResetService）
+
+- `PasswordResetService`（`Application/Identity`）是忘記密碼與重設的唯一業務入口（會員中心計畫 C4、U-05）。
+  - `SendAsync(User, ct)`：經 `AccountActionTokenService.IssueAsync(PasswordReset)` 發 token。`Throttled` 不寄信；寄信失敗時呼叫 `DiscardAsync`，失敗的那次不佔用 1 小時窗口。連結由 `SiteUrlBuilder` 組成 `/account/password/reset?token=…`，有效期文字取自 `AccountActionTokenOptions.PasswordResetLifetime`（預設 1 小時）。
+  - `IsUsableAsync(raw)`：GET 表單頁使用，唯讀，不消耗。
+  - `ResetAsync(raw, newPassword, confirmation, ct)`：順序固定。①token 可用（唯讀檢查）②密碼規則（`AccountInputRules.ValidatePassword`，8–40 碼）與兩次輸入一致 ③`IPasswordHashing.Hash` ④`IPasswordResetStore.ResetAsync(HashOf(raw), hash, now)`。①②失敗時 token 不被消耗；④ 回 false 時結果為 `InvalidLink`。
+- 結果型別 `PasswordResetOutcome`：`Reset`、`InvalidInput(Errors)`（欄位鍵 `NewPassword`、`ConfirmPassword`）、`InvalidLink`。`InvalidLink` 涵蓋所有不可用的情況（格式錯、未知、過期、已消耗、用途不符）。
+- `IPasswordResetStore`（Application port）只有 `ResetAsync(tokenHash, passwordHash, nowUtc)`。它只接收 hash 與時間，不接收原始 token 或明文密碼；實作在 Infrastructure（`EfPasswordResetStore`），單一 transaction 內完成消耗 token、更新 users、撤銷 OAuth 憑證（見 [Infrastructure 架構](../../Infrastructure/docs/architecture.md)「忘記密碼 C4」）。
+- `AccountEmailDispatcher` 新增 `PasswordReset` 分支（APP-B12 關閉）：查無帳號不做任何事；有帳號（不論是否已驗證）交給 `PasswordResetService.SendAsync`。這與重寄驗證信不同：重寄只寄給未驗證帳號（D-B），忘記密碼寄給所有註冊帳號。
+- `AccountInputRules.ValidatePassword` 由 private 改為 public，註冊與重設共用同一條 8–40 碼規則。
+- 不變條件（重設成功時）：`auth_version` 加 1，所有舊 Cookie 失效（B2）；`email_verified_at` 為 NULL 時補上，因為能點開重設信即證明擁有信箱；OAuth authorization 與 token 全部撤銷（B3）。
+- 日誌只含 user id，不含 Email、token、連結或密碼。

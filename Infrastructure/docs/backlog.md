@@ -76,13 +76,13 @@ Debug 證據收集：INF-B04 須保存去識別的 request scheme、來源網段
 
 - **INF-B07**（#113 PR2 與 PR4，PR #117、#123）：multi-source schema 與讀取端完成。migration 010 於 v0.0.6、011 於 v0.0.7（CD run `40154631718`）套用；`BookSource`、`BookSubject` 以 `SourceCode` 映射；`EfBookSearch`、`EfBookDetailReader` 只查讀 `ISBN`，Detail 來源 JOIN `source_providers`。證據：`2c662f5`、`d9d8948`、`5052361`、`d864acc`、`6e70e93`、`b99b368`。剩餘 recovery compat 尚未納入 CI，見 deploy DEP-B18。
 
-- **INF-B10**（2026-11-15，會員中心 B3）：`OAuthCredentialRevoker` 的呼叫端尚未存在（C4、D1）。撤銷的 `ExecuteUpdate` 不經 OpenIddict 的 entity 狀態，若未來 OpenIddict 增加依賴 status 以外欄位的檢查，需要重新確認 `OAuthCredentialRevokerTests` 的覆蓋。
+- **INF-B10 已關閉**（2026-11-15，會員中心 B3，C4 與 D1 完成呼叫）：`OAuthCredentialRevoker` 的兩個方法都已有呼叫端（`EfAccountDeletionStore` 的 `DeleteAllForUserAsync`，`EfPasswordResetStore` 的 `RevokeAllForUserAsync`）。撤銷的 `ExecuteUpdate` 不經 OpenIddict 的 entity 狀態，若未來 OpenIddict 增加依賴 status 以外欄位的檢查，需要重新確認 `OAuthCredentialRevokerTests` 的覆蓋。
 
 ## 文件導航
 
 [流程](workflow-diagram.md) · [架構](architecture.md) · [待辦](backlog.md) · [歷史](update-history.md) · [案例](test-suite.md)
 
-- **INF-B10 刪除部分已關閉**（2026-11-15，會員中心 D1）：`DeleteAllForUserAsync` 已由 `EfAccountDeletionStore` 在刪除交易內呼叫。撤銷（`RevokeAllForUserAsync`）的呼叫端仍是 C4，尚未實作。
+- **INF-B10 刪除部分已關閉**（2026-11-15，會員中心 D1）：`DeleteAllForUserAsync` 已由 `EfAccountDeletionStore` 在刪除交易內呼叫。撤銷的部分已於 C4 關閉，見上方。
 - **INF-B12**（2026-11-15，會員中心 D1）：刪除與推薦工作 commit 的互相等待未有測試。commit 在鎖住 job row 後要插入搜尋（需要 users 的 KEY SHARE），刪除則先鎖 users 再 cascade job row，可能 deadlock。PostgreSQL 會中止其中一方；兩種結果都不會留下資料，但缺乏可重現的測試。若要補，需要 pause 點在 commit 交易內，或以兩個連線的固定順序模擬。
 
 ## 會員中心 C3 新增待辦
