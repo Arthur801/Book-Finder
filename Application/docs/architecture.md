@@ -280,8 +280,9 @@ Application 不知道 SES、檔案系統或 AWS；寄信失敗的語意（例如
   - `IsUsableAsync(raw)`：GET 表單頁使用，唯讀，不消耗。
   - `ResetAsync(raw, newPassword, confirmation, ct)`：順序固定。①token 可用（唯讀檢查）②密碼規則（`AccountInputRules.ValidatePassword`，8–40 碼）與兩次輸入一致 ③`IPasswordHashing.Hash` ④`IPasswordResetStore.ResetAsync(HashOf(raw), hash, now)`。①②失敗時 token 不被消耗；④ 回 false 時結果為 `InvalidLink`。
 - 結果型別 `PasswordResetOutcome`：`Reset`、`InvalidInput(Errors)`（欄位鍵 `NewPassword`、`ConfirmPassword`）、`InvalidLink`。`InvalidLink` 涵蓋所有不可用的情況（格式錯、未知、過期、已消耗、用途不符）。
-- `IPasswordResetStore`（Application port）只有 `ResetAsync(tokenHash, passwordHash, nowUtc)`。它只接收 hash 與時間，不接收原始 token 或明文密碼；實作在 Infrastructure（`EfPasswordResetStore`），單一 transaction 內完成消耗 token、更新 users、撤銷 OAuth 憑證（見 [Infrastructure 架構](../../Infrastructure/docs/architecture.md)「忘記密碼 C4」）。
+- `IPasswordResetStore`（Application port）只有 `ResetAsync(tokenHash, passwordHash, nowUtc)`，成功回傳 user id、不可用回傳 null。它只接收 hash 與時間，不接收原始 token 或明文密碼；實作在 Infrastructure（`EfPasswordResetStore`），單一 transaction 內完成消耗 token、更新 users、撤銷 OAuth 憑證（見 [Infrastructure 架構](../../Infrastructure/docs/architecture.md)「忘記密碼 C4」）。
 - `AccountEmailDispatcher` 新增 `PasswordReset` 分支（APP-B12 關閉）：查無帳號不做任何事；有帳號（不論是否已驗證）交給 `PasswordResetService.SendAsync`。這與重寄驗證信不同：重寄只寄給未驗證帳號（D-B），忘記密碼寄給所有註冊帳號。
 - `AccountInputRules.ValidatePassword` 由 private 改為 public，註冊與重設共用同一條 8–40 碼規則。
 - 不變條件（重設成功時）：`auth_version` 加 1，所有舊 Cookie 失效（B2）；`email_verified_at` 為 NULL 時補上，因為能點開重設信即證明擁有信箱；OAuth authorization 與 token 全部撤銷（B3）。
+- 重設成功後寄出「密碼已變更」通知（使用者 2026-11-15 決定，APP-B13 關閉）：`IPasswordResetStore.ResetAsync` 回傳被重設的 user id，`PasswordResetService` 在交易提交**之後**以 `IUserStore.FindByIdAsync` 取得收件地址，寄出 `AccountEmailTemplates.PasswordChanged`（台北時間、所有裝置已登出、MCP 授權已撤銷、非本人操作時改用 `/account/password/forgot`）。通知不含任何 token；寄送失敗只記 log，不影響已提交的重設；使用 `CancellationToken.None`，瀏覽器在提交後離開也照樣寄出。
 - 日誌只含 user id，不含 Email、token、連結或密碼。

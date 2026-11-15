@@ -8,6 +8,7 @@ public static class AccountEmailTemplates
 {
     private const string VerificationSubject = "好想找書 - 請驗證你的 Email";
     private const string PasswordResetSubject = "好想找書 - 重設密碼";
+    private const string PasswordChangedSubject = "好想找書 - 你的密碼已變更";
     private const string IgnoreNotice = "如果不是你本人申請，可以忽略這封信。";
 
     public static EmailMessage EmailVerification(string to, string displayName, string link, TimeSpan validity)
@@ -40,6 +41,21 @@ public static class AccountEmailTemplates
             + $"<p>此連結 {Encode(validityText)} 內有效，只能使用一次。</p>"
             + "<p>" + Encode(IgnoreNotice) + "</p>";
         return new EmailMessage(to, PasswordResetSubject, text, html);
+    }
+
+    // Sent after a reset committed, so the owner learns of a change they did not make. It carries no token: the recovery link is the
+    // public forgot-password page. changedAtText is already formatted in Taipei time by the caller.
+    public static EmailMessage PasswordChanged(string to, string displayName, string changedAtText, string forgotPasswordLink)
+    {
+        var greeting = Greeting(displayName);
+        var changed = $"你的好想找書帳號密碼已於 {changedAtText}（台北時間）重設。所有裝置都已登出，MCP 連線授權也已撤銷，請用新密碼重新登入。";
+        var warning = "如果不是你本人操作，請立即到以下頁面重新設定密碼：";
+        var text = $"{greeting}\n\n{changed}\n\n{warning}\n\n{forgotPasswordLink}\n";
+        var html = "<p>" + Encode(greeting) + "</p>"
+            + "<p>" + Encode(changed) + "</p>"
+            + "<p>" + Encode(warning) + "</p>"
+            + $"<p><a href=\"{Encode(forgotPasswordLink)}\">{Encode(forgotPasswordLink)}</a></p>";
+        return new EmailMessage(to, PasswordChangedSubject, text, html);
     }
 
     // WebUtility leaves apostrophes alone, so they are encoded too; the link can then sit in a quoted attribute whichever quote is used.

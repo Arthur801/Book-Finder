@@ -1,3 +1,4 @@
+using Book_Finder.Application.Common;
 using Book_Finder.Application.Email;
 using Book_Finder.Application.Site;
 using Book_Finder.Domain.Entities;
@@ -11,6 +12,7 @@ namespace Book_Finder.Application.Identity;
 public sealed class PasswordResetService(
     AccountActionTokenService tokens,
     IPasswordResetStore resets,
+    IUserStore users,
     IPasswordHashing passwords,
     IEmailSender sender,
     SiteUrlBuilder links,
@@ -19,6 +21,7 @@ public sealed class PasswordResetService(
     ILogger<PasswordResetService> logger)
 {
     public const string ResetPath = "/account/password/reset";
+    public const string ForgotPath = "/account/password/forgot";
     public const string PasswordMismatchMessage = "兩次輸入的新密碼不一致";
 
     // Called by the dispatcher for a registered account only. A throttled request sends nothing, and a failed send discards the token so
@@ -64,8 +67,33 @@ public sealed class PasswordResetService(
             return new PasswordResetOutcome.InvalidInput(errors);
 
         var hash = passwords.Hash(newPassword!);
-        var reset = await resets.ResetAsync(AccountActionTokenRules.HashOf(rawToken!), hash, time.GetUtcNow().UtcDateTime, cancellationToken);
-        return reset ? new PasswordResetOutcome.Reset() : new PasswordResetOutcome.InvalidLink();
+        var nowUtc = time.GetUtcNow().UtcDateTime;
+        var userId = await resets.ResetAsync(AccountActionTokenRules.HashOf(rawToken!), hash, nowUtc, cancellationToken);
+        if (userId is not { } resetUserId)
+            return new PasswordResetOutcome.InvalidLink();
+
+        await SendChangedNoticeAsync(resetUserId, nowUtc);
+        return new PasswordResetOutcome.Reset();
+    }
+
+    // The reset is already committed, so a notice that cannot be sent is only logged: the new password must keep working either way.
+    // CancellationToken.None, because the browser leaving after the commit must not skip the notice.
+    private async Task SendChangedNoticeAsync(Guid userId, DateTime changedAtUtc)
+    {
+        try
+        {
+            var user = await users.FindByIdAsync(userId, CancellationToken.None);
+            if (user is null)
+                return;
+
+            var message = AccountEmailTemplates.PasswordChanged(
+                user.Email, user.DisplayName, TaipeiTimeZone.FormatMinute(changedAtUtc), links.Build(ForgotPath));
+            await sender.SendAsync(message, CancellationToken.None);
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(exception, "Password changed notice could not be sent for user {UserId}; the reset itself is committed.", userId);
+        }
     }
 }
 

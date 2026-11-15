@@ -10,10 +10,10 @@ namespace Book_Finder.Infrastructure.Identity;
 // The partition is the client address after UseForwardedHeaders, so a proxy does not put every visitor into one bucket.
 public static class AccountRateLimitPolicies
 {
-    // Login, register and the verify POST.
+    // POSTs that check a password or a token: login, register, verify email, reset password and account deletion.
     public const string AccountAuth = "account-auth";
 
-    // Resend verification now, forgot password later (C4).
+    // POSTs that only take an email and queue a mail: resend verification and forgot password.
     public const string AccountEmail = "account-email";
 }
 

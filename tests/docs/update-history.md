@@ -305,3 +305,9 @@ Git 歷史不證明 runtime 或 CI 已通過。
 
 - 驗證（2026-11-15，commit `8934ba4` 之後）：`dotnet build --no-incremental` 0 warning、0 error；`dotnet test tests/UnitTests` 1326 通過；`tests/DatabaseIntegration` 313 通過；`tests/WebIntegration` 522 通過。
 - 指令：`dotnet test tests/UnitTests/UnitTests.csproj`、`dotnet test tests/DatabaseIntegration/DatabaseIntegration.csproj`、`dotnet test tests/WebIntegration/WebIntegration.csproj`；C4 相關的聚焦執行為 `--filter "FullyQualifiedName~PasswordReset|FullyQualifiedName~AccountEmailDispatcher"`（UnitTests 16）、`--filter "FullyQualifiedName~EfPasswordResetStoreTests"`（DatabaseIntegration 7）、`--filter "FullyQualifiedName~PasswordResetFlowTests|FullyQualifiedName~AccountRateLimitTests"`（WebIntegration 20）。
+
+## 會員中心 C4：密碼已變更通知（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | 本次 commit | feat(identity): mail a password-changed notice after a reset (C4) | `UnitTests/AccountEmailTemplatesTests.cs`、`PasswordResetServiceTests.cs`（APP-T36）、`AccountEmailDispatcherTests.cs`；`DatabaseIntegration/EfPasswordResetStoreTests.cs`（斷言改為 user id／null）；`WebIntegration/PasswordResetFlowTests.cs`（重設後收到一封不含 token 的通知） |

@@ -15,7 +15,7 @@ namespace Book_Finder.Infrastructure.Persistence;
 // Any exception leaves the transaction uncommitted, so the token, the password and the credentials all stay as they were.
 internal sealed class EfPasswordResetStore(AppDbContext db, IAccountActionTokenStore tokens, IExternalCredentialRevoker revoker) : IPasswordResetStore
 {
-    public async Task<bool> ResetAsync(string tokenHash, string passwordHash, DateTime nowUtc, CancellationToken cancellationToken)
+    public async Task<Guid?> ResetAsync(string tokenHash, string passwordHash, DateTime nowUtc, CancellationToken cancellationToken)
     {
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
 
@@ -29,14 +29,14 @@ internal sealed class EfPasswordResetStore(AppDbContext db, IAccountActionTokenS
         if (lockedUsers.Count == 0)
         {
             await transaction.RollbackAsync(cancellationToken);
-            return false;
+            return null;
         }
 
         var userId = await tokens.ConsumeAsync(tokenHash, AccountActionTokenPurpose.PasswordReset, nowUtc, cancellationToken);
         if (userId is not { } resetUserId)
         {
             await transaction.RollbackAsync(cancellationToken);
-            return false;
+            return null;
         }
 
         await db.Users
@@ -50,6 +50,6 @@ internal sealed class EfPasswordResetStore(AppDbContext db, IAccountActionTokenS
         await revoker.RevokeAllForUserAsync(resetUserId, cancellationToken);
 
         await transaction.CommitAsync(cancellationToken);
-        return true;
+        return resetUserId;
     }
 }
