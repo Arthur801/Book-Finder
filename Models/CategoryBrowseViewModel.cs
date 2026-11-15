@@ -29,7 +29,7 @@ public sealed record CategoryBrowseViewModel(
         var items = books.Items.Select(BookListItemViewModel.From).ToList();
         var pager = PagerViewModel.For(books.Page, books.TotalPages, page => UrlFor(categorySlug, sourceCode, page));
 
-        // 全部書籍 is the first sidebar entry; its count is the whole Catalog (or the source's books), not a category.
+        // 全部書籍 is the first category grid entry; its count is the whole Catalog (or the source's books), not a category.
         var categories = new List<FilterLinkViewModel>
         {
             new("全部書籍", result.AllBooksCount, UrlFor(null, sourceCode, 1), categorySlug is null),
@@ -83,5 +83,5 @@ public sealed record CategoryBrowseViewModel(
     }
 }
 
-// One link in the sidebar or the source filter. Count is set for categories and 全部書籍 only. IsCurrent marks the selected one.
+// One link in the category grid or the source filter. Count is set for categories and 全部書籍 only. IsCurrent marks the selected one.
 public sealed record FilterLinkViewModel(string Label, int? Count, string Url, bool IsCurrent);

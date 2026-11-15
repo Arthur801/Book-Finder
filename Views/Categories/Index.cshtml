@@ -9,41 +9,23 @@
 
 <div class="category-browser">
     @*
-        One sidebar element for both layouts: inline from lg up, and an offcanvas drawer below lg (Bootstrap handles Escape,
-        the backdrop and focus). Plain links, so the page works with JavaScript disabled.
+        One column, top to bottom: search, H1, the category grid, the source filter, then the results. The search is the shared
+        _SearchForm (GET /search?q=), so it searches the whole Catalog and carries no category or source.
     *@
-    <nav id="category-sidebar" class="offcanvas-lg offcanvas-start category-sidebar" tabindex="-1" aria-labelledby="category-sidebar-title">
-        <div class="offcanvas-header border-bottom">
-            <h2 class="offcanvas-title h5" id="category-sidebar-title">分類</h2>
-            <button type="button" class="btn-close" data-bs-dismiss="offcanvas" data-bs-target="#category-sidebar" aria-label="關閉分類"></button>
-        </div>
-        <div class="offcanvas-body">
-            <partial name="_CategorySidebar" model="Model.Categories" />
-        </div>
-    </nav>
+    <div class="category-search" data-tour="category-search">
+        <partial name="_SearchForm" model="string.Empty" />
+    </div>
 
-    <div class="category-browser-main">
-        <div class="d-flex align-items-center gap-2 mb-3">
-            <button class="btn btn-outline-secondary d-lg-none js-only" type="button" data-bs-toggle="offcanvas" data-bs-target="#category-sidebar" aria-controls="category-sidebar">分類</button>
-            <button id="category-sidebar-toggle" class="btn btn-outline-secondary d-none d-lg-inline-block js-only" type="button" aria-controls="category-sidebar" aria-expanded="true">隱藏分類</button>
-        </div>
+    <h1 class="h3 mb-2">@Model.Heading@if (Model.SourceLabel is { } sourceLabel)
+    {
+        <span class="text-muted small"> · @sourceLabel</span>
+    }</h1>
 
-        @*
-            Without JavaScript the drawer stays hidden below lg, so this list gives the same links there. The two buttons above
-            need JavaScript, so they carry js-only and category-sidebar.js reveals them.
-        *@
-        <noscript>
-            <nav aria-label="分類" class="d-lg-none mb-3">
-                <partial name="_CategorySidebar" model="Model.Categories" />
-            </nav>
-        </noscript>
+    <partial name="_CategoryGrid" model="Model.Categories" />
 
-        <h1 class="h3 mb-2">@Model.Heading@if (Model.SourceLabel is { } sourceLabel)
-        {
-            <span class="text-muted small"> · @sourceLabel</span>
-        }</h1>
-
-        <nav aria-label="來源篩選" class="mb-3">
+    <div class="category-sources mb-3" data-tour="category-sources">
+        <h2 class="h6 mb-2">書籍來源</h2>
+        <nav aria-label="來源篩選">
             <ul class="nav nav-pills flex-wrap gap-1">
                 @foreach (var link in Model.Sources)
                 {
@@ -51,26 +33,22 @@
                 }
             </ul>
         </nav>
-
-        @if (Model.SummaryText is { } summary)
-        {
-            <p class="text-muted small mb-2">@summary</p>
-        }
-
-        @if (Model.HasItems)
-        {
-            <partial name="_BookList" model="Model.Items" />
-
-            ViewData["PagerLabel"] = "分類分頁";
-            <partial name="_Pager" model="Model.Pager" />
-        }
-        else
-        {
-            <p class="text-muted">@Model.EmptyText</p>
-        }
     </div>
-</div>
 
-@section Scripts {
-    <script src="~/js/category-sidebar.js" asp-append-version="true"></script>
-}
+    @if (Model.SummaryText is { } summary)
+    {
+        <p class="text-muted small mb-2">@summary</p>
+    }
+
+    @if (Model.HasItems)
+    {
+        <partial name="_BookList" model="Model.Items" />
+
+        ViewData["PagerLabel"] = "分類分頁";
+        <partial name="_Pager" model="Model.Pager" />
+    }
+    else
+    {
+        <p class="text-muted">@Model.EmptyText</p>
+    }
+</div>
