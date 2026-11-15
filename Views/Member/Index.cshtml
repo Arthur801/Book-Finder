@@ -1,0 +1,40 @@
+@model Book_Finder.Models.MemberPageViewModel
+@*
+    The member center (member-center plan A3). The three sections keep their ids (#library, #ai-history, #account-security): the Library
+    filter links and the job pager point at them. Only library.js is loaded here, because ai.js rewrites the address to /ai.
+*@
+@{
+    ViewData["Title"] = "會員中心";
+}
+
+<section class="mb-4">
+    <h1 class="h3 mb-3">會員中心</h1>
+</section>
+
+<section id="library" class="mb-5" aria-labelledby="library-heading">
+    <h2 id="library-heading" class="h4 mb-3">個人書單</h2>
+    <partial name="_LibraryContent" model="Model.Library" />
+</section>
+
+<section id="ai-history" class="mb-5" aria-labelledby="ai-history-section-heading">
+    <h2 id="ai-history-section-heading" class="h4 mb-3">AI 推薦</h2>
+    <p class="mb-3">今日 AI 搜尋剩餘 @Model.Quota.Remaining / @Model.Quota.Limit 次（台北時間每日 0 點重置）</p>
+
+    @if (Model.JobList is { } jobList)
+    {
+        ViewData["RecommendationJobListHeading"] = "AI 搜尋紀錄";
+        <partial name="_RecommendationJobList" model="jobList" />
+    }
+    else
+    {
+        <p class="text-muted">AI 搜尋紀錄尚未開放</p>
+    }
+</section>
+
+<section id="account-security" class="mb-5" aria-labelledby="account-security-heading">
+    <h2 id="account-security-heading" class="h4 mb-3">帳號安全</h2>
+</section>
+
+@section Scripts {
+    <script src="~/js/library.js" asp-append-version="true"></script>
+}

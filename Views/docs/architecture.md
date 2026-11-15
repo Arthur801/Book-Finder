@@ -15,7 +15,7 @@
 | 搜尋 | SearchController、SearchResultsViewModel、PagerViewModel | query 預填、總數／頁數、結果列由 _BookList 呈現、_Pager；搜尋完全是 local DB |
 | 分類瀏覽 | CategoriesController、CategoryBrowseViewModel、BookListItemViewModel | 側邊欄只有一個元素：Bootstrap 5.3 `offcanvas-lg`，≥lg 是一般欄位、<lg 是抽屜（Escape、遮罩、焦點由 Bootstrap 處理）；桌面可收合（[category-sidebar.js](../../wwwroot/js/category-sidebar.js)，偏好存在 localStorage，讀寫失敗不影響導覽）；需要 JS 的兩個按鈕帶 `js-only`，JS 執行後才顯示；無 JS 時 <lg 以 `<noscript>` 顯示同一份連結；來源篩選是 nav-pills 連結；共用 _BookList、_Pager；樣式在 [category-browser.css](../../wwwroot/css/category-browser.css)，經 Layout 的 `Styles` section 載入 |
 | Book 詳情 | BooksController、BookDetailViewModel | 基本資料／safe 外連；LibrarySection 另外放 ViewData，避免將個人資料塞入 catalog cache |
-| 個人書單 | LibraryController、LibraryPageViewModel | /library 標題加 [_LibraryContent](../Shared/_LibraryContent.cshtml)；partial 含 tabs、每列 _LibraryControls、頁面 token、預先存在的空狀態；tab 連結由 view model 的 base path／fragment 決定 |
+| 會員中心 | MemberController、MemberPageViewModel、LibraryPageViewModel | [Member/Index](../Member/Index.cshtml) 三區塊；書單區塊呈現 [_LibraryContent](../Shared/_LibraryContent.cshtml)（tabs、每列 _LibraryControls、頁面 token、空狀態）；AI 區塊呈現 [_RecommendationJobList](../Shared/_RecommendationJobList.cshtml)；tab 連結由 base path `/account` 與 fragment `#library` 決定；`/library` 不再有 View |
 | 帳號 | AccountController、LoginForm／RegisterForm | server field errors／summary、hidden ReturnUrl/PendingAction；post success redirect |
 | AI 主頁／列表 | AiController、AiHistoryListViewModel | #ai-form／#ai-status／#ai-results；_AiHistoryList 是唯一列表 HTML，fragment 不含 layout |
 | AI 詳情 | AiController、AiHistoryDetailViewModel | 本人紀錄；快照 rank/reason/relevance＋即時 Book 與 difficulty |

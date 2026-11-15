@@ -339,3 +339,13 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter FullyQualifiedNa
 - **When／Then**：見 Application APP-T30 與 Infrastructure INF-T29。DatabaseIntegration 測試每個 user 使用新 id，因此共用容器不需清理。
 - **證據限制**：測試覆蓋服務規則、SQL 行為與並發；未涵蓋 C3、C4 的 controller 與寄信。寄信失敗後舊連結的行為未定義（APP-B09）。
 - **來源與狀態**：[AccountActionTokenServiceTests](../UnitTests/AccountActionTokenServiceTests.cs)、[AccountActionTokenRulesTests](../UnitTests/AccountActionTokenRulesTests.cs)、[AccountActionTokenOptionsTests](../UnitTests/AccountActionTokenOptionsTests.cs)、[EfAccountActionTokenStoreTests](../DatabaseIntegration/EfAccountActionTokenStoreTests.cs)；2026-11-15 本地結果：UnitTests 1180、DatabaseIntegration 289、WebIntegration 448 通過。
+
+## 會員中心 A3：/account、/library 轉址與 Header（TEST-43）
+
+- 風險／狀態：L2；測試實作：Implemented；執行結果見 tests update-history 的 A3 紀錄。
+- Web 測試（`tests/WebIntegration`）：
+  - [MemberPageTests](../WebIntegration/MemberPageTests.cs) 新增 MEM-01 至 MEM-10（見 Controllers `test-suite.md` §7.1）：匿名導向登入、三區塊順序、今日剩餘次數（FAILED 不計）、只列本人 Job、舊 RecommendationSearch 不列、pager 保留 status 與 `#ai-history`、超頁與非數字頁、開關關閉、不載入 ai.js、`/library` 的 302 目標。
+  - [NavbarTests](../WebIntegration/NavbarTests.cs) 的 `Signed_in_header_shows_library_then_name_then_logout_then_mcp_guide` 與 `Signed_out_header_has_no_library_link`：登入後右側排序，沒有 `/library` 連結。
+  - [LayoutAndHomeTests](../WebIntegration/LayoutAndHomeTests.cs)：匿名導覽列沒有「個人書單」。
+  - [LibraryPageTests](../WebIntegration/LibraryPageTests.cs)：頁面斷言改到 `/account`，行為覆蓋不變（篩選、列、空態、控制項、登入連結）；匿名 `/library` 仍導向登入頁。
+- 已知缺口：沒有 Web 測試驗證 `/account` 的瀏覽器 JS 行為（書單 CRUD 在新頁面的 DOM 操作）；本次只以 HTML 驗證。

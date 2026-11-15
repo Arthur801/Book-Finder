@@ -121,13 +121,13 @@ PIPE-03／PIPE-06 證據分層（均未在本次執行）：[AuthPipelineTests](
 
 AUTH-03 的 cookie 屬性與 max-age 證據為 [AuthCookieTests](../../tests/UnitTests/AuthCookieTests.cs)；登入／後續 protected request 另查 [AccountPagesTests](../../tests/WebIntegration/AccountPagesTests.cs) 與 AuthPipelineTests。AUTH-09 的 [PendingLibraryActionTests](../../tests/WebIntegration/PendingLibraryActionTests.cs) 驗證 Book 不存在／store 拋例外仍有 Set-Cookie 與 redirect；[LibraryServiceTests](../../tests/UnitTests/LibraryServiceTests.cs) 使用 NullLogger，未驗 Warning／敏感內容。後續須用 recording logger 補 Warning level 與敏感資料排除斷言。
 
-## 7. LibraryController 與 LibraryApiController
+## 7. MemberController 與 LibraryApiController
 
-依據：user-library §2–5、API §4。入口：`LibraryPageTests.cs`、`LibraryApiTests.cs`；PATCH pure cases 在 `LibraryPatchParserTests.cs`。
+依據：user-library §2–5、API §4、member-center plan A3。入口：`LibraryPageTests.cs`、`MemberPageTests.cs`、`LibraryApiTests.cs`；PATCH pure cases 在 `LibraryPatchParserTests.cs`。
 
 | ID / 狀態 | Given / When | Then |
 |---|---|---|
-| LIB-01／已有測試 | A、B 各有 Entry；GET `/library` | 只有 A 資料，updated_at 新到舊、不分頁；空時有「還沒有加入任何書」與書庫連結（`/books`）。 |
+| LIB-01／已有測試 | A、B 各有 Entry；GET `/account` | 只有 A 資料，updated_at 新到舊、不分頁；空時有「還沒有加入任何書」與書庫連結（`/books`）。 |
 | LIB-02／已有測試 | status 缺少／未知／三個有效大寫代碼 | 缺少與未知看全部；有效代碼只顯示相應狀態，tab active 正確；edit login URL 保留 filter query。 |
 | LIB-03／已有測試 | A 對存在 B1 PUT，無 body | 200 Entry shape：bookId、readingStatus、rating、addedAt、updatedAt；預設 WANT_TO_READ／null；時間 +08:00；DB 一筆。 |
 | LIB-04／已有測試 | A 的 B1 已 READING／rating 4；重複 PUT | 200 同一 Entry；不改狀態、評分、addedAt／updatedAt，不新增 duplicate。 |
@@ -142,6 +142,23 @@ AUTH-03 的 cookie 屬性與 max-age 證據為 [AuthCookieTests](../../tests/Uni
 | LIB-13／已有測試 | PATCH bad、A 無 Entry、只有 B 有 Entry | 404；B 的 Entry 內容完全不變；使用者只來自 JWT。 |
 | LIB-14／已有測試 | A DELETE 已有 Entry，再 DELETE 一次；另測 bad／U／僅 B 有 Entry | 每次 204、body 空；A 的 Entry 與 rating 消失；bad 不碰 store，B 資料保留。 |
 | LIB-15／已有測試 | PUT／PATCH／DELETE 分別移除登入或 CSRF | 無登入 401；已登入缺 CSRF 400；無 DB 變化，不能用 DELETE 冪等語意繞過 Authorize。 |
+
+### 7.1 會員中心 A3（MEM 案例）
+
+依據：member-center plan A3。入口：`MemberPageTests.cs`；導覽列由 `NavbarTests.cs` 與 `LayoutAndHomeTests.cs` 驗證。
+
+| ID / 狀態 | Given / When | Then |
+|---|---|---|
+| MEM-01／已有測試 | 匿名 GET `/account` | 302 至 `/account/login?returnUrl=%2Faccount`。 |
+| MEM-02／已有測試 | 已登入 GET `/account` | 區塊依 `#library`、`#ai-history`、`#account-security` 排序；只載入 `library.js`，不載入 `ai.js`。 |
+| MEM-03／已有測試 | 今日 2 筆非 FAILED Job、1 筆 FAILED | 顯示「今日 AI 搜尋剩餘 18 / 20 次」；FAILED 不計入。 |
+| MEM-04／已有測試 | 兩位使用者各有 Job，本人另有舊 RecommendationSearch | 只列本人 Job，標題「AI 搜尋紀錄」；舊搜尋不出現，無 `/ai/history/` 連結（U-03）。 |
+| MEM-05／已有測試 | 21 筆 Job，GET `/account?status=READING` | pager 下一頁連結為 `/account?status=READING&jobsPage=2#ai-history`。 |
+| MEM-06／已有測試 | `jobsPage=99` 與 `jobsPage=abc` | 99 顯示最後一頁（最舊一筆），abc 顯示第 1 頁；皆 200。 |
+| MEM-07／已有測試 | 開關關閉 GET `/account` | 顯示「AI 搜尋紀錄尚未開放」，沒有 `id="ai-jobs"`。 |
+| MEM-08／已有測試 | `/library?status=READING`、`/library?status=bogus`、`/library` | 302 至 `/account?status=READING#library`、`/account#library`、`/account#library`；匿名 `/library?status=READING` 先到 `returnUrl=%2Flibrary%3Fstatus%3DREADING`。 |
+| MEM-09／已有測試 | 登入後 GET `/`；匿名 GET `/` | 登入：右側依序 `/account#library`「個人書單」、`/account` 名稱、登出、`/mcp-guide`；左側無「個人書單」；頁面無 `href="/library"`。匿名：無個人書單、無 `/account` 連結。 |
+| MEM-10／已有測試 | 書單篩選 `status=READING` | 篩選分頁連結為 `/account?status=READING#library`，控制項登入連結 `returnUrl=%2Faccount%3Fstatus%3DREADING`（`LibraryPageTests`）。 |
 
 ## 8. RecommendationsController
 

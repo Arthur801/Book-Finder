@@ -17,7 +17,7 @@
 | 搜尋與書籍公開內容 | [book-catalog.md](../../Docs/modules/book-catalog.md) | `SearchController`、`BooksController` |
 | 書庫與首頁樣本 | [book-catalog.md](../../Docs/modules/book-catalog.md) §3；榜單 Web 已不顯示，見 [bestseller.md](../../Docs/modules/bestseller.md) | `BooksController.Index`、`HomeController`、`BestsellersController`（301 至 `/books`） |
 | 分類瀏覽 | [分類計畫](../../Docs/plans/canonical-category-browse.md) §4.2、§4.3 | `CategoriesController.Index`（`GET /categories`，匿名） |
-| 書單隔離與更新語意 | [user-library.md](../../Docs/modules/user-library.md) | `LibraryController`、`LibraryApiController` |
+| 書單隔離與更新語意 | [user-library.md](../../Docs/modules/user-library.md) | `MemberController`（/account 的書單區塊）、`LibraryApiController` |
 | 推薦、額度、歷史與 difficulty | [recommendation.md](../../Docs/modules/recommendation.md) | `RecommendationsController`、`AiController` |
 | 全域不可洩漏內容 | [product-requirements.md，BOOK-05](../../Docs/requirements/product-requirements.md) | ViewModel / response 欄位白名單 |
 | 測試證據與執行層級 | [test-plan.md](../../Docs/testing/test-plan.md) | `tests/UnitTests`、`tests/WebIntegration`、`tests/DatabaseIntegration` |
@@ -60,7 +60,8 @@ Controller 不寫 SQL、不直接呼叫 OpenAI／Google Books、不持有推薦�
 | OAuth.Authorize | GET、POST `/oauth/authorize` | 讀 `bf_auth`；未登入導向 `/account/login?returnUrl=` | OpenIddict passthrough（MCP-201b）：GET 顯示 consent 或依 permanent authorization 直接核准；POST 為 consent 表單（antiforgery）；session 已結束的匿名 POST 由 [ConsentSessionEndedRedirect](../ConsentSessionEndedRedirectAttribute.cs) 在 antiforgery 之前導回登入頁（同一個 authorize request）；只用 OpenIddict scheme SignIn／Forbid；`Mcp:Enabled = false` 時 404 |
 | OAuth.Token | POST `/oauth/token` | 否（`[IgnoreAntiforgeryToken]`，public client + PKCE） | code／refresh_token grant；確認使用者仍存在後 SignIn；其他 grant `unsupported_grant_type` |
 | McpGuide.Index | GET `/mcp-guide` | 否 | 不讀資料、不依賴任何 service → 靜態 View（MCP 操作手冊）；不在 `/mcp` 底下，MCP 閘門不處理，`Mcp:Enabled` 開關不影響 |
-| Library.Index | GET `/library` | 是 | `LibraryService.ListAsync` → 書單 View |
+| Member.Index | GET `/account` | 是 | `LibraryService.ListAsync`、`RecommendationQuotaReader`、`RecommendationJobListLoader`（開關開啟時）→ `MemberPageViewModel` / View；`status`、`jobsPage` 參數 |
+| Member.LibraryRedirect | GET `/library` | 是 | 不讀資料；`LocalRedirect` 302 至 `/account?status={CODE}#library`（合法 status 才保留），否則 `/account#library` |
 | LibraryApi.Add | PUT `/api/library/{bookId}` | 是 | `LibraryService.AddAsync`、`ProblemDetailsFactory` → 200 / 404 |
 | LibraryApi.Update | PATCH `/api/library/{bookId}` | 是 | JSON reader、`LibraryPatchParser`、`LibraryService.UpdateAsync` → 200 / 400 / 404 |
 | LibraryApi.Remove | DELETE `/api/library/{bookId}` | 是 | `LibraryService.RemoveAsync` → 204 |

@@ -266,3 +266,9 @@ Git 歷史不證明 runtime 或 CI 已通過。
 修正說明：B1 的計數測試原本計算整張表中該用途的列數。C2 的整合測試會 commit token 列，導致該計數在完整套件中失敗（單獨執行時通過）。改為只計本測試 user 的列，斷言內容不變。
 
 驗證（2026-11-15）：UnitTests 1180 通過；DatabaseIntegration 289 通過；WebIntegration 448 通過。
+
+## 會員中心 A3：/account、/library 轉址與 Header（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | 本分支 feat commit | feat(member): member center at /account, /library redirect and header (A3) | `WebIntegration/MemberPageTests.cs`（新增）；`WebIntegration/LibraryPageTests.cs`（頁面斷言改為 `/account`）；`WebIntegration/NavbarTests.cs`、`WebIntegration/LayoutAndHomeTests.cs`（header 斷言改為登入後排列與無 `/library`） | TEST-43 |

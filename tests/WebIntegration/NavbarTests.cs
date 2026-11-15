@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Mvc.Testing;
 using static WebIntegration.HtmlPage;
 
@@ -86,6 +87,39 @@ public sealed class NavbarTests(WebFixture fixture)
         Assert.Contains(LoginLink, html);
         Assert.Contains(RegisterLink, html);
         Assert.DoesNotContain(LogoutAction, html);
+    }
+
+    [Fact]
+    public async Task Signed_in_header_shows_library_then_name_then_logout_then_mcp_guide()
+    {
+        await fixture.ResetDatabaseAsync();
+        await using var app = fixture.CreateFactory();
+        var client = app.CreateClient(ClientOptions);
+        await SignUpAsync(client, "navbar-order@x.com", "排序");
+
+        var html = await client.GetPageAsync("/");
+
+        // Razor adds scoped-CSS attributes (b-…) to the navbar items, so the links are matched by pattern.
+        var library = Regex.Match(html, "<a [^>]*href=\"/account#library\"[^>]*>個人書單</a>");
+        var name = Regex.Match(html, "<a [^>]*href=\"/account\"[^>]*>排序</a>");
+        var mcp = Regex.Match(html, "<a [^>]*href=\"/mcp-guide\"[^>]*>MCP 說明</a>");
+        var logout = html.IndexOf(LogoutAction, StringComparison.Ordinal);
+        Assert.True(library.Success && name.Success && logout >= 0 && mcp.Success, "A header link is missing.");
+        Assert.True(library.Index < name.Index && name.Index < logout && logout < mcp.Index, "The header links are out of order.");
+        Assert.DoesNotContain("href=\"/library\"", html);
+    }
+
+    [Fact]
+    public async Task Signed_out_header_has_no_library_link()
+    {
+        await fixture.ResetDatabaseAsync();
+        await using var app = fixture.CreateFactory();
+
+        var html = await app.CreateClient(ClientOptions).GetPageAsync("/");
+
+        Assert.DoesNotContain("href=\"/library\"", html);
+        Assert.DoesNotContain("href=\"/account#library\"", html);
+        Assert.DoesNotContain("href=\"/account\"", html);
     }
 
     [Fact]

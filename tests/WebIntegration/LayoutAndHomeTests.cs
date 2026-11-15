@@ -20,7 +20,7 @@ public sealed class LayoutAndHomeTests(WebFixture fixture)
         Assert.Matches("<a [^>]*href=\"/books\"[^>]*>書庫</a>", html);
         Assert.DoesNotContain("href=\"/bestsellers\"", html);
         Assert.Matches("<a [^>]*href=\"/ai\"[^>]*>AI 推薦</a>", html);
-        Assert.Matches("<a [^>]*href=\"/library\"[^>]*>個人書單</a>", html);
+        Assert.DoesNotContain("href=\"/library\"", html);
         Assert.Matches("<a [^>]*href=\"/account/login\"[^>]*>登入</a>", html);
         Assert.Matches("<a [^>]*href=\"/account/register\"[^>]*>註冊</a>", html);
     }
