@@ -69,7 +69,8 @@ public static class AccountInputRules
         return new EmailAddressAttribute().IsValid(normalizedEmail) ? null : "email 格式不正確";
     }
 
-    private static string? ValidatePassword(string? password)
+    // The 8–40 rule shared by registration and the reset form (plan C4). Null when the password is acceptable.
+    public static string? ValidatePassword(string? password)
     {
         if (string.IsNullOrEmpty(password))
             return "請輸入密碼";

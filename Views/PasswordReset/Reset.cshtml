@@ -1,0 +1,29 @@
+@model Book_Finder.Models.PasswordResetForm
+@{
+    ViewData["Title"] = "重設密碼";
+}
+
+<section class="col-12 col-md-6 col-lg-4 mx-auto">
+    <h1 class="h3 mb-3">重設密碼</h1>
+    <p>請設定新密碼（8～40 碼）。送出後，所有已登入的裝置都需要重新登入。</p>
+
+    <form method="post" action="/account/password/reset">
+        <div asp-validation-summary="ModelOnly" class="alert alert-danger py-2"></div>
+        @Html.AntiForgeryToken()
+        <input type="hidden" asp-for="Token" />
+
+        <div class="mb-3">
+            <label class="form-label" for="NewPassword">新密碼</label>
+            <input asp-for="NewPassword" type="password" autocomplete="new-password" class="form-control" />
+            <span asp-validation-for="NewPassword" class="text-danger small"></span>
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label" for="ConfirmPassword">確認新密碼</label>
+            <input asp-for="ConfirmPassword" type="password" autocomplete="new-password" class="form-control" />
+            <span asp-validation-for="ConfirmPassword" class="text-danger small"></span>
+        </div>
+
+        <button class="btn btn-primary" type="submit">設定新密碼</button>
+    </form>
+</section>
