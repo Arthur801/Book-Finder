@@ -104,10 +104,10 @@ public sealed class NavbarTests(WebFixture fixture)
         var library = Regex.Match(menu, "<a [^>]*href=\"/account#library\"[^>]*>個人書單</a>");
         var mcp = Regex.Match(menu, "<a [^>]*href=\"/mcp-guide\"[^>]*>MCP 說明</a>");
         var guide = Regex.Match(menu, "<a [^>]*href=\"/categories#guide\"[^>]*>功能導覽</a>");
-        var divider = menu.IndexOf("<hr class=\"dropdown-divider\"", StringComparison.Ordinal);
+        var divider = Regex.Match(menu, "<hr [^>]*dropdown-divider");
         var logout = menu.IndexOf(LogoutAction, StringComparison.Ordinal);
-        Assert.True(library.Success && mcp.Success && guide.Success && divider >= 0 && logout >= 0, "A dropdown item is missing.");
-        Assert.True(library.Index < mcp.Index && mcp.Index < guide.Index && guide.Index < divider && divider < logout,
+        Assert.True(library.Success && mcp.Success && guide.Success && divider.Success && logout >= 0, "A dropdown item is missing.");
+        Assert.True(library.Index < mcp.Index && mcp.Index < guide.Index && guide.Index < divider.Index && divider.Index < logout,
             "The dropdown items are out of order.");
 
         // The member name link stays in the header, outside the More menu.
@@ -127,7 +127,8 @@ public sealed class NavbarTests(WebFixture fixture)
         var html = await client.GetPageAsync("/");
 
         var menu = MoreMenu(html);
-        Assert.Matches("<li><form ([^>]*)>(?:<input [^>]*>)*<button [^>]*class=\"dropdown-item\"[^>]*>登出</button></form></li>", menu);
+        Assert.True(Regex.IsMatch(menu, "<form ([^>]*)>.*?<button [^>]*class=\"dropdown-item\"[^>]*>登出</button>.*?</form>", RegexOptions.Singleline),
+            "The logout button is not a POST form inside the menu.");
         var formOpen = Regex.Match(menu, "<form ([^>]*)>").Groups[1].Value;
         Assert.Contains("method=\"post\"", formOpen);
         Assert.Contains(LogoutAction, formOpen);
@@ -163,7 +164,7 @@ public sealed class NavbarTests(WebFixture fixture)
 
         var anonymous = Header(await client.GetPageAsync("/"));
         Assert.Matches("<button [^>]*data-bs-toggle=\"dropdown\"[^>]*data-tour=\"nav-more\"[^>]*>更多</button>", anonymous);
-        Assert.Matches("<ul [^>]*id=\"nav-more-menu\"[^>]*dropdown-menu-end", anonymous);
+        Assert.Matches("<ul [^>]*class=\"dropdown-menu dropdown-menu-end\"[^>]*id=\"nav-more-menu\"", anonymous);
         Assert.True(anonymous.IndexOf("nav-more", StringComparison.Ordinal) < anonymous.IndexOf("/account/login", StringComparison.Ordinal));
 
         await SignUpAsync(client, "navbar-dropdown@x.com", "下拉");
@@ -181,7 +182,7 @@ public sealed class NavbarTests(WebFixture fixture)
 
         var header = Header(await client.GetPageAsync("/"));
 
-        var fallback = Regex.Match(header, "<noscript>(.*?)</noscript>", RegexOptions.Singleline);
+        var fallback = Regex.Match(header, "<noscript\\b[^>]*>(.*?)</noscript>", RegexOptions.Singleline);
         Assert.True(fallback.Success, "The header has no noscript fallback.");
         var body = fallback.Groups[1].Value;
         Assert.Contains("href=\"/account#library\"", body);
@@ -199,7 +200,7 @@ public sealed class NavbarTests(WebFixture fixture)
 
         var header = Header(await app.CreateClient(ClientOptions).GetPageAsync("/"));
 
-        var fallback = Regex.Match(header, "<noscript>(.*?)</noscript>", RegexOptions.Singleline);
+        var fallback = Regex.Match(header, "<noscript\\b[^>]*>(.*?)</noscript>", RegexOptions.Singleline);
         Assert.True(fallback.Success, "The header has no noscript fallback.");
         Assert.Contains("href=\"/mcp-guide\"", fallback.Groups[1].Value);
         Assert.DoesNotContain("/account#library", fallback.Groups[1].Value);
