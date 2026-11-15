@@ -68,3 +68,12 @@ git show 66ecf55 f0e1f0f b2c72a0 -- wwwroot/js
 | 提交 | Subject | 影響 |
 |---|---|---|
 | 本 PR | feat(mcp): public MCP guide page linked from the navbar | `css/site.css`：`.mcp-guide` 限制內文寬度（52rem） |
+
+## 首次造訪導覽 P4（新增紀錄）
+
+| 提交 | Subject | 影響 |
+|---|---|---|
+| `3ba0acb` | feat(onboarding): guided first-visit tour on categories | 新增 `js/onboarding.js`、`css/onboarding.css`；Layout 載入兩者（`Views/Shared`） |
+| 本 commit | docs: record the first-visit tour in folder docs | 本目錄五份文件同步；未改程式 |
+
+驗證（2026-11-15）：`node --check wwwroot/js/onboarding.js` 通過；禁止呼叫的靜態搜尋無匹配。瀏覽器行為未執行，見 WB-04。

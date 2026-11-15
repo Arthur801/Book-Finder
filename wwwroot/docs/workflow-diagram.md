@@ -126,3 +126,29 @@ flowchart TD
   POLL -->|否| PAUSE[停止，回到前景立刻查一次]
   GET -->|SUCCEEDED 或 FAILED| RELOAD[重新載入，由伺服器輸出最終狀態]
 ```
+
+## 首次造訪導覽（P4）
+
+```mermaid
+flowchart TD
+    A[頁面載入 onboarding.js] --> B{有 #onboarding?}
+    B -->|否| Z[不做任何事]
+    B -->|是| C{/categories 且 hash 為 #guide?}
+    C -->|是| D[移除 hash 保留 query，開始 Spotlight]
+    C -->|否| E{autostart 為 true 且無儲存狀態?}
+    E -->|否| Z
+    E -->|是| F[顯示歡迎卡]
+    F -->|開始，在 /categories| D
+    F -->|開始，其他頁| G[location.assign /categories#guide]
+    F -->|跳過| H[寫入 skipped]
+    D -->|Escape 或跳過| H2[寫入 skipped，不覆寫 completed]
+    D -->|完成| I[寫入 completed，焦點到搜尋框]
+    D -->|定位| J{錨點可見?}
+    J -->|是| K[spotlight 與卡片定位]
+    J -->|窄螢幕且在收合 navbar| L[Collapse.show，shown 後定位，離開時 hide]
+    J -->|否| M[中央卡片]
+```
+
+- 滾動、縮放與 navbar 展開都透過 `requestAnimationFrame` 節流後呼叫同一個定位函式。
+- 只有 `#onboarding` 存在時才啟動；初始化例外會退回為隱藏狀態。
+- 瀏覽器端流程尚未執行，見 [backlog](backlog.md) WB-04。

@@ -134,3 +134,9 @@ site.js 目前只有模板註解，沒有待實作商業功能；不把它列缺
 ## WT-14
 
 推薦工作的前端（Job 計畫 M7）。`node --check` 通過（`ai.js`、`ai-job.js`）；伺服器端輸出的 data 屬性與頁面由 WebIntegration 驗證（Controllers JOB-02）。**JS 行為（送出、key 沿用、輪詢、重新載入）尚未在瀏覽器執行**，TEST-B03 網站 E2E 仍暫緩；上線前需要一次本機瀏覽器檢查（Job 計畫 M8）。
+
+## WT-15 — 首次導覽的靜態檢查（P4）
+
+- 狀態：`node --check wwwroot/js/onboarding.js` 通過；`grep` 檢查 `fetch(`、`XMLHttpRequest`、`.submit(`、`.click(` 沒有匹配（ONB-11 靜態證據）。WebIntegration 另由 `OnboardingTests` 檢查 `/js/onboarding.js` 以 defer 載入、`/css/onboarding.css` 已連結、導覽區塊沒有 `<form>`（見 [Views VIEW-T29](../../Views/docs/test-suite.md)）。
+- 未執行：瀏覽器中 spotlight 定位、Bootstrap 收合、焦點陷阱、Escape、reduced motion、localStorage 失敗與 hash 清理（plan §8 ONB-01～ONB-09）。網站 E2E 仍明確暫緩；一次性本機瀏覽器驗收見 [backlog](backlog.md) WB-04。
+- Given：`onboarding.js` 原始碼；When 執行 `node --check` 並搜尋禁止的呼叫；Then 語法有效，且沒有網路、表單或頁面點擊呼叫。

@@ -166,3 +166,15 @@ git show 894883b -- Views
 驗證（2026-11-15，`c6a83bb` 之後）：`dotnet build --no-incremental` 0 warning、0 error；`dotnet test tests/WebIntegration --filter "FullyQualifiedName~CategoryPageTests|FullyQualifiedName~SearchPageTests"` 57 通過、0 失敗；`dotnet test tests/UnitTests` 1330 通過、0 失敗。未執行：瀏覽器版面與 JS 停用時的點選（見 VIEW-T27）。
 
 行為變更：`/categories` 不再有側欄、抽屜、收合按鈕與 `<noscript>` 清單；新增頁首搜尋（`GET /search?q=`）；分類連結、數量、`aria-current`、來源、分頁、404 與超頁轉址契約不變。瀏覽器 localStorage 裡的舊 key `bookfinder.categorySidebarCollapsed` 不再被讀取，留著無害。
+
+## 首次造訪導覽 P4（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | `e7797a4` | test(onboarding): expect the first-visit tour markup on public pages | 目錄外：`tests/WebIntegration/OnboardingTests.cs`（新增）。先寫測試；此 commit 單獨檢出時 14 案例為紅燈，屬 TDD 中間狀態 |
+| 2026-11-15 | `3ba0acb` | feat(onboarding): guided first-visit tour on categories | `Shared/_Onboarding.cshtml`（新增）；`Shared/_Layout.cshtml`（autostart 規則、載入 css／js、render partial）；目錄外：`wwwroot/js/onboarding.js`、`wwwroot/css/onboarding.css`（新增） |
+| 2026-11-15 | 本 commit | docs: record the first-visit tour in folder docs | 本目錄五份文件；`wwwroot/docs` 同步 |
+
+使用者可見行為：白名單公開頁首次造訪顯示歡迎卡，可跳過或開始；開始後在 `/categories` 依序說明搜尋、分類、來源、AI 推薦與「更多」。跳過或完成後不再自動出現，「更多 → 功能導覽」可重新觀看。登入、註冊、驗證、重設、OAuth 與錯誤頁不自動顯示。
+
+驗證（2026-11-15，`3ba0acb` 之後）：`dotnet build --no-incremental` 0 warning、0 error；`dotnet test tests/WebIntegration` 545 案例中 544 通過、1 失敗（`CategoryPageTests.Page_has_no_sidebar_drawer_toggle_or_noscript_list_and_no_sidebar_script`，失敗原因為 P1 `f4ccdc4` 已在 Layout 加入的 navbar `<noscript>`，與本次變更無關，見 VIEW-B10）；`dotnet test tests/UnitTests` 1330 通過、0 失敗；`node --check wwwroot/js/onboarding.js` 通過。瀏覽器行為未執行，見 VIEW-B09。
