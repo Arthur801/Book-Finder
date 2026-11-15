@@ -127,6 +127,17 @@ public sealed class RecommendationJobServiceTests
     }
 
     [Fact]
+    public async Task A_user_gone_outcome_maps_to_the_user_not_found_case()
+    {
+        var h = Build();
+        h.Store.SubmitResult = new JobSubmitOutcome.UserNotFound();
+
+        var result = await h.Service.SubmitAsync(UserId, Requirement, null, CancellationToken.None);
+
+        Assert.IsType<RecommendationJobSubmission.UserNotFound>(result);
+    }
+
+    [Fact]
     public async Task A_daily_limit_outcome_maps_to_the_limit_case()
     {
         var h = Build();

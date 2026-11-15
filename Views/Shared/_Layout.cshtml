@@ -49,6 +49,10 @@
     </header>
     <div class="container">
         <main role="main" class="pb-3">
+            @if (TempData["Notice"] is string notice)
+            {
+                <div class="alert alert-success mt-3" role="status">@notice</div>
+            }
             @RenderBody()
         </main>
     </div>

@@ -108,3 +108,11 @@ git show 894883b -- Views
 | Author 日期 | SHA | subject | 本目錄實際改動檔案 |
 |---|---|---|---|
 | 2026-11-15 | 本分支 feat commit | feat(member): member center at /account, /library redirect and header (A3) | `Member/Index.cshtml`（新增：會員中心三區塊）；`Shared/_Layout.cshtml`：左側移除「個人書單」，登入後右側加「個人書單」與名稱連結；`Library/Index.cshtml` 刪除；`Shared/_LibraryContent.cshtml` 註解更新 |
+
+## 會員中心 D1：帳號刪除頁與一次性通知（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | 本分支 feat commit | feat(member): account deletion with password and confirmation (D1) | `AccountDeletion/Index.cshtml`（新增）；`Member/Index.cshtml`（帳號安全區塊加連結）；`Shared/_Layout.cshtml`（`TempData["Notice"]`） |
+
+使用者可見行為：會員中心可進入刪除帳號；刪除後首頁顯示一次「帳號已刪除」。

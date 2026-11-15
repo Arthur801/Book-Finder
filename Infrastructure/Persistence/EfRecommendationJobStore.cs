@@ -15,7 +15,14 @@ internal sealed class EfRecommendationJobStore(AppDbContext db, IRecommendationU
         // WHY the lock comes first: it serialises this user's submits. Two submits with the same key cannot both miss the
         // idempotency lookup, and the quota count below cannot be overshot by submits that run at the same time.
         // The lock is on the users row because the user is the unit the quota belongs to.
-        await db.Database.SqlQuery<Guid>($"SELECT id FROM users WHERE id = {job.UserId} FOR UPDATE").ToListAsync(cancellationToken);
+        // WHY the row count is checked: a deletion that held the lock first has removed the user, and this query then returns nothing.
+        // The insert below would fail on the foreign key, so the submit stops here instead (member-center plan D1).
+        var locked = await db.Database.SqlQuery<Guid>($"SELECT id FROM users WHERE id = {job.UserId} FOR UPDATE").ToListAsync(cancellationToken);
+        if (locked.Count == 0)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return new JobSubmitOutcome.UserNotFound();
+        }
 
         // WHY idempotency comes before the quota: a retry of a submit that was already accepted must get the same answer,
         // even when the user has since reached the limit. A retry never gets 429 and never uses a second slot.

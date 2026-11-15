@@ -94,3 +94,11 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter 'FullyQualifiedN
 - Given：已登入使用者，含書單、今日 Job、超過一頁的 Job、開關開啟或關閉。
 - When：GET `/account`（含 `status`、`jobsPage`）、GET `/library`（含或不含 `status`）。
 - Then：三個區塊依序為 `#library`、`#ai-history`、`#account-security`；今日剩餘次數正確；Job 列表只含本人並標題「AI 搜尋紀錄」，超頁顯示最後一頁，pager 保留 `status` 並以 `#ai-history` 結尾；開關關閉顯示「尚未開放」；只載入 `library.js`；`/library` 依合法 status 302 至 `/account?status=…#library` 或 `/account#library`；導覽列依 VIEW-T01 的 header 規則排列。
+
+
+## 會員中心 D1：帳號刪除頁（DEL-03、DEL-09）
+
+- 確認頁內容與欄位：`AccountDeletionTests.Confirmation_page_says_what_is_deleted_and_that_it_cannot_be_undone`。
+- 會員中心連結：`AccountDeletionTests.The_member_page_links_to_the_deletion_page_in_the_account_security_section`。
+- 首頁一次性通知：`AccountDeletionTests.Correct_password_deletes_the_account_clears_the_cookie_and_shows_the_notice_once_on_the_home_page`。
+- 未涵蓋：瀏覽器內的 checkbox 行為與錯誤後的焦點位置（需要瀏覽器測試，目前沒有）。
