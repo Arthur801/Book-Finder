@@ -87,7 +87,7 @@ flowchart TD
   REG[RegisterAsync] --> RULE[AccountInputRules 驗證與trim]
   RULE --> VALID{有效}
   VALID -->|否| ERROR[InvalidInput；不寫入]
-  VALID -->|是| HASH[Hash密碼；v7 ID；UTC時間]
+  VALID -->|是| HASH[Hash密碼；v7 ID；UTC時間；EmailVerifiedAt=now；AuthVersion=0]
   HASH --> ADD[IUserStore.AddAsync]
   ADD --> DUP{DuplicateEmail}
   DUP -->|是| EMAIL[email欄位錯誤]

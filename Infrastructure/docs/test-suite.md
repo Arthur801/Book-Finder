@@ -255,3 +255,16 @@ dotnet test tests/WebIntegration/WebIntegration.csproj
 - mutation（主 agent）：拿掉 heartbeat 被拒時的 `leaseLost.Cancel()` → `A_refused_heartbeat_cancels_the_running_job_and_nothing_is_written` 失敗，已還原。
 - 入口：[RecommendationJobWorkerTests](../../tests/UnitTests/RecommendationJobWorkerTests.cs)。
 
+
+## INF-T25 — 帳號驗證 schema、migration 與 compat seed（B1）
+
+- 責任／風險／狀態：EF schema 與 expand migration，L3，已有測試；2026-11-15 DatabaseIntegration 276 項通過。
+- Given：共用 PostgreSQL fixture（已套到 head）；migration 測試使用 `MigrationServer` 的獨立資料庫。
+- When／Then：
+  - 欄位型別與 nullability：`email_verified_at` timestamptz NULL；`auth_version` integer NOT NULL 預設 0；`account_action_tokens` 的欄位、`purpose varchar(32)`、`token_hash char(64)`；
+  - 舊 release 的 INSERT（不含新欄位）得到 `auth_version = 0`、`email_verified_at IS NULL`；
+  - CHECK：purpose 只接受兩個詞彙（大小寫與空字串拒絕）；token_hash 非小寫 hex、長度不足或含非 hex 字元拒絕；UNIQUE：重複 token_hash 回 23505；FK：未知 user 回 23503；刪除 user 只刪自己的 token；
+  - index `(user_id, purpose, created_at)` 存在；EF 寫入的 purpose 以 `PASSWORD_RESET` 儲存並讀回 enum；
+  - Up 從 AddOpenIddict 升級時，既有 users 的 `email_verified_at = created_at`；只新增 `account_action_tokens` 與兩個 users 欄位；Down 只移除這些；
+  - EfUserStore 寫入與讀回 `EmailVerifiedAt`、`AuthVersion`（有值與 NULL／0 兩種）。
+- 入口：[AccountActionTokenSchemaTests](../../tests/DatabaseIntegration/AccountActionTokenSchemaTests.cs)（含 `AccountActionTokenMigrationTests`）、[EfUserStoreTests](../../tests/DatabaseIntegration/EfUserStoreTests.cs)、[OpenIddictSchemaTests](../../tests/DatabaseIntegration/OpenIddictSchemaTests.cs)（`AddOpenIddict_creates_only_the_four_openiddict_tables` 改為固定 target 為 AddOpenIddict，避免之後的 migration 讓它失效）。

@@ -183,3 +183,11 @@ git show --format= --numstat <sha> -- Application ':(exclude)Application/docs'
 | `0d3b3ac` | feat(rec-jobs): add the job runner with its outcome table | 新增 `Recommendation/RecommendationJobRunner.cs` |
 | `c0ac2f6` | fix(rec-jobs): log the exception when a job fails with INTERNAL_ERROR | `RecommendationJobRunner.cs`：主 agent 驗收時修正，INTERNAL_ERROR 的 log 帶上例外 |
 | `48b2edd` | feat(mcp): OAuth authorize, consent and token endpoints (MCP-201b) | `Identity/IUserStore.cs`：新增 `FindByIdAsync`（token endpoint 確認使用者仍存在） |
+
+## 帳號驗證 B1（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | `a7ec1b2` | feat(identity): add email verification columns and account action tokens (B1) | `Identity/AccountService.cs`（RegisterAsync 寫入 `EmailVerifiedAt = now`、`AuthVersion = 0`）；`tests/UnitTests/AccountServiceTests.cs`（斷言擴充） |
+
+驗證（2026-11-15）：UnitTests 1143 通過。行為變更：註冊後立即驗證，與目前行為相同；登入流程未改。

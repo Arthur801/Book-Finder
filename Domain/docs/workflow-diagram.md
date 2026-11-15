@@ -80,7 +80,7 @@ Profile 的框架、topics、difficulty 可為 null；不存在的 Book 在 sour
 
 ## 刪除、榜單與公開邊界
 
-Book 的來源、識別碼、contributors、subjects、書單、Profile、Embedding 為 CASCADE；若仍被 Bestseller 或 RecommendationResult 引用，RESTRICT 會阻擋刪除。User 刪除 CASCADE 書單與搜尋，搜尋刪除 CASCADE results。Bestseller rank 為 1–100 主鍵、BookId 唯一，可缺號。完整解析、三次嘗試、限制級 skip、連續錯誤中止與舊榜保護在 crawler，不在四欄實體。
+Book 的來源、識別碼、contributors、subjects、書單、Profile、Embedding 為 CASCADE；若仍被 Bestseller 或 RecommendationResult 引用，RESTRICT 會阻擋刪除。User 刪除 CASCADE 書單、搜尋與驗證／重設 token（account_action_tokens），搜尋刪除 CASCADE results。Bestseller rank 為 1–100 主鍵、BookId 唯一，可缺號。完整解析、三次嘗試、限制級 skip、連續錯誤中止與舊榜保護在 crawler，不在四欄實體。
 
 Book.Description／TableOfContents 只供 AI，User.PasswordHash 也是內部資料；實體沒有 JsonIgnore，必須以投影隔離。Domain 不直接對外序列化。
 

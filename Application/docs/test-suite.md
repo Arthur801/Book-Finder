@@ -57,6 +57,7 @@ dotnet test tests/WebIntegration/WebIntegration.csproj
 - **Given**：fake store/hash、可控time；無效輸入、duplicate email、未知email、錯密碼、rehash-needed。
 - **When**：分別RegisterAsync/LoginAsync。
 - **Then**：無效不寫入；email/name trim但password不trim；duplicate為email error；未知/錯密碼同訊息；未知仍Verify；rehash更新hash與UTC。
+- 2026-11-15 B1：註冊成功時 `EmailVerifiedAt` 等於注入時間（UTC），`AuthVersion` 為 0（驗證開關關閉的行為）。
 - 測試來源／擴充入口：[AccountInputRulesTests.cs](../../tests/UnitTests/AccountInputRulesTests.cs)、[AccountServiceTests.cs](../../tests/UnitTests/AccountServiceTests.cs)。
 
 ### APP-T04 — Bestseller保留缺號與空榜

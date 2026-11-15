@@ -74,3 +74,9 @@ dotnet test tests/UnitTests/UnitTests.csproj --filter 'FullyQualifiedName~BookDe
 明確暫緩：ANN 索引與 Work/Edition 雙層不是本次驗收，也沒有授權壓測。靜態、mock、disposable integration 與 production 證據須分開，本文件沒有 live 結果。
 
 互參：[流程](workflow-diagram.md)、[架構](architecture.md)、[待辦](backlog.md)、[歷史](update-history.md)。
+
+### DOM-T13 — 帳號驗證欄位與 token 約束（B1）
+
+- **Given**：共用 PostgreSQL fixture 已套全部 migration（含 `20261115055411_AddEmailVerificationAndAccountTokens`）；每案在 rollback 的交易內寫入。
+- **When／Then**：`users.auth_version` 預設 0、`email_verified_at` 可 NULL；`account_action_tokens` 的 purpose 只接受 `EMAIL_VERIFICATION`／`PASSWORD_RESET`；`token_hash` 必須為小寫 64 字元 hex 且 UNIQUE；刪除 user 同時刪除其 token。`StoredEnumTests` 加入 `AccountActionTokenPurpose` 詞彙與 roundtrip。
+- **來源與狀態**：[AccountActionTokenSchemaTests](../../tests/DatabaseIntegration/AccountActionTokenSchemaTests.cs)、[EfUserStoreTests](../../tests/DatabaseIntegration/EfUserStoreTests.cs)；`a7ec1b2` 後 DatabaseIntegration 276 項通過（2026-11-15）。

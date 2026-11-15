@@ -217,3 +217,11 @@ Git 歷史不證明 runtime 或 CI 已通過。
 | 2026-11-14 | `1160542` | feat(mcp): recommend_books (M3) | `tests/UnitTests/McpRecommendationServiceTests.cs`、`RecommendationToolsTests.cs`、`tests/WebIntegration/McpRecommendBooksTests.cs`（新增）；`McpAuthorizationTests.cs`（DB 筆數）、`McpEndpointTests.cs`、`McpTestTools.cs` | TEST-36 |
 | 2026-11-14 | `d1f6cfc`、`1508c27` | feat／test(mcp): get_recommendation_result (M4) | `tests/UnitTests/McpRecommendationResultServiceTests.cs`、`tests/WebIntegration/McpRecommendationResultTests.cs`（新增）；`RecommendationToolsTests.cs`、`McpEndpointTests.cs` | TEST-37 |
 | 2026-11-14 | `2192f1f`、`41ff236`、`7116e2c`、`e31223a` | test(mcp): M5 review fixes | `tests/Shared/FakeRecommendationJobStore.cs`、`FakeRecommendationHistory.cs`、`tests/WebIntegration/McpTokenIsolationTests.cs`、`tests/UnitTests/McpAuthSetupTests.cs`（新增）；`UnitTests.csproj`、三個 MCP unit 測試檔、`McpAuthorizationTests.cs` | TEST-38 |
+
+## 帳號驗證 B1（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | `a7ec1b2` | feat(identity): add email verification columns and account action tokens (B1) | `tests/UnitTests/AccountServiceTests.cs`；`tests/DatabaseIntegration/AccountActionTokenSchemaTests.cs`、`EmailVerificationSeedTests.cs`（新增）；`EfUserStoreTests.cs`、`MigrationServer.cs`（新增 `AddEmailVerificationAndAccountTokens` id）、`OpenIddictSchemaTests.cs`（target 固定為 AddOpenIddict） |
+
+驗證（2026-11-15）：UnitTests 1143、DatabaseIntegration 276、WebIntegration `FullyQualifiedName~Account` 13 通過。

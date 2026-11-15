@@ -44,3 +44,11 @@ git rev-parse --is-shallow-repository
 Git 不能證明已部署、migration 已套用或測試通過。實體建立後，多數行為演進在外層，Domain log 不等於全系統進度。
 
 互參：[流程](workflow-diagram.md)、[架構](architecture.md)、[待辦](backlog.md)、[案例](test-suite.md)。
+
+## 帳號驗證 B1（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | `a7ec1b2` | feat(identity): add email verification columns and account action tokens (B1) | `Entities/User.cs`（新增 `EmailVerifiedAt`、`AuthVersion`）、`Entities/AccountActionToken.cs`、`Entities/AccountActionTokenPurpose.cs`（新增）；migration 與 mapping 在 Infrastructure |
+
+驗證（2026-11-15）：`dotnet build --no-incremental` 0 warning；UnitTests 1143、DatabaseIntegration 276 通過。
