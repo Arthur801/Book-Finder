@@ -56,7 +56,7 @@ PIPE-03／PIPE-06 證據分層（均未在本次執行）：[AuthPipelineTests](
 | BOOKS-06／已有測試 | 書有 description 與 table of contents 哨兵文字；GET `/books` | 列表 HTML 不含兩段文字（BOOK-05、[Application 架構](../../Application/docs/architecture.md)「核心不變條件」）。 |
 | BOOKS-07／已有測試 | 無自動跟隨；GET `/bestsellers` | 301，Location `/books`；不再顯示榜單。 |
 | HOME-02／已有測試 | 15 本；GET `/` | 最多 10 筆、不重複、皆來自 seed；不顯示 rank。 |
-| HOME-03／已有測試 | 空 Catalog；GET `/` | 200，顯示「書庫還沒有書」；連結 `/books`「查看完整書庫」。 |
+| HOME-03／已有測試 | 空 Catalog；GET `/` | 200，顯示「書庫還沒有書」；連結 `/categories`「瀏覽全部分類」，主內容不連 `/books`。 |
 | BEST-05／已有測試（後端） | 在 reader unit test 用 fake clock 暖快取並改底層資料 | 非空 1 小時、空榜 5 分鐘；到期重新讀；後端保留，Web 無呼叫端。 |
 | HOME-01／待補強 | 直接讀 `/Home/Error`；另在非 Development host 注入頁面 action 例外 | 兩者分開記錄 status；Error 有 RequestId、NoStore，不回傳 stack trace；原始例外由 exception handler 處理。 |
 
@@ -100,8 +100,8 @@ PIPE-03／PIPE-06 證據分層（均未在本次執行）：[AuthPipelineTests](
 | CAT-01／已有測試 | `/categories`、`?category=`、`?category=&source=` | 200；書單只含該分類（與來源）的書；跨來源同一本書只出現一次。 |
 | CAT-02／已有測試 | 未知 slug、未知 source、停用分類、大小寫不符的 slug | 404 NotFound View。 |
 | CAT-03／已有測試 | page 超過最後一頁 | 302 至最後一頁，保留 category 與 source。 |
-| CAT-04／已有測試 | 有書的分類與空分類 | 側邊欄、來源連結與分頁連結保留另一個條件並重置頁碼；目前項目有 `aria-current="page"`；空分類 200 並顯示空狀態文字。 |
-| CAT-06／已有測試 | 側邊欄書數徽章（無篩選、`?source=ESLITE`、`?source=BOOKS_COM_TW`） | 跨來源同一本書在同一分類只算一次；一書多類各算一次；來源篩選只計該來源的 Subject；全部書籍＋來源依 `book_sources` 計數（code review 後補，`ec42a67`）。 |
+| CAT-04／已有測試 | 有書的分類與空分類 | 分類網格、來源連結與分頁連結保留另一個條件並重置頁碼；目前項目有 `aria-current="page"`；空分類 200 並顯示空狀態文字。 |
+| CAT-06／已有測試 | 分類網格書數徽章（無篩選、`?source=ESLITE`、`?source=BOOKS_COM_TW`） | 跨來源同一本書在同一分類只算一次；一書多類各算一次；來源篩選只計該來源的 Subject；全部書籍＋來源依 `book_sources` 計數（code review 後補，`ec42a67`）。 |
 | CAT-05／已有測試 | 頁面結構 | （2026-11-15 起）有 `.category-grid-nav` 分類網格，每格連結與數量，目前項目 `aria-current`；不再有 sidebar、切換按鈕或 `<noscript>` 清單（見 Views VIEW-T27）；不含 description／TOC；`/books`、`/search` 仍為 200。 |
 
 ## 6. AccountController 與登入待辦
@@ -129,7 +129,7 @@ AUTH-03 的 cookie 屬性與 max-age 證據為 [AuthCookieTests](../../tests/Uni
 
 | ID / 狀態 | Given / When | Then |
 |---|---|---|
-| LIB-01／已有測試 | A、B 各有 Entry；GET `/account` | 只有 A 資料，updated_at 新到舊、不分頁；空時有「還沒有加入任何書」與書庫連結（`/books`）。 |
+| LIB-01／已有測試 | A、B 各有 Entry；GET `/account` | 只有 A 資料，updated_at 新到舊、不分頁；空時有「還沒有加入任何書」與分類連結（`/categories`「前往分類找書」）。 |
 | LIB-02／已有測試 | status 缺少／未知／三個有效大寫代碼 | 缺少與未知看全部；有效代碼只顯示相應狀態，tab active 正確；edit login URL 保留 filter query。 |
 | LIB-03／已有測試 | A 對存在 B1 PUT，無 body | 200 Entry shape：bookId、readingStatus、rating、addedAt、updatedAt；預設 WANT_TO_READ／null；時間 +08:00；DB 一筆。 |
 | LIB-04／已有測試 | A 的 B1 已 READING／rating 4；重複 PUT | 200 同一 Entry；不改狀態、評分、addedAt／updatedAt，不新增 duplicate。 |

@@ -5,6 +5,7 @@
 
 > 非同步推薦 Job M7 補記：2026-11-14 更新；程式變更以 `4db0c98`、`e00cbb5`、`5559870`、`ac88ef2` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > Canonical Category P5 補記：2026-11-14 更新；程式變更以 `a9b7ad1`、`c2d68a1`、`d43ea57` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+> 首頁與分類入口 P3 補記：2026-11-15 更新；程式變更以 `1a40b9a`（測試）、`b7e6ab7`（實作）記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 分類頁 P2 補記：2026-11-15 更新；程式變更以 `86a1876`（測試）、`c6a83bb`（實作）記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 查核基準 `91333c3` 的 source history 如下；`Views/docs` 明確排除，不將 PR #100 新增或後續修正的文件 commits 計入 source history。
@@ -143,6 +144,17 @@ git show 894883b -- Views
 |---|---|---|---|
 | 2026-11-15 | 本次 commit | docs(member): record the review decisions | `docs/architecture.md`：記錄使用者確認的 header 規則（「個人書單」只在登入後顯示） |
 
+## Header「更多」選單（P1，新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | `e355171` | test(navbar): expect the More dropdown with library, MCP, guide and logout | 無 Views 檔案；`tests/WebIntegration`：`NavbarTests.cs`、`LayoutAndHomeTests.cs`、`McpGuidePageTests.cs`、`HtmlPage.cs`（新增 `Header` 與 `MoreMenu` 輔助方法） |
+| 2026-11-15 | `f4ccdc4` | feat(ui): consolidate library, MCP and logout into More menu | `Shared/_Layout.cshtml`：左側移除「書庫」；右側新增「更多」dropdown（個人書單、MCP 說明、功能導覽、分隔線、登出）；新增 noscript fallback；會員名稱與登入／註冊保留 |
+| 2026-11-15 | 本分支 docs commit | docs(views): record the More menu header in folder docs | 本目錄 `architecture.md`、`workflow-diagram.md`、`test-suite.md`、`backlog.md`、`update-history.md` |
+
+使用者可見行為：左側不再有「書庫」；個人書單、MCP 說明、登出移入「更多」。`/books` 路由與書籍頁未變。wwwroot/docs 未更新，因本次未改 CSS 或 JS。
+
+驗證（2026-11-15）：`dotnet build --no-incremental` 0 warning、0 error；`dotnet test tests/UnitTests` 1330 通過；`dotnet test tests/WebIntegration` 527 通過。
 
 ## 分類頁 P2：搜尋與分類網格（新增紀錄）
 
@@ -156,15 +168,17 @@ git show 894883b -- Views
 
 行為變更：`/categories` 不再有側欄、抽屜、收合按鈕與 `<noscript>` 清單；新增頁首搜尋（`GET /search?q=`）；分類連結、數量、`aria-current`、來源、分頁、404 與超頁轉址契約不變。瀏覽器 localStorage 裡的舊 key `bookfinder.categorySidebarCollapsed` 不再被讀取，留著無害。
 
-## Header「更多」選單（P1，新增紀錄）
+## 首頁與書單空態的分類入口 P3（新增紀錄）
 
 | Author 日期 | SHA | subject | 本目錄實際改動檔案 |
 |---|---|---|---|
-| 2026-11-15 | `e355171` | test(navbar): expect the More dropdown with library, MCP, guide and logout | 無 Views 檔案；`tests/WebIntegration`：`NavbarTests.cs`、`LayoutAndHomeTests.cs`、`McpGuidePageTests.cs`、`HtmlPage.cs`（新增 `Header` 與 `MoreMenu` 輔助方法） |
-| 2026-11-15 | `f4ccdc4` | feat(ui): consolidate library, MCP and logout into More menu | `Shared/_Layout.cshtml`：左側移除「書庫」；右側新增「更多」dropdown（個人書單、MCP 說明、功能導覽、分隔線、登出）；新增 noscript fallback；會員名稱與登入／註冊保留 |
-| 2026-11-15 | 本分支 docs commit | docs(views): record the More menu header in folder docs | 本目錄 `architecture.md`、`workflow-diagram.md`、`test-suite.md`、`backlog.md`、`update-history.md` |
+| 2026-11-15 | `1a40b9a` | test(ui): assert home and empty-library CTAs point to categories | 目錄外：`tests/WebIntegration/LayoutAndHomeTests.cs`、`tests/WebIntegration/LibraryPageTests.cs`。先寫測試；此 commit 單獨檢出時，首頁與書單 CTA 斷言為紅燈，屬 TDD 中間狀態 |
+| 2026-11-15 | `b7e6ab7` | refactor(ui): route catalog discovery CTAs to categories | `Home/Index.cshtml`（CTA 改為「瀏覽全部分類」→ `/categories`）；`Shared/_LibraryContent.cshtml`（空態改為「前往分類找書」→ `/categories`）；目錄外：`Application/Catalog/CategoryFilter.cs`、`Application/Catalog/CategoryBrowseService.cs`（只改註解） |
+| 2026-11-15 | `cd83d86` | test(ui): scope the category page noscript check outside the header | 目錄外：`tests/WebIntegration/CategoryPageTests.cs`（CAT-08 的 noscript 斷言只看 header 以外） |
+| 2026-11-15 | 本次 commit | docs: record the catalog discovery CTAs on the views | 本目錄五份文件 |
 
-使用者可見行為：左側不再有「書庫」；個人書單、MCP 說明、登出移入「更多」。`/books` 路由與書籍頁未變。wwwroot/docs 未更新，因本次未改 CSS 或 JS。
+行為變更：首頁主內容與書單空態不再連 `/books`，改連 `/categories`；`/books`、`/books/{id}` 路由與頁面未變（NAV-05）。`Books/NotFound`、`Categories/NotFound`、`Ai/NotFound` 原本就沒有書庫連結，未改。
 
-驗證（2026-11-15）：`dotnet build --no-incremental` 0 warning、0 error；`dotnet test tests/UnitTests` 1330 通過；`dotnet test tests/WebIntegration` 527 通過。
+驗證（2026-11-15）：`dotnet build --no-incremental` 0 warning、0 error；`dotnet test tests/WebIntegration` 531 通過、0 失敗；`dotnet test tests/UnitTests` 1330 通過、0 失敗。
 
+測試修正 `cd83d86`：P1 header 的 `<noscript>` 導覽備援使 CAT-08 原本「整頁無 `<noscript`」的斷言失敗；改為只檢查 header 以外的頁面（目錄外：`tests/WebIntegration/CategoryPageTests.cs`）。

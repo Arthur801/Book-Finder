@@ -80,7 +80,7 @@ Application-level policy 包含 [LibraryService.AddPendingAsync](../Library/Libr
 - 空白的 slug 或 source 視為沒有篩選；其他值**原樣比對**，大小寫必須一致。
 - 先驗證來源：不在「至少有一筆 Mapping 的 Source Provider」清單內 → `UnknownSource`。再驗證分類：不在 active 分類清單內（含停用的分類）→ `UnknownCategory`。兩者都不查書；P5 會把它們轉成 404。
 - 頁碼小於 1 視為第 1 頁，每頁 20 本（同 `BookBrowseService.PageSize`），排序與書庫相同。
-- 側邊欄的分類書數跟著來源篩選：一本書只要有一個 Subject 經 Mapping 屬於該分類就算一次，同一本書不重複計算。
+- 分類網格的分類書數跟著來源篩選：一本書只要有一個 Subject 經 Mapping 屬於該分類就算一次，同一本書不重複計算。
 - 「全部書籍」不是分類：沒有來源時是全部書籍；有來源時是有該來源 `book_sources` 的書，包含沒有分類的書。
 - 只查 Local Database；結果使用 `BookBrowseItem`，不含簡介與目錄。
 

@@ -1,5 +1,6 @@
 # Controllers 修改歷史
 
+> 首頁與分類入口 P3 補記：2026-11-15 更新；程式變更以 `1a40b9a`（測試）、`b7e6ab7`（實作）記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 會員中心 C3 補記：2026-11-15 更新；程式變更以 `c3f09dc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 > 非同步推薦 Job M7 補記：2026-11-14 更新；程式變更以 `4db0c98`、`e00cbb5`、`5559870`、`ac88ef2` 記入 update-history。原查核基準保留，未重新審查其餘內容。
@@ -162,3 +163,12 @@ git show <commit> -- Controllers
 | Author 日期 | SHA | subject | 本目錄實際改動檔案 |
 |---|---|---|---|
 | 2026-11-15 | 本次 commit | docs(member): record the review decisions | `docs/architecture.md`：§5 記錄 `ConsentSessionEndedRedirect` 是使用者核准的唯一 antiforgery 例外；`docs/backlog.md`：CTL-02 的數值決定為每分鐘 20 次；`docs/test-suite.md`：AUTH-F01 結案 |
+
+## 首頁與分類入口 P3（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | `1a40b9a`、`b7e6ab7` | test／refactor(ui)：首頁與空書單 CTA 指向分類 | 目錄外：`Views/Home/Index.cshtml`、`Views/Shared/_LibraryContent.cshtml`、`tests/WebIntegration/LayoutAndHomeTests.cs`、`tests/WebIntegration/LibraryPageTests.cs` |
+| 2026-11-15 | 本次 commit | docs: record the catalog discovery CTAs on the controllers | `docs/test-suite.md`：HOME-03、LIB-01 的連結改為 `/categories`；CAT-04、CAT-06 的側欄描述改為分類網格；`docs/workflow-diagram.md`：快取描述改為分類網格書數 |
+
+行為與 controller 程式碼無變更；`/books` 與 `/books/{id}` 路由保留（NAV-05）。
