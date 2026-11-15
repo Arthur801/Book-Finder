@@ -256,7 +256,7 @@ dotnet test tests/WebIntegration/WebIntegration.csproj
 - 入口：[RecommendationJobWorkerTests](../../tests/UnitTests/RecommendationJobWorkerTests.cs)。
 
 
-## INF-T25 — OAuth 憑證撤銷 port（會員中心 B3）
+## INF-T26 — OAuth 憑證撤銷 port（會員中心 B3）
 
 - 責任／風險／狀態：Scoped port，L3（撤銷 access／refresh token，影響 MCP 授權），已有測試。
 - 入口：[OAuthCredentialRevokerTests](../../tests/DatabaseIntegration/OAuthCredentialRevokerTests.cs)（DatabaseIntegration）、[McpCredentialRevocationTests](../../tests/WebIntegration/McpCredentialRevocationTests.cs)（WebIntegration）。
