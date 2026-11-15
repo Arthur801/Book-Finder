@@ -3,6 +3,7 @@
 > 會員中心 C3 補記：2026-11-15 更新；程式變更以 `c3f09dc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 > Canonical Category P5 補記：2026-11-14 更新；程式變更以 `a9b7ad1`、`c2d68a1`、`d43ea57` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+> 分類頁 P2 補記：2026-11-15 更新；程式變更以 `86a1876`（測試）、`c6a83bb`（實作）記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 > backlog 整理（2026-10-25）補記：VIEW-B05 已驗證完成，移至文末「已處理」；其餘狀態未變。
 
@@ -18,6 +19,8 @@
 已修復、不列待修：history refresh 跟隨登入 redirect 不能覆蓋片段（b2c72a0）；共用 pager／controls；未評分文字；ReadingStatusCode 單一順序；Book 安全外連與缺值投影。不要在此提案直接實作 SPA、取消 server validation 或把簡介／目錄加進 UI。
 
 ## VIEW-B06 — 分類頁收合狀態的閃現
+
+- **已結案（P2，`c6a83bb`）**：分類頁側欄、收合按鈕與 `category-sidebar.js` 已移除，頁面不再有收合偏好，這裡描述的閃現不會再發生。以下為舊描述，保留作為歷史。
 
 - **P3 / L1 / 已觀察（2026-11-14 瀏覽器檢查）**：桌面版收合偏好由 [category-sidebar.js](../../wwwroot/js/category-sidebar.js) 在 DOMContentLoaded 後套用，已收合的使用者重新整理時，側邊欄可能先出現再隱藏。
 - 方向：在 `<head>` 以極小的 inline script 先讀 localStorage、在 `<html>` 加 class；需確認 CSP 與 asset 規範是否允許 inline script。

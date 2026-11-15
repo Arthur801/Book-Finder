@@ -4,6 +4,7 @@
 
 > 非同步推薦 Job M7 補記：2026-11-14 更新；程式變更以 `4db0c98`、`e00cbb5`、`5559870`、`ac88ef2` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > Canonical Category P5 補記：2026-11-14 更新；程式變更以 `a9b7ad1`、`c2d68a1`、`d43ea57` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+> 分類頁 P2 補記：2026-11-15 更新；程式變更以 `86a1876`（測試）、`c6a83bb`（實作）記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 查核：2026-10-24；HEAD `91333c3`。本次未執行 build、test、browser 或 network。以下已有測試代表 source 有斷言，不代表本次通過。
 
@@ -73,12 +74,34 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter 'FullyQualifiedN
 
 ### VIEW-T13 — 分類頁的側邊欄、抽屜與無 JS 導覽
 
+- 已由 P2（`c6a83bb`）取代：側欄、抽屜與收合按鈕已移除，改見 VIEW-T23。以下是 2026-11-14 的歷史檢查結果，不再代表現況。
+
 - 狀態：WebIntegration 的 [CategoryPageTests](../../tests/WebIntegration/CategoryPageTests.cs) 與 [NavbarTests](../../tests/WebIntegration/NavbarTests.cs) 已有測試（2026-11-14 通過）；瀏覽器檢查為一次性的本機 Playwright（腳本未 commit）。
 - 瀏覽器檢查（2026-11-14，拋棄式 PostgreSQL、90 本假書、18 類 283 筆 Mapping，20／20 通過）：
   - 桌面 1280px：側邊欄可見；收合後隱藏、`aria-expanded` 變 false，重新整理後仍收合，可再展開；鍵盤 Enter 可切換；點分類導覽並標 `aria-current`；切換來源保留分類。
   - 手機 390px：抽屜預設隱藏，按「分類」開啟，Escape 關閉；點抽屜內連結導覽且新頁抽屜為關閉。
   - 停用 JS：手機顯示 `<noscript>` 連結並可導覽；「分類」與「隱藏分類」按鈕不顯示；桌面側邊欄仍顯示。
 - 已知限制：收合偏好由 JS 在載入後套用，桌面版收合狀態下重新整理時，側邊欄可能先閃現一下。
+
+### VIEW-T23 — 分類頁搜尋、網格與來源（P2，plan §8 CAT-01～10）
+
+- 狀態：WebIntegration 的 [CategoryPageTests](../../tests/WebIntegration/CategoryPageTests.cs) 與 [SearchPageTests](../../tests/WebIntegration/SearchPageTests.cs) 共 57 項通過（2026-11-15，`c6a83bb`，見 update-history）；風險 L2。
+- 重要限制：WebIntegration 只讀 HTML，不執行 CSS 或 JavaScript。欄數、等高、focus 外觀與 JS 停用時的點選都需要瀏覽器證據，本次未執行。
+
+| 案例 | 測試位置 | 驗證內容 | 狀態 |
+|---|---|---|---|
+| CAT-01 | `Page_orders_search_heading_category_grid_sources_and_results` | 搜尋 → H1 → 分類網格 → 書籍來源 → 結果的 DOM 順序 | HTML 已驗證 |
+| CAT-02 | — | ≥1200px 六欄、19 格四列、末行一格 | 未驗證：需瀏覽器計算欄數 |
+| CAT-03 | — | 320／390／576／768／992px 的欄數與無水平捲動 | 未驗證：需瀏覽器 |
+| CAT-04 | `Category_grid_lists_every_category_with_its_count_and_one_current_item`；既有 `Source_pills_…`、`Pager_links_…` | 分類與來源互相保留條件、目前項目唯一 `aria-current` | HTML 已驗證 |
+| CAT-05 | `Category_grid_counts_each_book_once_per_category_and_follows_the_source_filter` | 來源改變時每格數字更新 | HTML 已驗證 |
+| CAT-06 | 既有 `Unknown_or_inactive_category_…`、`Page_past_the_last_one_…` | 未知或停用分類、未知來源仍 404；超頁轉末頁並保留條件 | HTML 已驗證 |
+| CAT-07 | `Search_form_on_the_category_page_submits_to_search_without_category_or_source` | 搜尋表單是 `GET /search`，沒有 category／source 欄位 | HTML 已驗證 |
+| CAT-08 | `Page_has_no_sidebar_drawer_toggle_or_noscript_list_and_no_sidebar_script` | 無 offcanvas、sidebar、toggle、noscript、`category-sidebar.js` | HTML 已驗證；JS 停用時的點選未驗證 |
+| CAT-09 | `Category_grid_renders_every_active_category_without_truncation` | 20 個啟用分類加「全部書籍」共 21 格，全部渲染、不截斷 | HTML 已驗證 |
+| CAT-10 | `Description_and_table_of_contents_are_not_shown_on_the_category_page` | 分類頁與分類篩選頁不含簡介、目錄 | HTML 已驗證 |
+
+- 已知驗證缺口：CAT-02、CAT-03、CAT-08 的瀏覽器部分；網格等高與 focus-visible 外觀沒有自動化證據。
 
 ### VIEW-T14
 
