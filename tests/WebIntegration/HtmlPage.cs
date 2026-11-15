@@ -28,6 +28,12 @@ internal static partial class HtmlPage
         return (response.StatusCode, await response.Content.ReadAsStringAsync());
     }
 
+    // The shared site header (the navbar in _Layout.cshtml), without the rest of the page.
+    public static string Header(string html) => HeaderBlock().Match(html).Groups[1].Value;
+
+    // The header's "更多" dropdown menu (ul#nav-more-menu), so assertions do not see the noscript fallback or the page body.
+    public static string MoreMenu(string html) => MoreMenuBlock().Match(html).Groups[1].Value;
+
     // The inner markup of the Library section on the Book detail page (section id="library").
     public static string LibrarySection(string html) => LibrarySectionTag().Match(html).Groups[1].Value;
 
@@ -188,6 +194,12 @@ internal static partial class HtmlPage
 
     [GeneratedRegex("(\\w[\\w-]*)=\"([^\"]*)\"")]
     private static partial Regex Attribute();
+
+    [GeneratedRegex("<header\\b[^>]*>(.*?)</header>", RegexOptions.Singleline)]
+    private static partial Regex HeaderBlock();
+
+    [GeneratedRegex("<ul\\b[^>]*\\bid=\"nav-more-menu\"[^>]*>(.*?)</ul>", RegexOptions.Singleline)]
+    private static partial Regex MoreMenuBlock();
 
     [GeneratedRegex("<section\\b[^>]*\\bid=\"library\"[^>]*>(.*?)</section>", RegexOptions.Singleline)]
     private static partial Regex LibrarySectionTag();

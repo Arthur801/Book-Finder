@@ -1,5 +1,6 @@
 # Views 優化與 debug 待辦
 
+> Header P1 補記：2026-11-15 更新；程式變更以 `e355171`、`f4ccdc4` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 會員中心 C3 補記：2026-11-15 更新；程式變更以 `c3f09dc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 > Canonical Category P5 補記：2026-11-14 更新；程式變更以 `a9b7ad1`、`c2d68a1`、`d43ea57` 記入 update-history。原查核基準保留，未重新審查其餘內容。
@@ -43,3 +44,9 @@
 - [ ] **P3／待決定／L1**。「請收信」、「重寄驗證信」、「連結無效或已過期」、「請先完成 Email 驗證」、「Email 已驗證，請登入」與 429 頁的文字為本次撰寫，不是規格。
 - 待辦：使用者確認文案後再調整；變更文字時同步更新 `EmailVerificationFlowTests` 中的比對字串。
 
+## P1 Header 新增待辦
+
+### VIEW-B08 — 更多選單與功能導覽的待驗證項目
+
+- [ ] **P2／L2／待驗證**。WebIntegration 只驗 HTML；「更多」的 Bootstrap 開關、Escape、點擊外部關閉、鍵盤 Enter／Space、手機 navbar 展開後的可點擊與不溢位，尚未以瀏覽器執行。方向：一次性本機瀏覽器驗收並把證據寫入 update-history；是否把 Browser E2E 納入 CI 仍待決定（計畫 D8）。
+- [ ] **P2／L1／待實作**。「功能導覽」連到 `/categories#guide`，但導引元件尚未建立（計畫 P4），目前點擊只會開啟分類頁。驗收：P4 完成後 `/categories#guide` 啟動導覽，本條由 P4 結案。

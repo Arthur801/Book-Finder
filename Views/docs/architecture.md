@@ -1,5 +1,6 @@
 # Views 架構與呈現契約
 
+> Header P1 補記：2026-11-15 更新；程式變更以 `e355171`、`f4ccdc4` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 會員中心 C3 補記：2026-11-15 更新；程式變更以 `c3f09dc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 > 非同步推薦 Job M7 補記：2026-11-14 更新；程式變更以 `4db0c98`、`e00cbb5`、`5559870`、`ac88ef2` 記入 update-history。原查核基準保留，未重新審查其餘內容。
@@ -22,8 +23,20 @@
 | 帳號 | AccountController、LoginForm／RegisterForm | server field errors／summary、hidden ReturnUrl/PendingAction；post success redirect |
 | AI 主頁／列表 | AiController、AiHistoryListViewModel | #ai-form／#ai-status／#ai-results；_AiHistoryList 是唯一列表 HTML，fragment 不含 layout |
 | AI 詳情 | AiController、AiHistoryDetailViewModel | 本人紀錄；快照 rank/reason/relevance＋即時 Book 與 difficulty |
-| MCP 操作手冊 | McpGuideController（無 model） | `McpGuide/Index.cshtml` 靜態內容：MCP 網址、ChatGPT／Claude／VS Code 連線步驟與預註冊 client_id、AI 推薦與每日額度、授權、常見問題、錯誤碼對照；不含技術 metadata。內容要與 production 設定（`deploy/release/compose.prod.yaml` 的 OAuth Client、`Recommendation:DailyLimit`、token 效期）一致，任何一邊改變都要同步。Layout 導覽列右側（登入／註冊或登出之後）固定顯示「MCP 說明」連結，不分登入狀態 |
+| MCP 操作手冊 | McpGuideController（無 model） | `McpGuide/Index.cshtml` 靜態內容：MCP 網址、ChatGPT／Claude／VS Code 連線步驟與預註冊 client_id、AI 推薦與每日額度、授權、常見問題、錯誤碼對照；不含技術 metadata。內容要與 production 設定（`deploy/release/compose.prod.yaml` 的 OAuth Client、`Recommendation:DailyLimit`、token 效期）一致，任何一邊改變都要同步。Layout「更多」下拉（與 noscript fallback）固定含「MCP 說明」，不分登入狀態；見下方「共用 Header」 |
 | 404／錯誤 | Books/Ai NotFound、Home.Error／ErrorViewModel | controller 明確 404；Error 只有 request ID，無 stack trace；Development pipeline 不同 |
+
+## 共用 Header（P1，2026-11-15）
+
+實作計畫見 [header-category-onboarding](../../Docs/plans/header-category-onboarding.md) §3，計畫非規格；以下為目前行為。
+
+- 左側：「分類」`/categories`（`data-tour="nav-categories"`）、「AI 推薦」`/ai`（`data-tour="nav-ai"`）。「書庫」連結已自導覽列移除；`/books` 路由與書籍詳情不變。
+- 右側：Bootstrap 5 dropdown「更多」（`button.nav-link.dropdown-toggle`，`data-tour="nav-more"`，選單為 `ul#nav-more-menu`）。選單順序固定：已登入為「個人書單」`/account#library` → 「MCP 說明」 → 「功能導覽」`/categories#guide` → 分隔線 → 「登出」；匿名只有「MCP 說明」與「功能導覽」。
+- 「登出」是 POST 表單（`asp-controller="Account" asp-action="Logout"`，antiforgery token 由 tag helper 產生），以 button 送出，不是 GET 連結。
+- 會員名稱（`/account`）位於「更多」右側；匿名時為「登入」「註冊」。
+- `<noscript>` fallback 位於 `#main-navbar` 內，供停用 JS 時使用：已登入含「個人書單」「MCP 說明」與第二份 POST 登出表單；匿名只含「MCP 說明」。因此已登入頁面的 HTML 有兩個 `action="/account/logout"`，一份在選單內，測試以 `ul#nav-more-menu` 範圍定位。
+- 「功能導覽」目前只是指向 `/categories#guide` 的連結，導引元件尚未實作（計畫 P4）；在此之前點擊只會開啟分類頁。
+- 樣式與互動沿用 Bootstrap，本次未新增 CSS 或 JS。
 
 主要依賴可查：[Controllers](../../Controllers/BooksController.cs)、[Models](../../Models/BookDetailViewModel.cs)、[ai.js](../../wwwroot/js/ai.js)、[library.js](../../wwwroot/js/library.js)、[Program](../../Program.cs)。具體入口全表見 [流程](workflow-diagram.md)。
 
@@ -68,7 +81,7 @@ ai.js 沒 browser AbortController timeout，server 60 秒限制才是契約；hi
 
 - `Views/AccountDeletion/Index.cshtml`：確認頁，列出會刪除的資料（帳號、個人書單、AI 推薦工作與搜尋紀錄、MCP 連線授權），說明公開書籍不受影響，並提示「刪除後無法復原」。表單含密碼欄（`type=password`，不回填值）與「我了解刪除後無法復原」勾選框（`checked` 只反映 ModelState 的回填）；錯誤顯示於 `asp-validation-for` 欄位。
 - `Views/Member/Index.cshtml` 的 `#account-security` 內加入「刪除帳號」連結，供 C4 之後加入「重設密碼」使用同一區塊。
-- Header（會員中心 A3，使用者 2026-11-15 確認）：「個人書單」只在登入後顯示，位於右側會員名稱左邊；未登入時右側只有「登入」「註冊」「MCP 說明」，左側不再有「個人書單」。
+- Header（會員中心 A3，使用者 2026-11-15 確認；P1 同日更新）：「個人書單」只在登入後顯示，現位於右側「更多」下拉內，會員名稱仍在下拉右側；未登入時右側只有「更多」「登入」「註冊」，左側不再有「個人書單」。
 - `Views/Shared/_Layout.cshtml` 在 `main` 內顯示 `TempData["Notice"]`（`role="status"`），只在刪除後的首頁出現一次。這是目前唯一的一次性通知機制。
 - 所有新增頁面的文字皆為繁體中文；Razor 會把非 ASCII 的動態訊息編碼成數字字元參照，測試需解碼。
 
