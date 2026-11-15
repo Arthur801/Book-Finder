@@ -386,3 +386,9 @@ git log --reverse --no-merges --format='@@%h' --numstat -- <同上路徑>
 | 2026-11-15 | 本次 commit | docs(deploy): record the nginx real-IP check behind the per-IP rate limit | `README.md`：查核清單第 7、8 項改為已由營運確認（nginx 轉發設定、Cloudflare 真實 IP、docker network 與 KnownNetworks）；`docs/backlog.md`：新增 DEP-B28（Cloudflare 網段的更新） |
 
 驗證（2026-11-15，營運在 EC2 上執行，agent 從外部確認）：修正前 app 收到的 `X-Forwarded-For` 是 Cloudflare 節點 IP；新增 real-IP 設定並 reload nginx 後，`X-Forwarded-For` 等於 `CF-Connecting-IP`；公開首頁與登入頁回 200。
+
+## 2026-11-15 會員中心 review：第二次回填的追蹤（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | 本次 commit | docs(deploy): track the second legacy-verification backfill in DEP-B27 | `docs/backlog.md`：DEP-B27 加上開關開啟時的第二次回填 migration 與 production 檢查（兩軸 review 指出原本沒有追蹤） |

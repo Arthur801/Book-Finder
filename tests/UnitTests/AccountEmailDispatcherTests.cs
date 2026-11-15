@@ -130,6 +130,7 @@ public sealed class AccountEmailDispatcherTests
         var passwordReset = new PasswordResetService(
             actionTokens,
             new NoopResetStore(),
+            userStore,
             new NoopHashing(),
             sender,
             links,
@@ -191,7 +192,7 @@ public sealed class AccountEmailDispatcherTests
 
     private sealed class NoopResetStore : IPasswordResetStore
     {
-        public Task<bool> ResetAsync(string tokenHash, string passwordHash, DateTime nowUtc, CancellationToken cancellationToken) => Task.FromResult(false);
+        public Task<Guid?> ResetAsync(string tokenHash, string passwordHash, DateTime nowUtc, CancellationToken cancellationToken) => Task.FromResult<Guid?>(null);
     }
 
     private sealed class NoopHashing : IPasswordHashing

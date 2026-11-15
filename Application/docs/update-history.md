@@ -263,3 +263,11 @@ git show --format= --numstat <sha> -- Application ':(exclude)Application/docs'
 - 驗證（2026-11-15，commit `8934ba4` 之後）：`dotnet build --no-incremental` 0 warning、0 error；`dotnet test tests/UnitTests` 1326 通過；`tests/DatabaseIntegration` 313 通過；`tests/WebIntegration` 522 通過。
 - 行為變更（開關關閉）：無。服務在開關關閉時不會被呼叫（控制器回 404）。
 - 行為變更（開關開啟）：忘記密碼對任何註冊帳號寄信（未驗證帳號也寄）；重設成功後，舊 Cookie 與 MCP 憑證失效。
+
+## 會員中心 C4：重設後寄出「密碼已變更」通知（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | 本次 commit | feat(identity): mail a password-changed notice after a reset (C4) | `Identity/IPasswordResetStore.cs`（回傳 user id）、`Identity/PasswordResetService.cs`（提交後寄通知，失敗只記 log）、`Email/AccountEmailTemplates.cs`（`PasswordChanged`）；`Identity/AccountActionTokenService.cs` 註解更正；APP-B13 關閉 |
+
+驗證（2026-11-15）：新測試先編譯失敗；實作後 UnitTests 1330、`EfPasswordResetStoreTests` 7、WebIntegration `PasswordReset` 16 項通過。

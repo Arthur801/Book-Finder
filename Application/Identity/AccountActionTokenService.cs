@@ -50,7 +50,8 @@ public sealed class AccountActionTokenService(IAccountActionTokenStore store, IO
     }
 
     // Returns the user the token belongs to, or null when it is malformed, unknown, of another purpose, consumed or expired.
-    // The caller decides the transaction: password reset runs this inside the same transaction as its other writes.
+    // Opens no transaction of its own. The password reset store calls IAccountActionTokenStore.ConsumeAsync directly inside its
+    // transaction, so this service method is for a caller that needs no other write in the same transaction.
     public Task<Guid?> ConsumeAsync(string rawToken, AccountActionTokenPurpose purpose, CancellationToken cancellationToken)
     {
         if (!AccountActionTokenRules.IsWellFormed(rawToken))

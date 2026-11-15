@@ -441,7 +441,8 @@ sequenceDiagram
     S->>S: 8–40 碼與兩次一致
     S->>ST: ResetAsync(hash, 新 hash, now)
     alt 交易提交
-        ST-->>S: true
+        ST-->>S: user id
+        S->>S: FindById，寄出「密碼已變更」通知（失敗只記 log）
         C-->>U: 刪除 Cookie，302 /account/login?reset=1
     else 規則錯誤或不可用
         C-->>U: 表單（密碼不回填）或無效頁

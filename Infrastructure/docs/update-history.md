@@ -286,3 +286,9 @@ git show <SHA> -- Infrastructure
 - 驗證（2026-11-15，commit `8934ba4` 之後）：`dotnet build --no-incremental` 0 warning、0 error；`dotnet test tests/UnitTests` 1326 通過；`tests/DatabaseIntegration` 313 通過；`tests/WebIntegration` 522 通過。
 - 行為變更（開關關閉）：無。
 - 行為變更（開關開啟）：重設交易會呼叫 OAuth 撤銷；交易的鎖順序與帳號刪除一致。
+
+## 會員中心 C4：重設 store 回傳 user id（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | 本次 commit | feat(identity): mail a password-changed notice after a reset (C4) | `Persistence/EfPasswordResetStore.cs`：`ResetAsync` 成功回傳被重設的 user id，失敗回傳 null（交易內容不變）；`Identity/AccountRateLimiting.cs`：兩個 policy 的註解列出實際套用的 endpoint |

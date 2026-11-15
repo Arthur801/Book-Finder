@@ -54,6 +54,32 @@ public sealed class AccountEmailTemplatesTests
     }
 
     [Fact]
+    public void Password_changed_notice_states_the_time_the_effects_and_how_to_recover()
+    {
+        var message = AccountEmailTemplates.PasswordChanged("member@example.com", "小明", "2026-11-15 12:00", "https://khwebsc.com/account/password/forgot");
+
+        Assert.Equal("member@example.com", message.To);
+        Assert.Equal("好想找書 - 你的密碼已變更", message.Subject);
+        Assert.Contains("小明 您好", message.TextBody);
+        Assert.Contains("2026-11-15 12:00（台北時間）", message.TextBody);
+        Assert.Contains("所有裝置都已登出", message.TextBody);
+        Assert.Contains("MCP", message.TextBody);
+        Assert.Contains("如果不是你本人操作", message.TextBody);
+        Assert.Contains("https://khwebsc.com/account/password/forgot", message.TextBody);
+        Assert.Contains("href=\"https://khwebsc.com/account/password/forgot\"", message.HtmlBody);
+        Assert.DoesNotContain("token=", message.TextBody);
+    }
+
+    [Fact]
+    public void Password_changed_notice_encodes_a_malicious_display_name_in_html()
+    {
+        var message = AccountEmailTemplates.PasswordChanged("member@example.com", "<script>x</script>", "2026-11-15 12:00", "https://khwebsc.com/account/password/forgot");
+
+        Assert.DoesNotContain("<script>", message.HtmlBody);
+        Assert.Contains("&lt;script&gt;", message.HtmlBody);
+    }
+
+    [Fact]
     public void Html_body_encodes_a_malicious_display_name()
     {
         const string hostile = "<script>alert('x')</script>\"&";

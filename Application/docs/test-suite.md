@@ -391,5 +391,6 @@ Auth的Google登入/email驗證/忘記密碼/個資修改/refresh token依identi
 |---|---|---|
 | APP-T34 — 重設信與重設步驟（9 案例） | `tests/UnitTests/PasswordResetServiceTests.cs` | 寄出一封信，連結在站台 host、只存 hash、有效期 1 小時；節流時不寄信；寄信失敗會 discard；不可用 token 不寫入；密碼 7 碼與 41 碼、兩次不一致時不消耗 token；成功時傳給 store 的是 token 的 hash 與新 hash；store 回 false 時為 `InvalidLink` |
 | APP-T35 — 派送分支 PasswordReset（4 案例） | `tests/UnitTests/AccountEmailDispatcherTests.cs` | 未知 Email 不寄信也不發 token；已驗證帳號寄一封重設信；未驗證帳號也寄；1 小時內的第二次申請不寄。取代 C3 中「沒有分支會拋例外」的案例 |
+| APP-T36 — 密碼已變更通知（4 案例） | `tests/UnitTests/PasswordResetServiceTests.cs`、`AccountEmailTemplatesTests.cs` | 提交後寄一封給該帳號、主旨「好想找書 - 你的密碼已變更」、台北時間與 `/account/password/forgot` 連結、不含 token；store 回 null 時不寄；寄信失敗時結果仍為 `Reset`；HTML 會 encode 顯示名稱 |
 
 - 已知驗證缺口：`PasswordResetService` 的 1 小時邊界與 token 過期在單元層以 `FakeTimeProvider` 固定（`Send_mails...` 只檢查 `ExpiresAtUtc`）；真正的時間邊界由 WebIntegration 的 `PasswordResetFlowTests`（TEST-50）覆蓋。

@@ -26,7 +26,7 @@ public class EfPasswordResetStoreTests(PostgresFixture fixture)
         var resetAt = Start.AddMinutes(5).UtcDateTime;
 
         await using var db = fixture.CreateContext();
-        Assert.True(await Create(db, revoker).ResetAsync(hash, NewHash, resetAt, CancellationToken.None));
+        Assert.Equal(userId, await Create(db, revoker).ResetAsync(hash, NewHash, resetAt, CancellationToken.None));
 
         await using var reader = fixture.CreateContext();
         var user = await reader.Users.AsNoTracking().SingleAsync(row => row.Id == userId);
@@ -46,7 +46,7 @@ public class EfPasswordResetStoreTests(PostgresFixture fixture)
         var hash = AccountActionTokenRules.HashOf(await IssueAsync(userId, AccountActionTokenPurpose.PasswordReset, new FakeTimeProvider(Start)));
 
         await using var db = fixture.CreateContext();
-        Assert.True(await Create(db, new RecordingRevoker()).ResetAsync(hash, NewHash, Start.AddMinutes(1).UtcDateTime, CancellationToken.None));
+        Assert.NotNull(await Create(db, new RecordingRevoker()).ResetAsync(hash, NewHash, Start.AddMinutes(1).UtcDateTime, CancellationToken.None));
 
         await using var reader = fixture.CreateContext();
         Assert.Equal(original, (await reader.Users.AsNoTracking().SingleAsync(row => row.Id == userId)).EmailVerifiedAt);
@@ -60,9 +60,9 @@ public class EfPasswordResetStoreTests(PostgresFixture fixture)
         var revoker = new RecordingRevoker();
         await using var db = fixture.CreateContext();
         var sut = Create(db, revoker);
-        Assert.True(await sut.ResetAsync(hash, NewHash, Start.AddMinutes(1).UtcDateTime, CancellationToken.None));
+        Assert.NotNull(await sut.ResetAsync(hash, NewHash, Start.AddMinutes(1).UtcDateTime, CancellationToken.None));
 
-        Assert.False(await sut.ResetAsync(hash, "third-hash", Start.AddMinutes(2).UtcDateTime, CancellationToken.None));
+        Assert.Null(await sut.ResetAsync(hash, "third-hash", Start.AddMinutes(2).UtcDateTime, CancellationToken.None));
 
         await using var reader = fixture.CreateContext();
         var user = await reader.Users.AsNoTracking().SingleAsync(row => row.Id == userId);
@@ -79,7 +79,7 @@ public class EfPasswordResetStoreTests(PostgresFixture fixture)
         var revoker = new RecordingRevoker();
 
         await using var db = fixture.CreateContext();
-        Assert.False(await Create(db, revoker).ResetAsync(hash, NewHash, Start.AddHours(1).UtcDateTime, CancellationToken.None));
+        Assert.Null(await Create(db, revoker).ResetAsync(hash, NewHash, Start.AddHours(1).UtcDateTime, CancellationToken.None));
 
         await using var reader = fixture.CreateContext();
         var user = await reader.Users.AsNoTracking().SingleAsync(row => row.Id == userId);
@@ -96,7 +96,7 @@ public class EfPasswordResetStoreTests(PostgresFixture fixture)
         var hash = AccountActionTokenRules.HashOf(await IssueAsync(userId, AccountActionTokenPurpose.EmailVerification, new FakeTimeProvider(Start)));
 
         await using var db = fixture.CreateContext();
-        Assert.False(await Create(db, new RecordingRevoker()).ResetAsync(hash, NewHash, Start.AddMinutes(1).UtcDateTime, CancellationToken.None));
+        Assert.Null(await Create(db, new RecordingRevoker()).ResetAsync(hash, NewHash, Start.AddMinutes(1).UtcDateTime, CancellationToken.None));
 
         await using var reader = fixture.CreateContext();
         var user = await reader.Users.AsNoTracking().SingleAsync(row => row.Id == userId);
@@ -129,7 +129,7 @@ public class EfPasswordResetStoreTests(PostgresFixture fixture)
 
         // The token still works afterwards, because nothing was committed.
         await using var retry = fixture.CreateContext();
-        Assert.True(await Create(retry, new RecordingRevoker()).ResetAsync(hash, NewHash, Start.AddMinutes(2).UtcDateTime, CancellationToken.None));
+        Assert.NotNull(await Create(retry, new RecordingRevoker()).ResetAsync(hash, NewHash, Start.AddMinutes(2).UtcDateTime, CancellationToken.None));
     }
 
     // Two submits of the same link at once: the user row lock serializes them, and the conditional consume lets only one through.
@@ -140,7 +140,7 @@ public class EfPasswordResetStoreTests(PostgresFixture fixture)
         var hash = AccountActionTokenRules.HashOf(await IssueAsync(userId, AccountActionTokenPurpose.PasswordReset, new FakeTimeProvider(Start)));
         var at = Start.AddMinutes(1).UtcDateTime;
 
-        async Task<bool> SubmitAsync()
+        async Task<Guid?> SubmitAsync()
         {
             await using var db = fixture.CreateContext();
             return await Create(db, new RecordingRevoker()).ResetAsync(hash, NewHash, at, CancellationToken.None);
@@ -148,7 +148,8 @@ public class EfPasswordResetStoreTests(PostgresFixture fixture)
 
         var results = await Task.WhenAll(SubmitAsync(), SubmitAsync());
 
-        Assert.Equal(1, results.Count(result => result));
+        Assert.Equal(1, results.Count(result => result == userId));
+        Assert.Equal(1, results.Count(result => result is null));
         await using var reader = fixture.CreateContext();
         Assert.Equal(1, (await reader.Users.AsNoTracking().SingleAsync(row => row.Id == userId)).AuthVersion);
     }

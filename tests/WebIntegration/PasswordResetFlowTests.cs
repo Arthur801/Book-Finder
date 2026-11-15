@@ -189,11 +189,17 @@ public sealed class PasswordResetFlowTests(WebFixture fixture)
         var client = app.CreateClient(ClientOptions);
         var link = await RequestLinkAsync(app, client);
 
+        var mailsBefore = app.Email.Sent.Count;
         var reset = await PostResetAsync(client, link, NewPassword, NewPassword);
 
         Assert.Equal(HttpStatusCode.Redirect, reset.Status);
         Assert.Equal(LoginPath + "?reset=1", reset.Location);
         Assert.Contains(ResetNotice, await app.CreateClient(ClientOptions).GetPageAsync(reset.Location!));
+        // The password-changed notice goes to the account's address and carries no link token (APP-B13 decided: send it).
+        var notice = Assert.Single(app.Email.Sent.Skip(mailsBefore));
+        Assert.Equal(Email, notice.To);
+        Assert.Equal("好想找書 - 你的密碼已變更", notice.Subject);
+        Assert.DoesNotContain("token=", notice.TextBody);
 
         var old = await AccountFlow.LoginAsync(app.CreateClient(ClientOptions), Email, Password);
         Assert.Equal(HttpStatusCode.OK, old.StatusCode);
