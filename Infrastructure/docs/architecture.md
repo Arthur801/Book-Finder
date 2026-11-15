@@ -135,3 +135,24 @@ HostingSetup 支援設定不等於已驗證容器切換、公開 HTTPS、可信 
   - `EfUserStore.FindByIdAsync`：token endpoint 拒絕已刪除的使用者。
 - MCP-202：同一處註冊 OpenIddict validation（只在 `Mcp:Enabled = true`）：`UseLocalServer`、`AddAudiences({base}/mcp)`（與 `ResourceOf` 同一來源）、`EnableAuthorizationEntryValidation`、`EnableTokenEntryValidation`；**關閉** query string 與 form body 取 token（OpenIddict 7.8 預設兩者都開）。Validation 的 scheme 由 `/mcp` 閘門使用，不是預設 scheme。
 - 尚未實作：撤銷管理頁（D-10，不在本期）。
+
+## 寄信 adapter 與 provider 選擇（會員中心 C1）
+
+依 [會員中心計畫](../../Docs/plans/member-center-email-verification.md) C1，Infrastructure 實作 `IEmailSender` 的三種 adapter，並由 [EmailServiceCollectionExtensions](../Email/EmailServiceCollectionExtensions.cs) 依 `Email:Provider` 選擇：
+
+| Provider | Adapter | 行為 |
+|---|---|---|
+| `None`（預設） | [NoEmailSender](../Email/NoEmailSender.cs) | 每次寄信都失敗，訊息指出要設定 Provider；不假裝寄出 |
+| `Ses` | [SesEmailSender](../Email/SesEmailSender.cs) | `AWSSDK.SimpleEmailV2` 4.1.0（csproj 精確釘選）。`SendEmailRequest` 使用 Simple content、UTF-8 charset、一個收件人。Client 以 `RegionEndpoint` 建立，憑證來自預設 AWS chain（instance role）；設定檔不含 key。log 只寫收件網域與 SES message id，不寫 body 與連結。錯誤原樣拋出 |
+| `Pickup` | [PickupDirectoryEmailSender](../Email/PickupDirectoryEmailSender.cs) | 每封信寫入一個 `.eml`（multipart/alternative，body 為 base64）。目錄相對路徑以 content root 解析。只供本機開發使用 |
+
+設定的綁定與驗證：
+
+- `Site`、`Email` 與 `EmailVerification` 在 `AddBookFinderEmail` 綁定；`Site` 與 `Email` 都 `ValidateOnStart`。`Email` 的驗證由 `IValidateOptions` 執行，並把 `EmailVerification:Enabled` 當作參數傳入。
+- Ses 的 client 只在 `IEmailSender` 被解析時建立；沒有額外的 AWS 設定類別，也不使用 `AddAWSService`。
+- `IEmailSender` 為 singleton；`TimeProvider` 由 `TryAddSingleton(TimeProvider.System)` 註冊。
+- `Program.cs` 在 MCP 之後呼叫 `AddBookFinderEmail(builder.Configuration, builder.Environment)`。
+
+appsettings：`appsettings.json` 為 `Email:Provider = None`、`EmailVerification:Enabled = false`、`Site:PublicBaseUrl = https://khwebsc.com`；`appsettings.Development.json` 為 `Site:PublicBaseUrl = https://localhost:7083`、`Email:Provider = Pickup`、`PickupDirectory = .local-mail`（已加入 `.gitignore`）。正式環境的 Ses 設定屬 L4，未在 `compose.prod.yaml` 中設定（見 INF-B10）。
+
+安全取捨：Pickup 會把信件寫到磁碟而不是寄出，若誤用於正式環境，使用者收不到信件而系統不會報錯；目前沒有以環境名稱阻擋的機制，只能靠設定審查（INF-B10）。

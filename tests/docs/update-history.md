@@ -217,3 +217,12 @@ Git 歷史不證明 runtime 或 CI 已通過。
 | 2026-11-14 | `1160542` | feat(mcp): recommend_books (M3) | `tests/UnitTests/McpRecommendationServiceTests.cs`、`RecommendationToolsTests.cs`、`tests/WebIntegration/McpRecommendBooksTests.cs`（新增）；`McpAuthorizationTests.cs`（DB 筆數）、`McpEndpointTests.cs`、`McpTestTools.cs` | TEST-36 |
 | 2026-11-14 | `d1f6cfc`、`1508c27` | feat／test(mcp): get_recommendation_result (M4) | `tests/UnitTests/McpRecommendationResultServiceTests.cs`、`tests/WebIntegration/McpRecommendationResultTests.cs`（新增）；`RecommendationToolsTests.cs`、`McpEndpointTests.cs` | TEST-37 |
 | 2026-11-14 | `2192f1f`、`41ff236`、`7116e2c`、`e31223a` | test(mcp): M5 review fixes | `tests/Shared/FakeRecommendationJobStore.cs`、`FakeRecommendationHistory.cs`、`tests/WebIntegration/McpTokenIsolationTests.cs`、`tests/UnitTests/McpAuthSetupTests.cs`（新增）；`UnitTests.csproj`、三個 MCP unit 測試檔、`McpAuthorizationTests.cs` | TEST-38 |
+
+
+## 會員中心 C1：寄信 port 測試（新增紀錄）
+
+| 日期 | 提交 | subject | 影響 |
+|---|---|---|---|
+| 2026-11-15 | 本次 commit（`mc-c1-email-port`） | test(email): port, templates, options, adapters and capturing fake (C1) | 新增 `tests/UnitTests/AccountEmailTemplatesTests.cs`、`SiteOptionsTests.cs`、`EmailOptionsTests.cs`、`SesEmailSenderTests.cs`、`PickupDirectoryEmailSenderTests.cs`、`NoEmailSenderTests.cs`、`EmailServiceCollectionExtensionsTests.cs`；`tests/WebIntegration/CapturingEmailSender.cs`、`EmailPortTests.cs`（新增）；`WebFixture.cs`（`Email`、`IEmailSender` 替身） | APP-T28、INF-T25、TEST-39 |
+
+執行（本次 worktree）：UnitTests 1216 通過；WebIntegration 過濾測試 14 通過；全量 WebIntegration 見 PR 說明的最終紀錄。

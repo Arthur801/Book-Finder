@@ -269,3 +269,17 @@ flowchart TD
 ```
 
 Log 欄位：JobId、Attempt、ErrorCode、QueueWaitMs（領取時間減去 Job 建立時間）、ExecutionMs、成功時的 SearchId；不記需求文字。
+
+
+## 寄信 port（會員中心 C1，尚無 caller）
+
+目前沒有 use case 呼叫寄信。之後 flow 的責任分界如下：
+
+```mermaid
+flowchart LR
+    Flow["Identity flow（C2–C4，尚未實作）"] -->|"AccountEmailTemplates + SiteUrlBuilder"| Msg["EmailMessage"]
+    Msg -->|"IEmailSender.SendAsync"| Port["IEmailSender（Application port）"]
+    Port --> Adapter["Infrastructure adapter：Ses／Pickup／None"]
+```
+
+Flow 負責決定收件人、token、連結與失敗語意；Application 只提供內容與絕對連結；adapter 只負責投遞。信件內容不得寫入 log。

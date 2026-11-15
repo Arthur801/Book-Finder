@@ -255,3 +255,17 @@ dotnet test tests/WebIntegration/WebIntegration.csproj
 - mutation（主 agent）：拿掉 heartbeat 被拒時的 `leaseLost.Cancel()` → `A_refused_heartbeat_cancels_the_running_job_and_nothing_is_written` 失敗，已還原。
 - 入口：[RecommendationJobWorkerTests](../../tests/UnitTests/RecommendationJobWorkerTests.cs)。
 
+
+
+### INF-T25 — 寄信 adapter 與 provider 選擇（會員中心 C1）
+
+- 風險／狀態：L3（外部寄信與 credential 邊界）；**測試實作：Implemented；執行：見 update-history 的 C1 紀錄**。
+- **Given**：`SesEmailSender` 接收的 SDK client 子類別（覆寫 `SendEmailAsync`，不發出網路請求）；`PickupDirectoryEmailSender` 使用暫存目錄與 `FakeTimeProvider`；設定由記憶體內字典組成。
+- **Then**：
+  - SES 請求：`FromEmailAddress`、單一收件人、subject／text／html 皆為 UTF-8 Simple content，沒有 Raw 與 Template；cancellation token 傳到 client；
+  - SES log：只含收件網域與 message id，不含收件人完整地址、body 與 token；SES 錯誤原樣拋出且不寫 log；
+  - Pickup：每封信一個 `.eml`，目錄不存在時會建立；檔名以時間開頭；標頭含 From、To、Subject（UTF-8）、multipart/alternative；text 與 html 的 base64 內容可還原；
+  - None：每次寄信都失敗，`InvalidOperationException` 訊息包含 `Email:Provider` 與 `None`；
+  - DI：None、Pickup、Ses 各解析到對應 adapter；預設為 None 且驗證關閉；驗證開啟搭配 None、Ses 缺 Region、缺 Site:PublicBaseUrl 時，選項取值即拋出 `OptionsValidationException`。
+- 測試來源：[SesEmailSenderTests.cs](../../tests/UnitTests/SesEmailSenderTests.cs)、[PickupDirectoryEmailSenderTests.cs](../../tests/UnitTests/PickupDirectoryEmailSenderTests.cs)、[NoEmailSenderTests.cs](../../tests/UnitTests/NoEmailSenderTests.cs)、[EmailServiceCollectionExtensionsTests.cs](../../tests/UnitTests/EmailServiceCollectionExtensionsTests.cs)。
+- 已知缺口：沒有對真實 SES 的整合測試（需要 AWS 憑證與已驗證網域，屬 L4，見 INF-B10）；Pickup 在正式環境的誤用沒有測試保護。

@@ -145,3 +145,23 @@ History的reason/rank/relevance是snapshot，Book標題等為目前資料；diff
 可重試＝`attempt_count < MaxAttempts` 時 `RequeueAsync(RetryDelay)`，否則 `FailAsync`。失敗處理的寫入使用 `CancellationToken.None`，主機停止時也不會只寫一半；store 回 false（lease 已不在）時只記 log。Application 只用 BCL 的 `DbException`，不引用 Npgsql 或 EF。
 
 [RecommendationJobOptions](../Recommendation/RecommendationJobOptions.cs)（section `RecommendationJobs`）：`Enabled` false、`PollInterval` 2 秒、`LeaseDuration` 45 秒、`HeartbeatInterval` 10 秒（必須小於 LeaseDuration）、`MaxAttempts` 2、`RetryDelay` 5 秒；啟動時驗證。併行度固定為 1，不是設定。
+
+## 寄信 port、信件內容與網站連結（會員中心 C1）
+
+依 [會員中心計畫](../../Docs/plans/member-center-email-verification.md) C1，本次只建立 port、範本與設定，尚無任何 use case 呼叫寄信；使用者可見行為不變。
+
+| 責任 | 位置 | 說明 |
+|---|---|---|
+| 寄信 port | [IEmailSender](../Email/IEmailSender.cs)、[EmailMessage](../Email/EmailMessage.cs) | `SendAsync(EmailMessage, ct)`。`EmailMessage` 同時帶純文字與 HTML 內容。Adapter 在 Infrastructure（SES、本機 pickup、None） |
+| 信件內容 | [AccountEmailTemplates](../Email/AccountEmailTemplates.cs) | 純函式：`EmailVerification`、`PasswordReset`，參數為收件人、顯示名稱、絕對連結與有效時間（`TimeSpan`，不寫死）。繁體中文；HTML body 對顯示名稱與連結做 HTML encoding（含單引號）；不接受密碼參數；顯示名稱只 trim，空白時用「會員您好：」 |
+| 站點網址 | [SiteOptions](../Site/SiteOptions.cs)、[SiteUrlBuilder](../Site/SiteUrlBuilder.cs) | `Site:PublicBaseUrl` 必填，啟動時驗證：https，或 localhost／127.0.0.1 的 http；只能是站台根目錄（無 path、query、fragment）。`SiteUrlBuilder.Build(path, query)` 只接受以 `/` 開頭的站內路徑（拒絕 `//`、`?`、`#`），query 值 percent-encode；永遠從設定組出連結，不讀 Host header |
+| 寄信設定 | [EmailOptions](../Email/EmailOptions.cs)、[EmailVerificationOptions](../Email/EmailOptions.cs) | `Email:Provider`（None 預設、Ses、Pickup）、`Email:From`、`Email:Region`、`Email:PickupDirectory`。`EmailVerification:Enabled` 預設 false，本模組只綁定不使用 |
+
+規則（`EmailOptions.ValidationError`，啟動時經 `IValidateOptions` 驗證）：
+
+- `EmailVerification:Enabled` 為 true 時，`Email:Provider` 不可為 None。
+- Ses 必須有 `Email:From`（可是有效的 email 地址，允許顯示名稱）與 `Email:Region`。
+- Pickup 必須有 `Email:PickupDirectory`。
+- 驗證規則以純函式實作，並在 UnitTests 中逐條測試。
+
+Application 不知道 SES、檔案系統或 AWS；寄信失敗的語意（例如是否保留帳號、是否標記 token）由之後的 flow 決定，port 本身只把 adapter 的例外原樣交給呼叫端。

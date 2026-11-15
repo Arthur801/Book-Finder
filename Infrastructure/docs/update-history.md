@@ -219,3 +219,12 @@ git show <SHA> -- Infrastructure
 | 2026-11-14 | `d245b9b`、`e16b56f`、`84f8656` | feat／test(mcp): OpenIddict tables, server, client sync (MCP-201a) | `Identity/OAuth/OAuthOptions.cs`、`OAuthServiceCollectionExtensions.cs`、`OAuthClientSync.cs`（新增）；`Persistence/AppDbContext.cs`（`UseOpenIddict` 與 snake_case 表名）；`Persistence/Migrations/20261114082838_AddOpenIddict*`（新增） |
 | 2026-11-14 | `48b2edd`、`3a41690` | feat／test(mcp): OAuth authorize, consent and token (MCP-201b) | `Identity/OAuth/OAuthServiceCollectionExtensions.cs`（`RegisterResources`、discovery 只宣告 `books:recommend`、`ResourceOf`）；`OAuthClientSync.cs`（resource permission）；`Persistence/EfUserStore.cs`（`FindByIdAsync`） |
 | 2026-11-14 | `19e40d3` | feat(mcp): validate OpenIddict access tokens at the MCP gate (MCP-202) | `Identity/OAuth/OAuthServiceCollectionExtensions.cs`：OpenIddict validation（local server、audience、entry validation、只讀 Authorization header） |
+
+
+## 會員中心 C1：寄信 adapter 與設定綁定（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | 本次 commit（`mc-c1-email-port`） | feat(email): SES, pickup and none email adapters with provider wiring (C1) | `Email/SesEmailSender.cs`、`PickupDirectoryEmailSender.cs`、`NoEmailSender.cs`、`EmailServiceCollectionExtensions.cs`（新增）；`Book-Finder.csproj`（`AWSSDK.SimpleEmailV2` 4.1.0 精確釘選，獨立 ItemGroup）；`Program.cs`（呼叫 `AddBookFinderEmail`）；`appsettings.json`、`appsettings.Development.json`（Site、EmailVerification、Email）；`.gitignore`（`/.local-mail/`） |
+
+驗證（本次 worktree 執行）：`dotnet build --no-incremental` 0 warning；`dotnet test tests/UnitTests` 1216 通過；`dotnet test tests/WebIntegration --filter EmailPortTests|LayoutAndHomeTests|NavbarTests` 14 通過（全量見 tests update-history）。

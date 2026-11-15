@@ -183,3 +183,12 @@ git show --format= --numstat <sha> -- Application ':(exclude)Application/docs'
 | `0d3b3ac` | feat(rec-jobs): add the job runner with its outcome table | 新增 `Recommendation/RecommendationJobRunner.cs` |
 | `c0ac2f6` | fix(rec-jobs): log the exception when a job fails with INTERNAL_ERROR | `RecommendationJobRunner.cs`：主 agent 驗收時修正，INTERNAL_ERROR 的 log 帶上例外 |
 | `48b2edd` | feat(mcp): OAuth authorize, consent and token endpoints (MCP-201b) | `Identity/IUserStore.cs`：新增 `FindByIdAsync`（token endpoint 確認使用者仍存在） |
+
+
+## 會員中心 C1：寄信 port、信件範本、站點網址與寄信設定（新增紀錄）
+
+| 日期 | 提交 | subject | 影響 |
+|---|---|---|---|
+| 2026-11-15 | 本次 commit（`mc-c1-email-port`） | feat(email): email port, account templates, site and email options (C1) | 新增 `Email/IEmailSender.cs`、`EmailMessage.cs`、`AccountEmailTemplates.cs`、`EmailOptions.cs`（含 `EmailProvider`、`EmailVerificationOptions`）；新增 `Site/SiteOptions.cs`、`SiteUrlBuilder.cs` |
+
+驗證（本次 worktree 執行）：UnitTests 1216 通過（基準 1143 加上本次 73 項），`dotnet build --no-incremental` 0 warning。使用者可見行為不變，沒有 flow 呼叫 `IEmailSender`。

@@ -305,3 +305,15 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter FullyQualifiedNa
 ### TEST-38：MCP code review 修正（MCP 計畫 M5）
 
 - `McpTokenIsolationTests`（MCP token 不能登入網站）、預設拒絕的 Tool 歸類測試、`McpAuthSetupTests`（scope 常數一致）；`tests/Shared/FakeRecommendationJobStore.cs`、`FakeRecommendationHistory.cs` 取代三份重複的 fake。
+
+
+## 會員中心 C1：寄信 port 與 web 測試替身（TEST-39）
+
+- 風險／狀態：L2；**測試實作：Implemented；執行：見 tests update-history 的 C1 紀錄**。
+- 單元測試（`tests/UnitTests`）：APP-T28 與 INF-T25 的案例，共 73 項（信件範本、站點網址、寄信設定、SES 映射、Pickup、None、DI 選擇與驗證）。
+- Web 測試（`tests/WebIntegration/EmailPortTests.cs`）：
+  - `BookFinderFactory.Email`（`CapturingEmailSender`）是每個 host 的 `IEmailSender`，`Factory_resolves_IEmailSender_to_the_capturing_fake` 證明解析結果相同；
+  - `App_starts_with_email_defaults_and_sends_nothing`：Development 設定下應用程式正常啟動（首頁 200）、`EmailVerification:Enabled` 為 false、沒有任何信件被送出、`SiteUrlBuilder` 可解析；
+  - `Capturing_sender_keeps_messages_in_order_and_clears`：依序保存、可清空。
+- 之後的 flow 測試應透過 `app.Email.Sent` 取得信件內容（包括一次性連結），而不是從 log 取得。
+- 已知缺口：沒有 Web 測試驗證 Ses 或 Pickup 在 host 中的實際啟動（只有 UnitTests 的 DI 解析）；Ses 不會在測試中連線。
