@@ -26,4 +26,4 @@
 | MCP-B20 | OAuth endpoint 防暴力嘗試（計畫 §5「資源限制」）：authorize 依賴網站登入頁，登入頁本身的頻率限制仍暫緩（Controllers backlog CTL-02）；token endpoint 以 PKCE 與一次性 code 防護 | 待決策（與 CTL-02 一起） |
 | MCP-B21 | `Mcp:Enabled`、`Mcp:PublicBaseUrl` 在 `OAuthController`、`OAuthServiceCollectionExtensions` 以字串讀取（Infrastructure／Controllers 不參照 Mcp 模組）；`books:recommend` 常數兩處定義，以 unit test 鎖住相同值 | 已知取捨 |
 | MCP-B22 | code review（M5）列出的判斷題重複：`Refused`／`Failure` helper、未登入檢查、`StatusName`／`StatusText` 對應、OAuthController 建 identity 的兩處寫法；目前不影響行為，之後碰到這些檔案時再整理 | 改善提案 |
-| MCP-B23 | 會員中心 B3：重設密碼（C4）與刪除帳號（D1）尚未呼叫 `IExternalCredentialRevoker`；接上後 MCP 憑證才會隨密碼重設或帳號刪除失效 | 待實作（C4、D1） |
+| MCP-B23 | 會員中心 B3：重設密碼（C4）與刪除帳號（D1）尚未呼叫 `IExternalCredentialRevoker`；接上後 MCP 憑證才會隨密碼重設或帳號刪除失效 | 刪除部分已完成（D1，2026-11-15，`DeleteAllForUserAsync` 在刪除交易內呼叫，見 WebIntegration `AccountDeletionTests`）；重設密碼（C4）待實作 |

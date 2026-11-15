@@ -34,6 +34,8 @@ public static class AuthServiceCollectionExtensions
         services.AddSingleton<IPasswordHashing, AspNetPasswordHashing>();
         services.AddScoped<IUserStore, EfUserStore>();
         services.AddScoped<AccountService>();
+        services.AddScoped<IAccountDeletionStore, EfAccountDeletionStore>();
+        services.AddScoped<AccountDeletionService>();
         services.AddScoped<IAccountActionTokenStore, EfAccountActionTokenStore>();
         services.AddScoped<AccountActionTokenService>();
         services.AddSingleton<AuthTokenIssuer>();

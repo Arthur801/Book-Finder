@@ -52,6 +52,10 @@ public sealed class RecommendationJobService(
                 logger.LogInformation("Recommendation job submit refused for user {UserId}: daily limit reached", userId);
                 return new RecommendationJobSubmission.DailyLimitReached();
 
+            case JobSubmitOutcome.UserNotFound:
+                logger.LogInformation("Recommendation job submit refused for user {UserId}: the user was deleted", userId);
+                return new RecommendationJobSubmission.UserNotFound();
+
             default:
                 throw new InvalidOperationException($"Unexpected job submit outcome {outcome.GetType().Name}.");
         }

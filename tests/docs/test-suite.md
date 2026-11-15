@@ -349,3 +349,16 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter FullyQualifiedNa
   - [LayoutAndHomeTests](../WebIntegration/LayoutAndHomeTests.cs)：匿名導覽列沒有「個人書單」。
   - [LibraryPageTests](../WebIntegration/LibraryPageTests.cs)：頁面斷言改到 `/account`，行為覆蓋不變（篩選、列、空態、控制項、登入連結）；匿名 `/library` 仍導向登入頁。
 - 已知缺口：沒有 Web 測試驗證 `/account` 的瀏覽器 JS 行為（書單 CRUD 在新頁面的 DOM 操作）；本次只以 HTML 驗證。
+
+## 會員中心 D1：帳號刪除（TEST-44）
+
+- 風險／狀態：L3；測試實作：Implemented；執行結果見 tests update-history 的 D1 紀錄。
+- UnitTests：[AccountDeletionServiceTests](../UnitTests/AccountDeletionServiceTests.cs) 8 案例（確認、密碼空白、錯誤密碼、rehash、找不到使用者、store 競態回應）；[RecommendationJobServiceTests](../UnitTests/RecommendationJobServiceTests.cs) 新增 `UserNotFound` 對映。
+- DatabaseIntegration：
+  - [EfAccountDeletionStoreTests](../DatabaseIntegration/EfAccountDeletionStoreTests.cs)：完整 cascade 與其他使用者不變、查無使用者、OAuth 之後失敗的 rollback。
+  - [AccountDeletionRaceTests](../DatabaseIntegration/AccountDeletionRaceTests.cs)：提交與刪除兩個方向的鎖等待（以 `pg_stat_activity` 確認等待）、執行中 Job 的 lease 遺失。
+- WebIntegration：[AccountDeletionTests](../WebIntegration/AccountDeletionTests.cs) 9 案例（見 Controllers `test-suite.md` §15）。
+- 證據限制：
+  - 未測 commit 與刪除互相 deadlock 的路徑（INF-B12）。
+  - 同步推薦入口的刪除競態未測（APP-B10）。
+  - 未做瀏覽器測試（checkbox、焦點、首頁通知的 DOM）。

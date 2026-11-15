@@ -36,4 +36,7 @@ public abstract record JobSubmitOutcome
 
     // The user has used the daily limit. Nothing was inserted.
     public sealed record DailyLimitReached : JobSubmitOutcome;
+
+    // The user was deleted before the submit got its lock (member-center plan D1). Nothing was inserted and no quota was used.
+    public sealed record UserNotFound : JobSubmitOutcome;
 }

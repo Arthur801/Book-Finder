@@ -250,3 +250,20 @@ dotnet test tests/WebIntegration/WebIntegration.csproj
 
 - `GET /mcp-guide` 匿名 200，`Mcp:Enabled` 開或關結果相同（路徑不在 `/mcp` 之下，閘門與 `MapMcp` 都不處理）。
 - 由 WebIntegration [McpGuidePageTests](../../tests/WebIntegration/McpGuidePageTests.cs) 驗證；2026-11-15 通過。
+
+### 15. 帳號刪除（會員中心 D1，DEL 案例）
+
+| 案例 | 測試（`tests/WebIntegration/AccountDeletionTests.cs`） | 期望 |
+|---|---|---|
+| DEL-01 匿名 GET | `Anonymous_confirmation_page_redirects_to_login_with_return_url` | 302 至 `/account/login?returnUrl=…` |
+| DEL-02 匿名 POST | `Anonymous_post_redirects_to_login_and_deletes_nothing` | 302 至登入頁，使用者仍存在 |
+| DEL-03 確認頁內容 | `Confirmation_page_says_what_is_deleted_and_that_it_cannot_be_undone` | 含「無法復原」、個人書單、AI 推薦、MCP、公開書籍說明、密碼與勾選欄位、antiforgery |
+| DEL-04 密碼錯誤 | `Wrong_password_shows_an_error_and_keeps_the_account_and_the_cookie` | 200，「密碼錯誤」，使用者存在，無 bf_auth 刪除標頭 |
+| DEL-05 未勾選 | `Missing_confirmation_shows_an_error_and_keeps_the_account` | 200，「請勾選」，使用者存在 |
+| DEL-06 成功 | `Correct_password_deletes_the_account_clears_the_cookie_and_shows_the_notice_once_on_the_home_page` | 302 至 `/`，bf_auth 過期，使用者不存在，首頁顯示一次「帳號已刪除」 |
+| DEL-07 舊 cookie | `The_old_cookie_is_refused_after_deletion_and_a_second_post_deletes_nothing_else` | `/account` 導向登入，`/api/recommendations/jobs` 401，第二次 POST 不影響其他使用者 |
+| DEL-08 MCP | `Deleting_the_account_revokes_its_mcp_access_token` | 刪除前 `/mcp` 200，刪除後同一 access token 401 |
+| DEL-09 會員中心連結 | `The_member_page_links_to_the_deletion_page_in_the_account_security_section` | `#account-security` 內有 `href="/account/delete"` 與「刪除帳號」 |
+
+- 錯誤訊息由 Razor 編碼為數字字元參照，測試以 `WebUtility.HtmlDecode` 比對。
+- 本節的 Web 測試需要 WebFixture（pgvector 容器）與 OAuth 測試客戶端。
