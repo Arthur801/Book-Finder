@@ -15,7 +15,7 @@
 | 搜尋 | SearchController、SearchResultsViewModel、PagerViewModel | query 預填、總數／頁數、結果列由 _BookList 呈現、_Pager；搜尋完全是 local DB |
 | 分類瀏覽 | CategoriesController、CategoryBrowseViewModel、BookListItemViewModel | 側邊欄只有一個元素：Bootstrap 5.3 `offcanvas-lg`，≥lg 是一般欄位、<lg 是抽屜（Escape、遮罩、焦點由 Bootstrap 處理）；桌面可收合（[category-sidebar.js](../../wwwroot/js/category-sidebar.js)，偏好存在 localStorage，讀寫失敗不影響導覽）；需要 JS 的兩個按鈕帶 `js-only`，JS 執行後才顯示；無 JS 時 <lg 以 `<noscript>` 顯示同一份連結；來源篩選是 nav-pills 連結；共用 _BookList、_Pager；樣式在 [category-browser.css](../../wwwroot/css/category-browser.css)，經 Layout 的 `Styles` section 載入 |
 | Book 詳情 | BooksController、BookDetailViewModel | 基本資料／safe 外連；LibrarySection 另外放 ViewData，避免將個人資料塞入 catalog cache |
-| 個人書單 | LibraryController、LibraryPageViewModel | tabs、每列 _LibraryControls、頁面 token、預先存在的空狀態 |
+| 個人書單 | LibraryController、LibraryPageViewModel | /library 標題加 [_LibraryContent](../Shared/_LibraryContent.cshtml)；partial 含 tabs、每列 _LibraryControls、頁面 token、預先存在的空狀態；tab 連結由 view model 的 base path／fragment 決定 |
 | 帳號 | AccountController、LoginForm／RegisterForm | server field errors／summary、hidden ReturnUrl/PendingAction；post success redirect |
 | AI 主頁／列表 | AiController、AiHistoryListViewModel | #ai-form／#ai-status／#ai-results；_AiHistoryList 是唯一列表 HTML，fragment 不含 layout |
 | AI 詳情 | AiController、AiHistoryDetailViewModel | 本人紀錄；快照 rank/reason/relevance＋即時 Book 與 difficulty |
@@ -30,7 +30,7 @@
 |---|---|---|
 | SSR＋少量 fetch | UI Flow §1 明訂 Razor，普通表單 GET/POST，AI/Library JSON 就地更新 | SPA 會改 architecture boundary；SSR 易保留 server validation，但 JS 掛掉時 AI/Library 不可編輯 |
 | ViewModel 先整形 | BookDetailViewModel、AiHistoryDetailViewModel 將日期／安全連結／空值準備好 | View 內做資料查詢會耦合且易洩私有內容；現況 View 仍負責分支與 markup |
-| 共用 partial | _BookList、_SearchForm、_Pager、_LibraryControls、_AiHistoryList | 複製可局部自由但易文案／ARIA／狀態漂移；partial 改動需雙 caller 驗證 |
+| 共用 partial | _BookList、_SearchForm、_Pager、_LibraryControls、_LibraryContent、_AiHistoryList、_RecommendationJobList | 複製可局部自由但易文案／ARIA／狀態漂移；partial 改動需雙 caller 驗證 |
 | server 渲染 controls | #12 diff 明示將 labels/stars 移回 server；JS 只更新 attributes/state | 完全 client renderer 易產兩套 labels；現況須保持 data-* selector 與 JS 同步 |
 | sessionStorage 交接 | UI Flow §3.2；ai.js try/catch 封鎖情境 | query string 易把需求放 URL/log；sessionStorage 只在同 tab，無法保證關閉儲存時交接 |
 | HTML fragment refresh | UI Flow §3.4；只一份 _AiHistoryList markup | JSON list renderer 需重複 pager/time/empty 邏輯；outerHTML 只接受同源成功片段，仍須維持 SSR encoding |
@@ -57,6 +57,6 @@ ai.js 沒 browser AbortController timeout，server 60 秒限制才是契約；hi
 
 ## 推薦工作頁面（Job 計畫 M7）
 
-- [Ai/Index.cshtml](../Ai/Index.cshtml)：`#ai-form` 輸出 `data-recommendation-jobs="true|false"`；開關開啟時在表單下方加入 [_AiJobList](../Ai/_AiJobList.cshtml)（「推薦工作」、空狀態「還沒有推薦工作」、`/ai?jobsPage=N` 分頁）。原本的推薦紀錄列表不變；兩個列表的分頁連結各自只帶自己的頁碼。
+- [Ai/Index.cshtml](../Ai/Index.cshtml)：`#ai-form` 輸出 `data-recommendation-jobs="true|false"`；開關開啟時在表單下方加入 [_RecommendationJobList](../Shared/_RecommendationJobList.cshtml)（標題由 `ViewData["RecommendationJobListHeading"]` 傳入，`/ai` 設為「推薦工作」；空狀態「還沒有推薦工作」、`/ai?jobsPage=N` 分頁）。原本的推薦紀錄列表不變；兩個列表的分頁連結各自只帶自己的頁碼。
 - [Ai/Job.cshtml](../Ai/Job.cshtml)：根元素 `#ai-job` 帶 `data-job-status-url`（由 view model 的 `StatusUrl` 產生，與 API 的 `statusUrl` 同一個來源）、`data-job-status`；排隊或執行中顯示「已加入工作佇列，可以離開網站，稍後回來查看。」，成功顯示「查看推薦結果」連到 `/ai/history/{searchId}`，失敗顯示依 error code 而定的固定文案；只載入 `ai-job.js`。
 - 需求文字全部經 Razor 編碼。

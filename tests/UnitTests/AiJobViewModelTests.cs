@@ -106,6 +106,42 @@ public sealed class AiJobViewModelTests
     }
 
     [Fact]
+    public void Job_list_url_on_another_base_path_keeps_the_preserved_query_and_fragment()
+    {
+        var preserved = new[] { KeyValuePair.Create("status", "READING") };
+
+        Assert.Equal("/account?status=READING#ai-history", AiJobListViewModel.UrlFor(1, "/account", preserved, "#ai-history"));
+        Assert.Equal("/account?status=READING&jobsPage=3#ai-history", AiJobListViewModel.UrlFor(3, "/account", preserved, "#ai-history"));
+    }
+
+    [Fact]
+    public void Job_list_url_without_preserved_query_or_fragment_on_another_base_path()
+    {
+        Assert.Equal("/account", AiJobListViewModel.UrlFor(1, "/account"));
+        Assert.Equal("/account?jobsPage=2", AiJobListViewModel.UrlFor(2, "/account"));
+    }
+
+    [Fact]
+    public void Job_list_url_encodes_preserved_keys_and_values()
+    {
+        var preserved = new[] { KeyValuePair.Create("sta tus", "A B&C") };
+
+        Assert.Equal("/account?sta%20tus=A%20B%26C&jobsPage=2#ai-history", AiJobListViewModel.UrlFor(2, "/account", preserved, "#ai-history"));
+    }
+
+    [Fact]
+    public void Job_list_pager_on_another_base_path_uses_the_same_urls()
+    {
+        var preserved = new[] { KeyValuePair.Create("status", "READING") };
+        var page = new RecommendationJobPage([], TotalCount: 41);
+
+        var model = AiJobListViewModel.From(page, currentPage: 2, "/account", preserved, "#ai-history");
+
+        Assert.Equal("/account?status=READING#ai-history", model.Pager.PreviousUrl);
+        Assert.Equal("/account?status=READING&jobsPage=3#ai-history", model.Pager.NextUrl);
+    }
+
+    [Fact]
     public void Job_list_rows_link_to_the_job_page_and_show_label_and_time()
     {
         var page = new RecommendationJobPage(

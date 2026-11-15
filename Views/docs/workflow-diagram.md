@@ -16,7 +16,7 @@
 | GET `/books/{id}` | [Books/Detail](../Books/Detail.cshtml)、_LibrarySection、_LibraryControls | catalog read model + 每次獨立 user Library 查詢 |
 | GET/POST `/account/login`、`/account/register` | [Login](../Account/Login.cshtml)、[Register](../Account/Register.cshtml) | AccountController；POST token、成功 cookie/redirect、失敗表單 |
 | POST `/account/logout` | _Layout 內 form | 登入限制＋全域 antiforgery；成功回首頁 |
-| GET `/library?status=` | [Library/Index](../Library/Index.cshtml)、_LibraryControls | 需登入；未知 status 視為全部 |
+| GET `/library?status=` | [Library/Index](../Library/Index.cshtml)、[_LibraryContent](../Shared/_LibraryContent.cshtml)、_LibraryControls | 需登入；未知 status 視為全部 |
 | GET `/ai?page=` | [Ai/Index](../Ai/Index.cshtml)、_AiHistoryList、_Pager | 需登入；每頁二十筆本人紀錄 |
 | GET `/ai/history-list?page=` | [Ai/_AiHistoryList](../Ai/_AiHistoryList.cshtml) | 需登入；只回片段，無 layout |
 | GET `/ai/history/{id}` | [Ai/History](../Ai/History.cshtml) 或 [Ai/NotFound](../Ai/NotFound.cshtml) | 需登入；不存在／非本人／無效 UUID 同 404 |
