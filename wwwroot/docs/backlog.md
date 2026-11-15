@@ -33,7 +33,7 @@
 
 ## WB-04 — 首次導覽的瀏覽器驗收
 
-- P2；L2；狀態：待驗證。
+- P2；L2；狀態：已驗證（2026-11-15 一次性本機 Playwright（Chromium；拋棄式 pgvector 0.8.7-pg17、`manage_categories.py sync --apply` 寫入 18 類與 283 筆 Mapping、85 本假書其中一類 0 本；網站以 Development + HTTPS 啟動，OpenAI 以 proxy 擋下；腳本未 commit）76／76 通過，見 [Views VIEW-T30](../../Views/docs/test-suite.md)）。以下為原始紀錄。
 - 證據：`onboarding.js` 只有 `node --check` 與靜態搜尋；`OnboardingTests` 只驗 HTML。Spotlight 定位、窄螢幕 Collapse 還原、focus trap、Escape、localStorage 拋例外、hash 清理與 reduced motion 都沒有執行過。
 - 影響：HTML 與語法檢查不能證明導覽在瀏覽器中運作。不是已重現錯誤。
 - 方向：與 WB-01 相同，一次性本機瀏覽器執行 plan §8 ONB-01～ONB-09；核准前不加入 CI。

@@ -202,3 +202,11 @@ git show 894883b -- Views
 | 2026-11-15 | 本次 commit | fix(onboarding): keep the tour from autostarting on 404 pages | `Shared/_Layout.cshtml`：autostart 另檢查 View 不是 `NotFound.cshtml`；本目錄 `architecture.md`、`test-suite.md`、`backlog.md`（VIEW-B10 已由 P2 解決） |
 
 原因：`/books/{不存在}` 與 `/categories?category=不存在` 的路由值仍是 Books/Detail、Categories/Index，會讓 404 頁自動彈出導覽，違反計畫 §5.3。先寫失敗測試（2 失敗），修正後 OnboardingTests 16 通過。
+
+## 介面驗收 P5（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | 本次 commit | docs(ui): record the browser check of the header, category grid and tour | 本目錄 `test-suite.md`（VIEW-T30、P4 段落的全量結果）、`backlog.md`（VIEW-B08、VIEW-B09 結案）、`update-history.md`；未改程式 |
+
+驗證：2026-11-15 一次性本機 Playwright（Chromium；拋棄式 pgvector 0.8.7-pg17、`manage_categories.py sync --apply` 寫入 18 類與 283 筆 Mapping、85 本假書其中一類 0 本；網站以 Development + HTTPS 啟動，OpenAI 以 proxy 擋下；腳本未 commit）76／76 通過。
