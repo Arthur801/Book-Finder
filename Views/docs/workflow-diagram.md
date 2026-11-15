@@ -27,6 +27,8 @@
 | GET `/ai/history/{id}` | [Ai/History](../Ai/History.cshtml) 或 [Ai/NotFound](../Ai/NotFound.cshtml) | 需登入；不存在／非本人／無效 UUID 同 404 |
 | `/Home/Error` | [Shared/Error](../Shared/Error.cshtml) | 非 Development exception handler；RequestId，不輸出 stack trace |
 
+首頁的「瀏覽全部分類」與書單空態的「前往分類找書」都連到 `/categories`（P3，2026-11-15）。主內容不再連 `/books`；`/books` 與 `/books/{id}` 仍可由舊書籤、已分享連結與直接網址到達（plan §3.4）。
+
 ## 共用 layout、認證與一般表單
 
 ```mermaid

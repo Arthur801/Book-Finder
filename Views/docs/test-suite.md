@@ -45,7 +45,7 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter 'FullyQualifiedN
 
 ### VIEW-T06 — Library 頁篩選與空狀態
 
-風險 L2；已有測試，本次未執行。規格：[Library §4](../../Docs/modules/user-library.md)。Given A/B users、多狀態／ratings／UpdatedAt entries；When GET `/account`、`?status=READING`、unknown filter、empty filter（`/library` 的轉址見 VIEW-T16）；Then 匿名 redirect，僅本人且最新先，active tab 正確、未知視全部，逐列控制項資料不串，空態含書庫連結（`/books`）；有列時空態 hidden；controls edit-login-url 保留 query；Library 區域 token 共用而非每列一份。來源：[LibraryPageTests](../../tests/WebIntegration/LibraryPageTests.cs)。改狀態後即時 filter 語意另見 VIEW-T12。
+風險 L2；已有測試，本次未執行。規格：[Library §4](../../Docs/modules/user-library.md)。Given A/B users、多狀態／ratings／UpdatedAt entries；When GET `/account`、`?status=READING`、unknown filter、empty filter（`/library` 的轉址見 VIEW-T16）；Then 匿名 redirect，僅本人且最新先，active tab 正確、未知視全部，逐列控制項資料不串，空態含分類連結（`/categories`，「前往分類找書」），不含 `/books` 連結；有列時空態 hidden；controls edit-login-url 保留 query；Library 區域 token 共用而非每列一份。來源：[LibraryPageTests](../../tests/WebIntegration/LibraryPageTests.cs)。改狀態後即時 filter 語意另見 VIEW-T12。
 
 ### VIEW-T07 — AI SSR 與歷史分頁
 
@@ -98,11 +98,20 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter 'FullyQualifiedN
 | CAT-05 | `Category_grid_counts_each_book_once_per_category_and_follows_the_source_filter` | 來源改變時每格數字更新 | HTML 已驗證 |
 | CAT-06 | 既有 `Unknown_or_inactive_category_…`、`Page_past_the_last_one_…` | 未知或停用分類、未知來源仍 404；超頁轉末頁並保留條件 | HTML 已驗證 |
 | CAT-07 | `Search_form_on_the_category_page_submits_to_search_without_category_or_source` | 搜尋表單是 `GET /search`，沒有 category／source 欄位 | HTML 已驗證 |
-| CAT-08 | `Page_has_no_sidebar_drawer_toggle_or_noscript_list_and_no_sidebar_script` | 無 offcanvas、sidebar、toggle、noscript、`category-sidebar.js` | HTML 已驗證；JS 停用時的點選未驗證 |
+| CAT-08 | `Page_has_no_sidebar_drawer_toggle_or_noscript_list_and_no_sidebar_script` | 無 offcanvas、sidebar、toggle、`category-sidebar.js`；noscript 只檢查 header 以外（header 有 P1 的 noscript 導覽備援，見 `cd83d86`） | HTML 已驗證；JS 停用時的點選未驗證 |
 | CAT-09 | `Category_grid_renders_every_active_category_without_truncation` | 20 個啟用分類加「全部書籍」共 21 格，全部渲染、不截斷 | HTML 已驗證 |
 | CAT-10 | `Description_and_table_of_contents_are_not_shown_on_the_category_page` | 分類頁與分類篩選頁不含簡介、目錄 | HTML 已驗證 |
 
 - 已知驗證缺口：CAT-02、CAT-03、CAT-08 的瀏覽器部分；網格等高與 focus-visible 外觀沒有自動化證據。
+
+### VIEW-T28 — 首頁與空書單的分類入口（P3，plan §8 REG-03、NAV-05）
+
+- 狀態：WebIntegration 已有測試，2026-11-15 通過（本分支，見 update-history）。風險 L1；瀏覽器點擊未檢查。
+- Given：空 Catalog 或有書的 Catalog，匿名；已登入且書單為空的使用者。
+- When：GET `/`；GET `/account`（書單空）；GET `/books`、GET `/books/{id}`。
+- Then：首頁 CTA 為「瀏覽全部分類」→ `/categories`，且整頁沒有 `href="/books"`；書單空態「還沒有加入任何書」含「前往分類找書」→ `/categories`，空態內沒有 `/books` 連結；`/books` 與 `/books/{id}` 仍為 200（NAV-05）。
+- 來源：REG-03 首頁 — `LayoutAndHomeTests.Home_shows_search_and_ai_entry_forms_and_link_to_the_category_browse`；REG-03 書單 — `LibraryPageTests.Empty_library_shows_the_empty_state_with_a_link_to_the_categories`；NAV-05 `/books` — `BookBrowsePageTests` 多個案例以 `GetPageAsync("/books")` 斷言 200；NAV-05 `/books/{id}` — `BookDetailPageTests.Basic_fields_are_rendered` 以 `GetPageAsync(DetailPath(book))` 斷言 200；header 無 `/books` — `NavbarTests` 首頁案例。
+- 未驗證：瀏覽器中實際點擊導覽；`Books/NotFound`、`Categories/NotFound`、`Ai/NotFound` 沒有 `/books` 連結，本次未改。
 
 ### VIEW-T14
 
