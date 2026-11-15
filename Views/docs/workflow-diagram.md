@@ -15,7 +15,6 @@
 | GET `/` | [Home/Index](../Home/Index.cshtml)、_SearchForm、_BookList | HomeController；BookBrowseService.SampleHomeAsync 隨機 10 本，不依 rank；空庫顯示「書庫還沒有書」 |
 | GET `/books?page=` | [Books/Index](../Books/Index.cshtml)、_BookList、_Pager | BooksController；書庫分頁，超頁 302 至最後一頁；空庫無摘要、無分頁 |
 | GET `/bestsellers` | 無 View；301 至 `/books` | BestsellersController；舊連結保留 |
-
 | GET `/categories?category=&source=&page=` | [Categories/Index](../Categories/Index.cshtml)、_SearchForm、[_CategoryGrid](../Categories/_CategoryGrid.cshtml)、_BookList、_Pager；404 用 [Categories/NotFound](../Categories/NotFound.cshtml) | CategoriesController；未知或停用的分類、未知來源 404；超頁 302 至最後一頁並保留條件；空分類 200 空狀態；導覽列左側為「分類」「AI 推薦」，「書庫」已自導覽列移除（見「共用 Header 導覽與登出」）。使用流程：頁首搜尋是一般 GET `/search?q=`（整個書庫，不帶分類或來源）；點網格分類或來源 pill 都是一般 GET，保留另一個條件並把 `page` 重設為 1；網格與來源的書數依目前來源計算；不發 JavaScript 請求 |
 | GET `/search?q=&page=` | [Search/Index](../Search/Index.cshtml)、_SearchForm、_Pager | SearchController／SearchResultsViewModel；只有 local DB |
 | GET `/books/{id}` | [Books/Detail](../Books/Detail.cshtml)、_LibrarySection、_LibraryControls | catalog read model + 每次獨立 user Library 查詢 |
