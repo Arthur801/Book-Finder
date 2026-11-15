@@ -21,9 +21,19 @@ public static class AuthServiceCollectionExtensions
             .Validate(JwtOptions.HasValidSigningKey, "Jwt:SigningKey 缺少或短於 32 bytes")
             .ValidateOnStart();
 
+        // Account action tokens (email verification, password reset): the 1-hour request window and the link lifetimes.
+        services.AddOptions<AccountActionTokenOptions>()
+            .Bind(configuration.GetSection(AccountActionTokenOptions.SectionName))
+            .Validate(AccountActionTokenOptions.HasValidRequestInterval, "AccountActionTokens:RequestInterval 必須大於 0")
+            .Validate(AccountActionTokenOptions.HasValidEmailVerificationLifetime, "AccountActionTokens:EmailVerificationLifetime 必須大於 0")
+            .Validate(AccountActionTokenOptions.HasValidPasswordResetLifetime, "AccountActionTokens:PasswordResetLifetime 必須大於 0")
+            .ValidateOnStart();
+
         services.AddSingleton<IPasswordHashing, AspNetPasswordHashing>();
         services.AddScoped<IUserStore, EfUserStore>();
         services.AddScoped<AccountService>();
+        services.AddScoped<IAccountActionTokenStore, EfAccountActionTokenStore>();
+        services.AddScoped<AccountActionTokenService>();
         services.AddSingleton<AuthTokenIssuer>();
 
         services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer();
