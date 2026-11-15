@@ -33,7 +33,8 @@
 | PIPE-03／待補強（HTTP 已有測試，本次未執行） | 無 cookie；呼叫受保護 API | 401 `/errors/unauthenticated`、無登入 redirect 的 HTTP 斷言已有來源；完整 production endpoint 矩陣的 DB 不變／依賴未呼叫需逐項補證，不能由 test-only status 推論。 |
 | PIPE-04／已有測試 | 有效 cookie、僅 Bearer header、錯簽章、破損 token 各自請求 | 僅有效 cookie 驗證成功；其餘視為匿名；Bearer header 不能代替 cookie。 |
 | PIPE-05／已有測試 | fake clock 在簽發後一天前一秒及剛好一天，讀 protected page / API | 前者有效；到一天立即過期，頁面 302／API 401；無 ClockSkew 寬限。 |
-| PIPE-07／已有測試（B2） | 簽發後 DB 的 auth_version 被 bump，或 User 被刪除，再送舊 Cookie 到頁面與 /api | 頁面 302 登入、/api 401，回應含過期 `bf_auth` Set-Cookie；未 bump 的 Cookie 仍有效。 |
+| PIPE-10／已有測試（B2） | 簽發後 DB 的 auth_version 被 bump，或 User 被刪除，再送舊 Cookie 到頁面與 /api | 頁面 302 登入、/api 401，回應含過期 `bf_auth` Set-Cookie；未 bump 的 Cookie 仍有效。 |
+| PIPE-11／已有測試（B2） | 停在 OAuth 同意頁期間 User 被刪除或 auth_version 被 bump，再送出同意（Accept 或 Deny） | 302 `/account/login?returnUrl=<同一個 authorize request>`，刪除 `bf_auth`，不寫入 authorization；由 `ConsentSessionEndedRedirect` filter 在 antiforgery 之前處理 | `OAuthFlowTests` |
 | PIPE-06／待補強（HTTP 已有測試，本次未執行） | 已登入 API 缺 CSRF header 或使用另一 session 的 token | 400 `/errors/antiforgery` 已有來源；推薦缺 header 的外部 calls、Library 缺 header 的資料不變另有案例。跨 session／所有 production endpoints 的 service call 與副作用矩陣仍待補強。 |
 | PIPE-07／已有測試 | 表單 POST 缺 token；再以同 session 合法 token 重試 | 缺少時框架 400；合法時才進 action。不要要求頁面錯誤一定是 problem+json。 |
 | PIPE-08／已有測試 | API action 拋 AiUnavailableException／AiTimeoutException／一般例外 | 分別為 502 `ai-unavailable`、504 `ai-timeout`、500 `internal`；無 stack trace／secret。 |
@@ -252,7 +253,24 @@ dotnet test tests/WebIntegration/WebIntegration.csproj
 - `GET /mcp-guide` 匿名 200，`Mcp:Enabled` 開或關結果相同（路徑不在 `/mcp` 之下，閘門與 `MapMcp` 都不處理）。
 - 由 WebIntegration [McpGuidePageTests](../../tests/WebIntegration/McpGuidePageTests.cs) 驗證；2026-11-15 通過。
 
-## 15. 會員中心 C3：Email 驗證、重寄與限流（MEM 案例）
+### 15. 帳號刪除（會員中心 D1，DEL 案例）
+
+| 案例 | 測試（`tests/WebIntegration/AccountDeletionTests.cs`） | 期望 |
+|---|---|---|
+| DEL-01 匿名 GET | `Anonymous_confirmation_page_redirects_to_login_with_return_url` | 302 至 `/account/login?returnUrl=…` |
+| DEL-02 匿名 POST | `Anonymous_post_redirects_to_login_and_deletes_nothing` | 302 至登入頁，使用者仍存在 |
+| DEL-03 確認頁內容 | `Confirmation_page_says_what_is_deleted_and_that_it_cannot_be_undone` | 含「無法復原」、個人書單、AI 推薦、MCP、公開書籍說明、密碼與勾選欄位、antiforgery |
+| DEL-04 密碼錯誤 | `Wrong_password_shows_an_error_and_keeps_the_account_and_the_cookie` | 200，「密碼錯誤」，使用者存在，無 bf_auth 刪除標頭 |
+| DEL-05 未勾選 | `Missing_confirmation_shows_an_error_and_keeps_the_account` | 200，「請勾選」，使用者存在 |
+| DEL-06 成功 | `Correct_password_deletes_the_account_clears_the_cookie_and_shows_the_notice_once_on_the_home_page` | 302 至 `/`，bf_auth 過期，使用者不存在，首頁顯示一次「帳號已刪除」 |
+| DEL-07 舊 cookie | `The_old_cookie_is_refused_after_deletion_and_a_second_post_deletes_nothing_else` | `/account` 導向登入，`/api/recommendations/jobs` 401，第二次 POST 不影響其他使用者 |
+| DEL-08 MCP | `Deleting_the_account_revokes_its_mcp_access_token` | 刪除前 `/mcp` 200，刪除後同一 access token 401 |
+| DEL-09 會員中心連結 | `The_member_page_links_to_the_deletion_page_in_the_account_security_section` | `#account-security` 內有 `href="/account/delete"` 與「刪除帳號」 |
+
+- 錯誤訊息由 Razor 編碼為數字字元參照，測試以 `WebUtility.HtmlDecode` 比對。
+- 本節的 Web 測試需要 WebFixture（pgvector 容器）與 OAuth 測試客戶端。
+
+## 16. 會員中心 C3：Email 驗證、重寄與限流（MEM 案例）
 
 以下案例 WebIntegration 皆已實作並通過（見 update-history）。開關開啟時使用 `EmailVerificationFlowTests`，開關關閉使用 `EmailVerificationSwitchOffTests`，限流使用 `AccountRateLimitTests`。
 
@@ -276,4 +294,4 @@ dotnet test tests/WebIntegration/WebIntegration.csproj
 | MEM-26／已有測試 | 登入限流為 2 次（測試用） | 連續 3 次登入 POST | 第 3 次 429 |
 | MEM-27／已有測試 | 正式 `appsettings.json` | 讀取 `AccountActionTokens` | 驗證連結 24 小時、重設 1 小時、申請間隔 1 小時（迴歸：舊值 `24:00:00` 被解析為 24 天） |
 
-單元與資料庫層的對應案例見 Application（APP-T31～APP-T33）與 Infrastructure（INF-T33～INF-T31），限流 web 案例見 TEST-46。
+單元與資料庫層的對應案例見 Application（APP-T31～APP-T33）與 Infrastructure（INF-T33～INF-T31），限流 web 案例見 TEST-49。

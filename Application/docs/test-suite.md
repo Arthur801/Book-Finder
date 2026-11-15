@@ -332,6 +332,22 @@ Auth的Google登入/email驗證/忘記密碼/個資修改/refresh token依identi
 - **入口**：[AccountActionTokenServiceTests](../../tests/UnitTests/AccountActionTokenServiceTests.cs)、[AccountActionTokenRulesTests](../../tests/UnitTests/AccountActionTokenRulesTests.cs)、[AccountActionTokenOptionsTests](../../tests/UnitTests/AccountActionTokenOptionsTests.cs)。
 - **證據限制**：本案例只驗證服務規則；鎖、節流 SQL、並發與 cascade 由 INF-T29 驗證。寄信失敗後舊連結的行為尚未定義（APP-B09）。
 
+## 會員中心 D1：帳號刪除（TEST-44 相關）
+
+| 測試 | 位置 | 驗證內容 |
+|---|---|---|
+| Correct_password_and_confirmation_delete_the_account | `UnitTests/AccountDeletionServiceTests.cs` | 密碼與勾選都正確時，store 只收到該使用者 id，結果為 `Deleted` |
+| A_hash_that_needs_rehashing_still_counts_as_the_right_password | 同上 | `SuccessRehashNeeded` 視為正確 |
+| Missing_confirmation_is_refused_before_the_password_is_checked | 同上 | 未勾選：不驗證密碼、不呼叫 store |
+| Empty_password_is_refused_without_verifying_or_deleting | 同上（Theory：null、空字串、空白） | 密碼空白：不驗證、不呼叫 store |
+| Wrong_password_is_refused_and_nothing_is_deleted | 同上 | 錯誤密碼回 `InvalidInput(password)`，不呼叫 store |
+| A_user_that_no_longer_exists_is_reported_without_asking_the_store | 同上 | 找不到使用者回 `UserNotFound` |
+| A_user_removed_between_the_check_and_the_delete_is_reported_as_not_found | 同上 | store 回 `UserNotFound` 時結果也是 `UserNotFound` |
+| A_user_gone_outcome_maps_to_the_user_not_found_case | `UnitTests/RecommendationJobServiceTests.cs` | `JobSubmitOutcome.UserNotFound` 對映為 `RecommendationJobSubmission.UserNotFound` |
+
+- **證據限制**：Application 測試只用 fake，不證明 transaction 或 cascade；那些由 DatabaseIntegration（`EfAccountDeletionStoreTests`、`AccountDeletionRaceTests`）與 WebIntegration（`AccountDeletionTests`）覆蓋。
+- **來源**：[AccountDeletionServiceTests](../../tests/UnitTests/AccountDeletionServiceTests.cs)。
+
 ## 會員中心 C3：驗證流程與派送（新增案例）
 
 以下案例在 `tests/UnitTests` 中，全部使用 in-memory fake 與 `FakeTimeProvider`，已實作並通過（見 update-history）。

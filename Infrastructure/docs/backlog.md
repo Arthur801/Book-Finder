@@ -82,6 +82,9 @@ Debug 證據收集：INF-B04 須保存去識別的 request scheme、來源網段
 
 [流程](workflow-diagram.md) · [架構](architecture.md) · [待辦](backlog.md) · [歷史](update-history.md) · [案例](test-suite.md)
 
+- **INF-B10 刪除部分已關閉**（2026-11-15，會員中心 D1）：`DeleteAllForUserAsync` 已由 `EfAccountDeletionStore` 在刪除交易內呼叫。撤銷（`RevokeAllForUserAsync`）的呼叫端仍是 C4，尚未實作。
+- **INF-B12**（2026-11-15，會員中心 D1）：刪除與推薦工作 commit 的互相等待未有測試。commit 在鎖住 job row 後要插入搜尋（需要 users 的 KEY SHARE），刪除則先鎖 users 再 cascade job row，可能 deadlock。PostgreSQL 會中止其中一方；兩種結果都不會留下資料，但缺乏可重現的測試。若要補，需要 pause 點在 commit 交易內，或以兩個連線的固定順序模擬。
+
 ## 會員中心 C3 新增待辦
 
 ### INF-B15 — 限流與寄信佇列為單一 instance 設計

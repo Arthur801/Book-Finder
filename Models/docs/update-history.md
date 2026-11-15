@@ -121,6 +121,12 @@ git show cda623f -- Models
 |---|---|---|---|
 | 2026-11-15 | 本分支 feat commit | feat(member): member center at /account, /library redirect and header (A3) | `MemberPageViewModel.cs`（新增：Library、Quota、JobsEnabled、JobList）；`LibraryPageViewModel.cs` 註解更新（tabs 由 `/account`、`#library` 傳入） |
 
+## 會員中心 D1：AccountDeletionForm（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | 本分支 feat commit | feat(member): account deletion with password and confirmation (D1) | `AccountDeletionForm.cs`（新增） |
+
 ## 會員中心 C3：驗證頁的表單與 ViewModel（新增紀錄）
 
 | Author 日期 | SHA | subject | 本目錄實際改動檔案 |

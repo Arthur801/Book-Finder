@@ -187,6 +187,31 @@ Embedding vector(1536) 由 DB 拒絕錯維度；upsert 無 change tracking。Pro
 
 caller 關係：C3（註冊驗證、重寄）與 C4（忘記密碼）呼叫 `AccountActionTokenService`，再由服務呼叫本 store。C4 的重設交易在同一個 scoped DbContext 內先 `ConsumeAsync`，再更新密碼與 `auth_version`，全部成功才 commit。
 
+## 帳號刪除交易（會員中心 D1）
+
+```mermaid
+sequenceDiagram
+    participant S as EfAccountDeletionStore
+    participant DB as PostgreSQL（同一 transaction）
+    participant R as OAuthCredentialRevoker
+    S->>DB: BEGIN
+    S->>DB: SELECT id FROM users WHERE id = @id FOR UPDATE
+    alt 0 列
+        S->>DB: ROLLBACK
+        S-->>S: UserNotFound
+    else 1 列
+        S->>R: DeleteAllForUserAsync(userId)
+        R->>DB: DELETE openiddict tokens WHERE subject = @id
+        R->>DB: DELETE openiddict authorizations WHERE subject = @id
+        S->>DB: DELETE FROM users WHERE id = @id（cascade 清除 library、jobs、searches、results、action tokens）
+        S->>DB: COMMIT
+        S-->>S: Deleted
+    end
+```
+
+- 失敗時（例外）不 COMMIT，交易回滾。
+- 與推薦工作提交的順序見上方 `architecture.md`。Job 執行中被刪除時，worker 的 fenced 寫入全部匹配不到列，見 [architecture.md](architecture.md) 的對應段落。
+
 ## 會員中心 C3：驗證交易、寄信佇列與限流（新增）
 
 ```mermaid

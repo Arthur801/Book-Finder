@@ -25,6 +25,17 @@ public static class ApiProblemResults
         return From(problem);
     }
 
+    // The cookie was accepted when the request began, but the user was deleted before this action ran (member-center plan D1).
+    public static ObjectResult Unauthenticated(ProblemDetailsFactory problemDetails, HttpContext http)
+    {
+        var problem = problemDetails.CreateProblemDetails(
+            http,
+            statusCode: StatusCodes.Status401Unauthorized,
+            title: "請先登入",
+            type: "/errors/unauthenticated");
+        return From(problem);
+    }
+
     // The daily AI recommendation limit (api-spec.md §2, recommendation.md §11). Same 429 status as the rate limit, different type.
     public static ObjectResult DailyLimitExceeded(ProblemDetailsFactory problemDetails, HttpContext http)
     {

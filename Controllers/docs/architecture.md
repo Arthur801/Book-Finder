@@ -59,7 +59,9 @@ Controller 不寫 SQL、不直接呼叫 OpenAI／Google Books、不持有推薦�
 | Account.Login | GET、POST `/account/login` | 否 | `AccountService`；成功由共用 SignInAndRedirect 寫 cookie、執行待辦與 Redirect |
 | Account.Register | GET、POST `/account/register` | 否 | 同上；註冊成功直接登入 |
 | Account.Logout | POST `/account/logout` | 是 | `AuthCookie.Delete` → Redirect `/` |
-| OAuth.Authorize | GET、POST `/oauth/authorize` | 讀 `bf_auth`；未登入導向 `/account/login?returnUrl=` | OpenIddict passthrough（MCP-201b）：GET 顯示 consent 或依 permanent authorization 直接核准；POST 為 consent 表單（antiforgery）；只用 OpenIddict scheme SignIn／Forbid；`Mcp:Enabled = false` 時 404 |
+| AccountDeletion.Index | GET `/account/delete` | 是 | 不讀資料 → 確認頁 View（`AccountDeletionForm`） |
+| AccountDeletion.Delete | POST `/account/delete` | 是 | `AccountDeletionService`；Deleted／UserNotFound → `AuthCookie.Delete`、`TempData["Notice"]`、Redirect `/`；InvalidInput → 同一頁加錯誤（密碼不回傳） |
+| OAuth.Authorize | GET、POST `/oauth/authorize` | 讀 `bf_auth`；未登入導向 `/account/login?returnUrl=` | OpenIddict passthrough（MCP-201b）：GET 顯示 consent 或依 permanent authorization 直接核准；POST 為 consent 表單（antiforgery）；session 已結束的匿名 POST 由 [ConsentSessionEndedRedirect](../ConsentSessionEndedRedirectAttribute.cs) 在 antiforgery 之前導回登入頁（同一個 authorize request）；只用 OpenIddict scheme SignIn／Forbid；`Mcp:Enabled = false` 時 404 |
 | OAuth.Token | POST `/oauth/token` | 否（`[IgnoreAntiforgeryToken]`，public client + PKCE） | code／refresh_token grant；確認使用者仍存在後 SignIn；其他 grant `unsupported_grant_type` |
 | McpGuide.Index | GET `/mcp-guide` | 否 | 不讀資料、不依賴任何 service → 靜態 View（MCP 操作手冊）；不在 `/mcp` 底下，MCP 閘門不處理，`Mcp:Enabled` 開關不影響 |
 | Member.Index | GET `/account` | 是 | `LibraryService.ListAsync`、`RecommendationQuotaReader`、`RecommendationJobListLoader`（開關開啟時）→ `MemberPageViewModel` / View；`status`、`jobsPage` 參數 |
@@ -130,6 +132,14 @@ Controller 不寫 SQL、不直接呼叫 OpenAI／Google Books、不持有推薦�
 - 需求文字只從 body 讀取，不出現在 URL、`Location` 或 log。
 - `[Authorize]` 先於開關判斷：未登入的人一律被導向登入頁，所以開關關閉時，未登入的人看到的是登入頁，不是 404。
 - 規格：[Job 計畫](../../Docs/plans/async-recommendation-jobs.md) §3.7、§3.8。
+
+## 15. AccountDeletionController（會員中心 D1）
+
+- 路由：`GET /account/delete`（確認頁）、`POST /account/delete`（刪除）；兩者都有 `[Authorize]`，匿名請求由 B2 的 JwtBearer challenge 導向登入頁（POST 不帶 returnUrl）。Antiforgery 由全域 filter 檢查。
+- 表單欄位：`Password`、`Confirmed`（checkbox，未勾選不會送出，綁定為 false）。
+- 控制器只映射結果：`Deleted` 與 `UserNotFound` 都清除 `bf_auth`、設定一次性 `TempData["Notice"] = "帳號已刪除"`，並 `Redirect("/")`；`InvalidInput` 把錯誤加入 ModelState 並重新顯示表單，`Password` 清空後不回傳瀏覽器。
+- 不寫 SQL、不呼叫 OAuth，所有規則在 `AccountDeletionService`（Application）與交易在 `EfAccountDeletionStore`（Infrastructure）。
+- 推薦工作 API 的提交若遇到已刪除使用者，`RecommendationJobsController` 回 401 `/errors/unauthenticated`（`ApiProblemResults.Unauthenticated`）。
 
 ## 會員中心 C3：Email 驗證頁、登入閘與頻率限制（新增）
 

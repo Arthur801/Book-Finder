@@ -260,6 +260,14 @@ git show <SHA> -- Infrastructure
 
 驗證（2026-11-15）：DatabaseIntegration 289 通過，其中 `EfAccountActionTokenStoreTests` 13 項；mutation 檢查：移除 `FOR UPDATE` 後並發 issue 測試 3/3 失敗，還原後通過。行為變更：無使用者可見變更。
 
+## 會員中心 D1：帳號刪除交易（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | 本分支 feat commit | feat(member): account deletion with password and confirmation (D1) | `Persistence/EfAccountDeletionStore.cs`（新增）；`Persistence/EfRecommendationJobStore.cs`（提交在 users 列不存在時 rollback 並回 `UserNotFound`）；`Identity/AuthServiceCollectionExtensions.cs`（註冊 store 與 service） |
+
+驗證：DatabaseIntegration 新增 `EfAccountDeletionStoreTests`、`AccountDeletionRaceTests`；突變檢查見 INF-T30。
+
 ## 會員中心 C3：驗證 store、寄信佇列與限流（新增紀錄）
 
 | Author 日期 | SHA | subject | 本目錄實際改動檔案 |

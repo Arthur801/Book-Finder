@@ -229,6 +229,22 @@ git show --format= --numstat <sha> -- Application ':(exclude)Application/docs'
 
 行為變更：無使用者可見變更。C2 只新增服務與 port，目前沒有 controller 呼叫；C3、C4 尚未實作。
 
+## 帳號動作 token C2：有效期設定修正（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | 本次 commit | fix(identity): bind the verification link lifetime as 24 hours, not 24 days (C2) | 根目錄 `appsettings.json`：`AccountActionTokens:EmailVerificationLifetime` 由 `"24:00:00"` 改為 `"1.00:00:00"`（TimeSpan 的 `24:00:00` 會解析成 24 天）；`tests/UnitTests/AccountActionTokenOptionsTests.cs` 新增 `Shipped_appsettings_bind_to_the_plan_values` |
+
+驗證（2026-11-15）：修正前新測試失敗（Expected 1.00:00:00，Actual 24.00:00:00），修正後 UnitTests 全數通過。這個問題由 C3 的 WebIntegration 測試發現。
+
+## 會員中心 D1：帳號刪除（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | 本分支 feat commit | feat(member): account deletion with password and confirmation (D1) | `Identity/AccountDeletionService.cs`、`IAccountDeletionStore.cs`（新增）；`Recommendation/IRecommendationJobStore.cs`（新增 `JobSubmitOutcome.UserNotFound`）、`RecommendationJobSubmission.cs`（新增 `UserNotFound`）、`RecommendationJobService.cs`（對映） |
+
+行為變更：刪除帳號可用；推薦工作提交遇到已刪除使用者時回 `UserNotFound`，不再是外鍵 500。`IExternalCredentialRevoker.DeleteAllForUserAsync` 首次有呼叫端。
+
 ## 會員中心 C3：驗證流程與寄信派送（新增紀錄）
 
 | Author 日期 | SHA | subject | 本目錄實際改動檔案 |

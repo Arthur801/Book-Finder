@@ -218,6 +218,31 @@ Application 不知道 SES、檔案系統或 AWS；寄信失敗的語意（例如
 
 [流程](workflow-diagram.md)・[架構](architecture.md)・[待辦](backlog.md)・[歷史](update-history.md)・[案例](test-suite.md)
 
+## 帳號刪除 port 與用例（會員中心計畫 D1，2026-11-15）
+
+- `Application/Identity/AccountDeletionService`：刪除帳號用例。檢查順序固定：先看是否勾選「我了解刪除後無法復原」、再看密碼是否為空，兩者都在任何讀寫之前檢查；接著 `IUserStore.FindByIdAsync` 找不到則回 `UserNotFound`；再以 `IPasswordHashing.Verify` 比對目前密碼（`Failed` 才是錯誤，`SuccessRehashNeeded` 視為正確），錯誤時回 `InvalidInput`，不呼叫 store。
+- `Application/Identity/IAccountDeletionStore`：刪除的唯一寫入 port，回傳 `AccountDeletionOutcome`（`Deleted`／`UserNotFound`）。實作在 Infrastructure，由單一 transaction 完成（見 Infrastructure `architecture.md`）。Application 不知道 OAuth 表或 cascade 細節。
+- 結果型別 `AccountDeletionResult`：`Deleted`、`InvalidInput(errors)`、`UserNotFound`，錯誤欄位鍵為 `confirmed` 與 `password`，與註冊、登入的 field error 慣例一致。
+- `IUserStore` 沒有新方法；`IExternalCredentialRevoker.DeleteAllForUserAsync` 由 Infrastructure store 在同一 transaction 內呼叫，Application 不直接撤銷。
+
+### 推薦工作提交的使用者已刪除結果（D1 補充）
+
+- `JobSubmitOutcome.UserNotFound` 與 `RecommendationJobSubmission.UserNotFound` 新增。store 在鎖住 users 那一列後若找不到使用者（刪除先取得鎖並提交），回此結果，不寫 job、不使用額度。
+- `RecommendationJobService` 把它對映為 `RecommendationJobSubmission.UserNotFound`，Controller 回 401 `/errors/unauthenticated`。若沒有這個結果，外鍵失敗會變成 500。
+- 這是 B2 的剩餘視窗：B2 只在 cookie 驗證當下確認使用者存在，請求處理途中仍可能被刪除。
+
+### 不變條件
+
+- 刪除只能在密碼與確認都通過後發生；密碼錯誤或未勾選時，users、library、job、search、token、OAuth 資料都不變。
+- 刪除之後，同一份 cookie 會在 B2 被拒絕（使用者不存在），因此第二次 POST 不會影響任何其他使用者。
+- 刪除是硬刪除，沒有緩衝期；公開的 `books` 與其他使用者的資料不受影響（D-E）。
+
+## 導覽（帳號刪除）
+
+- 本段的流程見 [workflow-diagram.md](workflow-diagram.md)「帳號刪除（會員中心 D1）」。
+- 測試案例見 [test-suite.md](test-suite.md)「會員中心 D1」。
+- 待辦與已知缺口見 [backlog.md](backlog.md)（APP-B08 刪除部分已關閉，APP-B10 為同步推薦路徑的剩餘風險）。
+
 ## 會員中心 C3：驗證流程、寄信佇列與派送（新增）
 
 本節是 C3 的現行契約。計畫見 [會員中心計畫 C3](../../Docs/plans/member-center-email-verification.md)，計畫本身不是規格。

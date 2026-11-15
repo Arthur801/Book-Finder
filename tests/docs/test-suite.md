@@ -332,7 +332,7 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter FullyQualifiedNa
 
 - `AuthTokenIssuerTests`（UnitTests）：Cookie token 含 `auth_version` 整數字串 claim。
 - `AuthPipelineTests`（WebIntegration）：版本 bump 與使用者刪除後的舊 Cookie 在頁面與 /api 皆被拒並刪 Cookie；版本相符仍有效；缺少 claim 的舊式 token 在版本 0 時通過、版本 1 時被拒。既有的有效 Cookie 測試改為先寫入 User，因為每個請求都會查 User。
-- `OAuthFlowTests`：`Consent_post_after_the_session_ends_is_refused_and_stores_no_authorization` 由「回登入頁」改為「400 且不寫 authorization」（B2 造成，見 INF-T28）。
+- `OAuthFlowTests`：同意頁的 session 結束後（User 被刪除，或 `auth_version` 被遞增）送出同意，仍回到登入頁，returnUrl 為同一個 authorize request；同時刪除 `bf_auth`，不寫入 authorization（`Consent_post_after_the_session_ends_*`、`Consent_post_after_the_password_was_reset_*`；見 INF-T28）。
 - **來源與狀態**：見 Infrastructure INF-T28。
 
 ### TEST-42：帳號動作 token（會員中心計畫 C2）
@@ -352,7 +352,20 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter FullyQualifiedNa
   - [LibraryPageTests](../WebIntegration/LibraryPageTests.cs)：頁面斷言改到 `/account`，行為覆蓋不變（篩選、列、空態、控制項、登入連結）；匿名 `/library` 仍導向登入頁。
 - 已知缺口：沒有 Web 測試驗證 `/account` 的瀏覽器 JS 行為（書單 CRUD 在新頁面的 DOM 操作）；本次只以 HTML 驗證。
 
-## 會員中心 C3：Email 驗證、重寄與限流（TEST-47～TEST-46）
+## 會員中心 D1：帳號刪除（TEST-44）
+
+- 風險／狀態：L3；測試實作：Implemented；執行結果見 tests update-history 的 D1 紀錄。
+- UnitTests：[AccountDeletionServiceTests](../UnitTests/AccountDeletionServiceTests.cs) 8 案例（確認、密碼空白、錯誤密碼、rehash、找不到使用者、store 競態回應）；[RecommendationJobServiceTests](../UnitTests/RecommendationJobServiceTests.cs) 新增 `UserNotFound` 對映。
+- DatabaseIntegration：
+  - [EfAccountDeletionStoreTests](../DatabaseIntegration/EfAccountDeletionStoreTests.cs)：完整 cascade 與其他使用者不變、查無使用者、OAuth 之後失敗的 rollback。
+  - [AccountDeletionRaceTests](../DatabaseIntegration/AccountDeletionRaceTests.cs)：提交與刪除兩個方向的鎖等待（以 `pg_stat_activity` 確認等待）、執行中 Job 的 lease 遺失。
+- WebIntegration：[AccountDeletionTests](../WebIntegration/AccountDeletionTests.cs) 9 案例（見 Controllers `test-suite.md` §15）。
+- 證據限制：
+  - 未測 commit 與刪除互相 deadlock 的路徑（INF-B12）。
+  - 同步推薦入口的刪除競態未測（APP-B10）。
+  - 未做瀏覽器測試（checkbox、焦點、首頁通知的 DOM）。
+
+## 會員中心 C3：Email 驗證、重寄與限流（TEST-47～TEST-49）
 
 ### TEST-47：開關開啟的驗證流程（WebIntegration）
 
@@ -362,12 +375,12 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter FullyQualifiedNa
 - 涵蓋：MEM-11～MEM-22（見 [Controllers test-suite §15](../../Controllers/docs/test-suite.md)）、U-01 legacy、D-B 回應一致性、寄信失敗、D-D。
 - 設定迴歸（MEM-27）：`The_shipped_configuration_gives_a_24_hour_verification_link_and_a_1_hour_reset_link`，讀取 `appsettings.json` 的實際值。
 
-### TEST-45：開關關閉（WebIntegration）
+### TEST-48：開關關閉（WebIntegration）
 
 - 來源：`tests/WebIntegration/EmailVerificationSwitchOffTests.cs`，共 3 項。
 - 涵蓋：註冊直接登入且不寄信；登入頁沒有重寄連結；驗證與重寄頁 GET／POST 為 404（POST 使用登入頁的 antiforgery token，確保請求會到達 action）。
 
-### TEST-46：頻率限制（WebIntegration）
+### TEST-49：頻率限制（WebIntegration）
 
 - 來源：`tests/WebIntegration/AccountRateLimitTests.cs`，共 2 項。
 - 方法：在該測試的主機中把 `AccountRateLimits` 調低為 2（其他測試維持 100,000，不會因限流而失敗）。

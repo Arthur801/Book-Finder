@@ -49,6 +49,9 @@ public class RecommendationJobsController(
             case RecommendationJobSubmission.DailyLimitReached:
                 return ApiProblemResults.DailyLimitExceeded(problemDetails, HttpContext);
 
+            case RecommendationJobSubmission.UserNotFound:
+                return ApiProblemResults.Unauthenticated(problemDetails, HttpContext);
+
             default:
                 throw new InvalidOperationException($"Unexpected job submission {submission.GetType().Name}.");
         }

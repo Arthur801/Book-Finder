@@ -106,11 +106,27 @@ git show <commit> -- Controllers
 |---|---|---|---|
 | 2026-11-15 | 本 PR | feat(mcp): public MCP guide page linked from the navbar | `McpGuideController.cs`（新增）：`GET /mcp-guide` 回傳靜態 View |
 
+## 2026-11-15 會員中心 B2：同意頁 session 結束後回登入頁（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | 本次 commit | fix(oauth): send an ended-session consent POST back to login (B2) | `ConsentSessionEndedRedirectAttribute.cs`（新增）：authorization filter，Order −1000，先於全域 antiforgery；`OAuthController.cs`：`Submit` 套用 filter，`FormAuthorizeUrl`、`LoginRedirect` 改為 internal static 供 filter 使用 |
+
+驗證（2026-11-15）：`dotnet build --no-incremental` 0 warning；WebIntegration 的 OAuth、Mcp、AuthPipeline 共 132 項通過（含 PIPE-11 的兩個案例）。
+
 ## 會員中心 A3：/account、/library 轉址與 Header（新增紀錄）
 
 | Author 日期 | SHA | subject | 本目錄實際改動檔案 |
 |---|---|---|---|
 | 2026-11-15 | 本分支 feat commit | feat(member): member center at /account, /library redirect and header (A3) | `MemberController.cs`（新增：`GET /account`、`GET /library` 轉址）；`RecommendationJobListLoader.cs`（新增，`AiController.JobListAsync` 的超頁退回邏輯抽出為共用 helper）；`AiController.cs` 改用 helper；`LibraryController.cs` 刪除；`Models/MemberPageViewModel.cs`、`Views/Member/Index.cshtml`、`Views/Library/Index.cshtml` 刪除 |
+
+## 會員中心 D1：帳號刪除頁與 POST（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | 本分支 feat commit | feat(member): account deletion with password and confirmation (D1) | `AccountDeletionController.cs`（新增）；`RecommendationJobsController.cs`（提交結果 `UserNotFound` 回 401） |
+
+行為變更：新增 `GET`／`POST /account/delete`；推薦工作 API 在使用者已被刪除時回 401，不再 500。
 
 ## 會員中心 C3：Email 驗證頁、登入閘與頻率限制（新增紀錄）
 

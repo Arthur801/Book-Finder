@@ -329,6 +329,44 @@ flowchart TD
 
 責任分界：Application 決定 TTL、節流窗口與 hash；Infrastructure 負責鎖與 SQL。寄信失敗時，caller 呼叫 `DiscardAsync`，讓失敗的嘗試不計入 1 小時節流（已知取捨見 [架構](architecture.md)）。Consume 不開交易，C4 密碼重設可把它與其他寫入放在同一個交易，回滾時 token 不被消耗。
 
+## 帳號刪除（會員中心 D1）
+
+```mermaid
+sequenceDiagram
+    participant C as AccountDeletionController
+    participant S as AccountDeletionService
+    participant U as IUserStore
+    participant P as IPasswordHashing
+    participant D as IAccountDeletionStore (Infrastructure transaction)
+    C->>S: DeleteAsync(userId, password, confirmed)
+    alt 未勾選或密碼空白
+        S-->>C: InvalidInput（不讀取使用者、不呼叫 store）
+    else 有輸入
+        S->>U: FindByIdAsync
+        alt 使用者不存在
+            S-->>C: UserNotFound
+        else 使用者存在
+            S->>P: Verify(hash, password)
+            alt Failed
+                S-->>C: InvalidInput(password)（不刪除）
+            else Success 或 SuccessRehashNeeded
+                S->>D: DeleteAsync(userId)
+                D-->>S: Deleted 或 UserNotFound
+                S-->>C: Deleted 或 UserNotFound
+            end
+        end
+    end
+    C->>C: Deleted 或 UserNotFound → 清除 bf_auth、TempData 通知、Redirect "/"
+```
+
+- `Deleted` 與 `UserNotFound` 都會清除 cookie 並回首頁；差別只在 Application 結果。
+- 交易內的步驟、鎖與 cascade 見 Infrastructure `workflow-diagram.md`。
+
+## 推薦工作提交與刪除競態（會員中心 D1）
+
+- store 在 `SELECT … FOR UPDATE` 之後若找不到 users 那一列，回 `JobSubmitOutcome.UserNotFound`（rollback）；Service 轉為 `RecommendationJobSubmission.UserNotFound`，Controller 回 401。
+- 刪除先取鎖時，提交等待；刪除提交後，提交的查詢會看不到該使用者。提交先取鎖時，刪除等待，提交的 job 隨後被 cascade 刪除。兩種順序都不會留下孤兒資料。
+
 ## 會員中心 C3：驗證步驟與重寄派送（新增）
 
 Controller 的完整時序見 [Controllers 流程](../../Controllers/docs/workflow-diagram.md) 的「會員中心 C3」。以下是 Application 的責任切分。

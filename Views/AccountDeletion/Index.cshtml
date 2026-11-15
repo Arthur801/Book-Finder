@@ -1,0 +1,38 @@
+@model Book_Finder.Models.AccountDeletionForm
+@{
+    ViewData["Title"] = "刪除帳號";
+}
+
+<section class="col-12 col-md-8 col-lg-6 mx-auto">
+    <h1 class="h3 mb-3">刪除帳號</h1>
+
+    <div class="alert alert-warning">
+        <p class="mb-2"><strong>刪除後無法復原。</strong>以下資料會一併刪除：</p>
+        <ul class="mb-2">
+            <li>帳號本身（Email 與密碼）</li>
+            <li>個人書單</li>
+            <li>AI 推薦工作與 AI 搜尋紀錄</li>
+            <li>MCP 連線授權（已連線的 AI 工具會失去存取權）</li>
+        </ul>
+        <p class="mb-0">公開的書籍資料不會受影響。</p>
+    </div>
+
+    <form method="post" asp-controller="AccountDeletion" asp-action="Delete">
+        <div asp-validation-summary="ModelOnly" class="alert alert-danger py-2"></div>
+
+        <div class="mb-3">
+            <label class="form-label" for="Password">目前的密碼</label>
+            <input type="password" id="Password" name="Password" autocomplete="current-password" class="form-control" />
+            <span asp-validation-for="Password" class="text-danger small"></span>
+        </div>
+
+        <div class="form-check mb-3">
+            <input type="checkbox" id="Confirmed" name="Confirmed" value="true" class="form-check-input" checked="@Model.Confirmed" />
+            <label class="form-check-label" for="Confirmed">我了解刪除後無法復原</label>
+            <span asp-validation-for="Confirmed" class="text-danger small d-block"></span>
+        </div>
+
+        <button class="btn btn-danger" type="submit">刪除帳號</button>
+        <a class="btn btn-link" href="/account">取消</a>
+    </form>
+</section>

@@ -307,7 +307,7 @@ dotnet test tests/WebIntegration/WebIntegration.csproj
 - When：Issue(user) 後解析 claim；以 `UPDATE users SET auth_version = auth_version + 1` 或 `ExecuteDelete` 改變 DB 狀態後，送帶 `bf_auth` 的頁面與 `/api` 請求；送不含 `auth_version` claim 的 token，DB 版本為 0 與為 1 各一次。
 - Then：claim 為 `"3"`（AuthVersion=3）；版本相符的 Cookie 頁面與 API 皆 200；版本 bump 或使用者刪除後，頁面 302 登入、API 401，回應含過期的 `bf_auth` Set-Cookie；舊式 token 在版本 0 時通過，版本為 1 時被拒絕並刪 Cookie。
 - 入口：[AuthTokenIssuerTests](../../tests/UnitTests/AuthTokenIssuerTests.cs)（`Issued_token_carries_the_users_auth_version_as_an_integer_string_claim`）、[AuthPipelineTests](../../tests/WebIntegration/AuthPipelineTests.cs)（`Cookie_is_rejected_on_page_and_api_after_auth_version_is_bumped_and_cookie_is_deleted`、`Cookie_is_rejected_on_page_and_api_after_the_user_row_is_deleted`、`Cookie_with_the_current_auth_version_is_accepted_after_an_earlier_bump`、`Token_without_auth_version_claim_is_accepted_while_the_stored_version_is_zero`、`Token_without_auth_version_claim_is_rejected_once_the_stored_version_is_one`）。
-- 行為變更（B2）：使用者在 OAuth 同意頁停留期間被刪除時，同意 POST 的 cookie 在認證階段即被拒並刪除，POST 以匿名身分執行；antiforgery token 原綁定已登入身分，framework 回 400（頁面的純 400，非 login redirect），且不寫入 authorization。對應 OAuthFlowTests `Consent_post_after_the_session_ends_is_refused_and_stores_no_authorization`。
+- 行為（B2）：使用者停在 OAuth 同意頁期間，若帳號被刪除或 `auth_version` 被遞增，同意 POST 的 cookie 在認證階段就被拒絕並刪除，POST 以匿名身分到達。Controllers 的 `ConsentSessionEndedRedirect` filter 先於全域 antiforgery 執行，把瀏覽器帶回 `/account/login?returnUrl=<同一個 authorize request>`，也不寫入 authorization。對應 OAuthFlowTests `Consent_post_after_the_session_ends_returns_to_login_with_the_same_authorize_request`、`Consent_post_after_the_password_was_reset_returns_to_login_with_the_same_authorize_request`。
 - 限制：本測試不驗證真實 Cookie 經瀏覽器的 Set-Cookie 行為；開關與部署順序不在此範圍。
 
 ## INF-T29 — 帳號動作 token 持久化與並發（計畫 C2）
@@ -330,12 +330,27 @@ dotnet test tests/WebIntegration/WebIntegration.csproj
 - 入口：[EfAccountActionTokenStoreTests](../../tests/DatabaseIntegration/EfAccountActionTokenStoreTests.cs)。
 - 驗證強度：並發 issue 測試在移除 `FOR UPDATE` 後 3/3 失敗，證明它確實依賴鎖。
 
+## INF-T30 — 帳號刪除交易與競態（會員中心 D1）
+
+| 案例 | 測試 | 期望 |
+|---|---|---|
+| 刪除後使用者、library、jobs、searches、results、action tokens、OpenIddict 列全部消失 | `EfAccountDeletionStoreTests.Delete_removes_every_row_the_user_owns_and_leaves_other_users_and_books_alone` | 其他使用者的列與 `books` 數量不變 |
+| 查無使用者 | `Delete_for_a_user_that_does_not_exist_reports_not_found_and_changes_nothing` | 回 `UserNotFound`，其他使用者不變 |
+| OAuth 刪除之後才失敗 | `A_failure_after_the_user_rows_are_removed_rolls_everything_back` | 例外後所有資料完整（rollback） |
+| 提交持有鎖（額度計數被暫停）時刪除等待 | `AccountDeletionRaceTests.A_deletion_that_waits_for_a_submit_removes_the_job_the_submit_just_created` | 提交成功，刪除成功，無孤兒 job |
+| 刪除持有鎖（OAuth 刪除被暫停）時提交等待 | `A_submit_that_waits_for_a_deletion_is_refused_as_user_not_found_and_writes_nothing` | 提交回 `UserNotFound`，無 job |
+| 執行中 Job 的使用者被刪除 | `A_running_job_whose_user_is_deleted_loses_its_lease_and_the_worker_writes_nothing` | heartbeat、requeue、fail、release 皆 false，commit 拋 `RecommendationJobLeaseLostException`，無搜尋列 |
+
+- 等待的確認：競態測試以 `pg_stat_activity` 觀察另一個交易確實在 `Lock` 等待，不靠 sleep。
+- 證據限制：未測 commit 與刪除互相 deadlock 的路徑（INF-B12）。
+- 突變檢查（2026-11-15）：暫時拿掉提交端的 `locked.Count == 0` 判斷後，`A_submit_that_waits_for_a_deletion...` 失敗（外鍵例外）；還原後通過。
+
 ## 會員中心 C3：驗證 store、佇列與限流（新增案例）
 
 | 案例 | 測試位置 | 驗證內容 |
 |---|---|---|
 | INF-T33 — 驗證交易（DB 整合，5 項） | `tests/DatabaseIntegration/EfEmailVerificationStoreTests.cs` | 成功消耗 token 並寫入傳入的時間；重放失敗且保留第一次時間；過期 token 拒絕且 user 仍未驗證；PASSWORD_RESET token 不能驗證 email；已驗證的使用者保留原時間 |
 | INF-T31 — 佇列與限流選項（Unit） | `tests/UnitTests/AccountEmailQueueTests.cs`、`AccountRateLimitOptionsTests.cs` | 容量滿後 TryEnqueue 回 false 且不留下 pending；idle hook 只在所有項目 Complete 後完成；限流預設值 20／1 分鐘與 5／10 分鐘；PermitLimit 與 Window 須大於 0 |
-| INF-T32 — 限流行為（Web 整合） | `tests/WebIntegration/AccountRateLimitTests.cs` | 同一 client 超過上限回 429、含「請求過於頻繁」與 `Retry-After`；登入 POST 超過上限回 429。見 TEST-46 |
+| INF-T32 — 限流行為（Web 整合） | `tests/WebIntegration/AccountRateLimitTests.cs` | 同一 client 超過上限回 429、含「請求過於頻繁」與 `Retry-After`；登入 POST 超過上限回 429。見 TEST-49 |
 
 設定迴歸：`EmailVerificationFlowTests` 中的 `The_shipped_configuration_gives_a_24_hour_verification_link_and_a_1_hour_reset_link`（見 TEST-47）讀取 `appsettings.json` 的實際值，防止再次出現 24 天的設定。

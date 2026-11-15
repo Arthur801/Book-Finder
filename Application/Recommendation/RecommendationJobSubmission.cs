@@ -14,4 +14,7 @@ public abstract record RecommendationJobSubmission
 
     // The daily limit is used up. No job was created.
     public sealed record DailyLimitReached : RecommendationJobSubmission;
+
+    // The signed-in user no longer exists (deleted after the cookie was checked). No job was created.
+    public sealed record UserNotFound : RecommendationJobSubmission;
 }

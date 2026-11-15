@@ -253,6 +253,12 @@ Git 歷史不證明 runtime 或 CI 已通過。
 
 驗證（2026-11-15）：UnitTests 1144 通過；WebIntegration 453 通過。見 TEST-41。
 
+## 會員中心 B2：同意頁 session 結束後回登入頁（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | 本次 commit | fix(oauth): send an ended-session consent POST back to login (B2) | `tests/WebIntegration/OAuthFlowTests.cs`：`Consent_post_after_the_session_ends_*` 恢復為斷言回登入頁，並加上刪除 cookie、不寫入 authorization 的斷言；新增 `Consent_post_after_the_password_was_reset_*`（auth_version bump、Deny 按鈕） |
+
 ## 帳號動作 token C2（新增紀錄）
 
 | Author 日期 | SHA | subject | 本目錄實際改動檔案 |
@@ -269,11 +275,20 @@ Git 歷史不證明 runtime 或 CI 已通過。
 |---|---|---|---|
 | 2026-11-15 | 本分支 feat commit | feat(member): member center at /account, /library redirect and header (A3) | `WebIntegration/MemberPageTests.cs`（新增）；`WebIntegration/LibraryPageTests.cs`（頁面斷言改為 `/account`）；`WebIntegration/NavbarTests.cs`、`WebIntegration/LayoutAndHomeTests.cs`（header 斷言改為登入後排列與無 `/library`） | TEST-43 |
 
+
+## 會員中心 D1：帳號刪除（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | 本分支 feat commit | feat(member): account deletion with password and confirmation (D1) | `UnitTests/AccountDeletionServiceTests.cs`（新增）；`UnitTests/RecommendationJobServiceTests.cs`（新增 1 案例）；`DatabaseIntegration/EfAccountDeletionStoreTests.cs`、`AccountDeletionRaceTests.cs`（新增）；`WebIntegration/AccountDeletionTests.cs`（新增） | TEST-44 |
+
+驗證（2026-11-15，本 worktree）：`dotnet build --no-incremental` 0 warning、0 error；UnitTests 1283 通過；DatabaseIntegration 301 通過；WebIntegration 483 通過；另做突變檢查（拿掉提交端的鎖後 `A_submit_that_waits_for_a_deletion...` 失敗，還原後通過）。
+
 ## 會員中心 C3：Email 驗證、重寄與限流（新增紀錄）
 
 | Author 日期 | SHA | subject | 本目錄實際改動檔案 | 案例 |
 |---|---|---|---|---|
-| 2026-11-15 | `c3f09dc` | feat(identity): email verification, resend, login gating and per-IP limits (C3) | `WebIntegration/EmailVerificationFlowTests.cs`、`EmailVerificationSwitchOffTests.cs`、`AccountRateLimitTests.cs`（新增）；`WebFixture.cs`（`EmailVerificationEnabled`、`AccountAuthPermitLimit`、`AccountEmailPermitLimit`）；`CapturingEmailSender.cs`（`FailWith`）；`UnitTests/AccountServiceTests.cs`（開關與登入閘 5 項）、`EmailVerificationServiceTests.cs`、`AccountEmailDispatcherTests.cs`、`AccountEmailQueueTests.cs`、`AccountRateLimitOptionsTests.cs`（新增）；`DatabaseIntegration/EfEmailVerificationStoreTests.cs`（新增） | TEST-47～TEST-46 |
+| 2026-11-15 | `c3f09dc` | feat(identity): email verification, resend, login gating and per-IP limits (C3) | `WebIntegration/EmailVerificationFlowTests.cs`、`EmailVerificationSwitchOffTests.cs`、`AccountRateLimitTests.cs`（新增）；`WebFixture.cs`（`EmailVerificationEnabled`、`AccountAuthPermitLimit`、`AccountEmailPermitLimit`）；`CapturingEmailSender.cs`（`FailWith`）；`UnitTests/AccountServiceTests.cs`（開關與登入閘 5 項）、`EmailVerificationServiceTests.cs`、`AccountEmailDispatcherTests.cs`、`AccountEmailQueueTests.cs`、`AccountRateLimitOptionsTests.cs`（新增）；`DatabaseIntegration/EfEmailVerificationStoreTests.cs`（新增） | TEST-47～TEST-49 |
 
 驗證（2026-11-15）：`dotnet build --no-incremental` 0 warning、0 error；UnitTests 1303、DatabaseIntegration 300、WebIntegration 494 全部通過。
 
