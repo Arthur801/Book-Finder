@@ -1,5 +1,8 @@
 # tests 修改歷史
 
+> 帳號動作 token C2 補記：2026-11-15 更新；程式變更以 `4064680` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
+
 > 非同步推薦 Job M4 補記：2026-11-14 更新；程式變更以 `4b31184`、`5d143b4`、`08d8c9a`、`1f36620`、`ef89755` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M2 補記：2026-11-14 更新；程式變更以 `6717d8f` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M1 補記：2026-11-14 更新；程式變更以 `ad398b8`、`904baca`、`0a11483` 記入 update-history。原查核基準保留，未重新審查其餘內容。
@@ -253,3 +256,13 @@ Git 歷史不證明 runtime 或 CI 已通過。
 | Author 日期 | SHA | subject | 本目錄實際改動檔案 |
 |---|---|---|---|
 | 2026-11-15 | 本次 commit | fix(oauth): send an ended-session consent POST back to login (B2) | `tests/WebIntegration/OAuthFlowTests.cs`：`Consent_post_after_the_session_ends_*` 恢復為斷言回登入頁，並加上刪除 cookie、不寫入 authorization 的斷言；新增 `Consent_post_after_the_password_was_reset_*`（auth_version bump、Deny 按鈕） |
+
+## 帳號動作 token C2（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | `4064680` | feat(identity): account action token service and EF store (C2) | `tests/UnitTests/AccountActionTokenRulesTests.cs`、`AccountActionTokenOptionsTests.cs`、`AccountActionTokenServiceTests.cs`（新增）；`tests/DatabaseIntegration/EfAccountActionTokenStoreTests.cs`（新增）；`tests/DatabaseIntegration/AccountActionTokenSchemaTests.cs`（`Both_planned_purposes_are_accepted` 的計數改為只計本測試的 user） |
+
+修正說明：B1 的計數測試原本計算整張表中該用途的列數。C2 的整合測試會 commit token 列，導致該計數在完整套件中失敗（單獨執行時通過）。改為只計本測試 user 的列，斷言內容不變。
+
+驗證（2026-11-15）：UnitTests 1180 通過；DatabaseIntegration 289 通過；WebIntegration 448 通過。

@@ -91,7 +91,8 @@ public class AccountActionTokenSchemaTests(PostgresFixture fixture)
 
         await ExecuteAsync(connection, tx, TokenInsertSql(userId, purpose, Hash));
 
-        Assert.Equal(1, await CountAsync(connection, tx, $"SELECT count(*) FROM account_action_tokens WHERE purpose = '{purpose}'"));
+        // Scoped to this test's user: other test classes commit token rows to the shared container.
+        Assert.Equal(1, await CountAsync(connection, tx, $"SELECT count(*) FROM account_action_tokens WHERE purpose = '{purpose}' AND user_id = '{userId}'"));
         await tx.RollbackAsync();
     }
 

@@ -1,5 +1,8 @@
 # Application 待辦
 
+> 帳號動作 token C2 補記：2026-11-15 更新；程式變更以 `4064680` 記入 update-history。原待辦保留，本次只新增 APP-B09。
+
+
 > PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR4 M1（#120）補記：2026-10-25 更新；程式變更以 `5052361`、`d864acc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
@@ -41,6 +44,15 @@
 - **P2 / L3 / 規格更新，與 APP-B01 一起實作**。
 - 目標：[book-catalog §6](../../Docs/modules/book-catalog.md)：identity resolution 改為同來源 → distinct ISBN 數量；附加時只補 NULL（取代舊的「博客來 > Google」merge 優先順序）；source identity 衝突與 URL 漂移規則；開始寫入前先有 INF-B08 的 advisory lock。
 - 驗收：同 APP-B01，另加 ISBN 恰好 1 本只補 NULL、≥ 2 本建立新 Book、Volume ID 與 URL 衝突時不寫入。
+
+## APP-B09 — 寄信失敗 discard 會讓前一張已寄出的連結失效（C2 取捨，待決策）
+
+- **P2 / L3 / 待決策，未實作**。
+- 證據：[EfAccountActionTokenStore](../../Infrastructure/Persistence/EfAccountActionTokenStore.cs) 在 issue 時把同用途未消耗的列標為已消耗；[AccountActionTokenService.DiscardAsync](../Identity/AccountActionTokenService.cs) 只刪除新列。兩者合起來，第二次 issue 寄信失敗時，第一次已寄出的連結也已無法使用。
+- 影響：使用者在 1 小時內重送、而第二封失敗時，手上第一封連結失效，且此時不會收到新信。
+- 可選方向（需要產品決策，本次不自行選擇）：(a) 寄信成功後才取代舊列，失敗時只刪新列；(b) discard 時還原被取代的列；(c) 接受現狀，並在畫面說明。
+- 前置：C3 實作寄信流程時決定。決定會改變使用者可見的行為，依 AGENTS §2.5 不自行補規格。
+- 案例：目前 [APP-T30](test-suite.md) 只驗證 discard 刪除列，未涵蓋舊連結的行為。
 
 ## 已修與明確暫緩
 

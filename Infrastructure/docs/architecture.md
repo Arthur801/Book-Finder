@@ -1,5 +1,8 @@
 # Infrastructure 架構
 
+> 帳號動作 token C2 補記：2026-11-15 更新；程式變更以 `4064680` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
+
 > 帳號驗證 B1 補記：2026-11-15 更新；程式變更以 `a7ec1b2` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M7 補記：2026-11-14 更新；程式變更以 `4db0c98`、`e00cbb5`、`5559870`、`ac88ef2` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M6 補記：2026-11-14 更新；程式變更以 `54ad51b`、`0d3b3ac`、`93db136`、`11f86b4`、`c0ac2f6` 記入 update-history。原查核基準保留，未重新審查其餘內容。
@@ -171,3 +174,15 @@ HostingSetup 支援設定不等於已驗證容器切換、公開 HTTPS、可信 
 appsettings：`appsettings.json` 為 `Email:Provider = None`、`EmailVerification:Enabled = false`、`Site:PublicBaseUrl = https://khwebsc.com`；`appsettings.Development.json` 為 `Site:PublicBaseUrl = https://localhost:7083`、`Email:Provider = Pickup`、`PickupDirectory = .local-mail`（已加入 `.gitignore`）。正式環境的 Ses 設定屬 L4，未在 `compose.prod.yaml` 中設定（見 INF-B11）。
 
 安全取捨：Pickup 會把信件寫到磁碟而不是寄出，若誤用於正式環境，使用者會收不到信而系統不報錯。因此不是 Development 環境時，`Email:Provider = Pickup` 會讓啟動驗證失敗（`ValidateOnStart`），host 不會啟動。
+
+## 帳號動作 token store（計畫 C2）
+
+[EfAccountActionTokenStore](../Persistence/EfAccountActionTokenStore.cs) 實作 Application 的 [IAccountActionTokenStore](../../Application/Identity/IAccountActionTokenStore.cs)，契約見 [Application 架構 §帳號動作 token](../../Application/docs/architecture.md)。本節只記錄 Infrastructure 負責的機制。
+
+- **DI**：[AuthServiceCollectionExtensions](../Identity/AuthServiceCollectionExtensions.cs) 的 `AddBookFinderAuth` 綁定 `AccountActionTokens` section，三個 `Validate` 加 `ValidateOnStart`，並註冊 scoped 的 store 與 `AccountActionTokenService`。`TimeProvider` 沿用 `TryAddSingleton(TimeProvider.System)`。
+- **Issue**：一個 `BeginTransactionAsync` 內依序執行 `SELECT id FROM users WHERE id = @id FOR UPDATE`、`AnyAsync(created_at > throttleSince)`、`ExecuteUpdateAsync`（取代未消耗列）、`Add` + `SaveChangesAsync`。鎖在使用者列上，所以同一 user 不論用途都會序列化。節流查詢在鎖之後執行，READ COMMITTED 下會看到已 commit 的列。
+- **Consume**：`SqlQuery<Guid>` 執行單一 `UPDATE … RETURNING user_id`，不開交易，使用 caller 的 DbContext 目前的交易（若有）。用途以 `StoredEnum.ToStored` 傳入，SQL 不另存一份詞彙。
+- **Discard**：`ExecuteDeleteAsync` 依 `token_hash` 刪除。
+- **IsUsable**：`AnyAsync` 唯讀。
+- **索引與約束依賴**：`token_hash` 唯一索引支撐 consume 與 discard 的查找；`(user_id, purpose, created_at)` 支撐節流查詢；`token_hash` 的 CHECK 保證只存小寫 SHA-256 hex；`users` 的 FK cascade 在刪除使用者時移除其所有 token。
+- **時間**：所有時間值由 Application 傳入（`TimeProvider`），store 不呼叫 `now()`。這讓節流與過期邊界可以用 FakeTimeProvider 精確測試。
