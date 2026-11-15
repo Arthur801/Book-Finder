@@ -119,3 +119,11 @@
 
 - [ ] **P3／確認缺口（已接受的限制）／L2**。重寄請求只保存在記憶體佇列；程序重啟或佇列滿時，請求會遺失。佇列滿時使用者仍會看到同一段通知，只有 Warning log。
 - 待辦：若要改善，需要持久化佇列或 DB 記錄，屬於架構變更，須先與使用者確認。
+
+## 會員中心 C4 新增待辦
+
+### CTL-15 — 重寄與忘記密碼的入列條件不一致
+
+- [ ] **P3／待決定／L2**。`AccountVerificationController.Resend` 只在 Email 非空時才入列，`PasswordResetController.Forgot` 則一律入列（空字串由 worker 忽略）。兩者的回應都相同，所以沒有帳號洩漏；但前者的「是否寄信」由 request 值決定，與 CodeQL `cs/user-controlled-bypass` 的寫法相近。
+- 待辦：統一為一律入列，並補上重寄的空白 Email 案例（現況只靠回應相同）。
+

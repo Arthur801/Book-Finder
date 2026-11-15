@@ -1,3 +1,4 @@
+using Book_Finder.Application.Email;
 using Book_Finder.Application.Library;
 using Book_Finder.Application.Recommendation;
 using Book_Finder.Domain.Entities;
@@ -15,7 +16,8 @@ public class MemberController(
     LibraryService library,
     RecommendationQuotaReader quota,
     RecommendationJobService jobs,
-    IOptions<RecommendationJobOptions> jobOptions) : Controller
+    IOptions<RecommendationJobOptions> jobOptions,
+    IOptions<EmailVerificationOptions> verification) : Controller
 {
     // A missing or unknown status shows every entry instead of an error (user-library.md §4). The status is kept in the job pager's links,
     // so the filter and the job pages share one address.
@@ -53,7 +55,7 @@ public class MemberController(
                 fragment: "#ai-history");
         }
 
-        return View(new MemberPageViewModel(libraryPage, quotaToday, jobsEnabled, jobList));
+        return View(new MemberPageViewModel(libraryPage, quotaToday, jobsEnabled, jobList, verification.Value.Enabled));
     }
 
     // The old Library page. Its filter is kept when it is valid, and an unknown or missing one goes to the whole list.

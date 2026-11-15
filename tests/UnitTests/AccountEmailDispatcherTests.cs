@@ -50,13 +50,54 @@ public sealed class AccountEmailDispatcherTests
         Assert.Single(tokens.Issues);
     }
 
+    // Forgot password (plan C4, U-05): unlike the resend, a registered account is mailed whether or not it is verified.
     [Fact]
-    public async Task Purpose_without_a_branch_yet_fails_loudly_instead_of_sending_silently()
+    public async Task Reset_request_for_an_unknown_email_sends_nothing_and_issues_no_token()
     {
-        var (sut, _, _, _) = Create(users: []);
+        var (sut, _, sender, tokens) = Create(users: []);
 
-        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() =>
-            sut.DispatchAsync(new AccountEmailRequest(AccountActionTokenPurpose.PasswordReset, "x@example.com"), CancellationToken.None));
+        await sut.DispatchAsync(new AccountEmailRequest(AccountActionTokenPurpose.PasswordReset, "nobody@example.com"), CancellationToken.None);
+
+        Assert.Empty(sender.Sent);
+        Assert.Empty(tokens.Issues);
+    }
+
+    [Fact]
+    public async Task Reset_request_for_a_verified_account_sends_one_reset_mail_with_a_reset_token()
+    {
+        var verified = NewUser("legacy@example.com", verifiedAt: Now.UtcDateTime);
+        var (sut, _, sender, tokens) = Create(users: [verified]);
+
+        await sut.DispatchAsync(new AccountEmailRequest(AccountActionTokenPurpose.PasswordReset, "LEGACY@example.com"), CancellationToken.None);
+
+        var message = Assert.Single(sender.Sent);
+        Assert.Equal("legacy@example.com", message.To);
+        Assert.Contains("/account/password/reset?token=", message.TextBody);
+        var issue = Assert.Single(tokens.Issues);
+        Assert.Equal(AccountActionTokenPurpose.PasswordReset, issue.Purpose);
+    }
+
+    [Fact]
+    public async Task Reset_request_for_an_unverified_account_also_sends_the_reset_mail()
+    {
+        var unverified = NewUser("new@example.com", verifiedAt: null);
+        var (sut, _, sender, _) = Create(users: [unverified]);
+
+        await sut.DispatchAsync(new AccountEmailRequest(AccountActionTokenPurpose.PasswordReset, "new@example.com"), CancellationToken.None);
+
+        Assert.Single(sender.Sent);
+    }
+
+    [Fact]
+    public async Task A_throttled_reset_request_sends_nothing()
+    {
+        var verified = NewUser("throttle@example.com", verifiedAt: Now.UtcDateTime);
+        var (sut, _, sender, tokens) = Create(users: [verified]);
+        tokens.Status = TokenIssueStatus.Throttled;
+
+        await sut.DispatchAsync(new AccountEmailRequest(AccountActionTokenPurpose.PasswordReset, "throttle@example.com"), CancellationToken.None);
+
+        Assert.Empty(sender.Sent);
     }
 
     private static User NewUser(string email, DateTime? verifiedAt) => new()
@@ -76,15 +117,26 @@ public sealed class AccountEmailDispatcherTests
         var userStore = new FakeUsers(users);
         var sender = new RecordingSender();
         var tokens = new RecordingTokens();
+        var links = new SiteUrlBuilder(Options.Create(new SiteOptions { PublicBaseUrl = "https://khwebsc.com" }));
+        var actionTokens = new AccountActionTokenService(tokens, Options.Create(new AccountActionTokenOptions()), time);
         var service = new EmailVerificationService(
-            new AccountActionTokenService(tokens, Options.Create(new AccountActionTokenOptions()), time),
+            actionTokens,
             new NoopVerificationStore(),
             sender,
-            new SiteUrlBuilder(Options.Create(new SiteOptions { PublicBaseUrl = "https://khwebsc.com" })),
+            links,
             Options.Create(new AccountActionTokenOptions()),
             time,
             NullLogger<EmailVerificationService>.Instance);
-        return (new AccountEmailDispatcher(userStore, service), userStore, sender, tokens);
+        var passwordReset = new PasswordResetService(
+            actionTokens,
+            new NoopResetStore(),
+            new NoopHashing(),
+            sender,
+            links,
+            Options.Create(new AccountActionTokenOptions()),
+            time,
+            NullLogger<PasswordResetService>.Instance);
+        return (new AccountEmailDispatcher(userStore, service, passwordReset), userStore, sender, tokens);
     }
 
     private sealed class FakeUsers(User[] users) : IUserStore
@@ -113,12 +165,14 @@ public sealed class AccountEmailDispatcherTests
 
     private sealed class RecordingTokens : IAccountActionTokenStore
     {
-        public List<Guid> Issues { get; } = [];
+        public List<Issue> Issues { get; } = [];
+
+        public TokenIssueStatus Status { get; set; } = TokenIssueStatus.Issued;
 
         public Task<TokenIssueStatus> TryIssueAsync(Guid userId, AccountActionTokenPurpose purpose, string tokenHash, DateTime nowUtc, DateTime throttleSinceUtc, DateTime expiresAtUtc, CancellationToken cancellationToken)
         {
-            Issues.Add(userId);
-            return Task.FromResult(TokenIssueStatus.Issued);
+            Issues.Add(new Issue(userId, purpose));
+            return Task.FromResult(Status);
         }
 
         public Task DiscardAsync(string tokenHash, CancellationToken cancellationToken) => Task.CompletedTask;
@@ -131,5 +185,19 @@ public sealed class AccountEmailDispatcherTests
     private sealed class NoopVerificationStore : IEmailVerificationStore
     {
         public Task<bool> VerifyAsync(string tokenHash, DateTime nowUtc, CancellationToken cancellationToken) => Task.FromResult(false);
+    }
+
+    private sealed record Issue(Guid UserId, AccountActionTokenPurpose Purpose);
+
+    private sealed class NoopResetStore : IPasswordResetStore
+    {
+        public Task<bool> ResetAsync(string tokenHash, string passwordHash, DateTime nowUtc, CancellationToken cancellationToken) => Task.FromResult(false);
+    }
+
+    private sealed class NoopHashing : IPasswordHashing
+    {
+        public string Hash(string password) => password;
+
+        public PasswordCheck Verify(string hash, string password) => PasswordCheck.Failed;
     }
 }

@@ -149,3 +149,10 @@ git show <commit> -- Controllers
 | 2026-11-15 | 本次 commit | feat(member): rate-limit the account deletion POST like login | `AccountDeletionController.cs`：`POST /account/delete` 加上 `[EnableRateLimiting(account-auth)]`，因為它會檢查目前密碼；`tests/WebIntegration/AccountRateLimitTests.cs` 新增 MEM-28 |
 
 驗證（2026-11-15）：新測試先失敗（三次都 200），加上限流後 `AccountRateLimitTests` 與 `AccountDeletionTests` 共 12 項通過。
+
+## 會員中心 C4：忘記密碼頁（新增紀錄）
+
+- 2026-11-15：`feat(identity): forgot password by email with transactional reset (C4)`，commit `8934ba4`。新增 `PasswordResetController` 與三個 Views；`AccountController` 增加 `reset=1` 提示與忘記密碼連結；`MemberController` 傳入開關值。
+- 驗證：見 TEST-50、TEST-51；`AccountRateLimitTests` 新增一項。
+- 行為變更（開關關閉）：無。四個新 endpoint 回 404，登入頁與會員中心沒有新連結。
+- 行為變更（開關開啟）：忘記密碼可匿名申請；成功重設會使所有舊 Cookie 與 MCP 憑證失效。

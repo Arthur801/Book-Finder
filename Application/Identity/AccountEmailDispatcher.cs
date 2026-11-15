@@ -2,9 +2,10 @@ using Book_Finder.Domain.Entities;
 
 namespace Book_Finder.Application.Identity;
 
-// The worker's use case for one queued request (plan member-center C3, D-B, U-01). Unknown accounts and accounts already verified
-// get nothing, so the queue leaks no more than the POST response does. Throttled requests are skipped inside EmailVerificationService.
-public sealed class AccountEmailDispatcher(IUserStore users, EmailVerificationService verification)
+// The worker's use case for one queued request (plan member-center C3, C4, D-B, U-01). Resend: unknown accounts and accounts already verified
+// get nothing. Forgot password: unknown accounts get nothing, every registered account gets the mail. Either way the queue leaks no more
+// than the POST response does. Throttled requests are skipped inside EmailVerificationService and PasswordResetService.
+public sealed class AccountEmailDispatcher(IUserStore users, EmailVerificationService verification, PasswordResetService passwordReset)
 {
     public async Task DispatchAsync(AccountEmailRequest request, CancellationToken cancellationToken)
     {
@@ -14,9 +15,12 @@ public sealed class AccountEmailDispatcher(IUserStore users, EmailVerificationSe
                 await ResendVerificationAsync(request.Email, cancellationToken);
                 return;
 
-            // C4 (forgot password) adds its branch here. Until then a request for it must fail, not be dropped silently.
+            case AccountActionTokenPurpose.PasswordReset:
+                await ForgotPasswordAsync(request.Email, cancellationToken);
+                return;
+
             default:
-                throw new ArgumentOutOfRangeException(nameof(request), request.Purpose, "No account email branch exists for this purpose yet.");
+                throw new ArgumentOutOfRangeException(nameof(request), request.Purpose, "No account email branch exists for this purpose.");
         }
     }
 
@@ -28,5 +32,16 @@ public sealed class AccountEmailDispatcher(IUserStore users, EmailVerificationSe
             return;
 
         await verification.SendAsync(user, returnUrl: null, pendingAction: null, cancellationToken);
+    }
+
+    // Forgot password (plan C4, D-B, U-05): any registered account gets the mail, verified or not. Unknown emails send nothing, and a
+    // throttled request is skipped inside PasswordResetService.
+    private async Task ForgotPasswordAsync(string email, CancellationToken cancellationToken)
+    {
+        var user = await users.FindByEmailAsync(email, cancellationToken);
+        if (user is null)
+            return;
+
+        await passwordReset.SendAsync(user, cancellationToken);
     }
 }

@@ -44,6 +44,7 @@
 | DEP-B25 | P2 | L2 | 已發生（2026-11-14）；本次已補 seed | 新 migration 部署後沒有補 compat seed，下一次 CD 在 compat 失敗；缺少提醒或檢查 |
 | DEP-B26 | P3 | L3（host 機制）／L4（production） | 待決策（2026-11-14，推薦 Job M8） | 網站的非 secret 設定只能隨 release 改變；推薦 Job 開關無法只改設定後重啟 |
 | DEP-B27 | P1 | L4 | 待使用者授權（2026-11-15，會員中心 C1） | 正式寄信（SES）的網域、DKIM、IAM 與 `compose.prod.yaml` 的 `Email__*`、`EmailVerification__Enabled` 尚未設定；C1 未改 compose（INF-B11） |
+| DEP-B28 | P2 | L4 | 待辦（2026-11-15，會員中心 C3） | host nginx 的 `/etc/nginx/conf.d/cloudflare-realip.conf` 是在 2026-11-15 依 Cloudflare 官方清單手動產生的，不在 repository 中，也沒有自動更新。Cloudflare 調整網段後，新節點送來的請求會以節點 IP 計算每 IP 限流。待決定：定期重新產生（cron 或部署時），或把這個檔案納入 deploy 管理 |
 
 ## 2. 項目
 

@@ -23,6 +23,10 @@
 - 方向：在 `<head>` 以極小的 inline script 先讀 localStorage、在 `<html>` 加 class；需確認 CSP 與 asset 規範是否允許 inline script。
 - 驗收：已收合狀態重新整理無閃現；localStorage 失敗時仍正常顯示。
 
+## 會員中心 C4 新增待辦
+
+（無。C4 的新頁面沿用 C3 的 `alert` 與表單樣式，沒有新的版面或互動缺口。）
+
 ## 已處理
 
 - **VIEW-B05**（#113 PR2，`d9d8948`，PR #117）：Detail 頁連結文字由 `source_providers.display_name` 產生、ISBN 標籤為「ISBN」；`Detail.cshtml` 未改。`BookDetailPageTests` 驗證 provider 名稱連結、單一主要按鈕與 ISBN 列不重複。

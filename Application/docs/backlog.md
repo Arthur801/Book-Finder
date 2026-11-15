@@ -72,19 +72,25 @@
 - **APP-B07**（2026-11-14，推薦 Job M8）：Job 執行是 at-least-once，當機恢復或重試會讓同一個 Job 最多呼叫 OpenAI 兩次；Job 與需求文字目前不刪除（D-07）。上線後依 log 的重試與恢復次數決定是否需要保留政策或費用告警。
 
 
-- **APP-B08**（2026-11-15，會員中心 B3）：`IExternalCredentialRevoker` 尚無呼叫端。D1 已完成刪除部分：`AccountDeletionService` 經 `IAccountDeletionStore` 在同一 transaction 呼叫 `DeleteAllForUserAsync`（見 [architecture.md](architecture.md)「帳號刪除」）。剩餘的 C4（重設密碼）在 transaction 內呼叫 `RevokeAllForUserAsync`，實作時補上呼叫與測試（[會員中心計畫](../../Docs/plans/member-center-email-verification.md) B3、C4）。
+- **APP-B08 已關閉**（2026-11-15，會員中心 B3）：`IExternalCredentialRevoker` 的兩個呼叫端都已存在。D1 的刪除部分由 `AccountDeletionService` 經 `IAccountDeletionStore` 在同一 transaction 呼叫 `DeleteAllForUserAsync`；C4 的重設部分由 `EfPasswordResetStore` 在同一 transaction 呼叫 `RevokeAllForUserAsync`（見 [architecture.md](architecture.md)「帳號刪除」與「忘記密碼 C4」）。
 
 - **APP-B10**（2026-11-15，會員中心 D1）：同步推薦 `RecommendationService` 的寫入路徑沒有使用者已刪除的處理。若在 AI 呼叫期間刪除帳號，儲存搜尋時會因外鍵失敗而回 500，交易會 rollback，不會留下資料。本次未納入範圍，也沒有測試證明；若同步入口保留到 M9 之後，可在 M9 一併處理，或比照 `RecommendationJobSubmission.UserNotFound` 回 401。
 
 ## 會員中心 C3 新增待辦
 
-### APP-B12 — C4 忘記密碼需補上 PasswordReset 派送分支
+### APP-B12 — C4 忘記密碼需補上 PasswordReset 派送分支（已關閉）
 
-- [ ] **P2／計畫中／L3**。[AccountEmailDispatcher](../Identity/AccountEmailDispatcher.cs) 目前對 `PasswordReset` 拋出例外；C4 必須在這裡加入分支（查無帳號或存在即寄信，並沿用 D-C 的 1 小時節流）。
-- 驗收：C4 的 `PasswordReset` 分支通過 `PasswordResetFlowTests`；在分支補上之前，不得從 UI 送出 `PasswordReset` 請求（目前沒有此入口）。
+- [x] **已於會員中心 C4 完成**（2026-11-15）。[AccountEmailDispatcher](../Identity/AccountEmailDispatcher.cs) 的 `PasswordReset` 分支：查無帳號不寄；有帳號交給 `PasswordResetService.SendAsync`，節流沿用 1 小時 D-C。驗收見 APP-T34、APP-T35 與 WebIntegration TEST-50。
 
 ### APP-B11 — 寄信佇列未持久化
 
 - [ ] **P3／已接受的限制／L2**。重寄請求只存在記憶體，程序重啟或佇列滿時遺失（使用者仍會看到同一段通知）。
 - 待辦：若日後需要保證送達，改為 DB 記錄或外部佇列；屬於架構變更，需先取得決定。
+
+## 會員中心 C4 新增待辦
+
+### APP-B13 — 重設成功後沒有通知信
+
+- [ ] **P3／待決定／L3**。重設密碼成功後，目前只顯示登入頁提示，沒有寄出「密碼已變更」的通知。這會改變使用者可見的寄信行為，需先決定是否要寄，以及收件人與文字。
+- 待辦：決定後，在 `PasswordResetService.ResetAsync` 成功分支加入寄信，並把寄信失敗的處理與 `SendAsync` 一致；寄信不應讓重設失敗。
 

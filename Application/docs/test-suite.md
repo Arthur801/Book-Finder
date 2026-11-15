@@ -384,3 +384,12 @@ Auth的Google登入/email驗證/忘記密碼/個資修改/refresh token依identi
 | 尚未有分支的用途 | `PasswordReset` | DispatchAsync | 拋出 `ArgumentOutOfRangeException`（C4 前不得靜默略過） |
 
 佇列本身的案例（容量、idle hook）屬於 Infrastructure，見 [Infrastructure 測試](../../Infrastructure/docs/test-suite.md) INF-T31。
+
+## 忘記密碼 C4（會員中心計畫）
+
+| 案例 | 測試位置 | 驗證內容 |
+|---|---|---|
+| APP-T34 — 重設信與重設步驟（9 案例） | `tests/UnitTests/PasswordResetServiceTests.cs` | 寄出一封信，連結在站台 host、只存 hash、有效期 1 小時；節流時不寄信；寄信失敗會 discard；不可用 token 不寫入；密碼 7 碼與 41 碼、兩次不一致時不消耗 token；成功時傳給 store 的是 token 的 hash 與新 hash；store 回 false 時為 `InvalidLink` |
+| APP-T35 — 派送分支 PasswordReset（4 案例） | `tests/UnitTests/AccountEmailDispatcherTests.cs` | 未知 Email 不寄信也不發 token；已驗證帳號寄一封重設信；未驗證帳號也寄；1 小時內的第二次申請不寄。取代 C3 中「沒有分支會拋例外」的案例 |
+
+- 已知驗證缺口：`PasswordResetService` 的 1 小時邊界與 token 過期在單元層以 `FakeTimeProvider` 固定（`Send_mails...` 只檢查 `ExpiresAtUtc`）；真正的時間邊界由 WebIntegration 的 `PasswordResetFlowTests`（TEST-50）覆蓋。

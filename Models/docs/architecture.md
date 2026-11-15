@@ -81,3 +81,9 @@ fallbackUsed 固定 false 且 Outcome 無 fallback flag，對照規格 fallback 
 | `VerificationSentViewModel`（[VerificationSentViewModel.cs](../VerificationSentViewModel.cs)） | 「請收信」頁：Email、SendFailed | record，只用於 view。 |
 
 `LoginForm`、`RegisterForm` 沒有變更；`LoginResult.EmailNotVerified` 不是 Model，而是 Application 的 outcome。
+
+## 會員中心 C4：忘記密碼表單與 MemberPageViewModel（新增）
+
+- `ForgotPasswordForm`：只有 `Email`，沒有 DataAnnotations，驗證留給 `PasswordResetService`（與 `ResendVerificationForm` 相同做法）。
+- `PasswordResetForm`：`Token`（隱藏欄位，回傳給 POST）、`NewPassword`、`ConfirmPassword`。兩個密碼欄位在 InvalidInput 時由控制器清空，不回傳到瀏覽器。
+- `MemberPageViewModel` 新增最後一個參數 `PasswordResetEnabled`（來自 `EmailVerification:Enabled`），由 `MemberController` 設定，只影響 `#account-security` 的連結。

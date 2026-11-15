@@ -78,6 +78,27 @@ public sealed class AccountRateLimitTests(WebFixture fixture)
         Assert.True(db.Users.Any(user => user.Email == "limit@x.com"));
     }
 
+    // The forgot-password POST shares the account-email limit with the resend (plan C4, D-C): the (N+1)th request from one client gets 429.
+    [Fact]
+    public async Task The_forgot_password_post_past_its_limit_from_one_client_gets_429()
+    {
+        await fixture.ResetDatabaseAsync();
+        await using var app = fixture.CreateFactory();
+        app.EmailVerificationEnabled = true;
+        app.AccountEmailPermitLimit = 2;
+        var client = app.CreateClient(ClientOptions);
+
+        var responses = new List<HttpStatusCode>();
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            var page = await client.GetPageAsync("/account/password/forgot");
+            var response = await AccountFlow.PostFormAsync(client, "/account/password/forgot", AntiforgeryToken(page), ("Email", $"limit{attempt}@x.com"));
+            responses.Add(response.StatusCode);
+        }
+
+        Assert.Equal([HttpStatusCode.OK, HttpStatusCode.OK, HttpStatusCode.TooManyRequests], responses);
+    }
+
     private static async Task<HttpResponseMessage> ResendAsync(HttpClient client, string email)
     {
         var page = await client.GetPageAsync(ResendPath);

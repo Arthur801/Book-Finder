@@ -1,3 +1,4 @@
+using Book_Finder.Application.Email;
 using Book_Finder.Application.Identity;
 using Book_Finder.Application.Library;
 using Book_Finder.Domain.Entities;
@@ -6,25 +7,37 @@ using Book_Finder.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.Extensions.Options;
 
 namespace Book_Finder.Controllers;
 
 // Login, registration and logout (identity-auth.md §3, §4, §6; ui-flow.md §2). No business rules here:
 // AccountService decides each outcome, and this controller maps it to the auth cookie, a redirect or the form again.
 // Antiforgery is enforced globally, so the POST actions carry no attribute of their own.
-public class AccountController(AccountService accounts, AuthTokenIssuer tokens, LibraryService library, EmailVerificationService verification) : Controller
+public class AccountController(
+    AccountService accounts,
+    AuthTokenIssuer tokens,
+    LibraryService library,
+    EmailVerificationService verification,
+    IOptions<EmailVerificationOptions> verificationOptions) : Controller
 {
     // Set by the verify step: it redirects here with verified=1 after the link was used (plan C3).
     private const string VerifiedQueryValue = "1";
 
+    // Set by the reset step: it redirects here with reset=1 after the password was changed (plan C4).
+    private const string ResetQueryValue = "1";
+
     [HttpGet("/account/login")]
-    public IActionResult Login(string? returnUrl, string? pendingAction, string? verified)
+    public IActionResult Login(string? returnUrl, string? pendingAction, string? verified, string? reset)
     {
         if (IsSignedIn)
             return Redirect("/");
 
         if (verified == VerifiedQueryValue)
             ViewData["Notice"] = "Email 已驗證，請登入";
+        if (reset == ResetQueryValue)
+            ViewData["Notice"] = "密碼已重設，請重新登入";
+        ViewData["ShowPasswordResetLink"] = verificationOptions.Value.Enabled;
         return View(new LoginForm { ReturnUrl = returnUrl, PendingAction = pendingAction });
     }
 
@@ -34,6 +47,9 @@ public class AccountController(AccountService accounts, AuthTokenIssuer tokens, 
     {
         if (IsSignedIn)
             return Redirect("/");
+
+        // Every re-render of the login form offers the same forgot-password link as the GET (plan D-A).
+        ViewData["ShowPasswordResetLink"] = verificationOptions.Value.Enabled;
 
         var result = await accounts.LoginAsync(form.Email, form.Password, cancellationToken);
         switch (result)

@@ -46,3 +46,9 @@ dotnet test tests/WebIntegration --filter FullyQualifiedName~McpEndpoint   # 需
 - Mutation 抽查（M3，2026-11-14）：忽略 `RecommendationJobs:Enabled`（unit 1、web 1 失敗）、跳過文字驗證（unit 5、web 4）、handler 接受未認證 principal（unit 2；整合測試由閘門先擋，屬預期）。
 - Mutation 抽查（M4，2026-11-14）：拿掉 rank 排序（unit 2 失敗；EF 讀出時已依 rank，整合測試不受影響）、search 讀不到時當成功（unit 1；整合測試無法造出此不一致）。
 - Mutation 抽查（M5，2026-11-14）：把 `get_recommendation_result` 從 `ProtectedToolNames` 拿掉 → 預設拒絕測試失敗（原本的一致性測試從同一份名單推導，抓不到）。
+
+## 會員中心 C4：重設密碼撤銷 MCP 憑證（新增案例）
+
+| 案例 | 測試位置 | 驗證內容 |
+|---|---|---|
+| MCP-204／已有測試 | `tests/WebIntegration/PasswordResetFlowTests.cs`（TEST-50） | 使用者在開關關閉的 host 取得 token，之後在開關開啟的 host 完成重設；`/mcp` 的 access token 回 401，`/oauth/token` 的 refresh 回 `invalid_grant`。兩個 host 共用同一個資料庫 |

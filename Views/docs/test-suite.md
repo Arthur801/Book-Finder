@@ -113,3 +113,10 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter 'FullyQualifiedN
 | VIEW-T18 — 請收信與寄信失敗頁 | 同上（TEST-47） | 「請收信」含收件地址；寄信失敗顯示「驗證信寄送失敗」與重寄連結 |
 | VIEW-T19 — 重寄頁與通知 | 同上（TEST-47） | POST 後的通知文字在各種帳號狀態下相同（以 notice 區塊比對，不比對 antiforgery token） |
 | VIEW-T20 — 登入頁提示 | 同上（TEST-47）與 `EmailVerificationSwitchOffTests`（TEST-48） | 「請先完成 Email 驗證」與重寄連結只在未驗證時出現；開關關閉時沒有重寄連結 |
+
+## 會員中心 C4：忘記密碼與重設頁（新增案例）
+
+| 案例 | 測試位置 | 驗證內容 |
+|---|---|---|
+| VIEW-T21 — 忘記密碼頁與通知 | `tests/WebIntegration/PasswordResetFlowTests.cs`（TEST-50） | 頁面只有 `name="Email"`，沒有密碼欄位；POST 後的通知文字與帳號狀態無關（以 notice 區塊比對，不比對 antiforgery token） |
+| VIEW-T22 — 重設頁、無效頁與連結 | 同上（TEST-50） | 可用連結顯示 `NewPassword`、`ConfirmPassword`、`Token` 欄位；錯誤後的表單不含明文密碼；無效頁沒有表單；登入頁與會員中心的連結只在開關開啟時出現（開關關閉的對照見 TEST-50） |

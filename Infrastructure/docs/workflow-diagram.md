@@ -239,3 +239,18 @@ sequenceDiagram
 ```
 
 限流不接觸資料庫：`AccountRateLimiting` 只在記憶體中計數，被限流的請求在 `UseAuthentication` 之前就回 429。
+
+## 忘記密碼重設交易（會員中心 C4）
+
+```mermaid
+flowchart TD
+    A[EfPasswordResetStore.ResetAsync] --> B[BEGIN]
+    B --> C{SELECT users FOR UPDATE<br/>經 token 找到使用者列？}
+    C -- 否 --> R1[ROLLBACK，回 false]
+    C -- 是 --> D{ConsumeAsync PASSWORD_RESET<br/>未消耗且未過期？}
+    D -- 否 --> R2[ROLLBACK，回 false]
+    D -- 是 --> E[UPDATE users：hash、auth_version+1、email_verified_at COALESCE、updated_at]
+    E --> F[RevokeAllForUserAsync：撤銷 OpenIddict authorization 與 token]
+    F -- 拋出例外 --> R3[ROLLBACK，例外往上傳]
+    F -- 成功 --> G[COMMIT，回 true]
+```

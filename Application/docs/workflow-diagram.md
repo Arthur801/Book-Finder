@@ -390,3 +390,60 @@ flowchart TD
 ```
 
 Application 不知道交易如何實作：`VerifyAsync` 只傳 hash 與 now，單一交易由 Infrastructure 負責。
+
+## 忘記密碼流程（會員中心 C4）
+
+申請重設：POST 只入列，寄信在 worker 中進行，因此回應時間與帳號是否存在無關（D-B）。
+
+```mermaid
+sequenceDiagram
+    participant U as 訪客
+    participant C as PasswordResetController
+    participant Q as AccountEmailQueue
+    participant W as AccountEmailWorker
+    participant D as AccountEmailDispatcher
+    participant S as PasswordResetService
+    participant T as AccountActionTokenService
+    participant M as IEmailSender
+    U->>C: POST /account/password/forgot（Email）
+    C->>Q: TryEnqueue(PasswordReset, email)
+    C-->>U: 固定通知（不等待寄信）
+    Q->>W: 取出請求（獨立 DI scope）
+    W->>D: DispatchAsync
+    D->>D: FindByEmail（查無則結束）
+    D->>S: SendAsync(user)
+    S->>T: IssueAsync(PasswordReset)（Throttled 則結束）
+    S->>M: SendAsync(重設密碼信)
+    alt 寄信失敗
+        S->>T: DiscardAsync(raw)
+    end
+```
+
+重設密碼：GET 只檢查可用性，POST 才消耗 token 並變更密碼。
+
+```mermaid
+sequenceDiagram
+    participant U as 使用者
+    participant C as PasswordResetController
+    participant S as PasswordResetService
+    participant T as AccountActionTokenService
+    participant ST as EfPasswordResetStore
+    U->>C: GET /account/password/reset?token=
+    C->>S: IsUsableAsync(raw)
+    alt 可用
+        C-->>U: 新密碼表單（不消耗）
+    else 不可用
+        C-->>U: 連結無效或已過期
+    end
+    U->>C: POST /account/password/reset
+    C->>S: ResetAsync(raw, 新密碼, 確認)
+    S->>T: IsUsableAsync(raw)
+    S->>S: 8–40 碼與兩次一致
+    S->>ST: ResetAsync(hash, 新 hash, now)
+    alt 交易提交
+        ST-->>S: true
+        C-->>U: 刪除 Cookie，302 /account/login?reset=1
+    else 規則錯誤或不可用
+        C-->>U: 表單（密碼不回填）或無效頁
+    end
+```

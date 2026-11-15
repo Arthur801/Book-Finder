@@ -256,3 +256,10 @@ git show --format= --numstat <sha> -- Application ':(exclude)Application/docs'
 行為變更（開關關閉）：無。
 
 行為變更（開關開啟）：註冊不發 Cookie、改寄驗證信；未驗證帳號的正確密碼登入回 `EmailNotVerified`。
+
+## 會員中心 C4：忘記密碼與重設步驟（新增紀錄）
+
+- 2026-11-15：`feat(identity): forgot password by email with transactional reset (C4)`，commit `8934ba4`。新增 `PasswordResetService`、`IPasswordResetStore`、`PasswordResetOutcome`；`AccountEmailDispatcher` 加入 `PasswordReset` 分支（APP-B12 關閉）；`AccountInputRules.ValidatePassword` 改為 public；APP-B08 全部關閉。
+- 驗證（2026-11-15，commit `8934ba4` 之後）：`dotnet build --no-incremental` 0 warning、0 error；`dotnet test tests/UnitTests` 1326 通過；`tests/DatabaseIntegration` 313 通過；`tests/WebIntegration` 522 通過。
+- 行為變更（開關關閉）：無。服務在開關關閉時不會被呼叫（控制器回 404）。
+- 行為變更（開關開啟）：忘記密碼對任何註冊帳號寄信（未驗證帳號也寄）；重設成功後，舊 Cookie 與 MCP 憑證失效。

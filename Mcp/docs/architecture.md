@@ -127,8 +127,9 @@ ChatGPT 文件描述兩種機制：
 - 撤銷後 `/mcp` 的 access token 立即回 401，refresh token 在 `/oauth/token` 回 `invalid_grant`（已由 `McpCredentialRevocationTests` 驗證）。
 - 現況：port 與實作已存在；C4、D1 尚未接上呼叫端，所以正式環境目前不會因為重設或刪除而撤銷 MCP 憑證。
 
-## 重設密碼或刪除帳號會撤銷 OAuth 憑證（會員中心 D1）
+## 重設密碼或刪除帳號會撤銷 OAuth 憑證（會員中心 D1、C4）
 
 - 刪除帳號時，`EfAccountDeletionStore` 在同一 transaction 內呼叫 `IExternalCredentialRevoker.DeleteAllForUserAsync`：先刪 OpenIddict tokens，再刪 authorizations，最後刪 user。因為 OpenIddict 的 subject 沒有外鍵，cascade 不會處理它們。
 - 結果：刪除之後，使用者的 access token 在 `/mcp` 回 401（OpenIddict entry validation 找不到 token），refresh token 也無法再換發。另一位使用者的 token 不受影響。
-- 重設密碼（C4）的撤銷尚未實作，仍在 MCP-B23 的剩餘部分。
+- 重設密碼（C4）在 `EfPasswordResetStore` 的同一 transaction 內呼叫 `RevokeAllForUserAsync`：撤銷 authorization 與 token，access token 在 `/mcp` 立即回 401，refresh token 回 `invalid_grant`。撤銷失敗時密碼也不會被改，兩者同時成功或同時失敗。
+- 撤銷只影響該使用者，另一位使用者的 token 不受影響（WebIntegration TEST-50 中的 MCP 案例）。

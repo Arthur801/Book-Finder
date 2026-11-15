@@ -18,3 +18,8 @@
 | Author 日期 | SHA | subject | 本目錄實際改動檔案 |
 |---|---|---|---|
 | 2026-11-15 | 本分支 feat commit | feat(member): account deletion with password and confirmation (D1) | 無 Mcp 原始碼變更；測試 `WebIntegration/AccountDeletionTests.Deleting_the_account_revokes_its_mcp_access_token` 驗證 `/mcp` |
+
+## 會員中心 C4：重設密碼撤銷 MCP 憑證（新增紀錄）
+
+- 2026-11-15：`feat(identity): forgot password by email with transactional reset (C4)`，commit `8934ba4`。`EfPasswordResetStore` 呼叫 `IExternalCredentialRevoker.RevokeAllForUserAsync`，關閉 MCP-B23 的重設密碼部分。
+- 驗證：`PasswordResetFlowTests` 中的 MCP 案例（MCP-204，TEST-50）。

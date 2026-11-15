@@ -41,6 +41,9 @@ public static class AuthServiceCollectionExtensions
         // Email verification (plan member-center C3): the mail and the verify transaction, used by Account and the verification controller.
         services.AddScoped<IEmailVerificationStore, EfEmailVerificationStore>();
         services.AddScoped<EmailVerificationService>();
+        // Forgot password (plan member-center C4): the reset mail and the reset transaction, used by the password reset controller and the dispatcher.
+        services.AddScoped<IPasswordResetStore, EfPasswordResetStore>();
+        services.AddScoped<PasswordResetService>();
         services.AddSingleton<AuthTokenIssuer>();
 
         services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer();

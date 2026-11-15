@@ -34,6 +34,10 @@
 <section id="account-security" class="mb-5" aria-labelledby="account-security-heading">
     <h2 id="account-security-heading" class="h4 mb-3">帳號安全</h2>
     <ul class="list-unstyled mb-0">
+        @if (Model.PasswordResetEnabled)
+        {
+            <li class="mb-2"><a href="/account/password/forgot">重設密碼</a></li>
+        }
         <li><a href="/account/delete">刪除帳號</a></li>
     </ul>
 </section>

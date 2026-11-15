@@ -296,3 +296,11 @@ dotnet test tests/WebIntegration/WebIntegration.csproj
 | MEM-28／已有測試 | `account-auth` 限流為 3 次（測試用），已登入 | 註冊 1 次後，以錯誤密碼送出刪除帳號 3 次 | 前 2 次 200（顯示密碼錯誤），第 3 次 429；帳號仍存在（`AccountRateLimitTests`） |
 
 單元與資料庫層的對應案例見 Application（APP-T31～APP-T33）與 Infrastructure（INF-T33～INF-T31），限流 web 案例見 TEST-49。
+
+## 會員中心 C4：忘記密碼頁（新增案例）
+
+| 案例 | 測試位置 | 驗證內容 |
+|---|---|---|
+| MEM-29／已有測試 | `tests/WebIntegration/PasswordResetFlowTests.cs`（TEST-50） | 忘記密碼頁匿名與已登入都可開，只有 Email 欄位；已註冊、未知、1 小時內重複三種申請回應相同，寄信數 1／0／0；1 小時後再申請會寄信，舊連結失效；未驗證帳號也收到信；重設頁 GET 不消耗；短密碼與不一致不消耗且不回填密碼；成功後舊密碼失敗、新密碼可登入、登入頁顯示提示；舊 Cookie 被頁面與 `/api/*` 拒絕；MCP access token 回 401、refresh 回 `invalid_grant`；重放、過期、驗證信 token 皆失敗；未驗證者重設後成為已驗證 |
+| MEM-30／已有測試 | `tests/WebIntegration/PasswordResetFlowTests.cs`（TEST-50） | 開關開啟時，登入頁有「忘記密碼？」、會員中心有「重設密碼」；開關關閉時兩個連結都不存在，四個 endpoint 回 404，沒有寄出任何信 |
+| MEM-31／已有測試 | `tests/WebIntegration/AccountRateLimitTests.cs`（TEST-51） | 忘記密碼 POST 同一 client 第 3 次（限制 2）回 429 |
