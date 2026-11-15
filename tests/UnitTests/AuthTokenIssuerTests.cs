@@ -30,6 +30,18 @@ public sealed class AuthTokenIssuerTests
     }
 
     [Fact]
+    public void Issued_token_carries_the_users_auth_version_as_an_integer_string_claim()
+    {
+        var user = NewUser();
+        user.AuthVersion = 3;
+        var sut = Create(RandomSigningKey(), new FixedTimeProvider(Now));
+
+        var jwt = new JsonWebTokenHandler().ReadJsonWebToken(sut.Issue(user));
+
+        Assert.Equal("3", jwt.GetClaim(JwtOptions.AuthVersionClaim).Value);
+    }
+
+    [Fact]
     public void Issued_token_does_not_contain_email_or_other_personal_data()
     {
         var user = NewUser();

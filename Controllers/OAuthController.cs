@@ -85,7 +85,7 @@ public class OAuthController(IUserStore users, IConfiguration configuration) : C
 
     // The consent form's buttons. The form carries the original request as hidden fields, so OpenIddict reads it from the form.
     // A POST with neither button is refused, so only an explicit approval creates a grant.
-    [HttpPost("/oauth/authorize")]
+    [HttpPost("/oauth/authorize"), ConsentSessionEndedRedirect]
     public async Task<IActionResult> Submit(CancellationToken cancellationToken)
     {
         var request = ServerRequest();
@@ -104,7 +104,7 @@ public class OAuthController(IUserStore users, IConfiguration configuration) : C
         // An expired session returns to the authorize request this form carried (rebuilt without the token and submit fields).
         var user = await SignedInUserAsync(cancellationToken);
         if (user is null)
-            return LocalRedirect(LoginRedirect(FormAuthorizeUrl()));
+            return LocalRedirect(LoginRedirect(FormAuthorizeUrl(Request.Form)));
 
         if (!RequestsOnlyRecommendScope(request))
             return Reject(Errors.InvalidScope, "Only the books:recommend scope can be requested.");
@@ -246,11 +246,11 @@ public class OAuthController(IUserStore users, IConfiguration configuration) : C
     private string LocalRequestUrl() => (Request.PathBase + Request.Path).Add(Request.QueryString);
 
     // The authorize URL a POST came from. Hidden fields carry the OAuth parameters; the antiforgery token and the submit button are dropped.
-    private string FormAuthorizeUrl() =>
-        AuthorizePath + QueryString.Create(Request.Form.Where(field =>
+    internal static string FormAuthorizeUrl(IFormCollection form) =>
+        AuthorizePath + QueryString.Create(form.Where(field =>
             field.Key != "__RequestVerificationToken" && field.Key != AcceptSubmit && field.Key != DenySubmit));
 
     // Sends the user to login and back to this same local URL afterwards (SafeReturnUrl accepts it). Callers use LocalRedirect,
     // so even a value built from form fields can only ever leave the server as a local path.
-    private static string LoginRedirect(string returnUrl) => $"{LoginPath}?returnUrl={Uri.EscapeDataString(returnUrl)}";
+    internal static string LoginRedirect(string returnUrl) => $"{LoginPath}?returnUrl={Uri.EscapeDataString(returnUrl)}";
 }

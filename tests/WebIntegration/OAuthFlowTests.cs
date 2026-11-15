@@ -1,4 +1,5 @@
 using System.Net;
+using Book_Finder.Infrastructure.Identity;
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.WebUtilities;
@@ -216,6 +217,8 @@ public sealed class OAuthFlowTests(WebFixture fixture)
     [Fact]
     public async Task Consent_post_after_the_session_ends_returns_to_login_with_the_same_authorize_request()
     {
+        // B2 rejects the cookie of a deleted user while authenticating, so the consent POST arrives anonymous. It must go back to
+        // login with the same authorize request (not the antiforgery 400), delete the cookie, and store no authorization.
         await fixture.ResetDatabaseAsync();
         await using var app = CreateOAuthFactory();
         var client = await SignedInClientAsync(app, "expired@x.com");
@@ -227,6 +230,35 @@ public sealed class OAuthFlowTests(WebFixture fixture)
         }
 
         var response = await AccountFlow.PostFormAsync(client, "/oauth/authorize", AntiforgeryToken(page), FormFields(values, "submit.Accept").ToArray());
+
+        Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
+        var location = LocationOf(response);
+        Assert.Equal("/account/login", location.AbsolutePath);
+        Assert.Equal("/oauth/authorize?" + Query(values), QueryHelpers.ParseQuery(location.Query)["returnUrl"].ToString());
+        Assert.True(response.Headers.TryGetValues("Set-Cookie", out var setCookies));
+        Assert.Contains(setCookies, value => value.StartsWith(AuthCookie.Name + "=", StringComparison.Ordinal) && value.Contains("expires=Thu, 01 Jan 1970"));
+        await using var check = fixture.CreateContext();
+        var stored = await check.Database.SqlQueryRaw<int>(
+                "SELECT count(*)::int AS \"Value\" FROM openiddict_authorizations").SingleAsync();
+        Assert.Equal(0, stored);
+    }
+
+    [Fact]
+    public async Task Consent_post_after_the_password_was_reset_returns_to_login_with_the_same_authorize_request()
+    {
+        // The same path for an auth_version bump (a password reset elsewhere): the old cookie no longer authenticates.
+        await fixture.ResetDatabaseAsync();
+        await using var app = CreateOAuthFactory();
+        var client = await SignedInClientAsync(app, "bumped@x.com");
+        var values = AuthorizeParams();
+        var page = await client.GetPageAsync("/oauth/authorize?" + Query(values));
+        await using (var db = fixture.CreateContext())
+        {
+            await db.Users.Where(user => user.Email == "bumped@x.com")
+                .ExecuteUpdateAsync(setters => setters.SetProperty(user => user.AuthVersion, user => user.AuthVersion + 1));
+        }
+
+        var response = await AccountFlow.PostFormAsync(client, "/oauth/authorize", AntiforgeryToken(page), FormFields(values, "submit.Deny").ToArray());
 
         Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
         var location = LocationOf(response);

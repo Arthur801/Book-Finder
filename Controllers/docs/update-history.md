@@ -103,3 +103,11 @@ git show <commit> -- Controllers
 | Author 日期 | SHA | subject | 本目錄實際改動檔案 |
 |---|---|---|---|
 | 2026-11-15 | 本 PR | feat(mcp): public MCP guide page linked from the navbar | `McpGuideController.cs`（新增）：`GET /mcp-guide` 回傳靜態 View |
+
+## 2026-11-15 會員中心 B2：同意頁 session 結束後回登入頁（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | 本次 commit | fix(oauth): send an ended-session consent POST back to login (B2) | `ConsentSessionEndedRedirectAttribute.cs`（新增）：authorization filter，Order −1000，先於全域 antiforgery；`OAuthController.cs`：`Submit` 套用 filter，`FormAuthorizeUrl`、`LoginRedirect` 改為 internal static 供 filter 使用 |
+
+驗證（2026-11-15）：`dotnet build --no-incremental` 0 warning；WebIntegration 的 OAuth、Mcp、AuthPipeline 共 132 項通過（含 PIPE-11 的兩個案例）。

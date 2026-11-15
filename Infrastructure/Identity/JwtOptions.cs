@@ -12,6 +12,8 @@ public sealed class JwtOptions
     public const string Issuer = "book-finder";
     public const string Audience = "book-finder";
     public const string NameClaim = "name";
+    // Copied from User.AuthVersion when the token is issued. A bump (password reset) makes older cookies fail the check in AuthServiceCollectionExtensions.
+    public const string AuthVersionClaim = "auth_version";
 
     public static readonly TimeSpan TokenLifetime = TimeSpan.FromDays(1);
 

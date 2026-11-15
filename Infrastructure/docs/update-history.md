@@ -238,3 +238,11 @@ git show <SHA> -- Infrastructure
 | 2026-11-15 | 本次 commit（`mc-c1-email-port`） | feat(email): SES, pickup and none email adapters with provider wiring (C1) | `Email/SesEmailSender.cs`、`PickupDirectoryEmailSender.cs`、`NoEmailSender.cs`、`EmailServiceCollectionExtensions.cs`（新增）；`Book-Finder.csproj`（`AWSSDK.SimpleEmailV2` 4.1.0 精確釘選，獨立 ItemGroup）；`Program.cs`（呼叫 `AddBookFinderEmail`）；`appsettings.json`、`appsettings.Development.json`（Site、EmailVerification、Email）；`.gitignore`（`/.local-mail/`） |
 
 驗證（本次 worktree 執行）：`dotnet build --no-incremental` 0 warning；`dotnet test tests/UnitTests` 1216 通過；`dotnet test tests/WebIntegration --filter EmailPortTests|LayoutAndHomeTests|NavbarTests` 14 通過（全量見 tests update-history）。
+
+## 帳號驗證 B2 Cookie auth_version（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | `6c7428a` | feat(identity): invalidate website login cookies by auth_version (B2) | `Identity/JwtOptions.cs`（`AuthVersionClaim`）、`Identity/AuthTokenIssuer.cs`（簽發 `auth_version`）、`Identity/AuthServiceCollectionExtensions.cs`（`OnTokenValidated`：User 存在且版本相符，否則刪 `bf_auth` 並 `ctx.Fail`；缺 claim 視為 0） |
+
+驗證（2026-11-15）：`dotnet build --no-incremental` 0 warning、0 error；UnitTests 1144 通過；WebIntegration 453 通過（含 `AuthPipelineTests` 19 項、`OAuthFlowTests` 27 項）。`Consent_post_after_the_session_ends_*` 由回登入頁改為 400 且不寫 authorization，原因見 INF-T28。每個帶 cookie 的請求多一次主鍵讀取，無快取。

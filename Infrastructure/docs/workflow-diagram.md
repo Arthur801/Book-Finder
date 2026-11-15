@@ -47,7 +47,9 @@ flowchart TD
   Request[Request] --> Cookie{bf_auth 存在?}
   Cookie -->|否| None[NoResult 不回退讀 Authorization header]
   Cookie -->|是| Validate[驗簽 issuer audience UTC lifetime]
-  Validate -->|有效| User[CurrentUser 解析 sub GUID]
+  Validate -->|有效| Version{OnTokenValidated：User 存在且 auth_version 相符？}
+  Version -->|是| User[CurrentUser 解析 sub GUID]
+  Version -->|否：刪除 bf_auth 並 ctx.Fail| Challenge
   User -->|sub 無效| Bug[InvalidOperationException]
   Validate -->|無效或過期| Challenge
   None --> Challenge{受保護端點 challenge}
@@ -59,7 +61,7 @@ flowchart TD
   CSRF -->|是| Action[執行 action]
 ```
 
-Token 為 HS256、一天有效、無 sliding renewal。Cookie 固定 HttpOnly、Secure、SameSite=Lax、Path=/；Delete 使用相同屬性。SafeReturnUrl 以 MVC local URL 判定，不合格或空值回 `/`。登入限流是明確暫緩，不能從本圖推定存在。
+Token 為 HS256、一天有效、無 sliding renewal，並帶 `auth_version` claim（缺少視為 0）。每個帶 Cookie 的請求都會以主鍵讀取 User 一次，確認存在且版本相符（B2）；密碼重設 bump 版本或刪除帳號後，舊 Cookie 立即失效並被刪除。Cookie 固定 HttpOnly、Secure、SameSite=Lax、Path=/；Delete 使用相同屬性。SafeReturnUrl 以 MVC local URL 判定，不合格或空值回 `/`。登入限流是明確暫緩，不能從本圖推定存在。
 
 ## Read adapters、cache 與書單
 

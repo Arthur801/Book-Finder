@@ -294,3 +294,13 @@ dotnet test tests/WebIntegration/WebIntegration.csproj
   - DI：None、Pickup、Ses 各解析到對應 adapter；預設為 None 且驗證關閉；驗證開啟搭配 None、Ses 缺 Region、缺 Site:PublicBaseUrl、Production／Staging 環境設定 Pickup 時，選項取值即拋出 `OptionsValidationException`。
 - 測試來源：[SesEmailSenderTests.cs](../../tests/UnitTests/SesEmailSenderTests.cs)、[PickupDirectoryEmailSenderTests.cs](../../tests/UnitTests/PickupDirectoryEmailSenderTests.cs)、[NoEmailSenderTests.cs](../../tests/UnitTests/NoEmailSenderTests.cs)、[EmailServiceCollectionExtensionsTests.cs](../../tests/UnitTests/EmailServiceCollectionExtensionsTests.cs)。
 - 已知缺口：沒有對真實 SES 的整合測試（需要 AWS 憑證與已驗證網域，屬 L4，見 INF-B11）。
+
+## INF-T28 — Cookie auth_version 與使用者存在檢查（B2）
+
+- 責任／風險／狀態：Identity adapter，L3；2026-11-15 本地執行結果見 update-history。
+- Given：固定 time；User 已存入 DB；測試 signing key 與 app 相同；舊式 token 只含 sub 與 name。
+- When：Issue(user) 後解析 claim；以 `UPDATE users SET auth_version = auth_version + 1` 或 `ExecuteDelete` 改變 DB 狀態後，送帶 `bf_auth` 的頁面與 `/api` 請求；送不含 `auth_version` claim 的 token，DB 版本為 0 與為 1 各一次。
+- Then：claim 為 `"3"`（AuthVersion=3）；版本相符的 Cookie 頁面與 API 皆 200；版本 bump 或使用者刪除後，頁面 302 登入、API 401，回應含過期的 `bf_auth` Set-Cookie；舊式 token 在版本 0 時通過，版本為 1 時被拒絕並刪 Cookie。
+- 入口：[AuthTokenIssuerTests](../../tests/UnitTests/AuthTokenIssuerTests.cs)（`Issued_token_carries_the_users_auth_version_as_an_integer_string_claim`）、[AuthPipelineTests](../../tests/WebIntegration/AuthPipelineTests.cs)（`Cookie_is_rejected_on_page_and_api_after_auth_version_is_bumped_and_cookie_is_deleted`、`Cookie_is_rejected_on_page_and_api_after_the_user_row_is_deleted`、`Cookie_with_the_current_auth_version_is_accepted_after_an_earlier_bump`、`Token_without_auth_version_claim_is_accepted_while_the_stored_version_is_zero`、`Token_without_auth_version_claim_is_rejected_once_the_stored_version_is_one`）。
+- 行為（B2）：使用者停在 OAuth 同意頁期間，若帳號被刪除或 `auth_version` 被遞增，同意 POST 的 cookie 在認證階段就被拒絕並刪除，POST 以匿名身分到達。Controllers 的 `ConsentSessionEndedRedirect` filter 先於全域 antiforgery 執行，把瀏覽器帶回 `/account/login?returnUrl=<同一個 authorize request>`，也不寫入 authorization。對應 OAuthFlowTests `Consent_post_after_the_session_ends_returns_to_login_with_the_same_authorize_request`、`Consent_post_after_the_password_was_reset_returns_to_login_with_the_same_authorize_request`。
+- 限制：本測試不驗證真實 Cookie 經瀏覽器的 Set-Cookie 行為；開關與部署順序不在此範圍。
