@@ -283,3 +283,5 @@ Auth的Google登入/email驗證/忘記密碼/個資修改/refresh token依identi
   - 設定：預設值；HeartbeatInterval 等於 LeaseDuration 不合法；MaxAttempts 0 不合法；RetryDelay 0 合法。
 - mutation（主 agent）：把重試判斷 `<` 改成 `<=` → `Ai_unavailable_on_attempt_two_of_two_fails_the_job` 失敗，已還原。
 - 測試來源：[RecommendationJobRunnerTests.cs](../../tests/UnitTests/RecommendationJobRunnerTests.cs)、[RecommendationJobOptionsTests.cs](../../tests/UnitTests/RecommendationJobOptionsTests.cs)。
+
+> 會員中心 B3 補記：2026-11-15 更新；程式變更記入 update-history 的 B3 段落。新增的撤銷 port 測試位於 DatabaseIntegration（`OAuthCredentialRevokerTests`）與 WebIntegration（`McpCredentialRevocationTests`），見 Infrastructure 與 Mcp 的 test-suite。

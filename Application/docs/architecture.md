@@ -145,3 +145,13 @@ History的reason/rank/relevance是snapshot，Book標題等為目前資料；diff
 可重試＝`attempt_count < MaxAttempts` 時 `RequeueAsync(RetryDelay)`，否則 `FailAsync`。失敗處理的寫入使用 `CancellationToken.None`，主機停止時也不會只寫一半；store 回 false（lease 已不在）時只記 log。Application 只用 BCL 的 `DbException`，不引用 Npgsql 或 EF。
 
 [RecommendationJobOptions](../Recommendation/RecommendationJobOptions.cs)（section `RecommendationJobs`）：`Enabled` false、`PollInterval` 2 秒、`LeaseDuration` 45 秒、`HeartbeatInterval` 10 秒（必須小於 LeaseDuration）、`MaxAttempts` 2、`RetryDelay` 5 秒；啟動時驗證。併行度固定為 1，不是設定。
+
+## 外部 OAuth 憑證撤銷 port（會員中心 B3）
+
+[IExternalCredentialRevoker](../Identity/IExternalCredentialRevoker.cs) 是 Application 對 OAuth 憑證的唯一入口，不暴露 OpenIddict 型別：
+
+- `RevokeAllForUserAsync(userId)`：把該使用者所有 authorization 與 token 標為 revoked。預計由 C4（重設密碼）與 D1（刪除帳號）呼叫。
+- `DeleteAllForUserAsync(userId)`：先刪 token、再刪 authorization。預計由 D1 呼叫；OpenIddict 資料沒有外鍵指向 `users`，刪除使用者不會連帶清除它，而 token 指向 authorization 的外鍵沒有 cascade，所以順序固定。
+- 兩者都以 OpenIddict subject（Book-Finder user id 的字串）篩選；沒有資料時不是錯誤。
+- 呼叫端必須在自己的 transaction 內呼叫，且使用同一個 scoped `AppDbContext`，撤銷才會和呼叫端的其他寫入一起 commit 或 rollback。實作在 Infrastructure（見 Infrastructure/docs/architecture.md）。
+- 現況：介面與實作已存在並有測試；C4、D1 尚未實作，目前沒有呼叫端。

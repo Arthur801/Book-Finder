@@ -255,3 +255,16 @@ dotnet test tests/WebIntegration/WebIntegration.csproj
 - mutation（主 agent）：拿掉 heartbeat 被拒時的 `leaseLost.Cancel()` → `A_refused_heartbeat_cancels_the_running_job_and_nothing_is_written` 失敗，已還原。
 - 入口：[RecommendationJobWorkerTests](../../tests/UnitTests/RecommendationJobWorkerTests.cs)。
 
+
+## INF-T25 — OAuth 憑證撤銷 port（會員中心 B3）
+
+- 責任／風險／狀態：Scoped port，L3（撤銷 access／refresh token，影響 MCP 授權），已有測試。
+- 入口：[OAuthCredentialRevokerTests](../../tests/DatabaseIntegration/OAuthCredentialRevokerTests.cs)（DatabaseIntegration）、[McpCredentialRevocationTests](../../tests/WebIntegration/McpCredentialRevocationTests.cs)（WebIntegration）。
+- Given／When／Then：
+  - 兩位使用者各有一筆 permanent authorization 與一筆 refresh token → `RevokeAllForUserAsync(A)` 後，A 的兩張表都是 `revoked`，B 仍是 `valid`；
+  - 沒有 OAuth 資料的使用者 → 不拋出例外；
+  - 撤銷放在 `BeginTransactionAsync` 內，rollback 後仍是 `valid`，commit 後是 `revoked`；
+  - `DeleteAllForUserAsync(A)` → A 的 token 與 authorization 都消失（先刪 token，否則外鍵失敗），B 不變；刪除在 rollback 後保留資料；
+  - Web：A、B 以真實 OAuth 流程取得 token；撤銷 A 後，A 的 access token 打 `/mcp` 回 401，A 的 refresh token 到 `/oauth/token` 回 `invalid_grant`，B 的 access token 仍 200。
+- 驗證基準（2026-11-15）：`dotnet build --no-incremental` 0 warning、0 error；UnitTests 1143 通過；DatabaseIntegration 260 通過（本次新增 `OAuthCredentialRevokerTests` 6 項）；WebIntegration `--filter "FullyQualifiedName~Mcp|FullyQualifiedName~OAuth"` 112 通過（本次新增 `McpCredentialRevocationTests` 1 項）。 詳見 [update-history](update-history.md)。
+- Mutation（B3 實作時）：把撤銷的 status 改回 `valid`，`McpCredentialRevocationTests` 失敗（`Expected: Unauthorized, Actual: OK`），已還原。

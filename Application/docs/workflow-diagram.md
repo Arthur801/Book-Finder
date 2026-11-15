@@ -269,3 +269,20 @@ flowchart TD
 ```
 
 Log 欄位：JobId、Attempt、ErrorCode、QueueWaitMs（領取時間減去 Job 建立時間）、ExecutionMs、成功時的 SearchId；不記需求文字。
+
+## 憑證撤銷（會員中心 B3，現況：尚無呼叫端）
+
+```mermaid
+sequenceDiagram
+    participant Caller as 呼叫端（C4 重設密碼／D1 刪除帳號，尚未實作）
+    participant Tx as AppDbContext transaction
+    participant Port as IExternalCredentialRevoker
+    Caller->>Tx: BeginTransactionAsync
+    Caller->>Port: RevokeAllForUserAsync(userId) 或 DeleteAllForUserAsync(userId)
+    Port->>Tx: ExecuteUpdate／ExecuteDelete（openiddict_authorizations、openiddict_tokens）
+    Caller->>Tx: 其他寫入（密碼、使用者刪除等）
+    Caller->>Tx: Commit 或 Rollback（撤銷一起生效或一起撤回）
+```
+
+- 撤銷後：`/mcp` 的 access token 立即 401（entry validation），refresh token 在 `/oauth/token` 回 `invalid_grant`。
+- 沒有該使用者的 OAuth 資料時兩個方法都正常結束。

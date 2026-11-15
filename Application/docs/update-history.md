@@ -183,3 +183,9 @@ git show --format= --numstat <sha> -- Application ':(exclude)Application/docs'
 | `0d3b3ac` | feat(rec-jobs): add the job runner with its outcome table | 新增 `Recommendation/RecommendationJobRunner.cs` |
 | `c0ac2f6` | fix(rec-jobs): log the exception when a job fails with INTERNAL_ERROR | `RecommendationJobRunner.cs`：主 agent 驗收時修正，INTERNAL_ERROR 的 log 帶上例外 |
 | `48b2edd` | feat(mcp): OAuth authorize, consent and token endpoints (MCP-201b) | `Identity/IUserStore.cs`：新增 `FindByIdAsync`（token endpoint 確認使用者仍存在） |
+
+## 會員中心 B3 OAuth 憑證撤銷 port（新增紀錄）
+
+| 提交 | Subject | 影響 |
+|---|---|---|
+| `eec680c` | feat(identity): add the OAuth credential revocation port (member-center B3) | 新增 `Identity/IExternalCredentialRevoker.cs` |
