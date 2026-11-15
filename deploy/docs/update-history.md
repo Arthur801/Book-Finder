@@ -392,3 +392,9 @@ git log --reverse --no-merges --format='@@%h' --numstat -- <同上路徑>
 | Author 日期 | SHA | subject | 本目錄實際改動檔案 |
 |---|---|---|---|
 | 2026-11-15 | 本次 commit | docs(deploy): track the second legacy-verification backfill in DEP-B27 | `docs/backlog.md`：DEP-B27 加上開關開啟時的第二次回填 migration 與 production 檢查（兩軸 review 指出原本沒有追蹤） |
+
+## 2026-11-15 SES 設定步驟文件（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | 本次 commit | docs: member-center implementation report and SES setup guide | `ses-setup.md`（新增）：營運者在 AWS 與 Cloudflare 上的逐步設定，內容依 AWS 官方 SES／EC2 文件，並附上 2026-11-15 的 DNS 現況；`docs/backlog.md`：DEP-B27 連到這份文件 |

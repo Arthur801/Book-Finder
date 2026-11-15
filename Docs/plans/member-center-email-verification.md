@@ -1,6 +1,6 @@
 # 會員中心、Email 驗證、忘記密碼、刪除帳號：實作規劃
 
-> 狀態：2026-11-15 使用者核准，實作中。本檔是**實作計畫**，不是規格；current contract 以各模組 `docs/` 為準。
+> 狀態：2026-11-15 使用者核准；A～D 已全部合併（#216～#228），實作報告見 [Implementation-Report](../Implementation-Report/member-center-email-verification.md)，SES 步驟見 [deploy/ses-setup.md](../../deploy/ses-setup.md)。本檔是**實作計畫**，不是規格；current contract 以各模組 `docs/` 為準。
 
 ## Context
 
