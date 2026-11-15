@@ -20,7 +20,7 @@ flowchart TD
     EH --> H
     H -->|HTTP| HTTPS[重導 HTTPS]
     H -->|HTTPS| ROUTE[UseRouting]
-    ROUTE --> AUTH[UseAuthentication：只讀 JWT cookie]
+    ROUTE --> AUTH[UseAuthentication：讀 JWT cookie，OnTokenValidated 比對 User 存在與 auth_version（B2）]
     AUTH --> AZ{端點需 Authorize 且未登入？}
     AZ -->|是| KIND{路徑為 /api segment？}
     KIND -->|是| UNAUTH[401 problem+json：unauthenticated]

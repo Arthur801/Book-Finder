@@ -72,6 +72,8 @@
 
 OpenAiCall 保留 caller cancellation，其餘轉 AiUnavailableException；SDK 有內建 retry。固定 60 秒 timeout 由 RecommendationService 控制。Search 已成功保存後，difficulty reader／scheduler 的一般例外會記 Warning 並降級，不回滾 search；兩者均保留已取消 caller token 的 OperationCanceledException，此時請求可取消但已保存資料仍存在。此階段使用 caller token，不使用 60 秒 timeout token。Profile worker 失敗與推薦保存失敗是不同邊界。
 
+B2 cookie 版本檢查：`AuthTokenIssuer` 寫入 `auth_version` claim（值為 `User.AuthVersion`，整數字串）；`AuthServiceCollectionExtensions` 的 `OnTokenValidated` 在簽章與 lifetime 通過後，以 `IUserStore.FindByIdAsync` 讀取 `sub` 對應的 User，使用者不存在或 claim 與 `AuthVersion` 不符時，刪除 `bf_auth` 並 `ctx.Fail`，之後由既有 `OnChallenge` 回 401（/api）或登入頁 redirect（頁面）。缺少 claim 的舊 Cookie 視為版本 0，部署不會登出既有使用者。成本：每個帶 `bf_auth` 的請求多一次 `users` 主鍵讀取，沒有快取，因此密碼重設或刪除帳號在下一個請求即生效。Email 驗證不在此檢查（計畫 D-A：Cookie 只發給已驗證 User）。
+
 ## 差距與 runtime 限制
 
 Google Books fallback 尚未接入，store 固定 FallbackUsed=false。Recommendation 擁有 fallback orchestration；Catalog 擁有 normalization、cross-source identity 與 Book persistence 規則；Infrastructure 只實現 external API／EF adapter mechanics，不取得 Catalog 規則 ownership。登入限流、embedding 增量掃描依 [TODO](../../Docs/TODO.md) 明確暫緩。水平擴充前須重新評估 process-local cache／queue，不能直接宣稱多 instance 安全。

@@ -311,3 +311,10 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter FullyQualifiedNa
 - **Given**：共用 PostgreSQL fixture 已套到 head；`MigrationServer` 另開獨立資料庫做 migration 測試。
 - **When／Then**：見 Infrastructure INF-T25 與 Domain DOM-T13。`EmailVerificationSeedTests` 讓 AddEmailVerificationAndAccountTokens 的 compat seed 可載入（users 5、tokens 4、NULL verification 4）；`OpenIddictSchemaTests` 的 migration 測試固定 target 為 AddOpenIddict。
 - **來源與狀態**：[AccountActionTokenSchemaTests](../DatabaseIntegration/AccountActionTokenSchemaTests.cs)、[EmailVerificationSeedTests](../DatabaseIntegration/EmailVerificationSeedTests.cs)、[EfUserStoreTests](../DatabaseIntegration/EfUserStoreTests.cs)、[AccountServiceTests](../UnitTests/AccountServiceTests.cs)；2026-11-15 本地結果：UnitTests 1143、DatabaseIntegration 276、WebIntegration `Account` 篩選 13 通過。
+
+### TEST-41：Cookie auth_version 與使用者存在檢查（B2）
+
+- `AuthTokenIssuerTests`（UnitTests）：Cookie token 含 `auth_version` 整數字串 claim。
+- `AuthPipelineTests`（WebIntegration）：版本 bump 與使用者刪除後的舊 Cookie 在頁面與 /api 皆被拒並刪 Cookie；版本相符仍有效；缺少 claim 的舊式 token 在版本 0 時通過、版本 1 時被拒。既有的有效 Cookie 測試改為先寫入 User，因為每個請求都會查 User。
+- `OAuthFlowTests`：`Consent_post_after_the_session_ends_is_refused_and_stores_no_authorization` 由「回登入頁」改為「400 且不寫 authorization」（B2 造成，見 INF-T28）。
+- **來源與狀態**：見 Infrastructure INF-T28。

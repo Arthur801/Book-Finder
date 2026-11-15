@@ -227,3 +227,11 @@ git show <SHA> -- Infrastructure
 | 2026-11-15 | `a7ec1b2` | feat(identity): add email verification columns and account action tokens (B1) | `Persistence/Migrations/20261115055411_AddEmailVerificationAndAccountTokens.cs`、`.Designer.cs`（新增，Up 含 U-01 回填）；`Persistence/Migrations/AppDbContextModelSnapshot.cs`；`Persistence/Configurations/AccountActionTokenConfiguration.cs`（新增）；`Persistence/Configurations/UserConfiguration.cs`；`Persistence/AppDbContext.cs`（`AccountActionTokens` DbSet） |
 
 驗證（2026-11-15）：`dotnet build --no-incremental` 0 warning；DatabaseIntegration 276 通過（含 `OpenIddictSchemaTests` 的 target 修正）；`dotnet ef migrations add` 產生骨架，Up 手寫回填、Down 只移除新增項目。
+
+## 帳號驗證 B2 Cookie auth_version（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | `6c7428a` | feat(identity): invalidate website login cookies by auth_version (B2) | `Identity/JwtOptions.cs`（`AuthVersionClaim`）、`Identity/AuthTokenIssuer.cs`（簽發 `auth_version`）、`Identity/AuthServiceCollectionExtensions.cs`（`OnTokenValidated`：User 存在且版本相符，否則刪 `bf_auth` 並 `ctx.Fail`；缺 claim 視為 0） |
+
+驗證（2026-11-15）：`dotnet build --no-incremental` 0 warning、0 error；UnitTests 1144 通過；WebIntegration 453 通過（含 `AuthPipelineTests` 19 項、`OAuthFlowTests` 27 項）。`Consent_post_after_the_session_ends_*` 由回登入頁改為 400 且不寫 authorization，原因見 INF-T28。每個帶 cookie 的請求多一次主鍵讀取，無快取。

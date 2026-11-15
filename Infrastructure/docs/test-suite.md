@@ -268,3 +268,13 @@ dotnet test tests/WebIntegration/WebIntegration.csproj
   - Up 從 AddOpenIddict 升級時，既有 users 的 `email_verified_at = created_at`；只新增 `account_action_tokens` 與兩個 users 欄位；Down 只移除這些；
   - EfUserStore 寫入與讀回 `EmailVerifiedAt`、`AuthVersion`（有值與 NULL／0 兩種）。
 - 入口：[AccountActionTokenSchemaTests](../../tests/DatabaseIntegration/AccountActionTokenSchemaTests.cs)（含 `AccountActionTokenMigrationTests`）、[EfUserStoreTests](../../tests/DatabaseIntegration/EfUserStoreTests.cs)、[OpenIddictSchemaTests](../../tests/DatabaseIntegration/OpenIddictSchemaTests.cs)（`AddOpenIddict_creates_only_the_four_openiddict_tables` 改為固定 target 為 AddOpenIddict，避免之後的 migration 讓它失效）。
+
+## INF-T28 — Cookie auth_version 與使用者存在檢查（B2）
+
+- 責任／風險／狀態：Identity adapter，L3；2026-11-15 本地執行結果見 update-history。
+- Given：固定 time；User 已存入 DB；測試 signing key 與 app 相同；舊式 token 只含 sub 與 name。
+- When：Issue(user) 後解析 claim；以 `UPDATE users SET auth_version = auth_version + 1` 或 `ExecuteDelete` 改變 DB 狀態後，送帶 `bf_auth` 的頁面與 `/api` 請求；送不含 `auth_version` claim 的 token，DB 版本為 0 與為 1 各一次。
+- Then：claim 為 `"3"`（AuthVersion=3）；版本相符的 Cookie 頁面與 API 皆 200；版本 bump 或使用者刪除後，頁面 302 登入、API 401，回應含過期的 `bf_auth` Set-Cookie；舊式 token 在版本 0 時通過，版本為 1 時被拒絕並刪 Cookie。
+- 入口：[AuthTokenIssuerTests](../../tests/UnitTests/AuthTokenIssuerTests.cs)（`Issued_token_carries_the_users_auth_version_as_an_integer_string_claim`）、[AuthPipelineTests](../../tests/WebIntegration/AuthPipelineTests.cs)（`Cookie_is_rejected_on_page_and_api_after_auth_version_is_bumped_and_cookie_is_deleted`、`Cookie_is_rejected_on_page_and_api_after_the_user_row_is_deleted`、`Cookie_with_the_current_auth_version_is_accepted_after_an_earlier_bump`、`Token_without_auth_version_claim_is_accepted_while_the_stored_version_is_zero`、`Token_without_auth_version_claim_is_rejected_once_the_stored_version_is_one`）。
+- 行為變更（B2）：使用者在 OAuth 同意頁停留期間被刪除時，同意 POST 的 cookie 在認證階段即被拒並刪除，POST 以匿名身分執行；antiforgery token 原綁定已登入身分，framework 回 400（頁面的純 400，非 login redirect），且不寫入 authorization。對應 OAuthFlowTests `Consent_post_after_the_session_ends_is_refused_and_stores_no_authorization`。
+- 限制：本測試不驗證真實 Cookie 經瀏覽器的 Set-Cookie 行為；開關與部署順序不在此範圍。

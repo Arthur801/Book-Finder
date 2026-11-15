@@ -225,3 +225,11 @@ Git 歷史不證明 runtime 或 CI 已通過。
 | 2026-11-15 | `a7ec1b2` | feat(identity): add email verification columns and account action tokens (B1) | `tests/UnitTests/AccountServiceTests.cs`；`tests/DatabaseIntegration/AccountActionTokenSchemaTests.cs`、`EmailVerificationSeedTests.cs`（新增）；`EfUserStoreTests.cs`、`MigrationServer.cs`（新增 `AddEmailVerificationAndAccountTokens` id）、`OpenIddictSchemaTests.cs`（target 固定為 AddOpenIddict） |
 
 驗證（2026-11-15）：UnitTests 1143、DatabaseIntegration 276、WebIntegration `FullyQualifiedName~Account` 13 通過。
+
+## 帳號驗證 B2（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | `6c7428a` | feat(identity): invalidate website login cookies by auth_version (B2) | `tests/UnitTests/AuthTokenIssuerTests.cs`（claim 測試）；`tests/WebIntegration/AuthPipelineTests.cs`（bump、刪除、舊式 token 等 5 項；既有有效 cookie 測試改為先寫 User）；`tests/WebIntegration/OAuthFlowTests.cs`（consent 測試改為 400 且不寫 authorization） |
+
+驗證（2026-11-15）：UnitTests 1144 通過；WebIntegration 453 通過。見 TEST-41。
