@@ -72,6 +72,8 @@ builder.Services.AddScoped<IRecommendationHistory, EfRecommendationHistory>();
 builder.Services.AddScoped<IBookProfileStore, EfBookProfileStore>();
 builder.Services.AddScoped<RecommendationPipeline>();
 builder.Services.AddScoped<RecommendationService>();
+// Account page quota (member center A2): reads today's usage for display only, the limit check stays in RecommendationService.
+builder.Services.AddScoped<RecommendationQuotaReader>();
 // Recommendation Jobs (plan async-recommendation-jobs section 3.4): submit, list and get over the recommendation_jobs table.
 builder.Services.AddScoped<IRecommendationJobStore, EfRecommendationJobStore>();
 builder.Services.AddScoped<RecommendationJobService>();
