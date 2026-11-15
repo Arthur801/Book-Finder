@@ -1,5 +1,6 @@
 # Application Git 修改歷史
 
+> 首頁與分類入口 P3 補記：2026-11-15 更新；程式變更以 `1a40b9a`（測試）、`b7e6ab7`（實作）記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 會員中心 C3 補記：2026-11-15 更新；程式變更以 `c3f09dc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 > 帳號動作 token C2 補記：2026-11-15 更新；程式變更以 `4064680` 記入 update-history。原查核基準保留，未重新審查其餘內容。
@@ -271,3 +272,12 @@ git show --format= --numstat <sha> -- Application ':(exclude)Application/docs'
 | 2026-11-15 | 本次 commit | feat(identity): mail a password-changed notice after a reset (C4) | `Identity/IPasswordResetStore.cs`（回傳 user id）、`Identity/PasswordResetService.cs`（提交後寄通知，失敗只記 log）、`Email/AccountEmailTemplates.cs`（`PasswordChanged`）；`Identity/AccountActionTokenService.cs` 註解更正；APP-B13 關閉 |
 
 驗證（2026-11-15）：新測試先編譯失敗；實作後 UnitTests 1330、`EfPasswordResetStoreTests` 7、WebIntegration `PasswordReset` 16 項通過。
+
+## 首頁與分類入口 P3（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | `b7e6ab7` | refactor(ui): route catalog discovery CTAs to categories | `Catalog/CategoryFilter.cs`、`Catalog/CategoryBrowseService.cs`（只改 sidebar 註解為分類網格） |
+| 2026-11-15 | 本次 commit | docs: record the catalog discovery CTAs on the views | 本目錄五份文件（`docs/architecture.md`：分類書數說明改為分類網格） |
+
+行為與程式碼無變更；`/books` 相關 Application 契約不變。

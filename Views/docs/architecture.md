@@ -15,7 +15,7 @@
 
 | 呈現責任 | 模型／caller | partial 與輸出契約 |
 |---|---|---|
-| 首頁／書庫 | HomeController、BooksController、HomeViewModel、BookBrowseViewModel、BookListItemViewModel | _SearchForm 共用 GET 搜尋；首頁 10 本隨機樣本與書庫分頁共用 _BookList（封面占位、作者、出版社、出版日期）；空庫顯示「書庫還沒有書」；/bestsellers 只 301 至 /books，無榜單頁 |
+| 首頁／書庫 | HomeController、BooksController、HomeViewModel、BookBrowseViewModel、BookListItemViewModel | _SearchForm 共用 GET 搜尋；首頁 10 本隨機樣本與書庫分頁共用 _BookList（封面占位、作者、出版社、出版日期）；空庫顯示「書庫還沒有書」；首頁主內容的 CTA「瀏覽全部分類」連到 `/categories`（P3），不再連 `/books`；/bestsellers 只 301 至 /books，無榜單頁 |
 | 搜尋 | SearchController、SearchResultsViewModel、PagerViewModel | query 預填、總數／頁數、結果列由 _BookList 呈現、_Pager；搜尋完全是 local DB |
 | 分類瀏覽 | CategoriesController、CategoryBrowseViewModel、BookListItemViewModel | 單欄頁面，由上而下為：[_SearchForm](../Shared/_SearchForm.cshtml)（包在 `data-tour="category-search"`，GET `/search?q=`，不帶分類或來源）→ H1 → [_CategoryGrid](../Categories/_CategoryGrid.cshtml)（`nav.category-grid-nav`，一次渲染 `Model.Categories` 全部項目，全部書籍在前；每格為連結與「N 本」，零本也顯示；選取項目帶 `is-active` 與 `aria-current="page"`；不截斷、不補空格）→ 「書籍來源」標題與來源 nav-pills（`nav[aria-label=來源篩選]`，包在 `data-tour="category-sources"`）→ 摘要、_BookList、_Pager。已沒有側欄、offcanvas、切換按鈕、`<noscript>` 清單，也不載入分類頁專用 JS。欄數由 CSS 決定：2／3／4／6 欄，斷點 0／576／768／1200px；目前規則檔的 18 類加「全部書籍」共 19 格，6 欄時排成四列。樣式在 [category-browser.css](../../wwwroot/css/category-browser.css)，經 Layout 的 `Styles` section 載入 |
 | Book 詳情 | BooksController、BookDetailViewModel | 基本資料／safe 外連；LibrarySection 另外放 ViewData，避免將個人資料塞入 catalog cache |

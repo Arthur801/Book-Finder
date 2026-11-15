@@ -85,7 +85,7 @@ flowchart TD
     O -->|否| V[CategoryBrowseViewModel.From → 200 View]
 ```
 
-匿名、只查 Local DB（經 [CachedCategoryBrowse](../../Infrastructure/Caching/CachedCategoryBrowse.cs)：側邊欄書數、來源清單、全部書籍數快取 10 分鐘，書單每次查詢）。不存在、停用或大小寫不符的 slug／source 都是 404；合法條件但沒有書回 200 空狀態。
+匿名、只查 Local DB（經 [CachedCategoryBrowse](../../Infrastructure/Caching/CachedCategoryBrowse.cs)：分類網格書數、來源清單、全部書籍數快取 10 分鐘，書單每次查詢）。不存在、停用或大小寫不符的 slug／source 都是 404；合法條件但沒有書回 200 空狀態。
 
 ## 3. SearchController
 

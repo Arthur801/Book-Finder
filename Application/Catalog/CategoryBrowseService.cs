@@ -21,7 +21,7 @@ public sealed class CategoryBrowseService(ICategoryBrowse browse)
                 return Unavailable(CategoryBrowseOutcome.UnknownSource);
         }
 
-        // Counts follow the source filter, so the sidebar numbers match the list that will be shown.
+        // Counts follow the source filter, so the grid numbers match the list that will be shown.
         var categories = await browse.ListCategoriesAsync(source, cancellationToken);
         CategorySummary? selectedCategory = null;
         if (slug is not null)
