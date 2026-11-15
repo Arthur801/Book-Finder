@@ -15,7 +15,7 @@
 
 ```bash
 dotnet test tests/WebIntegration/WebIntegration.csproj --filter 'FullyQualifiedName~LayoutAndHomeTests|FullyQualifiedName~NavbarTests|FullyQualifiedName~BookBrowsePageTests|FullyQualifiedName~SearchPageTests|FullyQualifiedName~BookDetailPageTests'
-dotnet test tests/WebIntegration/WebIntegration.csproj --filter 'FullyQualifiedName~AccountPagesTests|FullyQualifiedName~AuthPipelineTests|FullyQualifiedName~BookLibrarySectionTests|FullyQualifiedName~LibraryPageTests'
+dotnet test tests/WebIntegration/WebIntegration.csproj --filter 'FullyQualifiedName~AccountPagesTests|FullyQualifiedName~AuthPipelineTests|FullyQualifiedName~BookLibrarySectionTests|FullyQualifiedName~LibraryPageTests|FullyQualifiedName~MemberPageTests'
 dotnet test tests/WebIntegration/WebIntegration.csproj --filter 'FullyQualifiedName~AiPageTests|FullyQualifiedName~AiHistoryListTests|FullyQualifiedName~AiHistoryDetailTests'
 ```
 
@@ -41,7 +41,7 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter 'FullyQualifiedN
 
 ### VIEW-T06 — Library 頁篩選與空狀態
 
-風險 L2；已有測試，本次未執行。規格：[Library §4](../../Docs/modules/user-library.md)。Given A/B users、多狀態／ratings／UpdatedAt entries；When GET `/library`、`?status=READING`、unknown filter、empty filter；Then 匿名 redirect，僅本人且最新先，active tab 正確、未知視全部，逐列控制項資料不串，空態含書庫連結（`/books`）；有列時空態 hidden；controls edit-login-url 保留 query；Library 區域 token 共用而非每列一份。來源：[LibraryPageTests](../../tests/WebIntegration/LibraryPageTests.cs)。改狀態後即時 filter 語意另見 VIEW-T12。
+風險 L2；已有測試，本次未執行。規格：[Library §4](../../Docs/modules/user-library.md)。Given A/B users、多狀態／ratings／UpdatedAt entries；When GET `/account`、`?status=READING`、unknown filter、empty filter（`/library` 的轉址見 VIEW-T16）；Then 匿名 redirect，僅本人且最新先，active tab 正確、未知視全部，逐列控制項資料不串，空態含書庫連結（`/books`）；有列時空態 hidden；controls edit-login-url 保留 query；Library 區域 token 共用而非每列一份。來源：[LibraryPageTests](../../tests/WebIntegration/LibraryPageTests.cs)。改狀態後即時 filter 語意另見 VIEW-T12。
 
 ### VIEW-T07 — AI SSR 與歷史分頁
 
@@ -87,3 +87,10 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter 'FullyQualifiedN
 - 狀態：WebIntegration [McpGuidePageTests](../../tests/WebIntegration/McpGuidePageTests.cs) 已有測試（2026-11-15 通過）。
 - 驗證：匿名 `GET /mcp-guide` 200，標題「MCP 操作手冊 - 好想找書」，含 MCP 網址、ChatGPT plugins 網址、三個 client_id 與錯誤碼；`Mcp:Enabled` 開關兩種情況結果相同；未登入時連結在登入、註冊之後，登入後仍顯示。
 - 未驗證：瀏覽器版面（窄螢幕的表格與程式碼區塊捲動）。
+
+### VIEW-T16 — 會員中心 /account 與 /library 轉址
+
+- 狀態：WebIntegration [MemberPageTests](../../tests/WebIntegration/MemberPageTests.cs) 已有測試（2026-11-15，本分支；執行結果見 tests update-history）。風險 L2；瀏覽器檢查未做，JS 行為未在瀏覽器執行。
+- Given：已登入使用者，含書單、今日 Job、超過一頁的 Job、開關開啟或關閉。
+- When：GET `/account`（含 `status`、`jobsPage`）、GET `/library`（含或不含 `status`）。
+- Then：三個區塊依序為 `#library`、`#ai-history`、`#account-security`；今日剩餘次數正確；Job 列表只含本人並標題「AI 搜尋紀錄」，超頁顯示最後一頁，pager 保留 `status` 並以 `#ai-history` 結尾；開關關閉顯示「尚未開放」；只載入 `library.js`；`/library` 依合法 status 302 至 `/account?status=…#library` 或 `/account#library`；導覽列依 VIEW-T01 的 header 規則排列。

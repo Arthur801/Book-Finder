@@ -168,16 +168,22 @@ flowchart TD
 
 待辦只接受大小寫相符的 `add-to-library` 與精確 `/books/{D 格式 GUID}`，不含 query、fragment、尾斜線。SafeReturnUrl 的本站路徑規則較廣，不能拿來代替待辦格式驗證。註冊成功直接登入；登出刪 cookie，不撤銷已簽發 JWT。Rate limiting 目前暫緩。
 
-## 6. LibraryController、LibraryApiController
+## 6. MemberController（/account、/library 轉址）、LibraryApiController
 
-來源：[LibraryController.cs](../LibraryController.cs)、[LibraryApiController.cs](../LibraryApiController.cs)；規格：[user-library.md](../../Docs/modules/user-library.md)、[api-spec.md §4](../../Docs/api/api-spec.md)。以下入口皆先經 Authorize。
+來源：[MemberController.cs](../MemberController.cs)、[LibraryApiController.cs](../LibraryApiController.cs)、[RecommendationJobListLoader.cs](../RecommendationJobListLoader.cs)；規格：[user-library.md](../../Docs/modules/user-library.md)、[api-spec.md §4](../../Docs/api/api-spec.md)。以下入口皆先經 Authorize。
 
 ```mermaid
 flowchart TD
-    PAGE[GET /library：status] --> FILTER[ReadingStatusCode.TryParse；不合法視為全部]
+    PAGE[GET /account：status、jobsPage] --> FILTER[ReadingStatusCode.TryParse；不合法視為全部]
     FILTER --> LIST[LibraryService.ListAsync：CurrentUserId + filter]
-    LIST --> VM[LibraryPageViewModel；updated_at 新到舊、不分頁]
-    VM --> VIEW[200 Index View；含保留篩選 query 的登入連結]
+    LIST --> QUOTA[RecommendationQuotaReader：今日剩餘次數]
+    QUOTA --> JOBS{RecommendationJobs 開關開啟？}
+    JOBS -->|是| JL[RecommendationJobListLoader：超頁退回最後一頁；pager 保留 status，錨點 ai-history]
+    JOBS -->|否| OFF[不查 Job；顯示尚未開放]
+    JL --> VM[MemberPageViewModel：書單 updated_at 新到舊、不分頁；書單錨點 library]
+    OFF --> VM
+    VM --> VIEW[200 Member/Index View；登入連結保留 /account 與 query]
+    LR[GET /library：status] --> LRD[不讀資料；302 至 /account 帶合法 status 與書單錨點]
     PUT[PUT /api/library/bookId] --> PG{bookId 可解析 GUID？}
     PG -->|否| NF[404 problem+json：not-found]
     PG -->|是| ADD[AddAsync：CurrentUserId；RequestAborted]
@@ -199,6 +205,8 @@ flowchart TD
     DG -->|是| REMOVE[RemoveAsync：只刪本人 Entry]
     REMOVE --> NC
 ```
+
+`/library` 不再渲染頁面。舊書籤與 `returnUrl=/library` 經登入後仍會 302 到會員中心；匿名者先到登入頁。`/account` 的 Job 區塊只讀本人 Job，pager 連結保留 `status` 並以 `#ai-history` 結尾。
 
 PATCH 的 `{}` 是 no-op，保留 `updatedAt`；省略 rating 保留原值，`rating:null` 清除，`readingStatus:null` 回 400。指定相同有效值仍更新 `updatedAt`。DELETE 對未知／他人／非法 GUID 均為 204；PUT、PATCH 對非法 GUID 為 404。這些差異是 contract，不能統一成同一錯誤策略。
 

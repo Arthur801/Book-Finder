@@ -102,3 +102,9 @@ git show 894883b -- Views
 | Author 日期 | SHA | subject | 本目錄實際改動檔案 |
 |---|---|---|---|
 | 2026-11-15 | 本分支 | refactor(views): share the library list and job list partials (member center A1) | `Shared/_LibraryContent.cshtml`（新增，由 `Library/Index.cshtml` 抽出 tabs、token、空態、rows）；`Shared/_RecommendationJobList.cshtml`（由 `Ai/_AiJobList.cshtml` 移入，標題改由 ViewData 傳入）；`Library/Index.cshtml` 改為標題加 partial；`Ai/Index.cshtml` 改呼叫新 partial 並設定標題。以既有 WebIntegration 斷言驗證；未做 HTML 逐字比對。 |
+
+## 會員中心 A3：/account 頁面與 Header（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | 本分支 feat commit | feat(member): member center at /account, /library redirect and header (A3) | `Member/Index.cshtml`（新增：會員中心三區塊）；`Shared/_Layout.cshtml`：左側移除「個人書單」，登入後右側加「個人書單」與名稱連結；`Library/Index.cshtml` 刪除；`Shared/_LibraryContent.cshtml` 註解更新 |

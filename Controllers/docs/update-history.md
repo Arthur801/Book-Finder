@@ -103,3 +103,9 @@ git show <commit> -- Controllers
 | Author 日期 | SHA | subject | 本目錄實際改動檔案 |
 |---|---|---|---|
 | 2026-11-15 | 本 PR | feat(mcp): public MCP guide page linked from the navbar | `McpGuideController.cs`（新增）：`GET /mcp-guide` 回傳靜態 View |
+
+## 會員中心 A3：/account、/library 轉址與 Header（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | 本分支 feat commit | feat(member): member center at /account, /library redirect and header (A3) | `MemberController.cs`（新增：`GET /account`、`GET /library` 轉址）；`RecommendationJobListLoader.cs`（新增，`AiController.JobListAsync` 的超頁退回邏輯抽出為共用 helper）；`AiController.cs` 改用 helper；`LibraryController.cs` 刪除；`Models/MemberPageViewModel.cs`、`Views/Member/Index.cshtml`、`Views/Library/Index.cshtml` 刪除 |

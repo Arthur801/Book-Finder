@@ -22,7 +22,8 @@ Models 是 HTTP／Razor 的表示層，從 Application read model 或已完成 u
 | 書庫／首頁列表 | BookBrowsePage、BookBrowseItem、BookSearchHit → BookListItemViewModel、BookBrowseViewModel、HomeViewModel | 不依 Bestseller rank；列項不含簡介／目錄；空 Catalog 的 SummaryText 為 null |
 | 分類瀏覽 | CategoryBrowseResult → [CategoryBrowseViewModel](../CategoryBrowseViewModel.cs)、FilterLinkViewModel、BookListItemViewModel、PagerViewModel | `UrlFor(category, source, page)` 省略空值與第 1 頁、值以 `Uri.EscapeDataString` 編碼；切換分類保留來源、切換來源保留分類，兩者都重置頁碼；分頁保留兩者；第一個分類連結是「全部書籍」 |
 | AI history list／detail | RecommendationSearchPage／Detail + difficulty dictionary → 展示文字、頁碼、結果 | 本人隔離先由 history reader／Controller 保證；VM 不做授權 |
-| Library page／section／controls | 本人 LibraryItem／LibraryEntry → tabs、rows、edit state；tab 連結的 base path 與 fragment 由呼叫端傳入（預設 `/library`） | 使用者區塊不得加入共享 catalog cache；`/account#library` 的參數只影響連結，不改資料範圍 |
+| Library page／section／controls | 本人 LibraryItem／LibraryEntry → tabs、rows、edit state；tab 連結的 base path 與 fragment 由呼叫端傳入（會員中心為 `/account` 與 `#library`） | 使用者區塊不得加入共享 catalog cache；`/account#library` 的參數只影響連結，不改資料範圍 |
+| 會員中心 | MemberPageViewModel：Library、Quota（RecommendationQuota）、JobsEnabled、JobList（開關關閉時為 null） | 書單與 Job 各只含本人資料；剩餘次數由 RecommendationQuotaReader 計算；Job 區塊的超頁規則與 `/ai` 相同（共用 Controllers 的 RecommendationJobListLoader） |
 | Recommendation request／response | nullable requirementText → Application 驗證；Outcome → 明列 response 欄位 | 外部服務 gate、Candidate Set、20 次限制不在 DTO |
 | Library parser／response | JsonElement → LibraryChange；Entry → 精確 JSON 欄位 | 省略／null／Set 分開，未知欄位忽略 |
 | Account forms／LoginLink | nullable 表單欄位與 returnUrl／pendingAction | AccountInputRules、SafeReturnUrl、PendingLibraryAction 執行安全政策 |

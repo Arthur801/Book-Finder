@@ -66,9 +66,9 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter 'FullyQualifiedN
 
 - 目標／規格：[LibrarySectionViewModel](../LibrarySectionViewModel.cs)、[LibraryPageViewModel](../LibraryPageViewModel.cs)；[Library](../../Docs/modules/user-library.md) §4–5。
 - Given：匿名、登入A未收藏、登入A收藏Reading／4分、B獨有 Entry；filter=READING 與未知代碼。
-- When：GET Book detail 與 /library?status=READING。
+- When：GET Book detail 與 /account?status=READING。
 - Then：匿名只有 pending add 登入連結；未收藏有隱藏預設Controls；收藏有選中狀態／四星；本人讀不到B項目；未知filter顯示全部並active；editLoginUrl保留filter；書目快取不可帶入另一使用者的個人狀態。
-- 來源：[BookLibrarySectionTests](../../tests/WebIntegration/BookLibrarySectionTests.cs)、[LibraryPageTests](../../tests/WebIntegration/LibraryPageTests.cs)。
+- 來源：[BookLibrarySectionTests](../../tests/WebIntegration/BookLibrarySectionTests.cs)、[LibraryPageTests](../../tests/WebIntegration/LibraryPageTests.cs)、[MemberPageTests](../../tests/WebIntegration/MemberPageTests.cs)（會員中心 A3：MemberPageViewModel 的三區塊與 Job 超頁規則，經由 /account 驗證）。
 
 ### M-T07：JSON 白名單與時區（L3；已有測試，本次未執行）
 

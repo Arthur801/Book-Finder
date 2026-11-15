@@ -112,3 +112,9 @@ git show cda623f -- Models
 | Author 日期 | SHA | subject | 本目錄實際改動檔案 |
 |---|---|---|---|
 | 2026-11-15 | 本分支 | refactor(models): make the library tab and job list URLs configurable (member center A1) | `LibraryPageViewModel.cs`：`From` 與新 `UrlFor` 加 base path、fragment 參數，預設 `/library`；`AiJobListViewModel.cs`：`From`、`UrlFor` 加 base path、保留 query、fragment 參數，預設 `/ai` 不變；新增 `tests/UnitTests/LibraryPageViewModelTests.cs`，`AiJobViewModelTests.cs` 增加 URL 案例 |
+
+## 會員中心 A3：MemberPageViewModel（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | 本分支 feat commit | feat(member): member center at /account, /library redirect and header (A3) | `MemberPageViewModel.cs`（新增：Library、Quota、JobsEnabled、JobList）；`LibraryPageViewModel.cs` 註解更新（tabs 由 `/account`、`#library` 傳入） |

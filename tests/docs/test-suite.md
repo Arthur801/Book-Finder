@@ -322,3 +322,13 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter FullyQualifiedNa
   - `Capturing_sender_keeps_messages_in_order_and_clears`：依序保存、可清空。
 - 之後的 flow 測試應透過 `app.Email.Sent` 取得信件內容（包括一次性連結），而不是從 log 取得。
 - 已知缺口：沒有 Web 測試驗證 Ses 或 Pickup 在 host 中的實際啟動（只有 UnitTests 的 DI 解析）；Ses 不會在測試中連線。
+
+## 會員中心 A3：/account、/library 轉址與 Header（TEST-41）
+
+- 風險／狀態：L2；測試實作：Implemented；執行結果見 tests update-history 的 A3 紀錄。
+- Web 測試（`tests/WebIntegration`）：
+  - [MemberPageTests](../WebIntegration/MemberPageTests.cs) 新增 MEM-01 至 MEM-10（見 Controllers `test-suite.md` §7.1）：匿名導向登入、三區塊順序、今日剩餘次數（FAILED 不計）、只列本人 Job、舊 RecommendationSearch 不列、pager 保留 status 與 `#ai-history`、超頁與非數字頁、開關關閉、不載入 ai.js、`/library` 的 302 目標。
+  - [NavbarTests](../WebIntegration/NavbarTests.cs) 的 `Signed_in_header_shows_library_then_name_then_logout_then_mcp_guide` 與 `Signed_out_header_has_no_library_link`：登入後右側排序，沒有 `/library` 連結。
+  - [LayoutAndHomeTests](../WebIntegration/LayoutAndHomeTests.cs)：匿名導覽列沒有「個人書單」。
+  - [LibraryPageTests](../WebIntegration/LibraryPageTests.cs)：頁面斷言改到 `/account`，行為覆蓋不變（篩選、列、空態、控制項、登入連結）；匿名 `/library` 仍導向登入頁。
+- 已知缺口：沒有 Web 測試驗證 `/account` 的瀏覽器 JS 行為（書單 CRUD 在新頁面的 DOM 操作）；本次只以 HTML 驗證。
