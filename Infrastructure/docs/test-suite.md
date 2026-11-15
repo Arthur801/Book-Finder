@@ -327,3 +327,18 @@ dotnet test tests/WebIntegration/WebIntegration.csproj
   - 刪除 user：其 token 列被 cascade 刪除。
 - 入口：[EfAccountActionTokenStoreTests](../../tests/DatabaseIntegration/EfAccountActionTokenStoreTests.cs)。
 - 驗證強度：並發 issue 測試在移除 `FOR UPDATE` 後 3/3 失敗，證明它確實依賴鎖。
+
+## INF-T30 — 帳號刪除交易與競態（會員中心 D1）
+
+| 案例 | 測試 | 期望 |
+|---|---|---|
+| 刪除後使用者、library、jobs、searches、results、action tokens、OpenIddict 列全部消失 | `EfAccountDeletionStoreTests.Delete_removes_every_row_the_user_owns_and_leaves_other_users_and_books_alone` | 其他使用者的列與 `books` 數量不變 |
+| 查無使用者 | `Delete_for_a_user_that_does_not_exist_reports_not_found_and_changes_nothing` | 回 `UserNotFound`，其他使用者不變 |
+| OAuth 刪除之後才失敗 | `A_failure_after_the_user_rows_are_removed_rolls_everything_back` | 例外後所有資料完整（rollback） |
+| 提交持有鎖（額度計數被暫停）時刪除等待 | `AccountDeletionRaceTests.A_deletion_that_waits_for_a_submit_removes_the_job_the_submit_just_created` | 提交成功，刪除成功，無孤兒 job |
+| 刪除持有鎖（OAuth 刪除被暫停）時提交等待 | `A_submit_that_waits_for_a_deletion_is_refused_as_user_not_found_and_writes_nothing` | 提交回 `UserNotFound`，無 job |
+| 執行中 Job 的使用者被刪除 | `A_running_job_whose_user_is_deleted_loses_its_lease_and_the_worker_writes_nothing` | heartbeat、requeue、fail、release 皆 false，commit 拋 `RecommendationJobLeaseLostException`，無搜尋列 |
+
+- 等待的確認：競態測試以 `pg_stat_activity` 觀察另一個交易確實在 `Lock` 等待，不靠 sleep。
+- 證據限制：未測 commit 與刪除互相 deadlock 的路徑（INF-B12）。
+- 突變檢查（2026-11-15）：暫時拿掉提交端的 `locked.Count == 0` 判斷後，`A_submit_that_waits_for_a_deletion...` 失敗（外鍵例外）；還原後通過。

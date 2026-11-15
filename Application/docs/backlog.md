@@ -70,4 +70,6 @@
 - **APP-B07**（2026-11-14，推薦 Job M8）：Job 執行是 at-least-once，當機恢復或重試會讓同一個 Job 最多呼叫 OpenAI 兩次；Job 與需求文字目前不刪除（D-07）。上線後依 log 的重試與恢復次數決定是否需要保留政策或費用告警。
 
 
-- **APP-B08**（2026-11-15，會員中心 B3）：`IExternalCredentialRevoker` 尚無呼叫端。C4（重設密碼）在 transaction 內呼叫 `RevokeAllForUserAsync`，D1（刪除帳號）呼叫 `DeleteAllForUserAsync`；兩者實作時需補上呼叫與各自的測試（[會員中心計畫](../../Docs/plans/member-center-email-verification.md) B3、C4、D1）。
+- **APP-B08**（2026-11-15，會員中心 B3）：`IExternalCredentialRevoker` 尚無呼叫端。D1 已完成刪除部分：`AccountDeletionService` 經 `IAccountDeletionStore` 在同一 transaction 呼叫 `DeleteAllForUserAsync`（見 [architecture.md](architecture.md)「帳號刪除」）。剩餘的 C4（重設密碼）在 transaction 內呼叫 `RevokeAllForUserAsync`，實作時補上呼叫與測試（[會員中心計畫](../../Docs/plans/member-center-email-verification.md) B3、C4）。
+
+- **APP-B10**（2026-11-15，會員中心 D1）：同步推薦 `RecommendationService` 的寫入路徑沒有使用者已刪除的處理。若在 AI 呼叫期間刪除帳號，儲存搜尋時會因外鍵失敗而回 500，交易會 rollback，不會留下資料。本次未納入範圍，也沒有測試證明；若同步入口保留到 M9 之後，可在 M9 一併處理，或比照 `RecommendationJobSubmission.UserNotFound` 回 401。

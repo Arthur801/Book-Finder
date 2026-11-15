@@ -12,3 +12,9 @@
 | 2026-11-14 | `d1f6cfc`、`1508c27` | M4：`get_recommendation_result`、`McpRecommendationResultService`、`RecommendationStatusToolResult`；`NOT_FOUND`、`INTERNAL_ERROR` 錯誤碼 | `Mcp/Services/McpRecommendationResult*.cs`、`Mcp/Services/McpRecommendationStatusResult.cs`、`Mcp/Contracts/*`、`Mcp/Tools/RecommendationTools.cs`、`Mcp/Security/ToolSecuritySchemes.cs` |
 | 2026-11-14 | `fa31a10`、`7116e2c`、`2192f1f`、`41ff236`、`ffdb13b`、`e31223a` | M5：code review 修正：`get_recommendation_result` 描述、`securitySchemes` 由 `ProtectedToolNames` 推導、共用 fake、MCP token 與網站隔離測試、預設拒絕測試 | `Mcp/Tools/RecommendationTools.cs`、`Mcp/Security/ToolSecuritySchemes.cs`、`Mcp/McpServiceCollectionExtensions.cs` |
 | 2026-11-15 | `eec680c` | 會員中心 B3：OAuth 憑證撤銷 port；`/mcp` 在撤銷後回 401、refresh 回 `invalid_grant` | `Infrastructure/Identity/OAuth/OAuthCredentialRevoker.cs`（實作）、`tests/WebIntegration/McpCredentialRevocationTests.cs`、`Mcp/docs/*` |
+
+## 會員中心 D1：刪除帳號撤銷 MCP 憑證（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | 本分支 feat commit | feat(member): account deletion with password and confirmation (D1) | 無 Mcp 原始碼變更；測試 `WebIntegration/AccountDeletionTests.Deleting_the_account_revokes_its_mcp_access_token` 驗證 `/mcp` |

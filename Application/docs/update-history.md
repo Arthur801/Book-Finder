@@ -226,3 +226,11 @@ git show --format= --numstat <sha> -- Application ':(exclude)Application/docs'
 驗證（2026-11-15）：`dotnet build --no-incremental` 0 warning、0 error；UnitTests 1180 通過；DatabaseIntegration 289 通過；WebIntegration 448 通過（啟動時驗證新 options）。
 
 行為變更：無使用者可見變更。C2 只新增服務與 port，目前沒有 controller 呼叫；C3、C4 尚未實作。
+
+## 會員中心 D1：帳號刪除（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | 本分支 feat commit | feat(member): account deletion with password and confirmation (D1) | `Identity/AccountDeletionService.cs`、`IAccountDeletionStore.cs`（新增）；`Recommendation/IRecommendationJobStore.cs`（新增 `JobSubmitOutcome.UserNotFound`）、`RecommendationJobSubmission.cs`（新增 `UserNotFound`）、`RecommendationJobService.cs`（對映） |
+
+行為變更：刪除帳號可用；推薦工作提交遇到已刪除使用者時回 `UserNotFound`，不再是外鍵 500。`IExternalCredentialRevoker.DeleteAllForUserAsync` 首次有呼叫端。

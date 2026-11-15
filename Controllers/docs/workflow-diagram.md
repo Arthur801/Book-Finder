@@ -298,3 +298,20 @@ sequenceDiagram
   end
   P->>P: SUCCEEDED 或 FAILED 時重新載入，由伺服器輸出最終狀態
 ```
+
+## 15. 帳號刪除（會員中心 D1）
+
+```mermaid
+flowchart TD
+    A[GET /account/delete] -->|匿名| L[/account/login?returnUrl=/account/delete]
+    A -->|已登入| V[確認頁：說明刪除範圍、密碼欄、勾選欄]
+    V --> P[POST /account/delete + antiforgery]
+    P -->|匿名| L2[/account/login]
+    P -->|已登入| S{AccountDeletionService}
+    S -->|InvalidInput| V2[同頁顯示錯誤，密碼清空]
+    S -->|Deleted 或 UserNotFound| C[清除 bf_auth，TempData 通知]
+    C --> H[Redirect / ，首頁顯示一次「帳號已刪除」]
+```
+
+- 之後舊 cookie：B2 找不到使用者，頁面回登入頁，`/api/*` 回 401。
+- 刪除的交易、鎖與 OAuth 撤銷細節見 Infrastructure `workflow-diagram.md`。

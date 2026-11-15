@@ -266,3 +266,12 @@ Git 歷史不證明 runtime 或 CI 已通過。
 | Author 日期 | SHA | subject | 本目錄實際改動檔案 |
 |---|---|---|---|
 | 2026-11-15 | 本分支 feat commit | feat(member): member center at /account, /library redirect and header (A3) | `WebIntegration/MemberPageTests.cs`（新增）；`WebIntegration/LibraryPageTests.cs`（頁面斷言改為 `/account`）；`WebIntegration/NavbarTests.cs`、`WebIntegration/LayoutAndHomeTests.cs`（header 斷言改為登入後排列與無 `/library`） | TEST-43 |
+
+
+## 會員中心 D1：帳號刪除（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | 本分支 feat commit | feat(member): account deletion with password and confirmation (D1) | `UnitTests/AccountDeletionServiceTests.cs`（新增）；`UnitTests/RecommendationJobServiceTests.cs`（新增 1 案例）；`DatabaseIntegration/EfAccountDeletionStoreTests.cs`、`AccountDeletionRaceTests.cs`（新增）；`WebIntegration/AccountDeletionTests.cs`（新增） | TEST-44 |
+
+驗證（2026-11-15，本 worktree）：`dotnet build --no-incremental` 0 warning、0 error；UnitTests 1283 通過；DatabaseIntegration 301 通過；WebIntegration 483 通過；另做突變檢查（拿掉提交端的鎖後 `A_submit_that_waits_for_a_deletion...` 失敗，還原後通過）。

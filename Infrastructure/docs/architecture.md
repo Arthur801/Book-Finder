@@ -186,3 +186,17 @@ appsettings：`appsettings.json` 為 `Email:Provider = None`、`EmailVerificatio
 - **IsUsable**：`AnyAsync` 唯讀。
 - **索引與約束依賴**：`token_hash` 唯一索引支撐 consume 與 discard 的查找；`(user_id, purpose, created_at)` 支撐節流查詢；`token_hash` 的 CHECK 保證只存小寫 SHA-256 hex；`users` 的 FK cascade 在刪除使用者時移除其所有 token。
 - **時間**：所有時間值由 Application 傳入（`TimeProvider`），store 不呼叫 `now()`。這讓節流與過期邊界可以用 FakeTimeProvider 精確測試。
+
+## 帳號刪除交易（會員中心 D1，2026-11-15）
+
+- `Persistence/EfAccountDeletionStore`（internal）實作 `IAccountDeletionStore`，在 scoped `AppDbContext` 開一個 transaction，依序做三件事：
+  1. `SELECT id FROM users WHERE id = @id FOR UPDATE`。查無資料即 rollback 並回 `UserNotFound`。這是與推薦工作提交（`EfRecommendationJobStore.SubmitAsync`）相同的 users 列鎖。
+  2. `IExternalCredentialRevoker.DeleteAllForUserAsync`（`OAuthCredentialRevoker`，B3）。OpenIddict 表的 subject 只是 user id 字串，沒有外鍵，cascade 不會碰到它們；tokens 先刪，因為 token 到 authorization 的外鍵沒有 cascade。這一步與使用者列在同一個連線與 transaction 內。
+  3. `DELETE FROM users`（`ExecuteDelete`）。`user_books`、`recommendation_jobs`、`recommendation_searches`（含結果）、`account_action_tokens` 依既有 `ON DELETE CASCADE` 清除；`recommendation_jobs.search_id` 也是 cascade。
+- 任何例外都不 commit，`await using` 的 transaction 會 rollback，帳號保持完整。
+- 競態的兩種結果（驗證於 `AccountDeletionRaceTests`）：
+  - 提交先取得鎖：刪除等待，提交的 job 在刪除時被 cascade 清除。
+  - 刪除先取得鎖：提交的 `SELECT ... FOR UPDATE` 等待，刪除後查無資料，提交回 `JobSubmitOutcome.UserNotFound`（rollback，不寫 job、不用額度）。
+  - 若沒有這個 guard，提交會在插入 job 時因外鍵失敗（500），這是 D1 修補的原因。
+- Worker 端：執行中 Job 的 job row 隨使用者 cascade 消失，之後所有 fenced 寫入（heartbeat、commit、requeue、fail、release）都匹配不到列，commit 拋出 `RecommendationJobLeaseLostException`，Runner 不寫任何東西（既有行為，由 `A_running_job_whose_user_is_deleted_loses_its_lease_and_the_worker_writes_nothing` 驗證）。
+- 已知風險（未驗證）：commit 交易內已鎖住 job row 並要插入搜尋（需要 users 的 KEY SHARE），與刪除的 FOR UPDATE 可能互相等待，PostgreSQL 會以 deadlock 中止其中一方。被中止的 commit 由 Runner 的例外路徑處理（transient 則重排隊，否則 FAILED），刪除被中止時 Controller 會看到例外（500），交易已 rollback，帳號保持完整。見 backlog INF-B12。
