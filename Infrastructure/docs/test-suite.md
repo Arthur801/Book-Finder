@@ -272,7 +272,7 @@ dotnet test tests/WebIntegration/WebIntegration.csproj
   - EfUserStore 寫入與讀回 `EmailVerifiedAt`、`AuthVersion`（有值與 NULL／0 兩種）。
 - 入口：[AccountActionTokenSchemaTests](../../tests/DatabaseIntegration/AccountActionTokenSchemaTests.cs)（含 `AccountActionTokenMigrationTests`）、[EfUserStoreTests](../../tests/DatabaseIntegration/EfUserStoreTests.cs)、[OpenIddictSchemaTests](../../tests/DatabaseIntegration/OpenIddictSchemaTests.cs)（`AddOpenIddict_creates_only_the_four_openiddict_tables` 改為固定 target 為 AddOpenIddict，避免之後的 migration 讓它失效）。
 
-## INF-T26 — 帳號動作 token 持久化與並發（計畫 C2）
+## INF-T29 — 帳號動作 token 持久化與並發（計畫 C2）
 
 - 責任／風險／狀態：EF store 與交易、並發、cascade，L3；已有測試，2026-11-15 DatabaseIntegration 289 項通過（其中本案例 13 項）。
 - Given：共用 PostgreSQL fixture；每個測試以新的 user id 建立使用者；時間為 `FakeTimeProvider`，起點 `2026-11-15T04:00:00Z`。

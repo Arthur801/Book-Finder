@@ -288,7 +288,7 @@ Auth的Google登入/email驗證/忘記密碼/個資修改/refresh token依identi
 - mutation（主 agent）：把重試判斷 `<` 改成 `<=` → `Ai_unavailable_on_attempt_two_of_two_fails_the_job` 失敗，已還原。
 - 測試來源：[RecommendationJobRunnerTests.cs](../../tests/UnitTests/RecommendationJobRunnerTests.cs)、[RecommendationJobOptionsTests.cs](../../tests/UnitTests/RecommendationJobOptionsTests.cs)。
 
-### APP-T28 — 帳號動作 token 規則與服務（C2）
+### APP-T30 — 帳號動作 token 規則與服務（C2）
 
 - **責任／風險／狀態**：[AccountActionTokenService](../Identity/AccountActionTokenService.cs) 與 [AccountActionTokenRules](../Identity/AccountActionTokenRules.cs)，L3；單元測試已存在並通過（2026-11-15 UnitTests 1180 項通過）。
 - **Given**：以 fake store 記錄呼叫；時間用 `FakeTimeProvider`。
@@ -301,4 +301,4 @@ Auth的Google登入/email驗證/忘記密碼/個資修改/refresh token依identi
   - SHA-256 hex 符合 `^[0-9a-f]{64}$`，且與 FIPS 向量 `abc` 相符；
   - options：預設 1 小時／24 小時／1 小時，section 名為 `AccountActionTokens`，三個值都必須大於 0。
 - **入口**：[AccountActionTokenServiceTests](../../tests/UnitTests/AccountActionTokenServiceTests.cs)、[AccountActionTokenRulesTests](../../tests/UnitTests/AccountActionTokenRulesTests.cs)、[AccountActionTokenOptionsTests](../../tests/UnitTests/AccountActionTokenOptionsTests.cs)。
-- **證據限制**：本案例只驗證服務規則；鎖、節流 SQL、並發與 cascade 由 INF-T26 驗證。寄信失敗後舊連結的行為尚未定義（APP-B06）。
+- **證據限制**：本案例只驗證服務規則；鎖、節流 SQL、並發與 cascade 由 INF-T29 驗證。寄信失敗後舊連結的行為尚未定義（APP-B09）。

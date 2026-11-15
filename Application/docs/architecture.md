@@ -176,7 +176,7 @@ History的reason/rank/relevance是snapshot，Book標題等為目前資料；diff
 
 `IssueAsync` 開的是 EF 交易，因此不能在同一個 DbContext 的外層交易內呼叫（EF 會拋出例外）。目前 C3、C4 只需要 consume 在外層交易內。
 
-**已知取捨（待決策，見 [backlog](backlog.md) APP-B06）**：discard 只刪除該列，不會還原被取代的舊 token。若第二次 issue 的信寄送失敗，第一次寄出的連結也已失效。
+**已知取捨（待決策，見 [backlog](backlog.md) APP-B09）**：discard 只刪除該列，不會還原被取代的舊 token。若第二次 issue 的信寄送失敗，第一次寄出的連結也已失效。
 
 **邊界**：Application 只持有 hash 與時間，不產生 URL、不寄信、不讀取 HttpContext。寄信與連結組裝由 C3、C4 的 caller 負責；計畫要求 token 頁面加上 `Cache-Control: no-store` 與 `Referrer-Policy: no-referrer`。
 
