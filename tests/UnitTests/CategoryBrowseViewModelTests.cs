@@ -95,7 +95,7 @@ public sealed class CategoryBrowseViewModelTests
     }
 
     [Fact]
-    public void Sidebar_counts_come_from_the_category_summaries_and_all_books_count()
+    public void Grid_counts_come_from_the_category_summaries_and_all_books_count()
     {
         var model = CategoryBrowseViewModel.From(Found(null, null, page: 1, totalCount: 2));
 

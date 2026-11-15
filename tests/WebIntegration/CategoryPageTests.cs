@@ -101,7 +101,7 @@ public sealed partial class CategoryPageTests(WebFixture fixture)
     }
 
     [Fact]
-    public async Task Sidebar_marks_the_selected_category_and_all_books_with_aria_current()
+    public async Task Category_grid_marks_the_selected_category_and_all_books_with_aria_current()
     {
         await fixture.ResetDatabaseAsync();
         var literature = await AddCategoryAsync("literature", "文學", 1);
@@ -113,15 +113,15 @@ public sealed partial class CategoryPageTests(WebFixture fixture)
 
         var html = await app.CreateClient(NoRedirectOptions).GetPageAsync("/categories?category=literature");
 
-        var sidebar = Anchors(Sidebar(html));
-        var allBooks = sidebar.Single(link => link.Href == "/categories");
-        var current = sidebar.Single(link => link.Href == "/categories?category=literature");
-        var other = sidebar.Single(link => link.Href == "/categories?category=business");
+        var grid = Anchors(CategoryGrid(html));
+        var allBooks = grid.Single(link => link.Href == "/categories");
+        var current = grid.Single(link => link.Href == "/categories?category=literature");
+        var other = grid.Single(link => link.Href == "/categories?category=business");
         Assert.Equal("page", current.Attributes.GetValueOrDefault("aria-current"));
         Assert.Null(allBooks.Attributes.GetValueOrDefault("aria-current"));
         Assert.Null(other.Attributes.GetValueOrDefault("aria-current"));
         Assert.Contains("文學", current.Text);
-        Assert.Contains("1", current.Text);
+        Assert.Contains("1 本", current.Text);
     }
 
     [Fact]
@@ -200,8 +200,10 @@ public sealed partial class CategoryPageTests(WebFixture fixture)
         Assert.DoesNotContain("目錄獨有文字ZQX", all);
     }
 
+    // CAT-08: the sidebar, its drawer, its toggle buttons and the noscript duplicate list are gone. The grid is plain HTML links,
+    // so it works without JavaScript and the page no longer references category-sidebar.js.
     [Fact]
-    public async Task Page_has_the_sidebar_with_a_toggle_and_a_noscript_link_list()
+    public async Task Page_has_no_sidebar_drawer_toggle_or_noscript_list_and_no_sidebar_script()
     {
         await fixture.ResetDatabaseAsync();
         var literature = await AddCategoryAsync("literature", "文學", 1);
@@ -211,16 +213,100 @@ public sealed partial class CategoryPageTests(WebFixture fixture)
 
         var html = await app.CreateClient(NoRedirectOptions).GetPageAsync("/categories?category=literature");
 
-        Assert.Single(Regex.Matches(html, "id=\"category-sidebar\""));
-        Assert.Matches("<nav\\b[^>]*\\bid=\"category-sidebar\"[^>]*\\bclass=\"[^\"]*offcanvas-lg[^\"]*\"", html);
-        var toggle = Regex.Match(html, "<button\\b([^>]*\\bid=\"category-sidebar-toggle\"[^>]*)>");
-        Assert.True(toggle.Success, "The desktop sidebar toggle is missing.");
-        Assert.Equal("category-sidebar", Attributes(toggle.Groups[1].Value)["aria-controls"]);
-        Assert.Equal("true", Attributes(toggle.Groups[1].Value)["aria-expanded"]);
-        var noscript = Regex.Match(html, "<noscript>(.*?)</noscript>", RegexOptions.Singleline).Groups[1].Value;
-        var noscriptHrefs = Anchors(noscript).Select(link => link.Href).ToList();
-        Assert.Contains("/categories?category=literature", noscriptHrefs);
-        Assert.Contains("/categories", noscriptHrefs);
+        Assert.DoesNotContain("offcanvas", html);
+        Assert.DoesNotContain("category-sidebar", html);
+        Assert.DoesNotContain("js-only", html);
+        Assert.DoesNotContain("<noscript", html);
+        Assert.DoesNotContain("category-sidebar.js", html);
+        Assert.Equal(2, GridLinkCount(html));
+    }
+
+    // CAT-01: search → H1 → category grid → 書籍來源 filter → results, in that order.
+    [Fact]
+    public async Task Page_orders_search_heading_category_grid_sources_and_results()
+    {
+        await fixture.ResetDatabaseAsync();
+        var literature = await AddCategoryAsync("literature", "文學", 1);
+        await MapAsync(SourceCodes.BooksComTw, "文學小說", literature);
+        await CatalogSeed.AddBooksAsync(fixture, LiteratureBooks(1));
+        await using var app = fixture.CreateFactory();
+
+        var html = await app.CreateClient(NoRedirectOptions).GetPageAsync("/categories?category=literature");
+
+        var search = html.IndexOf("data-tour=\"category-search\"", StringComparison.Ordinal);
+        var searchForm = html.IndexOf("action=\"/search\"", StringComparison.Ordinal);
+        var heading = html.IndexOf("<h1 class=\"h3 mb-2\">", StringComparison.Ordinal);
+        var grid = html.IndexOf("data-tour=\"category-grid\"", StringComparison.Ordinal);
+        var sourcesWrapper = html.IndexOf("data-tour=\"category-sources\"", StringComparison.Ordinal);
+        var sourcesHeading = html.IndexOf("書籍來源", StringComparison.Ordinal);
+        var sources = html.IndexOf("aria-label=\"來源篩選\"", StringComparison.Ordinal);
+        var results = html.IndexOf("class=\"list-unstyled search-results", StringComparison.Ordinal);
+        Assert.True(search >= 0 && searchForm > search, "The search form must sit inside the category-search block.");
+        Assert.True(heading > searchForm, "The H1 must come after the search form.");
+        Assert.True(grid > heading, "The category grid must come after the H1.");
+        Assert.True(sourcesWrapper > grid && sourcesHeading > sourcesWrapper && sources > sourcesHeading, "The source filter must come after the grid, under its 書籍來源 heading.");
+        Assert.True(results > sources, "The results must come after the source filter.");
+    }
+
+    // CAT-07: the search box is the shared _SearchForm (GET /search?q=) with no category or source hidden fields.
+    [Fact]
+    public async Task Search_form_on_the_category_page_submits_to_search_without_category_or_source()
+    {
+        await fixture.ResetDatabaseAsync();
+        var literature = await AddCategoryAsync("literature", "文學", 1);
+        await MapAsync(SourceCodes.BooksComTw, "文學小說", literature);
+        await CatalogSeed.AddBooksAsync(fixture, LiteratureBooks(1));
+        await using var app = fixture.CreateFactory();
+
+        var html = await app.CreateClient(NoRedirectOptions).GetPageAsync("/categories?category=literature&source=BOOKS_COM_TW");
+
+        var searchBlock = Regex.Match(html, "<div class=\"category-search\"[^>]*>(.*?)<h1", RegexOptions.Singleline).Groups[1].Value;
+        Assert.Contains("method=\"get\" action=\"/search\"", searchBlock);
+        Assert.Contains("name=\"q\"", searchBlock);
+        Assert.DoesNotContain("name=\"category\"", searchBlock);
+        Assert.DoesNotContain("name=\"source\"", searchBlock);
+    }
+
+    // CAT-04/05: every category is a grid link with its own count (zero included), and exactly one item is aria-current.
+    [Fact]
+    public async Task Category_grid_lists_every_category_with_its_count_and_one_current_item()
+    {
+        await fixture.ResetDatabaseAsync();
+        var literature = await AddCategoryAsync("literature", "文學", 1);
+        await AddCategoryAsync("business", "商業", 2);
+        await MapAsync(SourceCodes.BooksComTw, "文學小說", literature);
+        await CatalogSeed.AddBooksAsync(fixture, LiteratureBooks(2));
+        await using var app = fixture.CreateFactory();
+
+        var html = await app.CreateClient(NoRedirectOptions).GetPageAsync("/categories?category=literature");
+
+        var grid = CategoryGrid(html);
+        Assert.Equal(
+            ["/categories", "/categories?category=literature", "/categories?category=business"],
+            Anchors(grid).Select(link => link.Href).ToList());
+        Assert.Equal(2, GridCount(html, "/categories"));
+        Assert.Equal(2, GridCount(html, "/categories?category=literature"));
+        Assert.Equal(0, GridCount(html, "/categories?category=business"));
+        Assert.Single(Regex.Matches(grid, "aria-current=\"page\""));
+        var current = Anchors(grid).Single(link => link.Attributes.GetValueOrDefault("aria-current") == "page");
+        Assert.Equal("/categories?category=literature", current.Href);
+        Assert.Contains("is-active", current.Attributes.GetValueOrDefault("class", ""));
+    }
+
+    // CAT-09: no truncation. Every active category is rendered, beyond the 18 of the canonical rules, with no filler cells.
+    [Fact]
+    public async Task Category_grid_renders_every_active_category_without_truncation()
+    {
+        await fixture.ResetDatabaseAsync();
+        for (var sortOrder = 1; sortOrder <= 20; sortOrder++)
+            await AddCategoryAsync($"category-{sortOrder:00}", $"分類{sortOrder:00}", sortOrder);
+        await using var app = fixture.CreateFactory();
+
+        var html = await app.CreateClient(NoRedirectOptions).GetPageAsync("/categories");
+
+        Assert.Equal(21, GridLinkCount(html));
+        Assert.Equal(21, Regex.Matches(CategoryGrid(html), "<li class=\"category-grid-item\">").Count);
+        Assert.Contains("/categories?category=category-20", Anchors(CategoryGrid(html)).Select(link => link.Href));
     }
 
     [Fact]
@@ -241,7 +327,7 @@ public sealed partial class CategoryPageTests(WebFixture fixture)
     // business through two different categories' subjects. C is ESLITE-only. D has no subjects. F's subject text 「文學小說」 is
     // only mapped under BOOKS_COM_TW, so its ESLITE subject must not count.
     [Fact]
-    public async Task Sidebar_badges_count_each_book_once_per_category_and_follow_the_source_filter()
+    public async Task Category_grid_counts_each_book_once_per_category_and_follows_the_source_filter()
     {
         await fixture.ResetDatabaseAsync();
         var literature = await AddCategoryAsync("literature", "文學", 1);
@@ -277,21 +363,21 @@ public sealed partial class CategoryPageTests(WebFixture fixture)
 
         // Unfiltered: A, B, C, D and F are all books. A and B are literature; B and C are business.
         var all = await client.GetPageAsync("/categories");
-        Assert.Equal(5, SidebarCount(all, "/categories"));
-        Assert.Equal(2, SidebarCount(all, "/categories?category=literature"));
-        Assert.Equal(2, SidebarCount(all, "/categories?category=business"));
+        Assert.Equal(5, GridCount(all, "/categories"));
+        Assert.Equal(2, GridCount(all, "/categories?category=literature"));
+        Assert.Equal(2, GridCount(all, "/categories?category=business"));
 
         // ESLITE: 全部書籍 counts the books with an ESLITE book_sources row (A, C). Category counts use only ESLITE subjects.
         var eslite = await client.GetPageAsync("/categories?source=ESLITE");
-        Assert.Equal(2, SidebarCount(eslite, "/categories?source=ESLITE"));
-        Assert.Equal(1, SidebarCount(eslite, "/categories?category=literature&source=ESLITE"));
-        Assert.Equal(1, SidebarCount(eslite, "/categories?category=business&source=ESLITE"));
+        Assert.Equal(2, GridCount(eslite, "/categories?source=ESLITE"));
+        Assert.Equal(1, GridCount(eslite, "/categories?category=literature&source=ESLITE"));
+        Assert.Equal(1, GridCount(eslite, "/categories?category=business&source=ESLITE"));
 
         // BOOKS_COM_TW: 全部書籍 counts the books with a BOOKS_COM_TW row (A, B, D, F). Category counts use only BCM subjects.
         var bcm = await client.GetPageAsync("/categories?source=BOOKS_COM_TW");
-        Assert.Equal(4, SidebarCount(bcm, "/categories?source=BOOKS_COM_TW"));
-        Assert.Equal(2, SidebarCount(bcm, "/categories?category=literature&source=BOOKS_COM_TW"));
-        Assert.Equal(1, SidebarCount(bcm, "/categories?category=business&source=BOOKS_COM_TW"));
+        Assert.Equal(4, GridCount(bcm, "/categories?source=BOOKS_COM_TW"));
+        Assert.Equal(2, GridCount(bcm, "/categories?category=literature&source=BOOKS_COM_TW"));
+        Assert.Equal(1, GridCount(bcm, "/categories?category=business&source=BOOKS_COM_TW"));
     }
 
     private static IReadOnlyList<BookSeed> LiteratureBooks(int count) =>
@@ -337,21 +423,24 @@ public sealed partial class CategoryPageTests(WebFixture fixture)
         await db.SaveChangesAsync();
     }
 
-    // The sidebar <nav> of the category page, so links elsewhere on the page do not count.
-    private static string Sidebar(string html) =>
-        Regex.Match(html, "<nav\\b[^>]*\\bid=\"category-sidebar\"[^>]*>(.*?)</nav>", RegexOptions.Singleline).Groups[1].Value;
+    // The category grid <nav> of the category page, so links elsewhere on the page do not count.
+    private static string CategoryGrid(string html) =>
+        Regex.Match(html, "<nav\\b[^>]*\\bclass=\"category-grid-nav\"[^>]*>(.*?)</nav>", RegexOptions.Singleline).Groups[1].Value;
+
+    // The number of category grid links (one per category, 全部書籍 included).
+    private static int GridLinkCount(string html) => Regex.Matches(CategoryGrid(html), "<a\\b").Count;
 
     // The source filter <nav> (aria-label 來源篩選). Razor encodes the label, and GetPageAsync decodes it before this runs.
     private static string SourceFilter(string html) =>
         Regex.Match(html, "<nav\\b[^>]*aria-label=\"來源篩選\"[^>]*>(.*?)</nav>", RegexOptions.Singleline).Groups[1].Value;
 
-    // The count badge of the sidebar link to this URL (the href as the page renders it), or null when the link has no badge.
-    private static int? SidebarCount(string html, string url)
+    // The count shown on the category grid link to this URL (the href as the page renders it), or null when the link shows none.
+    private static int? GridCount(string html, string url)
     {
-        var link = Regex.Match(Sidebar(html), "<a\\b[^>]*\\bhref=\"" + Regex.Escape(url) + "\"[^>]*>(.*?)</a>", RegexOptions.Singleline);
-        Assert.True(link.Success, $"The sidebar has no link to {url}.");
-        var badge = Regex.Match(link.Groups[1].Value, "<span class=\"badge[^\"]*\">(\\d+)</span>");
-        return badge.Success ? int.Parse(badge.Groups[1].Value) : null;
+        var link = Regex.Match(CategoryGrid(html), "<a\\b[^>]*\\bhref=\"" + Regex.Escape(url) + "\"[^>]*>(.*?)</a>", RegexOptions.Singleline);
+        Assert.True(link.Success, $"The category grid has no link to {url}.");
+        var count = Regex.Match(link.Groups[1].Value, "<span class=\"category-grid-count\">(\\d+) 本</span>");
+        return count.Success ? int.Parse(count.Groups[1].Value) : null;
     }
 
     private sealed record Anchor(string Href, IReadOnlyDictionary<string, string> Attributes, string Text);
