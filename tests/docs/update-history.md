@@ -221,6 +221,12 @@ Git 歷史不證明 runtime 或 CI 已通過。
 | 2026-11-14 | `d1f6cfc`、`1508c27` | feat／test(mcp): get_recommendation_result (M4) | `tests/UnitTests/McpRecommendationResultServiceTests.cs`、`tests/WebIntegration/McpRecommendationResultTests.cs`（新增）；`RecommendationToolsTests.cs`、`McpEndpointTests.cs` | TEST-37 |
 | 2026-11-14 | `2192f1f`、`41ff236`、`7116e2c`、`e31223a` | test(mcp): M5 review fixes | `tests/Shared/FakeRecommendationJobStore.cs`、`FakeRecommendationHistory.cs`、`tests/WebIntegration/McpTokenIsolationTests.cs`、`tests/UnitTests/McpAuthSetupTests.cs`（新增）；`UnitTests.csproj`、三個 MCP unit 測試檔、`McpAuthorizationTests.cs` | TEST-38 |
 
+## 會員中心 A1 共用 partial（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 | 對應案例 |
+|---|---|---|---|---|
+| 2026-11-15 | 本分支 | refactor(views): share the library list and job list partials (member center A1) | `tests/UnitTests/LibraryPageViewModelTests.cs`（新增）、`tests/UnitTests/AiJobViewModelTests.cs`（新增 URL 案例，既有斷言不變）；既有 `LibraryPageTests`、`AiJobPageTests` 未改動，作為 HTML 回歸 | M-T06、M-T15 |
+
 ## 帳號驗證 B1（新增紀錄）
 
 | Author 日期 | SHA | subject | 本目錄實際改動檔案 |
@@ -228,6 +234,22 @@ Git 歷史不證明 runtime 或 CI 已通過。
 | 2026-11-15 | `a7ec1b2` | feat(identity): add email verification columns and account action tokens (B1) | `tests/UnitTests/AccountServiceTests.cs`；`tests/DatabaseIntegration/AccountActionTokenSchemaTests.cs`、`EmailVerificationSeedTests.cs`（新增）；`EfUserStoreTests.cs`、`MigrationServer.cs`（新增 `AddEmailVerificationAndAccountTokens` id）、`OpenIddictSchemaTests.cs`（target 固定為 AddOpenIddict） |
 
 驗證（2026-11-15）：UnitTests 1143、DatabaseIntegration 276、WebIntegration `FullyQualifiedName~Account` 13 通過。
+
+## 會員中心 C1：寄信 port 測試（新增紀錄）
+
+| 日期 | 提交 | subject | 影響 |
+|---|---|---|---|
+| 2026-11-15 | 本次 commit（`mc-c1-email-port`） | test(email): port, templates, options, adapters and capturing fake (C1) | 新增 `tests/UnitTests/AccountEmailTemplatesTests.cs`、`SiteOptionsTests.cs`、`EmailOptionsTests.cs`、`SesEmailSenderTests.cs`、`PickupDirectoryEmailSenderTests.cs`、`NoEmailSenderTests.cs`、`EmailServiceCollectionExtensionsTests.cs`；`tests/WebIntegration/CapturingEmailSender.cs`、`EmailPortTests.cs`（新增）；`WebFixture.cs`（`Email`、`IEmailSender` 替身） | APP-T29、INF-T27、TEST-40 |
+
+執行（本次 worktree）：UnitTests 1216 通過；WebIntegration 過濾測試 14 通過；全量 WebIntegration 見 PR 說明的最終紀錄。
+
+## 帳號驗證 B2（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | `6c7428a` | feat(identity): invalidate website login cookies by auth_version (B2) | `tests/UnitTests/AuthTokenIssuerTests.cs`（claim 測試）；`tests/WebIntegration/AuthPipelineTests.cs`（bump、刪除、舊式 token 等 5 項；既有有效 cookie 測試改為先寫 User）；`tests/WebIntegration/OAuthFlowTests.cs`（consent 測試改為 400 且不寫 authorization） |
+
+驗證（2026-11-15）：UnitTests 1144 通過；WebIntegration 453 通過。見 TEST-41。
 
 ## 帳號動作 token C2（新增紀錄）
 

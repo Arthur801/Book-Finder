@@ -1,5 +1,7 @@
 # Application 文字測試案例庫
 
+> 會員中心 A2 補記：2026-11-15 更新；程式變更以 `29b6a8b` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
 > 帳號動作 token C2 補記：2026-11-15 更新；程式變更以 `4064680` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 
@@ -287,6 +289,31 @@ Auth的Google登入/email驗證/忘記密碼/個資修改/refresh token依identi
   - 設定：預設值；HeartbeatInterval 等於 LeaseDuration 不合法；MaxAttempts 0 不合法；RetryDelay 0 合法。
 - mutation（主 agent）：把重試判斷 `<` 改成 `<=` → `Ai_unavailable_on_attempt_two_of_two_fails_the_job` 失敗，已還原。
 - 測試來源：[RecommendationJobRunnerTests.cs](../../tests/UnitTests/RecommendationJobRunnerTests.cs)、[RecommendationJobOptionsTests.cs](../../tests/UnitTests/RecommendationJobOptionsTests.cs)。
+
+### APP-T28 — 推薦額度讀取與台北日界線
+
+- 風險／狀態：L2；**測試實作：Implemented；執行：2026-11-15 UnitTests 1151 項通過（`29b6a8b`）**。規格：[recommendation](../../Docs/modules/recommendation.md) §11；會員中心 A2 計畫。
+- **Given**：`FakeRecommendationUsage` 回傳指定已用次數並記錄 `sinceUtc`；`FakeTimeProvider` 固定 UTC 時刻；`IOptions<RecommendationOptions>` 的 DailyLimit 預設 20 或設為 5。
+- **When**：`RecommendationQuotaReader.ReadAsync(userId, ct)`。
+- **Then**：used 0／1／19／20／25 分別得到 remaining 20／19／1／0／0（不為負）；Limit 與 Used 原樣回傳；DailyLimit=5 時 Limit 為 5；`sinceUtc` 在 `2026-11-15T15:59:59Z` 為 `2026-11-14T16:00Z`，在 `16:00:00Z` 為 `2026-11-15T16:00Z`。
+- 測試來源：[RecommendationQuotaReaderTests.cs](../../tests/UnitTests/RecommendationQuotaReaderTests.cs)。
+
+> 會員中心 B3 補記：2026-11-15 更新；程式變更記入 update-history 的 B3 段落。新增的撤銷 port 測試位於 DatabaseIntegration（`OAuthCredentialRevokerTests`）與 WebIntegration（`McpCredentialRevocationTests`），見 Infrastructure 與 Mcp 的 test-suite。
+
+### APP-T29 — 寄信 port、信件範本、站點網址與寄信設定（會員中心 C1）
+
+- 風險／狀態：L2（尚無 flow 使用）；**測試實作：Implemented；執行：見 update-history 的 C1 紀錄**。規格：[會員中心計畫](../../Docs/plans/member-center-email-verification.md) D-A、D-F、C1。
+- **Given**：純函式與 `Options.Create`，不需要 host 或資料庫。
+- **Then**：
+  - 驗證信與重設密碼信的收件人、主旨（不含顯示名稱）、24 小時／1 小時等有效期限文字（由參數決定，60、90、45 分鐘與 24 小時都有測試）；
+  - 重設密碼信含「如果不是你本人申請，可以忽略這封信」；
+  - 惡意顯示名稱（`<script>`、引號、`&`）在 HTML body 被 encode，純文字 body 保留原文；
+  - 連結中的 `"`、`<`、`&` 在 HTML 中被 encode；
+  - 空白顯示名稱使用「會員您好」；
+  - `SiteOptions`：https 站台根目錄與 localhost http 有效；path、query、fragment、其他 scheme、非 localhost 的 http 無效；
+  - `SiteUrlBuilder`：組出絕對連結、結尾斜線不重複、query 值 percent-encode、保留順序；拒絕相對路徑、絕對 URL、`//`、`?`、`#`、空字串；未設定時建構失敗；
+  - `EmailOptions.ValidationError`：None 在驗證關閉時有效、在開啟時無效；Ses 需要 From（有效地址、允許顯示名稱）與 Region；Pickup 需要 PickupDirectory；預設 Provider 為 None，驗證預設為關閉。
+- 測試來源：[AccountEmailTemplatesTests.cs](../../tests/UnitTests/AccountEmailTemplatesTests.cs)、[SiteOptionsTests.cs](../../tests/UnitTests/SiteOptionsTests.cs)、[EmailOptionsTests.cs](../../tests/UnitTests/EmailOptionsTests.cs)。
 
 ### APP-T30 — 帳號動作 token 規則與服務（C2）
 

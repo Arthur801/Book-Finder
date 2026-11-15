@@ -1,3 +1,4 @@
+using System.Globalization;
 using Book_Finder.Domain.Entities;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.JsonWebTokens;
@@ -28,6 +29,7 @@ public sealed class AuthTokenIssuer(IOptions<JwtOptions> options, TimeProvider t
             {
                 [JwtRegisteredClaimNames.Sub] = user.Id.ToString(),
                 [JwtOptions.NameClaim] = user.DisplayName,
+                [JwtOptions.AuthVersionClaim] = user.AuthVersion.ToString(CultureInfo.InvariantCulture),
             },
         });
     }

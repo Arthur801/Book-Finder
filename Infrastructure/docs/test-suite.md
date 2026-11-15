@@ -272,6 +272,42 @@ dotnet test tests/WebIntegration/WebIntegration.csproj
   - EfUserStore 寫入與讀回 `EmailVerifiedAt`、`AuthVersion`（有值與 NULL／0 兩種）。
 - 入口：[AccountActionTokenSchemaTests](../../tests/DatabaseIntegration/AccountActionTokenSchemaTests.cs)（含 `AccountActionTokenMigrationTests`）、[EfUserStoreTests](../../tests/DatabaseIntegration/EfUserStoreTests.cs)、[OpenIddictSchemaTests](../../tests/DatabaseIntegration/OpenIddictSchemaTests.cs)（`AddOpenIddict_creates_only_the_four_openiddict_tables` 改為固定 target 為 AddOpenIddict，避免之後的 migration 讓它失效）。
 
+## INF-T26 — OAuth 憑證撤銷 port（會員中心 B3）
+
+- 責任／風險／狀態：Scoped port，L3（撤銷 access／refresh token，影響 MCP 授權），已有測試。
+- 入口：[OAuthCredentialRevokerTests](../../tests/DatabaseIntegration/OAuthCredentialRevokerTests.cs)（DatabaseIntegration）、[McpCredentialRevocationTests](../../tests/WebIntegration/McpCredentialRevocationTests.cs)（WebIntegration）。
+- Given／When／Then：
+  - 兩位使用者各有一筆 permanent authorization 與一筆 refresh token → `RevokeAllForUserAsync(A)` 後，A 的兩張表都是 `revoked`，B 仍是 `valid`；
+  - 沒有 OAuth 資料的使用者 → 不拋出例外；
+  - 撤銷放在 `BeginTransactionAsync` 內，rollback 後仍是 `valid`，commit 後是 `revoked`；
+  - `DeleteAllForUserAsync(A)` → A 的 token 與 authorization 都消失（先刪 token，否則外鍵失敗），B 不變；刪除在 rollback 後保留資料；
+  - Web：A、B 以真實 OAuth 流程取得 token；撤銷 A 後，A 的 access token 打 `/mcp` 回 401，A 的 refresh token 到 `/oauth/token` 回 `invalid_grant`，B 的 access token 仍 200。
+- 驗證基準（2026-11-15）：`dotnet build --no-incremental` 0 warning、0 error；UnitTests 1143 通過；DatabaseIntegration 260 通過（本次新增 `OAuthCredentialRevokerTests` 6 項）；WebIntegration `--filter "FullyQualifiedName~Mcp|FullyQualifiedName~OAuth"` 112 通過（本次新增 `McpCredentialRevocationTests` 1 項）。 詳見 [update-history](update-history.md)。
+- Mutation（B3 實作時）：把撤銷的 status 改回 `valid`，`McpCredentialRevocationTests` 失敗（`Expected: Unauthorized, Actual: OK`），已還原。
+
+### INF-T27 — 寄信 adapter 與 provider 選擇（會員中心 C1）
+
+- 風險／狀態：L3（外部寄信與 credential 邊界）；**測試實作：Implemented；執行：見 update-history 的 C1 紀錄**。
+- **Given**：`SesEmailSender` 接收的 SDK client 子類別（覆寫 `SendEmailAsync`，不發出網路請求）；`PickupDirectoryEmailSender` 使用暫存目錄與 `FakeTimeProvider`；設定由記憶體內字典組成。
+- **Then**：
+  - SES 請求：`FromEmailAddress`、單一收件人、subject／text／html 皆為 UTF-8 Simple content，沒有 Raw 與 Template；cancellation token 傳到 client；
+  - SES log：只含收件網域與 message id，不含收件人完整地址、body 與 token；SES 錯誤原樣拋出且不寫 log；
+  - Pickup：每封信一個 `.eml`，目錄不存在時會建立；檔名以時間開頭；標頭含 From、To、Subject（UTF-8）、multipart/alternative；text 與 html 的 base64 內容可還原；
+  - None：每次寄信都失敗，`InvalidOperationException` 訊息包含 `Email:Provider` 與 `None`；
+  - DI：None、Pickup、Ses 各解析到對應 adapter；預設為 None 且驗證關閉；驗證開啟搭配 None、Ses 缺 Region、缺 Site:PublicBaseUrl、Production／Staging 環境設定 Pickup 時，選項取值即拋出 `OptionsValidationException`。
+- 測試來源：[SesEmailSenderTests.cs](../../tests/UnitTests/SesEmailSenderTests.cs)、[PickupDirectoryEmailSenderTests.cs](../../tests/UnitTests/PickupDirectoryEmailSenderTests.cs)、[NoEmailSenderTests.cs](../../tests/UnitTests/NoEmailSenderTests.cs)、[EmailServiceCollectionExtensionsTests.cs](../../tests/UnitTests/EmailServiceCollectionExtensionsTests.cs)。
+- 已知缺口：沒有對真實 SES 的整合測試（需要 AWS 憑證與已驗證網域，屬 L4，見 INF-B11）。
+
+## INF-T28 — Cookie auth_version 與使用者存在檢查（B2）
+
+- 責任／風險／狀態：Identity adapter，L3；2026-11-15 本地執行結果見 update-history。
+- Given：固定 time；User 已存入 DB；測試 signing key 與 app 相同；舊式 token 只含 sub 與 name。
+- When：Issue(user) 後解析 claim；以 `UPDATE users SET auth_version = auth_version + 1` 或 `ExecuteDelete` 改變 DB 狀態後，送帶 `bf_auth` 的頁面與 `/api` 請求；送不含 `auth_version` claim 的 token，DB 版本為 0 與為 1 各一次。
+- Then：claim 為 `"3"`（AuthVersion=3）；版本相符的 Cookie 頁面與 API 皆 200；版本 bump 或使用者刪除後，頁面 302 登入、API 401，回應含過期的 `bf_auth` Set-Cookie；舊式 token 在版本 0 時通過，版本為 1 時被拒絕並刪 Cookie。
+- 入口：[AuthTokenIssuerTests](../../tests/UnitTests/AuthTokenIssuerTests.cs)（`Issued_token_carries_the_users_auth_version_as_an_integer_string_claim`）、[AuthPipelineTests](../../tests/WebIntegration/AuthPipelineTests.cs)（`Cookie_is_rejected_on_page_and_api_after_auth_version_is_bumped_and_cookie_is_deleted`、`Cookie_is_rejected_on_page_and_api_after_the_user_row_is_deleted`、`Cookie_with_the_current_auth_version_is_accepted_after_an_earlier_bump`、`Token_without_auth_version_claim_is_accepted_while_the_stored_version_is_zero`、`Token_without_auth_version_claim_is_rejected_once_the_stored_version_is_one`）。
+- 行為變更（B2）：使用者在 OAuth 同意頁停留期間被刪除時，同意 POST 的 cookie 在認證階段即被拒並刪除，POST 以匿名身分執行；antiforgery token 原綁定已登入身分，framework 回 400（頁面的純 400，非 login redirect），且不寫入 authorization。對應 OAuthFlowTests `Consent_post_after_the_session_ends_is_refused_and_stores_no_authorization`。
+- 限制：本測試不驗證真實 Cookie 經瀏覽器的 Set-Cookie 行為；開關與部署順序不在此範圍。
+
 ## INF-T29 — 帳號動作 token 持久化與並發（計畫 C2）
 
 - 責任／風險／狀態：EF store 與交易、並發、cascade，L3；已有測試，2026-11-15 DatabaseIntegration 289 項通過（其中本案例 13 項）。

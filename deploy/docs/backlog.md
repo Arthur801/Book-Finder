@@ -43,6 +43,7 @@
 | DEP-B24 | P1 | L3（程式）／L4（擴大 EBS、host 清理） | 已發生（營運觀察，2026-11-14） | EC2 root 磁碟只有 6.7 GB，host 從不刪除舊 image；v0.0.8 的 plan 因 `no space left on device` 失敗 |
 | DEP-B25 | P2 | L2 | 已發生（2026-11-14）；本次已補 seed | 新 migration 部署後沒有補 compat seed，下一次 CD 在 compat 失敗；缺少提醒或檢查 |
 | DEP-B26 | P3 | L3（host 機制）／L4（production） | 待決策（2026-11-14，推薦 Job M8） | 網站的非 secret 設定只能隨 release 改變；推薦 Job 開關無法只改設定後重啟 |
+| DEP-B27 | P1 | L4 | 待使用者授權（2026-11-15，會員中心 C1） | 正式寄信（SES）的網域、DKIM、IAM 與 `compose.prod.yaml` 的 `Email__*`、`EmailVerification__Enabled` 尚未設定；C1 未改 compose（INF-B11） |
 
 ## 2. 項目
 
@@ -305,3 +306,10 @@
 - **Migration 的交易邊界**：CI 的 `check_migrations.py` 禁止 `suppressTransaction` 與 `CONCURRENTLY`（已有測試），不是缺口。
 - **compat 的 runtime smoke**：依 test-plan §6.1 只供參考，不阻擋部署，這是規格而非缺陷。
 - **history 的 pipe 限制**：已有測試，不是缺口。
+
+### DEP-B27 正式寄信（SES）與 `Email__*` 設定尚未接入 release
+
+- **P1 / L4**：需要使用者授權與 AWS 操作（網域驗證、DKIM、SPF／DMARC、production access、instance role 的 `ses:SendEmail`、IMDSv2 hop limit）。repo 只能提供程式與 release 中的設定鍵。
+- 目前狀態：`appsettings.json` 的 `Email:Provider` 為 `None`，`compose.prod.yaml` 沒有 `Email__*` 或 `Site__PublicBaseUrl`。C1 依規劃不修改 `deploy/release/compose.prod.yaml`。
+- 之後 release（Feature E 的 N+1）需要：在 compose 加上 `Site__PublicBaseUrl`、`Email__Provider`、`Email__From`、`Email__Region` 與 `EmailVerification__Enabled`，並經過 prev-release-on-new-schema 的 compat 測試。`deploy/tests/test_release_files.py` 禁止 compose 含有字串 "password"，設定鍵的名稱需遵守。
+- 詳細驗收見 [Infrastructure backlog INF-B11](../../Infrastructure/docs/backlog.md)。

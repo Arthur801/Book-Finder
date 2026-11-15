@@ -37,4 +37,9 @@
     <PackageReference Include="OpenIddict.EntityFrameworkCore" Version="7.8.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Amazon SES v2 client for the email port (member-center plan C1). Pinned exactly; credentials come from the default AWS chain (instance role), never from config. -->
+    <PackageReference Include="AWSSDK.SimpleEmailV2" Version="4.1.0" />
+  </ItemGroup>
+
 </Project>

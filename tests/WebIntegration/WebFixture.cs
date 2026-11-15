@@ -1,3 +1,4 @@
+using Book_Finder.Application.Email;
 using Book_Finder.Application.Library;
 using Book_Finder.Application.Recommendation;
 using Book_Finder.Infrastructure.BackgroundJobs;
@@ -80,6 +81,9 @@ public sealed class BookFinderFactory(string connectionString) : WebApplicationF
 
     public FakeBookProfileGenerator BookProfileGenerator { get; } = new();
 
+    // IEmailSender for this host. Every flow that mails through the port lands here, so tests read Email.Sent for the exact messages.
+    public CapturingEmailSender Email { get; } = new();
+
     // Null keeps the EF Library store. A test that needs the Library add to fail sets a fake here before the first request.
     public ILibraryStore? LibraryStore { get; set; }
 
@@ -140,6 +144,7 @@ public sealed class BookFinderFactory(string connectionString) : WebApplicationF
             services.AddSingleton<IRequirementParser>(RequirementParser);
             services.AddSingleton<IRecommendationRanker>(Ranker);
             services.AddSingleton<IBookProfileGenerator>(BookProfileGenerator);
+            services.AddSingleton<IEmailSender>(Email);
             if (LibraryStore is { } libraryStore)
                 services.AddSingleton(libraryStore);
             if (ProfileStore is { } profileStore)

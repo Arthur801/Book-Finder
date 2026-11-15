@@ -315,6 +315,24 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter FullyQualifiedNa
 - **When／Then**：見 Infrastructure INF-T25 與 Domain DOM-T13。`EmailVerificationSeedTests` 讓 AddEmailVerificationAndAccountTokens 的 compat seed 可載入（users 5、tokens 4、NULL verification 4）；`OpenIddictSchemaTests` 的 migration 測試固定 target 為 AddOpenIddict。
 - **來源與狀態**：[AccountActionTokenSchemaTests](../DatabaseIntegration/AccountActionTokenSchemaTests.cs)、[EmailVerificationSeedTests](../DatabaseIntegration/EmailVerificationSeedTests.cs)、[EfUserStoreTests](../DatabaseIntegration/EfUserStoreTests.cs)、[AccountServiceTests](../UnitTests/AccountServiceTests.cs)；2026-11-15 本地結果：UnitTests 1143、DatabaseIntegration 276、WebIntegration `Account` 篩選 13 通過。
 
+## 會員中心 C1：寄信 port 與 web 測試替身（TEST-40）
+
+- 風險／狀態：L2；**測試實作：Implemented；執行：見 tests update-history 的 C1 紀錄**。
+- 單元測試（`tests/UnitTests`）：APP-T29 與 INF-T27 的案例，共 73 項（信件範本、站點網址、寄信設定、SES 映射、Pickup、None、DI 選擇與驗證）。
+- Web 測試（`tests/WebIntegration/EmailPortTests.cs`）：
+  - `BookFinderFactory.Email`（`CapturingEmailSender`）是每個 host 的 `IEmailSender`，`Factory_resolves_IEmailSender_to_the_capturing_fake` 證明解析結果相同；
+  - `App_starts_with_email_defaults_and_sends_nothing`：Development 設定下應用程式正常啟動（首頁 200）、`EmailVerification:Enabled` 為 false、沒有任何信件被送出、`SiteUrlBuilder` 可解析；
+  - `Capturing_sender_keeps_messages_in_order_and_clears`：依序保存、可清空。
+- 之後的 flow 測試應透過 `app.Email.Sent` 取得信件內容（包括一次性連結），而不是從 log 取得。
+- 已知缺口：沒有 Web 測試驗證 Ses 或 Pickup 在 host 中的實際啟動（只有 UnitTests 的 DI 解析）；Ses 不會在測試中連線。
+
+### TEST-41：Cookie auth_version 與使用者存在檢查（B2）
+
+- `AuthTokenIssuerTests`（UnitTests）：Cookie token 含 `auth_version` 整數字串 claim。
+- `AuthPipelineTests`（WebIntegration）：版本 bump 與使用者刪除後的舊 Cookie 在頁面與 /api 皆被拒並刪 Cookie；版本相符仍有效；缺少 claim 的舊式 token 在版本 0 時通過、版本 1 時被拒。既有的有效 Cookie 測試改為先寫入 User，因為每個請求都會查 User。
+- `OAuthFlowTests`：`Consent_post_after_the_session_ends_is_refused_and_stores_no_authorization` 由「回登入頁」改為「400 且不寫 authorization」（B2 造成，見 INF-T28）。
+- **來源與狀態**：見 Infrastructure INF-T28。
+
 ### TEST-42：帳號動作 token（會員中心計畫 C2）
 
 - **Given**：UnitTests 以 fake store 測規則與服務；DatabaseIntegration 以真實 PostgreSQL（Testcontainers）與 `FakeTimeProvider` 測 EF store。

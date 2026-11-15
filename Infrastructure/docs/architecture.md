@@ -75,6 +75,8 @@
 
 OpenAiCall 保留 caller cancellation，其餘轉 AiUnavailableException；SDK 有內建 retry。固定 60 秒 timeout 由 RecommendationService 控制。Search 已成功保存後，difficulty reader／scheduler 的一般例外會記 Warning 並降級，不回滾 search；兩者均保留已取消 caller token 的 OperationCanceledException，此時請求可取消但已保存資料仍存在。此階段使用 caller token，不使用 60 秒 timeout token。Profile worker 失敗與推薦保存失敗是不同邊界。
 
+B2 cookie 版本檢查：`AuthTokenIssuer` 寫入 `auth_version` claim（值為 `User.AuthVersion`，整數字串）；`AuthServiceCollectionExtensions` 的 `OnTokenValidated` 在簽章與 lifetime 通過後，以 `IUserStore.FindByIdAsync` 讀取 `sub` 對應的 User，使用者不存在或 claim 與 `AuthVersion` 不符時，刪除 `bf_auth` 並 `ctx.Fail`，之後由既有 `OnChallenge` 回 401（/api）或登入頁 redirect（頁面）。缺少 claim 的舊 Cookie 視為版本 0，部署不會登出既有使用者。成本：每個帶 `bf_auth` 的請求多一次 `users` 主鍵讀取，沒有快取，因此密碼重設或刪除帳號在下一個請求即生效。Email 驗證不在此檢查（計畫 D-A：Cookie 只發給已驗證 User）。
+
 ## 差距與 runtime 限制
 
 Google Books fallback 尚未接入，store 固定 FallbackUsed=false。Recommendation 擁有 fallback orchestration；Catalog 擁有 normalization、cross-source identity 與 Book persistence 規則；Infrastructure 只實現 external API／EF adapter mechanics，不取得 Catalog 規則 ownership。登入限流、embedding 增量掃描依 [TODO](../../Docs/TODO.md) 明確暫緩。水平擴充前須重新評估 process-local cache／queue，不能直接宣稱多 instance 安全。
@@ -140,6 +142,38 @@ HostingSetup 支援設定不等於已驗證容器切換、公開 HTTPS、可信 
   - `EfUserStore.FindByIdAsync`：token endpoint 拒絕已刪除的使用者。
 - MCP-202：同一處註冊 OpenIddict validation（只在 `Mcp:Enabled = true`）：`UseLocalServer`、`AddAudiences({base}/mcp)`（與 `ResourceOf` 同一來源）、`EnableAuthorizationEntryValidation`、`EnableTokenEntryValidation`；**關閉** query string 與 form body 取 token（OpenIddict 7.8 預設兩者都開）。Validation 的 scheme 由 `/mcp` 閘門使用，不是預設 scheme。
 - 尚未實作：撤銷管理頁（D-10，不在本期）。
+
+## OAuth 憑證撤銷（會員中心 B3）
+
+[OAuthCredentialRevoker](../Identity/OAuth/OAuthCredentialRevoker.cs) 實作 Application 的 [IExternalCredentialRevoker](../../Application/Identity/IExternalCredentialRevoker.cs)：
+
+- 註冊在 `AddBookFinderOAuth` 中，**不受 `Mcp:Enabled` 控制**（scoped，在 MCP 開關的 early return 之前）。MCP 關閉時 OpenIddict 表仍存在，沒有資料就是 no-op。
+- 直接在 scoped `AppDbContext` 上用 `Set<OpenIddictEntityFrameworkCoreAuthorization／Token>()` 執行 `ExecuteUpdateAsync`（撤銷）與 `ExecuteDeleteAsync`（刪除）。沒有使用 `IOpenIddictAuthorizationManager`／`IOpenIddictTokenManager`：manager 逐筆 `TryRevokeAsync` 並各自保存，無法保證與呼叫端的 transaction 原子性；直接 SQL 一句就在呼叫端的連線與 transaction 上執行。
+- 撤銷同時把 `concurrency_token` 換成新值。OpenIddict 的 manager 若持有舊的列，更新時會遇到並行衝突，不會把自己的 status 寫回去覆蓋撤銷。
+- 撤銷生效的路徑：`EnableAuthorizationEntryValidation` 與 `EnableTokenEntryValidation`（只在 `Mcp:Enabled = true` 時註冊）讓 access token 立即 401；refresh grant 查 token 狀態後回 `invalid_grant`。
+- 刪除順序：先 token、再 authorization（token 對 authorization 的外鍵沒有 cascade）。
+- 限制：Mcp 關閉時撤銷仍會寫入資料表，但沒有驗證端會讀取它；這是刻意的，因為 C4、D1 不依賴 MCP 開關。
+
+## 寄信 adapter 與 provider 選擇（會員中心 C1）
+
+依 [會員中心計畫](../../Docs/plans/member-center-email-verification.md) C1，Infrastructure 實作 `IEmailSender` 的三種 adapter，並由 [EmailServiceCollectionExtensions](../Email/EmailServiceCollectionExtensions.cs) 依 `Email:Provider` 選擇：
+
+| Provider | Adapter | 行為 |
+|---|---|---|
+| `None`（預設） | [NoEmailSender](../Email/NoEmailSender.cs) | 每次寄信都失敗，訊息指出要設定 Provider；不假裝寄出 |
+| `Ses` | [SesEmailSender](../Email/SesEmailSender.cs) | `AWSSDK.SimpleEmailV2` 4.1.0（csproj 精確釘選）。`SendEmailRequest` 使用 Simple content、UTF-8 charset、一個收件人。Client 以 `RegionEndpoint` 建立，憑證來自預設 AWS chain（instance role）；設定檔不含 key。log 只寫收件網域與 SES message id，不寫 body 與連結。錯誤原樣拋出 |
+| `Pickup` | [PickupDirectoryEmailSender](../Email/PickupDirectoryEmailSender.cs) | 每封信寫入一個 `.eml`（multipart/alternative，body 為 base64）。目錄相對路徑以 content root 解析。只供本機開發使用 |
+
+設定的綁定與驗證：
+
+- `Site`、`Email` 與 `EmailVerification` 在 `AddBookFinderEmail` 綁定；`Site` 與 `Email` 都 `ValidateOnStart`。`Email` 的驗證由 `IValidateOptions` 執行，並把 `EmailVerification:Enabled` 當作參數傳入。
+- Ses 的 client 只在 `IEmailSender` 被解析時建立；沒有額外的 AWS 設定類別，也不使用 `AddAWSService`。
+- `IEmailSender` 為 singleton；`TimeProvider` 由 `TryAddSingleton(TimeProvider.System)` 註冊。
+- `Program.cs` 在 MCP 之後呼叫 `AddBookFinderEmail(builder.Configuration, builder.Environment)`。
+
+appsettings：`appsettings.json` 為 `Email:Provider = None`、`EmailVerification:Enabled = false`、`Site:PublicBaseUrl = https://khwebsc.com`；`appsettings.Development.json` 為 `Site:PublicBaseUrl = https://localhost:7083`、`Email:Provider = Pickup`、`PickupDirectory = .local-mail`（已加入 `.gitignore`）。正式環境的 Ses 設定屬 L4，未在 `compose.prod.yaml` 中設定（見 INF-B11）。
+
+安全取捨：Pickup 會把信件寫到磁碟而不是寄出，若誤用於正式環境，使用者會收不到信而系統不報錯。因此不是 Development 環境時，`Email:Provider = Pickup` 會讓啟動驗證失敗（`ValidateOnStart`），host 不會啟動。
 
 ## 帳號動作 token store（計畫 C2）
 

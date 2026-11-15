@@ -50,7 +50,9 @@ flowchart TD
   Request[Request] --> Cookie{bf_auth 存在?}
   Cookie -->|否| None[NoResult 不回退讀 Authorization header]
   Cookie -->|是| Validate[驗簽 issuer audience UTC lifetime]
-  Validate -->|有效| User[CurrentUser 解析 sub GUID]
+  Validate -->|有效| Version{OnTokenValidated：User 存在且 auth_version 相符？}
+  Version -->|是| User[CurrentUser 解析 sub GUID]
+  Version -->|否：刪除 bf_auth 並 ctx.Fail| Challenge
   User -->|sub 無效| Bug[InvalidOperationException]
   Validate -->|無效或過期| Challenge
   None --> Challenge{受保護端點 challenge}
@@ -62,7 +64,7 @@ flowchart TD
   CSRF -->|是| Action[執行 action]
 ```
 
-Token 為 HS256、一天有效、無 sliding renewal。Cookie 固定 HttpOnly、Secure、SameSite=Lax、Path=/；Delete 使用相同屬性。SafeReturnUrl 以 MVC local URL 判定，不合格或空值回 `/`。登入限流是明確暫緩，不能從本圖推定存在。
+Token 為 HS256、一天有效、無 sliding renewal，並帶 `auth_version` claim（缺少視為 0）。每個帶 Cookie 的請求都會以主鍵讀取 User 一次，確認存在且版本相符（B2）；密碼重設 bump 版本或刪除帳號後，舊 Cookie 立即失效並被刪除。Cookie 固定 HttpOnly、Secure、SameSite=Lax、Path=/；Delete 使用相同屬性。SafeReturnUrl 以 MVC local URL 判定，不合格或空值回 `/`。登入限流是明確暫緩，不能從本圖推定存在。
 
 ## Read adapters、cache 與書單
 
@@ -161,6 +163,12 @@ flowchart TD
 ```
 
 Embedding vector(1536) 由 DB 拒絕錯維度；upsert 無 change tracking。Profile 不覆寫來源簡介／目錄，失敗不立即重試，下次出現在結果時重新排程。兩種 workers 各自 Enabled 可停用；host stopping 正常取消，Embedding rounds 不重疊。Queue 與 pending dictionary 僅 process-local、非 durable/global 去重。Search 保存後的 profile enrichment 一般錯誤由 reader／scheduler 記 Warning 並降級；caller 已取消時 OperationCanceledException 仍傳播，但 Search 不回滾。此階段使用 caller token，已不受 60 秒 timeout token 控制，不能概括成「所有失敗皆不保存」。
+
+## OAuth 憑證撤銷（會員中心 B3）
+
+- 入口：Application 的 `IExternalCredentialRevoker`（目前無呼叫端，C4、D1 尚未實作）。
+- 流程：呼叫端開啟 `AppDbContext` transaction → `OAuthCredentialRevoker.RevokeAllForUserAsync` 對 `openiddict_authorizations`、`openiddict_tokens` 執行 `ExecuteUpdate`（status 改為 `revoked`，並換新 `concurrency_token`），或 `DeleteAllForUserAsync` 先 `ExecuteDelete` token、再 `ExecuteDelete` authorization → 呼叫端 commit 或 rollback。
+- 無資料時不寫入也不拋出例外；`Mcp:Enabled = false` 時照常寫入資料表，沒有驗證端讀取。
 
 ## 文件導航
 

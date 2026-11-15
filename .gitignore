@@ -72,6 +72,9 @@ nunit-*.xml
 *.backup
 *@ec2-*
 
+# Local mail pickup directory (Email:Provider Pickup in Development; plan member-center C1)
+/.local-mail/
+
 # Agent handoff notes (local only)
 HANDOFF.md
 
