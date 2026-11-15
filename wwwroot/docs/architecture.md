@@ -57,7 +57,7 @@ AiPageTests 明言沒有執行 JS；現有 WebIntegration 驗證 HTML／API，�
 ## 首次造訪導覽（P4）
 
 - `onboarding.js` 是 IIFE，沒有 export，沒有外部依賴；唯一的外部物件是可選的 `window.bootstrap.Collapse`。
-- 儲存：localStorage 鍵 `bf.onboarding.v1.status`，值只可能是 `completed` 或 `skipped`；每次讀寫都在 try/catch 中。寫入失敗時以記憶體變數保留狀態，同一頁不會重新彈出歡迎卡。鍵名與值不包含任何個資、閱讀需求或憑證。
+- 儲存：localStorage 鍵 `bf.onboarding.v1.status`，值只可能是 `completed` 或 `skipped`；每次讀寫都在 try/catch 中。寫入失敗時以記憶體變數保留狀態，同一頁不會重新彈出歡迎卡；讀取就拋例外（storage 被封鎖）時不自動顯示歡迎卡，避免每頁都彈出（plan §5.3），仍可從「更多 → 功能導覽」手動開啟。進度文字放在一直存在的 `aria-live` 區塊，只改文字，讓報讀器能朗讀。窄螢幕展開 navbar 後監聽 Bootstrap 的 `shown.bs.collapse`。鍵名與值不包含任何個資、閱讀需求或憑證。
 - 網路：此檔沒有 `fetch`、`XMLHttpRequest` 或表單提交；導覽不會觸發搜尋、AI 推薦、書單或 OAuth 請求。靜態檢查見 [test-suite](test-suite.md) WT-15。
 - 焦點與無障礙：卡片內以 Tab／Shift+Tab 循環，Escape 視同跳過，關閉後把焦點還原到開啟前的元素；狀態用 `aria-live` 朗讀進度。`prefers-reduced-motion` 時不使用平滑捲動，CSS 也停用動畫。
 - 初始化失敗：任一例外都會隱藏根節點、還原收合的 navbar 並移除監聽器，頁面維持可用。

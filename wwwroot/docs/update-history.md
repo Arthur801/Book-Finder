@@ -85,3 +85,9 @@ git show 66ecf55 f0e1f0f b2c72a0 -- wwwroot/js
 | 本 commit | docs(ui): record the browser check of the header, category grid and tour | `backlog.md`（WB-04 已驗證）、`test-suite.md`（WT-15 瀏覽器結果）；未改程式 |
 
 驗證：2026-11-15 一次性本機 Playwright（Chromium；拋棄式 pgvector 0.8.7-pg17、`manage_categories.py sync --apply` 寫入 18 類與 283 筆 Mapping、85 本假書其中一類 0 本；網站以 Development + HTTPS 啟動，OpenAI 以 proxy 擋下；腳本未 commit）76／76 通過。
+
+## 首次導覽 P4：review 修正（新增紀錄）
+
+| SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|
+| 本 commit | fix(onboarding): address the two-axis review | `js/onboarding.js`：監聽 `shown.bs.collapse`（原本 `shown` 不會觸發）；storage 無法讀取時不自動啟動；進度改為常駐 `aria-live` 只換文字；相鄰 navbar 步驟保持展開。`docs/architecture.md` 同步 |

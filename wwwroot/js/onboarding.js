@@ -18,6 +18,8 @@
     var EDGE = 8;
     var SPOTLIGHT_PAD = 6;
     var NAVBAR_WAIT_MS = 400;
+    // Bootstrap 5 dispatches its Collapse events as native events with the namespaced type.
+    var SHOWN_EVENT = 'shown.bs.collapse';
     var BUTTON_ACTIONS = ['start', 'skip', 'prev', 'next', 'finish'];
 
     var root = null;
@@ -47,6 +49,15 @@
             stored = null;
         }
         return stored === COMPLETED || stored === SKIPPED ? stored : memoryStatus;
+    }
+
+    function storageReadable() {
+        try {
+            window.localStorage.getItem(STORAGE_KEY);
+            return true;
+        } catch (error) {
+            return false;
+        }
     }
 
     function writeStatus(status) {
@@ -135,10 +146,8 @@
 
         titleEl.textContent = step.title;
         bodyEl.textContent = !signedIn && step.bodyAnonymous ? step.bodyAnonymous : step.body;
-        progressEl.hidden = !isSpot;
-        if (isSpot) {
-            progressEl.textContent = '第 ' + index + '／' + (steps.length - 2) + ' 步';
-        }
+        // The live region stays in the DOM; only its text changes, so screen readers announce each step.
+        progressEl.textContent = isSpot ? '第 ' + index + '／' + (steps.length - 2) + ' 步' : '';
 
         setHidden(buttons.start, index !== 0);
         setHidden(buttons.skip, isLast);
@@ -264,7 +273,7 @@
         if (!pendingNavbar) {
             return;
         }
-        pendingNavbar.element.removeEventListener('shown', pendingNavbar.onShown);
+        pendingNavbar.element.removeEventListener(SHOWN_EVENT, pendingNavbar.onShown);
         window.clearTimeout(pendingNavbar.timer);
         pendingNavbar = null;
     }
@@ -295,7 +304,7 @@
             onShown: onShown,
             timer: window.setTimeout(onShown, NAVBAR_WAIT_MS)
         };
-        navbar.addEventListener('shown', onShown);
+        navbar.addEventListener(SHOWN_EVENT, onShown);
         // toggle:false: the default would toggle the navbar as soon as the Collapse instance is created.
         collapse.getOrCreateInstance(navbar, { toggle: false }).show();
         return true;
@@ -316,10 +325,10 @@
         };
         if (navbar.classList.contains('collapsing')) {
             var hideWhenShown = function () {
-                navbar.removeEventListener('shown', hideWhenShown);
+                navbar.removeEventListener(SHOWN_EVENT, hideWhenShown);
                 hide();
             };
-            navbar.addEventListener('shown', hideWhenShown);
+            navbar.addEventListener(SHOWN_EVENT, hideWhenShown);
         } else if (navbar.classList.contains('show')) {
             hide();
         }
@@ -340,7 +349,12 @@
         if (index < 0 || index >= steps.length) {
             return;
         }
-        restoreNavbar();
+        var next = steps[index];
+        var nextTarget = next.kind === 'spot' && next.target ? document.querySelector(next.target) : null;
+        // Consecutive steps inside the navbar (AI 推薦 → 更多) keep it open instead of collapsing and reopening it.
+        if (!(navbarOpenedByTour && nextTarget && navbarOpenedByTour.contains(nextTarget))) {
+            restoreNavbar();
+        }
         stepIndex = index;
         renderStep(index);
         showCurrentStep();
@@ -480,7 +494,9 @@
         if (root.getAttribute('data-onboarding-autostart') !== 'true') {
             return;
         }
-        if (readStatus() !== null) {
+        // Without readable storage the choice could not be remembered, so the card would return on every page (plan §5.3).
+        // The tour stays available from 更多 → 功能導覽.
+        if (!storageReadable() || readStatus() !== null) {
             return;
         }
         openCard();
