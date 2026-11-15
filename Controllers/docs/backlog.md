@@ -1,5 +1,7 @@
 # Controllers 優化與 Debug 待辦
 
+> 會員中心 C3 補記：2026-11-15 更新；程式變更以 `c3f09dc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
 > backlog 整理（2026-10-25）補記：CTL-12 已完成，移至文末「已處理」；其餘狀態未變。
 
 整理日期：2026-10-24；基準：`91333c3`。本文件僅記錄工作，不代表已修改程式或授權部署。`P1` 優先處理既有規格缺口，`P2` 補驗證與效能證據，`P3` 維護改善；此優先序不是正式 issue label。
@@ -17,13 +19,15 @@
 - 驗收：本地候選 5 本時 Google fake 0 次；4 本時會呼叫；fallback 失敗使用既有候選；未過門檻不成候選；正確回傳與保存 fallback 狀態；仍遵守 60 秒 budget 與成功才保存。
 - 測試入口：`RecommendationServiceTests`、`RecommendationApiTests`，以及未來 normalization 的 DB 整合測試；案例 `AI-F01`～`AI-F03`。
 
-### CTL-02 — 恢復登入／註冊頻率限制
+### CTL-02 — 恢復登入／註冊頻率限制（已於會員中心 C3 處理，見 `已處理`）
 
-- [ ] **P2／明確暫緩／L3**，不是目前回歸 bug。
+- [x] **P2／已處理（C3）**。原為明確暫緩；C3 已以 ASP.NET Core rate limiter 實作 `account-auth`（登入、註冊、驗證 POST）。
 - 依據：[identity-auth.md §7](../../Docs/modules/identity-auth.md)、[Docs/TODO.md](../../Docs/TODO.md)：2026-10-20 暫緩。
 - 前置決策：登入與註冊是否共用額度、成功請求是否計數，尚不能把過去建議當已核准規格。
 - 待辦：決策後以 ASP.NET Core rate limiter 實作；IP 取已驗證的 Forwarded Headers；不得信任任意 caller 偽造的 forwarded IP。
-- 驗收：同 IP 一分鐘第 6 次 429；不同 IP 隔離；新 window 恢復；一般表單錯誤提示與適用的 API 錯誤格式一致。完成前 `AUTH-F01` 保持暫緩。
+- 驗收（原文）：同 IP 一分鐘第 6 次 429；不同 IP 隔離；新 window 恢復；一般表單錯誤提示與適用的 API 錯誤格式一致。完成前 `AUTH-F01` 保持暫緩。
+- C3 實際值：依 [會員中心計畫 D-C](../../Docs/plans/member-center-email-verification.md)，`account-auth` 為每 IP 每分鐘 20 次，與此處原文的「第 6 次 429」不同。**這是待決策事項**：請使用者確認採用 20／分（計畫）或 5／分（本條原文）；目前程式採計畫值，設定可在 `AccountRateLimits` 調整。
+- 測試：`AccountRateLimitTests`（MEM-25、MEM-26）以測試專用的低上限驗證 429；不同 IP 隔離只能在部署環境以真實 IP 驗證，未在 CI 驗證。
 
 ### CTL-03 — 量測 AI history 分頁查詢成本
 
@@ -104,3 +108,14 @@
 ## 已處理
 
 - **CTL-12**（#113 PR2，`d9d8948`，PR #117）：Controller 未改；`BookDetailPageTests`、`SearchPageTests` 覆蓋三種 ISBN 搜尋、去重、`ABC123` 關鍵字模式與 disabled provider 來源仍顯示。
+
+### CTL-13 — 註冊頁仍顯示 email 是否已註冊（既有行為）
+
+- [ ] **P2／待決策／L3**。`AccountService.RegisterAsync` 對重複 email 回「此 email 已被註冊」，因此註冊表單會洩漏帳號是否存在。C3 的 D-B 只涵蓋重寄與忘記密碼，未改註冊頁。
+- 待辦：使用者決定是否在開關開啟時改為「請收信」式的統一回應（對已存在帳號寄出通知信）。改動會影響 user-visible 文案與 API 錯誤，需先取得決定。
+- 驗收（若採用）：同一 email 的註冊與不存在 email 的回應相同；既有帳號收到通知信而非驗證信。
+
+### CTL-14 — 驗證與重寄回應的 queue 遺失風險
+
+- [ ] **P3／確認缺口（已接受的限制）／L2**。重寄請求只保存在記憶體佇列；程序重啟或佇列滿時，請求會遺失。佇列滿時使用者仍會看到同一段通知，只有 Warning log。
+- 待辦：若要改善，需要持久化佇列或 DB 記錄，屬於架構變更，須先與使用者確認。

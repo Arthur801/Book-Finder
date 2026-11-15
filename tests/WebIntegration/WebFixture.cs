@@ -112,6 +112,16 @@ public sealed class BookFinderFactory(string connectionString) : WebApplicationF
 
     public Dictionary<string, string?> OAuthSettings { get; } = [];
 
+    // EmailVerification:Enabled (plan member-center D-A). Off by default, as in appsettings.json. With it on, the test host still replaces
+    // IEmailSender with CapturingEmailSender, so nothing is written to disk; Development's Pickup provider only satisfies the startup rule.
+    public bool EmailVerificationEnabled { get; set; }
+
+    // AccountRateLimits:AccountAuth and AccountEmail PermitLimit. Set very high by default, so no test is limited by accident; the rate limit
+    // tests lower one of them before the host starts (plan member-center D-C).
+    public int AccountAuthPermitLimit { get; set; } = 100_000;
+
+    public int AccountEmailPermitLimit { get; set; } = 100_000;
+
     // Test-only MCP registrations (the spike's tools and key). Null keeps the app's own MCP registrations, which expose no tool.
     // The app has no tool yet, so the MCP tests add theirs here instead of putting test tools into the application.
     public Action<IServiceCollection>? ConfigureMcp { get; set; }
@@ -126,6 +136,9 @@ public sealed class BookFinderFactory(string connectionString) : WebApplicationF
         builder.UseSetting("RecommendationJobs:Enabled", JobsEnabled ? "true" : "false");
         builder.UseSetting("Mcp:Enabled", McpEnabled ? "true" : "false");
         builder.UseSetting("Mcp:PublicBaseUrl", "https://khwebsc.com");
+        builder.UseSetting("EmailVerification:Enabled", EmailVerificationEnabled ? "true" : "false");
+        builder.UseSetting("AccountRateLimits:AccountAuth:PermitLimit", AccountAuthPermitLimit.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        builder.UseSetting("AccountRateLimits:AccountEmail:PermitLimit", AccountEmailPermitLimit.ToString(System.Globalization.CultureInfo.InvariantCulture));
         if (OAuthTestClient)
         {
             builder.UseSetting("OAuth:Clients:0:ClientId", "test-client");

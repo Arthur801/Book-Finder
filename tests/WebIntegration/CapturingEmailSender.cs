@@ -11,9 +11,14 @@ public sealed class CapturingEmailSender : IEmailSender
 
     public IReadOnlyList<EmailMessage> Sent => sent.ToArray();
 
+    // Null sends normally. A test sets an exception to make every send fail, as a provider outage would (plan C3: send failure).
+    public Exception? FailWith { get; set; }
+
     public Task SendAsync(EmailMessage message, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
+        if (FailWith is { } failure)
+            return Task.FromException(failure);
         sent.Enqueue(message);
         return Task.CompletedTask;
     }

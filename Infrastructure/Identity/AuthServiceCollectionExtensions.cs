@@ -38,6 +38,9 @@ public static class AuthServiceCollectionExtensions
         services.AddScoped<AccountDeletionService>();
         services.AddScoped<IAccountActionTokenStore, EfAccountActionTokenStore>();
         services.AddScoped<AccountActionTokenService>();
+        // Email verification (plan member-center C3): the mail and the verify transaction, used by Account and the verification controller.
+        services.AddScoped<IEmailVerificationStore, EfEmailVerificationStore>();
+        services.AddScoped<EmailVerificationService>();
         services.AddSingleton<AuthTokenIssuer>();
 
         services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer();

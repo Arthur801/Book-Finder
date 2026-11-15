@@ -1,5 +1,7 @@
 # tests 優化與 debug 待辦
 
+> 會員中心 C3 補記：2026-11-15 更新；程式變更以 `c3f09dc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
 > PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR4 M1（#120）補記：2026-10-25 更新；程式變更以 `5052361`、`d864acc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR4 M3（#120）補記：2026-10-25 更新；程式變更以 `d249c07`、`6e70e93`、`b99b368` 記入 update-history。原查核基準保留，未重新審查其餘內容。
@@ -26,3 +28,11 @@ watcher 耗盡（f233b9d）與 image pin（dccad53）是已修歷史，不列未
 - **TEST-B05**（#113 PR2、PR3、PR4，PR #117、#119、#123）：test-plan §7 的 C# 與 crawler 端項目完成：010 schema、trigger、backfill（`MultiSourceCatalog010SchemaTests`、`MultiSourceBackfillTests`）；011 physical schema、preflight、verify（`ContractMigration011Tests`、`ContractMigration011PreflightTests`、`ContractMigration011VerifyTests`）；ISBN fixture（`IsbnNormalizerTests`）；BookDetail／Search 頁面；crawler 端由 CB-04～CB-06 覆蓋。證據：`2c662f5`、`905c6fc`、`df57cbf`、`d9d8948`、`5052361`、`d864acc`、`6e70e93`、`b99b368`、`861c334`、`f92a63d`。recovery compat（test-plan §7 #13、#14）尚未納入 CI，見 deploy DEP-B18。
 
 [流程](workflow-diagram.md) · [架構](architecture.md) · [歷史](update-history.md) · [案例](test-suite.md)
+
+## 會員中心 C3 新增待辦
+
+### TEST-B06 — 真實瀏覽器與真實寄信未驗證
+
+- [ ] **P2／待驗證／L3**。C3 的 WebIntegration 以 `CapturingEmailSender` 替代寄信，並直接讀取信件中的連結；沒有瀏覽器層級的 E2E，也沒有 SES 實際寄信。
+- 待辦：部署後依計畫 Feature E（使用者授權）在 production 實際寄出三種信，確認 1 小時內第二次申請不會再收到信。
+

@@ -1,5 +1,7 @@
 # Infrastructure 架構
 
+> 會員中心 C3 補記：2026-11-15 更新；程式變更以 `c3f09dc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
 > 帳號動作 token C2 補記：2026-11-15 更新；程式變更以 `4064680` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 
@@ -200,3 +202,25 @@ appsettings：`appsettings.json` 為 `Email:Provider = None`、`EmailVerificatio
   - 若沒有這個 guard，提交會在插入 job 時因外鍵失敗（500），這是 D1 修補的原因。
 - Worker 端：執行中 Job 的 job row 隨使用者 cascade 消失，之後所有 fenced 寫入（heartbeat、commit、requeue、fail、release）都匹配不到列，commit 拋出 `RecommendationJobLeaseLostException`，Runner 不寫任何東西（既有行為，由 `A_running_job_whose_user_is_deleted_loses_its_lease_and_the_worker_writes_nothing` 驗證）。
 - 已知風險（未驗證）：commit 交易內已鎖住 job row 並要插入搜尋（需要 users 的 KEY SHARE），與刪除的 FOR UPDATE 可能互相等待，PostgreSQL 會以 deadlock 中止其中一方。被中止的 commit 由 Runner 的例外路徑處理（transient 則重排隊，否則 FAILED），刪除被中止時 Controller 會看到例外（500），交易已 rollback，帳號保持完整。見 backlog INF-B12。
+
+## 會員中心 C3：驗證 store、寄信佇列與限流（新增）
+
+| 元件 | 位置 | 現行契約 |
+|---|---|---|
+| 驗證交易 | [EfEmailVerificationStore](../Persistence/EfEmailVerificationStore.cs) | 一個 `BeginTransactionAsync`：呼叫 `IAccountActionTokenStore.ConsumeAsync`（沿用 C2 的條件式 UPDATE，`RETURNING user_id`），再 `UPDATE users SET email_verified_at, updated_at WHERE id AND email_verified_at IS NULL`。消耗失敗就 Rollback 並回 false。整個交易用同一個 scoped `AppDbContext`。 |
+| 寄信佇列 | [AccountEmailQueue](../BackgroundJobs/AccountEmailQueue.cs) | 有界 `Channel<AccountEmailRequest>`（容量 100，`SingleReader`）。`pending` 計數從 `TryEnqueue` 到 `Complete` 為止；`WaitForIdleAsync` 為測試用的 idle hook，沒有 pending 時立即完成。`TryEnqueue` 在鎖內寫入，所以 worker 不會先看到還沒計入 pending 的項目。 |
+| Worker | [AccountEmailWorker](../BackgroundJobs/AccountEmailWorker.cs)（`BackgroundService`） | 每筆在 `IServiceScopeFactory.CreateAsyncScope` 中解析 `AccountEmailDispatcher`。例外只記錄 purpose，不記錄 email；`finally` 一定呼叫 `Complete`。 |
+| 註冊 | [AccountEmailServiceCollectionExtensions](../BackgroundJobs/AccountEmailServiceCollectionExtensions.cs) | `AddAccountEmailQueue`：單例佇列（同時註冊為 `IAccountEmailQueue`）、scoped dispatcher、hosted worker。`EfEmailVerificationStore`、`EmailVerificationService` 在 [AuthServiceCollectionExtensions](../Identity/AuthServiceCollectionExtensions.cs) 註冊。 |
+| Token 頁標頭 | [TokenLinkPageAttribute](../Identity/TokenLinkPageAttribute.cs) | `ActionFilterAttribute`，於 `OnResultExecuting` 寫入 `Cache-Control: no-store` 與 `Referrer-Policy: no-referrer`。C4 可直接重用。 |
+| 頻率限制 | [AccountRateLimiting](../Identity/AccountRateLimiting.cs) | `AddRateLimiter`，兩個策略（`account-auth`、`account-email`），皆為 `FixedWindowRateLimiter`，分區鍵為 `Connection.RemoteIpAddress`（缺值時為 `unknown`），`QueueLimit` 為 0。選項於每次請求時從 `IOptions<AccountRateLimitOptions>` 讀取，因此測試主機可以換上較低的值。`RejectionStatusCode` 為 429，`OnRejected` 寫入 `Retry-After` 與短 HTML 頁。 |
+| 限流選項 | `AccountRateLimitOptions`（section `AccountRateLimits`） | `AccountAuth` 預設 20 次／1 分鐘，`AccountEmail` 預設 5 次／10 分鐘。`PermitLimit > 0` 且 `Window > 0`，啟動時驗證。 |
+
+**管線位置**（[Program.cs](../../Program.cs)）：`UseForwardedHeaders` → `UseHttpsRedirection` → `UseRouting` → `UseRateLimiter` → `UseAuthentication` → `UseAuthorization`。限流放在 routing 之後，`[EnableRateLimiting]` 才能讀到 endpoint；放在 authentication 之前，被限流的請求不做 JWT 驗證。
+
+**設定修正**：`appsettings.json` 的 `AccountActionTokens:EmailVerificationLifetime` 原為 `"24:00:00"`，.NET 會解析成 24 天（測試時發現，見 TEST-47 的設定案例）。已改為 `"1.00:00:00"`，即 24 小時。`RequestInterval` 與 `PasswordResetLifetime` 的 `01:00:00` 解析結果正確（1 小時）。
+
+**限制**
+
+- 頻率限制與佇列都在單一 process 的記憶體中。部署多個 instance 時，限制不會跨 instance 共用，佇列也不會分享（見 backlog INF-B15）。
+- 分區鍵依賴 `ForwardedHeaders:KnownNetworks`。只有受信任的 proxy 才能改寫 `RemoteIpAddress`；不可信任任意 caller 偽造的 forwarded IP（既有 HostingSetup 規則）。
+- `EmailVerification:Enabled` 為 true 時，`EmailOptions.ValidationError` 要求 `Email:Provider` 不為 None，因此開關開啟時啟動檢查會擋下未設定寄信的組態。

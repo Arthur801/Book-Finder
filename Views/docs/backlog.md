@@ -1,5 +1,7 @@
 # Views 優化與 debug 待辦
 
+> 會員中心 C3 補記：2026-11-15 更新；程式變更以 `c3f09dc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
 > Canonical Category P5 補記：2026-11-14 更新；程式變更以 `a9b7ad1`、`c2d68a1`、`d43ea57` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 > backlog 整理（2026-10-25）補記：VIEW-B05 已驗證完成，移至文末「已處理」；其餘狀態未變。
@@ -26,3 +28,11 @@
 - **VIEW-B05**（#113 PR2，`d9d8948`，PR #117）：Detail 頁連結文字由 `source_providers.display_name` 產生、ISBN 標籤為「ISBN」；`Detail.cshtml` 未改。`BookDetailPageTests` 驗證 provider 名稱連結、單一主要按鈕與 ISBN 列不重複。
 
 互參：[流程](workflow-diagram.md)、[架構](architecture.md)、[歷史](update-history.md)、[案例](test-suite.md)。
+
+## 會員中心 C3 新增待辦
+
+### VIEW-B07 — C3 新增文案需使用者審閱
+
+- [ ] **P3／待決定／L1**。「請收信」、「重寄驗證信」、「連結無效或已過期」、「請先完成 Email 驗證」、「Email 已驗證，請登入」與 429 頁的文字為本次撰寫，不是規格。
+- 待辦：使用者確認文案後再調整；變更文字時同步更新 `EmailVerificationFlowTests` 中的比對字串。
+

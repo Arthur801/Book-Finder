@@ -1,0 +1,17 @@
+@model Book_Finder.Models.VerifyEmailForm
+@{
+    ViewData["Title"] = "確認 Email";
+}
+
+<section class="col-12 col-md-6 col-lg-4 mx-auto">
+    <h1 class="h3 mb-3">確認 Email</h1>
+    <p>請按下按鈕完成 Email 驗證。</p>
+
+    <form method="post" action="/account/verify-email">
+        @Html.AntiForgeryToken()
+        <input type="hidden" asp-for="Token" />
+        <input type="hidden" asp-for="ReturnUrl" />
+        <input type="hidden" asp-for="PendingAction" />
+        <button class="btn btn-primary" type="submit">確認 Email</button>
+    </form>
+</section>

@@ -1,5 +1,7 @@
 # Controllers 架構與選型對照
 
+> 會員中心 C3 補記：2026-11-15 更新；程式變更以 `c3f09dc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
 > 非同步推薦 Job M7 補記：2026-11-14 更新；程式變更以 `4db0c98`、`e00cbb5`、`5559870`、`ac88ef2` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > Canonical Category P5 補記：2026-11-14 更新；程式變更以 `a9b7ad1`、`c2d68a1`、`d43ea57` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
@@ -58,7 +60,7 @@ Controller 不寫 SQL、不直接呼叫 OpenAI／Google Books、不持有推薦�
 | Account.Register | GET、POST `/account/register` | 否 | 同上；註冊成功直接登入 |
 | Account.Logout | POST `/account/logout` | 是 | `AuthCookie.Delete` → Redirect `/` |
 | AccountDeletion.Index | GET `/account/delete` | 是 | 不讀資料 → 確認頁 View（`AccountDeletionForm`） |
-| AccountDeletion.Delete | POST `/account/delete` | 是 | `AccountDeletionService`；Deleted／UserNotFound → `AuthCookie.Delete`、`TempData["Notice"]`、Redirect `/`；InvalidInput → 同一頁加錯誤（密碼不回傳） |
+| AccountDeletion.Delete | POST `/account/delete` | 是 | 套用 `account-auth` 每 IP 限流（與登入相同，因為會檢查目前密碼）；`AccountDeletionService`；Deleted／UserNotFound → `AuthCookie.Delete`、`TempData["Notice"]`、Redirect `/`；InvalidInput → 同一頁加錯誤（密碼不回傳） |
 | OAuth.Authorize | GET、POST `/oauth/authorize` | 讀 `bf_auth`；未登入導向 `/account/login?returnUrl=` | OpenIddict passthrough（MCP-201b）：GET 顯示 consent 或依 permanent authorization 直接核准；POST 為 consent 表單（antiforgery）；session 已結束的匿名 POST 由 [ConsentSessionEndedRedirect](../ConsentSessionEndedRedirectAttribute.cs) 在 antiforgery 之前導回登入頁（同一個 authorize request）；只用 OpenIddict scheme SignIn／Forbid；`Mcp:Enabled = false` 時 404 |
 | OAuth.Token | POST `/oauth/token` | 否（`[IgnoreAntiforgeryToken]`，public client + PKCE） | code／refresh_token grant；確認使用者仍存在後 SignIn；其他 grant `unsupported_grant_type` |
 | McpGuide.Index | GET `/mcp-guide` | 否 | 不讀資料、不依賴任何 service → 靜態 View（MCP 操作手冊）；不在 `/mcp` 底下，MCP 閘門不處理，`Mcp:Enabled` 開關不影響 |
@@ -138,3 +140,38 @@ Controller 不寫 SQL、不直接呼叫 OpenAI／Google Books、不持有推薦�
 - 控制器只映射結果：`Deleted` 與 `UserNotFound` 都清除 `bf_auth`、設定一次性 `TempData["Notice"] = "帳號已刪除"`，並 `Redirect("/")`；`InvalidInput` 把錯誤加入 ModelState 並重新顯示表單，`Password` 清空後不回傳瀏覽器。
 - 不寫 SQL、不呼叫 OAuth，所有規則在 `AccountDeletionService`（Application）與交易在 `EfAccountDeletionStore`（Infrastructure）。
 - 推薦工作 API 的提交若遇到已刪除使用者，`RecommendationJobsController` 回 401 `/errors/unauthenticated`（`ApiProblemResults.Unauthenticated`）。
+
+## 會員中心 C3：Email 驗證頁、登入閘與頻率限制（新增）
+
+| 項目 | 現行實作 |
+|---|---|
+| 驗證與重寄頁 | [AccountVerificationController](../AccountVerificationController.cs)：`GET/POST /account/verify-email`、`GET/POST /account/verification/resend`。每個 action 先檢查 `EmailVerification:Enabled`，關閉時回 404（plan D-A）。 |
+| 註冊與登入 | [AccountController](../AccountController.cs)：`RegisterResult.PendingVerification` 由 `EmailVerificationService.SendAsync` 寄信並回「請收信」頁，不發 Cookie；`LoginResult.EmailNotVerified` 回登入頁並附重寄連結，不發 Cookie、不自動寄信（D-B）。 |
+| 登入頁提示 | `GET /account/login?verified=1` 顯示「Email 已驗證，請登入」。`verified` 只控制提示文字，不影響驗證結果；開關關閉時仍會顯示，屬無害的文字差異。 |
+| D-D 延續動作 | Controller 不自行判斷 returnUrl：`EmailVerificationService.Normalize` 決定保留哪些值，`LoginUrl` 只把保留下來的值放進 query。 |
+| 重寄 POST | 只做 `IAccountEmailQueue.TryEnqueue`，回傳與帳號狀態無關的同一段通知（D-B）。佇列滿時仍回同一段通知，只寫 Warning log。 |
+| Token 頁標頭 | 驗證 GET／POST 與確認頁套用 [TokenLinkPageAttribute](../../Infrastructure/Identity/TokenLinkPageAttribute.cs)：`Cache-Control: no-store`、`Referrer-Policy: no-referrer`。 |
+| 頻率限制 | [AccountRateLimiting](../../Infrastructure/Identity/AccountRateLimiting.cs)：`account-auth`（登入、註冊、驗證 POST）與 `account-email`（重寄）。`UseRateLimiter` 放在 `UseRouting` 之後、`UseAuthentication` 之前；分區鍵為 `UseForwardedHeaders` 之後的 `RemoteIpAddress`。 |
+
+Controller 只做 HTTP 對應與 outcome 分支，不含業務規則。Token 的有效性、D-D 的白名單、寄信失敗與 discard 都在 Application（[EmailVerificationService](../../Application/Identity/EmailVerificationService.cs)）；驗證交易在 Infrastructure（[EfEmailVerificationStore](../../Infrastructure/Persistence/EfEmailVerificationStore.cs)）。
+
+**設定與預設值**
+
+- `EmailVerification:Enabled`：預設 false。開啟時 `Email:Provider` 不可為 None（啟動時驗證，見 Infrastructure 架構文件）。
+- `AccountRateLimits:AccountAuth`：PermitLimit 20、Window 1 分鐘（每個 IP）。
+- `AccountRateLimits:AccountEmail`：PermitLimit 5、Window 10 分鐘（每個 IP）。
+- 兩者必須大於 0，啟動時驗證。預設值只在程式內，`appsettings.json` 不含這兩段。
+
+**頁面與安全邊界**
+
+- 開關開啟時，註冊後的 Cookie 數量為 0，直到驗證完成後登入。
+- 確認頁（GET）不消耗 token；只有 POST 消耗。
+- 驗證 POST 失敗（重放、過期、用途錯誤、格式錯誤）一律顯示「連結無效或已過期」，不區分原因。
+- 所有 redirect 都是 `LocalRedirect` 或 `Redirect("/")`，沒有任意外部網址（CodeQL `cs/url-redirection`）。
+- [_Layout.cshtml](../../Views/Shared/_Layout.cshtml) 只載入同源資源（`bootstrap`、`jquery`、`site.js`、`site.css`），沒有第三方 CDN。因此 token 頁的 `Referrer-Policy` 目前沒有外流對象；仍保留該標頭，作為之後新增第三方資源時的防線。
+
+**已知限制**
+
+- 頻率限制與重寄佇列都在單一 process 的記憶體內。多 instance 部署時，限制不會跨 instance 共用（見 Infrastructure backlog）。
+- 佇列未持久化：程序重啟時，尚未寄出的重寄請求會遺失；使用者重新送出即可。
+- 註冊頁的「此 email 已被註冊」仍會顯示帳號是否存在，這是既有行為，不在 C3 的 D-B 範圍內（見 backlog CTL-13）。

@@ -1,5 +1,7 @@
 # Application Git 修改歷史
 
+> 會員中心 C3 補記：2026-11-15 更新；程式變更以 `c3f09dc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
 > 帳號動作 token C2 補記：2026-11-15 更新；程式變更以 `4064680` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 
@@ -242,3 +244,15 @@ git show --format= --numstat <sha> -- Application ':(exclude)Application/docs'
 | 2026-11-15 | 本分支 feat commit | feat(member): account deletion with password and confirmation (D1) | `Identity/AccountDeletionService.cs`、`IAccountDeletionStore.cs`（新增）；`Recommendation/IRecommendationJobStore.cs`（新增 `JobSubmitOutcome.UserNotFound`）、`RecommendationJobSubmission.cs`（新增 `UserNotFound`）、`RecommendationJobService.cs`（對映） |
 
 行為變更：刪除帳號可用；推薦工作提交遇到已刪除使用者時回 `UserNotFound`，不再是外鍵 500。`IExternalCredentialRevoker.DeleteAllForUserAsync` 首次有呼叫端。
+
+## 會員中心 C3：驗證流程與寄信派送（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | `c3f09dc` | feat(identity): email verification, resend, login gating and per-IP limits (C3) | `Identity/AccountService.cs`（注入開關、`PendingVerification`、`EmailNotVerified`）；`Identity/EmailVerificationService.cs`、`IEmailVerificationStore.cs`、`AccountEmailDispatcher.cs`、`IAccountEmailQueue.cs`（新增） |
+
+驗證（2026-11-15）：`dotnet build --no-incremental` 0 warning、0 error；UnitTests 1303 通過（含 C3 新增的 APP-T31～APP-T33，以及 Infrastructure 的佇列與限流選項測試）。
+
+行為變更（開關關閉）：無。
+
+行為變更（開關開啟）：註冊不發 Cookie、改寄驗證信；未驗證帳號的正確密碼登入回 `EmailNotVerified`。

@@ -1,5 +1,7 @@
 # Views 頁面與互動流程
 
+> 會員中心 C3 補記：2026-11-15 更新；程式變更以 `c3f09dc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
 > Canonical Category P5 補記：2026-11-14 更新；程式變更以 `a9b7ad1`、`c2d68a1`、`d43ea57` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 查核：2026-10-24；HEAD `91333c3`。範圍是 Views 原始 Razor／scoped CSS；Controller、Models、JavaScript 是定位呼叫及呈現責任的依賴來源。Authority：[UI Flow](../../Docs/ui/ui-flow.md)、[API](../../Docs/api/api-spec.md)、[Catalog](../../Docs/modules/book-catalog.md)、[Library](../../Docs/modules/user-library.md)、[Identity](../../Docs/modules/identity-auth.md)、[Recommendation](../../Docs/modules/recommendation.md)。沒有本次執行或瀏覽器證據。
@@ -128,3 +130,12 @@ flowchart TD
 Library interaction area 共用可用 request token；完整 authenticated document 的 Layout logout form 也會產 token，不能斷言整頁只有一個 input。library.js 從 document 中第一個 matching antiforgery input 取值，不限 Library 區域。狀態與星星 labels 在 server partial，JS 只送請求與切狀態。PATCH rating 省略保留、null 清空由 API/parser 保證；錯誤回復使用 WeakMap 保存最近確認值。Library filter 不會因 PATCH 自動重排／移走列，不能從 server filter 推論 client 即時重查（見待辦）。跨頁、取消及 DB rollback 均屬 controller/service/store。
 
 互參：[架構](architecture.md)、[待辦](backlog.md)、[歷史](update-history.md)、[案例](test-suite.md)。本次 Mermaid 僅結構檢查、未渲染。
+
+## 會員中心 C3：驗證相關頁面的流向（新增）
+
+- 註冊（開關開啟）→ `VerificationSent`（請收信）→ 使用者開信 → `VerifyEmail`（確認）→ POST → `/account/login?verified=1`（Login 顯示 Notice）→ 登入。
+- 任一步驟的連結不可用 → `VerificationLinkInvalid`，其中包含到 `Resend` 的連結。
+- `Login` 在「請先完成 Email 驗證」時顯示重寄連結 → `Resend` → POST → 同一段 Notice。
+- 寄信失敗的「請收信」頁顯示警告與重寄連結。
+
+完整時序見 [Controllers 流程](../../Controllers/docs/workflow-diagram.md) 的「會員中心 C3」。

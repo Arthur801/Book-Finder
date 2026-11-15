@@ -1,5 +1,7 @@
 # tests 修改歷史
 
+> 會員中心 C3 補記：2026-11-15 更新；程式變更以 `c3f09dc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
 > 帳號動作 token C2 補記：2026-11-15 更新；程式變更以 `4064680` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 
@@ -281,3 +283,15 @@ Git 歷史不證明 runtime 或 CI 已通過。
 | 2026-11-15 | 本分支 feat commit | feat(member): account deletion with password and confirmation (D1) | `UnitTests/AccountDeletionServiceTests.cs`（新增）；`UnitTests/RecommendationJobServiceTests.cs`（新增 1 案例）；`DatabaseIntegration/EfAccountDeletionStoreTests.cs`、`AccountDeletionRaceTests.cs`（新增）；`WebIntegration/AccountDeletionTests.cs`（新增） | TEST-44 |
 
 驗證（2026-11-15，本 worktree）：`dotnet build --no-incremental` 0 warning、0 error；UnitTests 1283 通過；DatabaseIntegration 301 通過；WebIntegration 483 通過；另做突變檢查（拿掉提交端的鎖後 `A_submit_that_waits_for_a_deletion...` 失敗，還原後通過）。
+
+## 會員中心 C3：Email 驗證、重寄與限流（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 | 案例 |
+|---|---|---|---|---|
+| 2026-11-15 | `c3f09dc` | feat(identity): email verification, resend, login gating and per-IP limits (C3) | `WebIntegration/EmailVerificationFlowTests.cs`、`EmailVerificationSwitchOffTests.cs`、`AccountRateLimitTests.cs`（新增）；`WebFixture.cs`（`EmailVerificationEnabled`、`AccountAuthPermitLimit`、`AccountEmailPermitLimit`）；`CapturingEmailSender.cs`（`FailWith`）；`UnitTests/AccountServiceTests.cs`（開關與登入閘 5 項）、`EmailVerificationServiceTests.cs`、`AccountEmailDispatcherTests.cs`、`AccountEmailQueueTests.cs`、`AccountRateLimitOptionsTests.cs`（新增）；`DatabaseIntegration/EfEmailVerificationStoreTests.cs`（新增） | TEST-47～TEST-49 |
+
+驗證（2026-11-15）：`dotnet build --no-incremental` 0 warning、0 error；UnitTests 1303、DatabaseIntegration 300、WebIntegration 494 全部通過。
+
+測試替身：`CapturingEmailSender` 增加 `FailWith`；`BookFinderFactory` 增加三個設定屬性，預設值保證既有測試不受限流與開關影響。
+
+過程中發現的問題：WebIntegration 的 `An_expired_link…` 測試揭露 `appsettings.json` 的 `EmailVerificationLifetime` 為 24 天（見 Infrastructure update-history）；另外兩個表單缺少 antiforgery token（Resend、確認頁），由 web 測試發現並修正。

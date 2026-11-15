@@ -1,5 +1,7 @@
 # Infrastructure 待辦
 
+> 會員中心 C3 補記：2026-11-15 更新；程式變更以 `c3f09dc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
 > PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR4 M1（#120）補記：2026-10-25 更新；程式變更以 `5052361`、`d864acc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > Canonical Category P5 補記：2026-11-14 更新；程式變更以 `a9b7ad1`、`c2d68a1`、`d43ea57` 記入 update-history。原查核基準保留，未重新審查其餘內容。
@@ -15,7 +17,7 @@ P1 為核心功能缺口、P2 為恢復開發／環境驗證安排、P3 為需�
 |---|---|---|---|
 | INF-B01／P1／L3／確認缺口：未實作 | [Recommendation §6](../../Docs/modules/recommendation.md)、[Catalog §6](../../Docs/modules/book-catalog.md) 要求 fallback；[store](../Persistence/EfRecommendationStore.cs) 固定 false，無 Google Books adapter。稀少本地候選無補充 | Recommendation 定義觸發條件與 orchestration port；Catalog 擁有 Google Books normalization、cross-source identity resolution 與 Book persistence 規則。Infrastructure 依 Catalog/Application contract 實現 external API、EF／SQL adapter mechanics，不另定 normalization／merge 規則；Catalog 完成後由 Recommendation 補 embedding、同門檻重查；一般搜尋不得 fallback | 5 候選無外呼、4 候選才外呼；ISBN 命中不重複 Book；不相關書不成候選；外部失敗以本地繼續。INF-T11；新 adapter tests 待建，加 EfCandidateSearchTests／EfRecommendationStoreTests |
 | INF-B02／P2／L3／明確暫緩 | [TODO](../../Docs/TODO.md) 與 [EfEmbeddingStore](../Persistence/EfEmbeddingStore.cs)：每輪全量 metadata/hash，Take batch 不限制掃描成本 | 先量測 rows、metadata bytes、時間與記憶體；恢復時確保所有 metadata writer 含 crawler contributors/subjects 都更新 books.updated_at，再預篩與 hash 終判 | 未變更不外呼，所有 metadata 改動不漏書，缺向量優先和穩定排序不變，附前後成本比較。INF-T07、12；EfEmbeddingStoreTests／EmbeddingBackfillServiceTests |
-| INF-B03／P2／L3／明確暫緩 | [Identity §7](../../Docs/modules/identity-auth.md)、TODO：登入註冊 rate limiting 暫緩；auth registration 無 limiter | 使用者恢復此範圍後依規格做 IP 視窗，先驗證 proxy IP；不得拿每日推薦 gate 代替 | 同 IP 視窗邊界 429、跨 IP 隔離、可信與偽造 forwarded header 區分、錯誤格式一致。INF-T13；AuthPipelineTests、HostingSetupTests，limiter 測試待建 |
+| INF-B03（已於會員中心 C3 處理） | ~~[Identity §7](../../Docs/modules/identity-auth.md)、TODO：登入註冊 rate limiting 暫緩~~ | C3 已以 ASP.NET Core rate limiter（`account-auth`）實作；見 INF-T32。CTL-02 的原始驗收值（第 6 次 429）與計畫值（20／分）不同，尚待決定 | 同 IP 視窗邊界 429（INF-T32）、跨 IP 隔離只能在部署環境驗證（見 INF-B15） |
 | INF-B04／P2／L4／待驗證 | [HostingSetup](../Hosting/HostingSetup.cs) 可選 CIDR/keys path；[部署規格](../../Docs/deployment/deployment.md) 的 authority 狀態已於 merge target `main@ce7b4f46c0889db6b10216294cac658136796ad7` 更新：[target ADR-006](https://github.com/Arthur801/Book-Finder/blob/ce7b4f46c0889db6b10216294cac658136796ad7/Docs/architecture/architecture-decisions.md) 為 Accepted，正式採用 tag-triggered CD、GHCR digest、containerized web、production approval 與 host state machine；[target deployment §3／§3.1](https://github.com/Arthur801/Book-Finder/blob/ce7b4f46c0889db6b10216294cac658136796ad7/Docs/deployment/deployment.md) 的 §3 定義 CD 後配置，§3.1 僅保留首次 cutover 前的既有 systemd runtime；本次無 live 證據 | 追蹤 production CIDR、Data Protection key mount、nginx／TLS 與首次 cutover 的 L4 實證，不是重新決定部署架構。先在 disposable host 核對 source IP、CIDR、key directory 權限與持久 mount，正式 cutover／live 驗證另需授權；紀錄遮蔽設定與 scheme，不記 token | trusted proxy 取得 HTTPS，untrusted header 忽略；替換 web 後舊 CSRF token 仍有效；壞 CIDR 啟動失敗；另附經授權的公開 nginx／TLS 與 cutover／rollback 證據。INF-T10；HostingSetupTests／ForwardedHeadersTests 僅支援設定／管線斷言，不等於正式 cutover 已驗證 |
 | INF-B05／P3／L3；資源部署另 L4／改善提案 | [ADR-005](../../Docs/architecture/architecture-decisions.md)、[system architecture §7](../../Docs/architecture/system-architecture.md)；queue 與 pending 僅 process-local，store 以單 worker 為前提 | 有多 instance 需求才先提 ADR；比較持久 queue、claim lease、shared cache；先量測 queue 拒絕率／restart 遺失，不逕建 Redis | 雙 worker 同 Book 無未處理競爭，restart 可恢復，至少一次處理冪等，無 Library state 進共享 cache。INF-T08、14；BookProfileQueueTests／BookProfileWorkerTests／EfBookProfileStoreTests |
 
@@ -82,3 +84,22 @@ Debug 證據收集：INF-B04 須保存去識別的 request scheme、來源網段
 
 - **INF-B10 刪除部分已關閉**（2026-11-15，會員中心 D1）：`DeleteAllForUserAsync` 已由 `EfAccountDeletionStore` 在刪除交易內呼叫。撤銷（`RevokeAllForUserAsync`）的呼叫端仍是 C4，尚未實作。
 - **INF-B12**（2026-11-15，會員中心 D1）：刪除與推薦工作 commit 的互相等待未有測試。commit 在鎖住 job row 後要插入搜尋（需要 users 的 KEY SHARE），刪除則先鎖 users 再 cascade job row，可能 deadlock。PostgreSQL 會中止其中一方；兩種結果都不會留下資料，但缺乏可重現的測試。若要補，需要 pause 點在 commit 交易內，或以兩個連線的固定順序模擬。
+
+## 會員中心 C3 新增待辦
+
+### INF-B15 — 限流與寄信佇列為單一 instance 設計
+
+- [ ] **P2／已接受的限制／L3**。`AccountRateLimiting` 與 `AccountEmailQueue` 都在記憶體中，多 instance 部署時：每個 instance 各自計數（實際上限會變成 N 倍），佇列也不共用。
+- 待辦：多 instance 前需要共享計數（例如 Redis 或 DB）與共享佇列；屬於新基礎服務，依 AGENTS §2.4 須先取得決定。
+- 驗收：兩個 instance 的合計請求受同一上限約束；佇列項目只被一個 worker 取出。
+
+### INF-B13 — 跨 IP 隔離與真實 forwarded 標頭的部署驗證
+
+- [ ] **P2／待驗證／L3**。WebIntegration 無法模擬真實 proxy 的 `X-Forwarded-For`，因此「不同 IP 隔離」與「偽造 forwarded IP 不生效」只能靠部署後的人工或 smoke 測試驗證。
+- 待辦：正式部署後，從兩個來源 IP 各打一次 `/account/verification/resend`，確認兩者的 429 互不影響；確認偽造的 `X-Forwarded-For` 不會改變分區。
+
+### INF-B14 — 佇列滿時使用者仍看到「已寄出」通知
+
+- [ ] **P3／確認缺口（已接受的限制）／L2**。`AccountEmailQueue` 容量 100，滿了就丟棄請求並只寫 Warning log。為了不洩漏帳號狀態，使用者看到的仍是相同通知。
+- 待辦：若出現實際丟棄，應以監控指標觀察，再決定是否調大容量或改為持久化（見 Application APP-B11）。
+

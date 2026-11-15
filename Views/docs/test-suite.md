@@ -1,5 +1,7 @@
 # Views 文字測試案例庫
 
+> 會員中心 C3 補記：2026-11-15 更新；程式變更以 `c3f09dc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
 > 非同步推薦 Job M7 補記：2026-11-14 更新；程式變更以 `4db0c98`、`e00cbb5`、`5559870`、`ac88ef2` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > Canonical Category P5 補記：2026-11-14 更新；程式變更以 `a9b7ad1`、`c2d68a1`、`d43ea57` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
@@ -102,3 +104,12 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter 'FullyQualifiedN
 - 會員中心連結：`AccountDeletionTests.The_member_page_links_to_the_deletion_page_in_the_account_security_section`。
 - 首頁一次性通知：`AccountDeletionTests.Correct_password_deletes_the_account_clears_the_cookie_and_shows_the_notice_once_on_the_home_page`。
 - 未涵蓋：瀏覽器內的 checkbox 行為與錯誤後的焦點位置（需要瀏覽器測試，目前沒有）。
+
+## 會員中心 C3：驗證頁面（新增案例）
+
+| 案例 | 測試位置 | 驗證內容 |
+|---|---|---|
+| VIEW-T17 — 確認頁與無效頁 | `tests/WebIntegration/EmailVerificationFlowTests.cs`（TEST-47） | 可用連結顯示「確認 Email」與指向 `/account/verify-email` 的表單；無效或過期顯示「連結無效或已過期」與重寄連結；token 頁回應含 `no-store` 與 `no-referrer` |
+| VIEW-T18 — 請收信與寄信失敗頁 | 同上（TEST-47） | 「請收信」含收件地址；寄信失敗顯示「驗證信寄送失敗」與重寄連結 |
+| VIEW-T19 — 重寄頁與通知 | 同上（TEST-47） | POST 後的通知文字在各種帳號狀態下相同（以 notice 區塊比對，不比對 antiforgery token） |
+| VIEW-T20 — 登入頁提示 | 同上（TEST-47）與 `EmailVerificationSwitchOffTests`（TEST-48） | 「請先完成 Email 驗證」與重寄連結只在未驗證時出現；開關關閉時沒有重寄連結 |

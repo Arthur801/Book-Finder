@@ -1,5 +1,7 @@
 # Application 架構選型
 
+> 會員中心 C3 補記：2026-11-15 更新；程式變更以 `c3f09dc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
 > 帳號動作 token C2 補記：2026-11-15 更新；程式變更以 `4064680` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 
@@ -115,7 +117,7 @@ History的reason/rank/relevance是snapshot，Book標題等為目前資料；diff
 
 **APP-B01確認缺口**：REC-03/推薦§6要求Google fallback；service未使用GoogleQueries，無Google port，metrics固定false/0。[EfRecommendationStore](../../Infrastructure/Persistence/EfRecommendationStore.cs) 註解指向#14尚待接入。不是已核准取消該規則。
 
-**明確暫緩**：[identity-auth §1](../../Docs/modules/identity-auth.md) 的Google登入、email驗證、忘記密碼、修改個資、refresh token，以及[test-plan §2](../../Docs/testing/test-plan.md)的browser E2E。不可混為已確認缺陷。
+**明確暫緩**：[identity-auth §1](../../Docs/modules/identity-auth.md) 的Google登入、忘記密碼、修改個資、refresh token（email 驗證已由會員中心 C3 實作，見下文；忘記密碼為 C4），以及[test-plan §2](../../Docs/testing/test-plan.md)的browser E2E。不可混為已確認缺陷。
 
 **待驗證**：APP-B02取消與DB commit交界、保存後取消的狀態證據。此次沒有runtime效能、真實provider、production DB、cache更新或部署驗證。
 
@@ -240,3 +242,33 @@ Application 不知道 SES、檔案系統或 AWS；寄信失敗的語意（例如
 - 本段的流程見 [workflow-diagram.md](workflow-diagram.md)「帳號刪除（會員中心 D1）」。
 - 測試案例見 [test-suite.md](test-suite.md)「會員中心 D1」。
 - 待辦與已知缺口見 [backlog.md](backlog.md)（APP-B08 刪除部分已關閉，APP-B10 為同步推薦路徑的剩餘風險）。
+
+## 會員中心 C3：驗證流程、寄信佇列與派送（新增）
+
+本節是 C3 的現行契約。計畫見 [會員中心計畫 C3](../../Docs/plans/member-center-email-verification.md)，計畫本身不是規格。
+
+| 責任 | 位置 | 說明 |
+|---|---|---|
+| 開關進入 Application | [AccountService](../Identity/AccountService.cs) | 注入 `IOptions<EmailVerificationOptions>`。註冊時 `EmailVerifiedAt` 依開關決定（關：now；開：null），開啟時回 `RegisterResult.PendingVerification`，不回 `Succeeded`。登入時密碼正確且 `EmailVerifiedAt` 為 null（開關開啟）回 `LoginResult.EmailNotVerified`；密碼錯誤仍是 `InvalidCredentials`，不區分原因。 |
+| 驗證信與驗證步驟 | [EmailVerificationService](../Identity/EmailVerificationService.cs) | `SendAsync(user, returnUrl, pendingAction)`：呼叫 `AccountActionTokenService.IssueAsync`，組連結，寄信。寄信失敗時 `DiscardAsync` 該 token，回 `SendFailed`；限流或使用者不存在回 `NotIssued`。`IsUsableAsync` 只讀；`VerifyAsync` 先檢查格式，再交給 store。 |
+| D-D 白名單 | `EmailVerificationService.Normalize` | 只保留 `PendingLibraryAction.TryGetBookToAdd` 接受的值，並改寫成標準形式 `/books/{guid}` 加上 `add-to-library`。連結與 POST 後的 redirect 都只用這個結果。 |
+| 驗證 store 介面 | [IEmailVerificationStore](../Identity/IEmailVerificationStore.cs) | `VerifyAsync(tokenHash, nowUtc)`：一個交易內消耗 token 並設定 `email_verified_at`。實作在 Infrastructure（[EfEmailVerificationStore](../../Infrastructure/Persistence/EfEmailVerificationStore.cs)）。 |
+| 寄信佇列 port | [IAccountEmailQueue](../Identity/IAccountEmailQueue.cs)、`AccountEmailRequest(Purpose, Email)` | `TryEnqueue` 只回傳是否排入。實作是 Infrastructure 的有界 Channel（[AccountEmailQueue](../../Infrastructure/BackgroundJobs/AccountEmailQueue.cs)）。`Purpose` 欄位讓 C4 共用同一個佇列。 |
+| 佇列派送 | [AccountEmailDispatcher](../Identity/AccountEmailDispatcher.cs) | Worker 每筆在新 scope 中呼叫。`EmailVerification`：查無帳號或 `EmailVerifiedAt` 有值則略過（U-01、D-B）；否則呼叫 `EmailVerificationService.SendAsync`。其他用途目前拋出 `ArgumentOutOfRangeException`，等 C4 補分支，不靜默略過。 |
+| 寄信失敗語意 | `EmailVerificationService.SendAsync` | 失敗時保留帳號、discard token（不計入 1 小時限制），寄信例外只記 Warning，不含 token 或連結。取消（CancellationToken）時仍會 discard，使用 `CancellationToken.None`。 |
+
+**交易與一致性**
+
+- 註冊：使用者寫入（`AddAsync` 內的 SaveChanges）先 commit；之後才發 token（`IssueAsync` 自有交易）；最後寄信。寄信不在任何交易內。
+- 驗證：token 消耗與 `email_verified_at` 寫入在同一交易（`EfEmailVerificationStore`）。`IS NULL` 條件保留第一次驗證的時間。
+- 重寄：POST 只入列，不讀帳號；寄信時機與結果由 worker 決定，因此 POST 的回應時間與帳號狀態無關。
+
+**行為邊界**
+
+- 開關關閉：`AccountService` 行為與 C3 前相同（註冊即驗證、登入不檢查）。`EmailVerificationService` 不會被註冊流程呼叫。
+- U-01：只有開關開啟後註冊的帳號可能是未驗證。`AccountEmailDispatcher` 以 `EmailVerifiedAt` 判斷，不以建立時間判斷。
+
+**已知限制**
+
+- 佇列只在單一 process 內有效；重啟時遺失（見 backlog APP-B11）。
+- 目前沒有實際 SES 寄信測試；SES 行為由 Infrastructure 既有的 adapter 測試與部署流程（L4）驗證。

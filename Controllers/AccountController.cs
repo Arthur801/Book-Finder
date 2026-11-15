@@ -5,21 +5,31 @@ using Book_Finder.Infrastructure.Identity;
 using Book_Finder.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace Book_Finder.Controllers;
 
 // Login, registration and logout (identity-auth.md §3, §4, §6; ui-flow.md §2). No business rules here:
 // AccountService decides each outcome, and this controller maps it to the auth cookie, a redirect or the form again.
 // Antiforgery is enforced globally, so the POST actions carry no attribute of their own.
-public class AccountController(AccountService accounts, AuthTokenIssuer tokens, LibraryService library) : Controller
+public class AccountController(AccountService accounts, AuthTokenIssuer tokens, LibraryService library, EmailVerificationService verification) : Controller
 {
+    // Set by the verify step: it redirects here with verified=1 after the link was used (plan C3).
+    private const string VerifiedQueryValue = "1";
+
     [HttpGet("/account/login")]
-    public IActionResult Login(string? returnUrl, string? pendingAction) =>
-        IsSignedIn
-            ? Redirect("/")
-            : View(new LoginForm { ReturnUrl = returnUrl, PendingAction = pendingAction });
+    public IActionResult Login(string? returnUrl, string? pendingAction, string? verified)
+    {
+        if (IsSignedIn)
+            return Redirect("/");
+
+        if (verified == VerifiedQueryValue)
+            ViewData["Notice"] = "Email 已驗證，請登入";
+        return View(new LoginForm { ReturnUrl = returnUrl, PendingAction = pendingAction });
+    }
 
     [HttpPost("/account/login")]
+    [EnableRateLimiting(AccountRateLimitPolicies.AccountAuth)]
     public async Task<IActionResult> Login(LoginForm form, CancellationToken cancellationToken)
     {
         if (IsSignedIn)
@@ -39,6 +49,12 @@ public class AccountController(AccountService accounts, AuthTokenIssuer tokens, 
                 ModelState.AddModelError(string.Empty, invalidCredentials.Message);
                 return View(form);
 
+            case LoginResult.EmailNotVerified:
+                // No session and no automatic resend (plan D-B). The view links to the resend page.
+                ModelState.AddModelError(string.Empty, LoginResult.EmailNotVerified.Message);
+                ViewData["ShowResendLink"] = true;
+                return View(form);
+
             default:
                 throw new InvalidOperationException($"Unexpected login result: {result.GetType().Name}.");
         }
@@ -51,6 +67,7 @@ public class AccountController(AccountService accounts, AuthTokenIssuer tokens, 
             : View(new RegisterForm { ReturnUrl = returnUrl, PendingAction = pendingAction });
 
     [HttpPost("/account/register")]
+    [EnableRateLimiting(AccountRateLimitPolicies.AccountAuth)]
     public async Task<IActionResult> Register(RegisterForm form, CancellationToken cancellationToken)
     {
         if (IsSignedIn)
@@ -60,8 +77,13 @@ public class AccountController(AccountService accounts, AuthTokenIssuer tokens, 
         switch (result)
         {
             case RegisterResult.Succeeded succeeded:
-                // Registering signs the new user in straight away.
+                // Verification switch off: registering signs the new user in straight away, as before.
                 return await SignInAndRedirect(succeeded.User, form.ReturnUrl, form.PendingAction, cancellationToken);
+
+            case RegisterResult.PendingVerification pending:
+                // Verification switch on: mail the link and do not sign in. A failed send keeps the account and says so (plan C3).
+                var mail = await verification.SendAsync(pending.User, form.ReturnUrl, form.PendingAction, cancellationToken);
+                return View("~/Views/AccountVerification/VerificationSent.cshtml", new VerificationSentViewModel(pending.User.Email, mail == VerificationMailResult.SendFailed));
 
             case RegisterResult.InvalidInput invalidInput:
                 AddFieldErrors(invalidInput.Errors);

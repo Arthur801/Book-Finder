@@ -1,5 +1,7 @@
 # Models 架構與選型
 
+> 會員中心 C3 補記：2026-11-15 更新；程式變更以 `c3f09dc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
 > 非同步推薦 Job M7 補記：2026-11-14 更新；程式變更以 `4db0c98`、`e00cbb5`、`5559870`、`ac88ef2` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 查核日期：2026-10-24；基準：`91333c3`；目標：`Models/`。本次只做靜態閱讀，未執行 build、測試、Mermaid renderer、資料庫或外部服務。開始時來源無未提交修改；其他代理既有的 `Controllers/docs/` 不屬本文件範圍。
 > PR4 M1（#120）補記：2026-10-25 更新；程式變更以 `5052361`、`d864acc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
@@ -69,3 +71,13 @@ fallbackUsed 固定 false 且 Outcome 無 fallback flag，對照規格 fallback 
 ## 帳號刪除表單（會員中心 D1）
 
 - `Models/AccountDeletionForm.cs`：`Password`（string?）與 `Confirmed`（bool）。沒有 DataAnnotations；必填與密碼正確性由 `AccountDeletionService` 判斷，與登入、註冊表單的做法相同。
+
+## 會員中心 C3：驗證頁的表單與 ViewModel（新增）
+
+| 型別 | 用途 | 注意事項 |
+|---|---|---|
+| `VerifyEmailForm`（[VerifyEmailForm.cs](../VerifyEmailForm.cs)） | 確認 POST 的欄位：Token、ReturnUrl、PendingAction | ReturnUrl 與 PendingAction 只是欄位；進入 redirect 前由 `EmailVerificationService.Normalize` 重新檢查。Token 不做任何格式假設，格式檢查在 Application。 |
+| `ResendVerificationForm`（[ResendVerificationForm.cs](../ResendVerificationForm.cs)） | 重寄 POST 的唯一欄位 Email | 不含 Notice；通知透過 ViewData 傳遞，避免使用者輸入回填。 |
+| `VerificationSentViewModel`（[VerificationSentViewModel.cs](../VerificationSentViewModel.cs)） | 「請收信」頁：Email、SendFailed | record，只用於 view。 |
+
+`LoginForm`、`RegisterForm` 沒有變更；`LoginResult.EmailNotVerified` 不是 Model，而是 Application 的 outcome。

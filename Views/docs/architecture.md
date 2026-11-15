@@ -1,5 +1,7 @@
 # Views 架構與呈現契約
 
+> 會員中心 C3 補記：2026-11-15 更新；程式變更以 `c3f09dc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
 > 非同步推薦 Job M7 補記：2026-11-14 更新；程式變更以 `4db0c98`、`e00cbb5`、`5559870`、`ac88ef2` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > Canonical Category P5 補記：2026-11-14 更新；程式變更以 `a9b7ad1`、`c2d68a1`、`d43ea57` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
@@ -67,3 +69,19 @@ ai.js 沒 browser AbortController timeout，server 60 秒限制才是契約；hi
 - `Views/Member/Index.cshtml` 的 `#account-security` 內加入「刪除帳號」連結，供 C4 之後加入「重設密碼」使用同一區塊。
 - `Views/Shared/_Layout.cshtml` 在 `main` 內顯示 `TempData["Notice"]`（`role="status"`），只在刪除後的首頁出現一次。這是目前唯一的一次性通知機制。
 - 所有新增頁面的文字皆為繁體中文；Razor 會把非 ASCII 的動態訊息編碼成數字字元參照，測試需解碼。
+
+## 會員中心 C3：驗證頁面與登入提示（新增）
+
+| 檔案 | 用途 | 表單與安全 |
+|---|---|---|
+| [Views/AccountVerification/VerifyEmail.cshtml](../AccountVerification/VerifyEmail.cshtml) | 確認頁（GET 連結可用時） | `method=post action=/account/verify-email`，`@Html.AntiForgeryToken()`；隱藏欄位 Token、ReturnUrl、PendingAction。Token 只出現在這個表單與 URL 中。 |
+| [VerificationLinkInvalid.cshtml](../AccountVerification/VerificationLinkInvalid.cshtml) | 「連結無效或已過期」 | 沒有表單；只提供重寄頁連結。 |
+| [VerificationSent.cshtml](../AccountVerification/VerificationSent.cshtml) | 註冊後「請收信」頁 | 顯示收件地址；`SendFailed` 時顯示「驗證信寄送失敗，帳號已建立」。沒有表單。 |
+| [Resend.cshtml](../AccountVerification/Resend.cshtml) | 重寄驗證信 | 只有 Email 欄位，`@Html.AntiForgeryToken()`；POST 後顯示統一通知（ViewData Notice）。 |
+| [Views/Account/Login.cshtml](../Account/Login.cshtml) | 登入頁 | 新增：`Notice`（「Email 已驗證，請登入」）與 `ShowResendLink`（「請先完成 Email 驗證」時出現的重寄連結）。其餘不變。 |
+
+**安全**：token 頁的標頭由 `TokenLinkPage` 控制，view 本身不設定。429 頁是 `AccountRateLimiting` 的 inline HTML，不經過 view。
+
+**第三方資源**：檢查 [_Layout.cshtml](../Shared/_Layout.cshtml) 後，確認只載入同源資源，沒有第三方 CDN；`importmap` 為空。
+
+**文案**：所有新文案為本次撰寫（繁中），尚未經過使用者審閱，見 backlog VIEW-B07。

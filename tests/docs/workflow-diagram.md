@@ -1,5 +1,7 @@
 # tests 執行與隔離流程
 
+> 會員中心 C3 補記：2026-11-15 更新；程式變更以 `c3f09dc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
 > 查核日 2026-10-24；HEAD `91333c3`。本次僅靜態查核，未執行 build、測試、Docker、外部服務或瀏覽器。
 
 Authority：[test-plan](../../Docs/testing/test-plan.md)；詞彙：[CONTEXT](../../CONTEXT.md)。本目錄負責測試選擇、fixture 隔離、替身與結果斷言，業務 contract 仍由各模組與 API/data spec 決定。
