@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
 
@@ -17,11 +18,14 @@ internal sealed class ConsentSessionEndedRedirectAttribute : Attribute, IAuthori
     public void OnAuthorization(AuthorizationFilterContext context)
     {
         var http = context.HttpContext;
-        if (http.User.Identity?.IsAuthenticated == true || !http.Request.HasFormContentType)
+        if (http.User.Identity?.IsAuthenticated == true)
             return;
         if (!http.RequestServices.GetRequiredService<IConfiguration>().GetValue<bool>("Mcp:Enabled"))
             return;
 
-        context.Result = new LocalRedirectResult(OAuthController.LoginRedirect(OAuthController.FormAuthorizeUrl(http.Request)));
+        // Only the signed-in state and the server setting decide whether to redirect. A body that is not a form is read as an empty
+        // form, so it only changes which authorize URL login returns to, never whether the redirect happens.
+        var form = http.Request.HasFormContentType ? http.Request.Form : FormCollection.Empty;
+        context.Result = new LocalRedirectResult(OAuthController.LoginRedirect(OAuthController.FormAuthorizeUrl(form)));
     }
 }
