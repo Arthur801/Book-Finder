@@ -216,7 +216,8 @@ public sealed partial class CategoryPageTests(WebFixture fixture)
         Assert.DoesNotContain("offcanvas", html);
         Assert.DoesNotContain("category-sidebar", html);
         Assert.DoesNotContain("js-only", html);
-        Assert.DoesNotContain("<noscript", html);
+        // Only the page body is checked: the shared layout header may carry its own <noscript> nav fallback.
+        Assert.DoesNotContain("<noscript", html[html.IndexOf("<main", StringComparison.Ordinal)..]);
         Assert.DoesNotContain("category-sidebar.js", html);
         Assert.Equal(2, GridLinkCount(html));
     }
