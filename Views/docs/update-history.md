@@ -203,6 +203,14 @@ git show 894883b -- Views
 
 原因：`/books/{不存在}` 與 `/categories?category=不存在` 的路由值仍是 Books/Detail、Categories/Index，會讓 404 頁自動彈出導覽，違反計畫 §5.3。先寫失敗測試（2 失敗），修正後 OnboardingTests 16 通過。
 
+## 介面驗收 P5（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | 本次 commit | docs(ui): record the browser check of the header, category grid and tour | 本目錄 `test-suite.md`（VIEW-T30、P4 段落的全量結果）、`backlog.md`（VIEW-B08、VIEW-B09 結案）、`update-history.md`；未改程式 |
+
+驗證：2026-11-15 一次性本機 Playwright（Chromium；拋棄式 pgvector 0.8.7-pg17、`manage_categories.py sync --apply` 寫入 18 類與 283 筆 Mapping、85 本假書其中一類 0 本；網站以 Development + HTTPS 啟動，OpenAI 以 proxy 擋下；腳本未 commit）80／80 通過。
+
 ## 首次導覽 P4：review 修正（新增紀錄）
 
 | Author 日期 | SHA | subject | 本目錄實際改動檔案 |
@@ -210,4 +218,3 @@ git show 894883b -- Views
 | 2026-11-15 | 本次 commit | fix(onboarding): address the two-axis review | `Shared/_Onboarding.cshtml`：進度 `aria-live` 區塊不再預設 `hidden`；本目錄 `architecture.md`、`update-history.md` |
 
 review 發現並修正：Bootstrap 5 的 Collapse 事件是 `shown.bs.collapse`，原本監聽 `shown` 從未觸發，只靠 400ms 計時器，且關閉時 navbar 若仍在展開動畫中就不會收回；storage 讀取拋例外時每頁都會彈歡迎卡（plan §5.3）；`aria-live` 區塊先隱藏再顯示可能不被朗讀（§5.6）；窄螢幕 AI → 更多兩步之間 navbar 會先收再開。
-

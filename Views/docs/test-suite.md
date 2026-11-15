@@ -92,17 +92,17 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter 'FullyQualifiedN
 | 案例 | 測試位置 | 驗證內容 | 狀態 |
 |---|---|---|---|
 | CAT-01 | `Page_orders_search_heading_category_grid_sources_and_results` | 搜尋 → H1 → 分類網格 → 書籍來源 → 結果的 DOM 順序 | HTML 已驗證 |
-| CAT-02 | — | ≥1200px 六欄、19 格四列、末行一格 | 未驗證：需瀏覽器計算欄數 |
-| CAT-03 | — | 320／390／576／768／992px 的欄數與無水平捲動 | 未驗證：需瀏覽器 |
+| CAT-02 | 一次性 Playwright（VIEW-T30） | ≥1200px 六欄、19 格四列、末行一格 | 2026-11-15 已驗證：1200／1440px 為 6 欄，1440px 19 格排成 4 列 |
+| CAT-03 | 一次性 Playwright（VIEW-T30） | 320／390／576／768／992px 的欄數與無水平捲動 | 2026-11-15 已驗證：2／2／3／4／4 欄，另 1199px 4 欄，各寬度無水平捲動 |
 | CAT-04 | `Category_grid_lists_every_category_with_its_count_and_one_current_item`；既有 `Source_pills_…`、`Pager_links_…` | 分類與來源互相保留條件、目前項目唯一 `aria-current` | HTML 已驗證 |
 | CAT-05 | `Category_grid_counts_each_book_once_per_category_and_follows_the_source_filter` | 來源改變時每格數字更新 | HTML 已驗證 |
 | CAT-06 | 既有 `Unknown_or_inactive_category_…`、`Page_past_the_last_one_…` | 未知或停用分類、未知來源仍 404；超頁轉末頁並保留條件 | HTML 已驗證 |
 | CAT-07 | `Search_form_on_the_category_page_submits_to_search_without_category_or_source` | 搜尋表單是 `GET /search`，沒有 category／source 欄位 | HTML 已驗證 |
-| CAT-08 | `Page_has_no_sidebar_drawer_toggle_or_noscript_list_and_no_sidebar_script` | 無 offcanvas、sidebar、toggle、`category-sidebar.js`；noscript 只檢查 header 以外（header 有 P1 的 noscript 導覽備援，見 `cd83d86`） | HTML 已驗證；JS 停用時的點選未驗證 |
+| CAT-08 | `Page_has_no_sidebar_drawer_toggle_or_noscript_list_and_no_sidebar_script` | 無 offcanvas、sidebar、toggle、`category-sidebar.js`；noscript 只檢查 `<main>` 之後的頁面內容（header 有 P1 的 noscript 導覽備援；P2 `4e21229`，取代 P3 的 `cd83d86` 寫法） | HTML 已驗證；JS 停用時的點選於 2026-11-15 一次性 Playwright 驗證（VIEW-T30） |
 | CAT-09 | `Category_grid_renders_every_active_category_without_truncation` | 20 個啟用分類加「全部書籍」共 21 格，全部渲染、不截斷 | HTML 已驗證 |
 | CAT-10 | `Description_and_table_of_contents_are_not_shown_on_the_category_page` | 分類頁與分類篩選頁不含簡介、目錄 | HTML 已驗證 |
 
-- 已知驗證缺口：CAT-02、CAT-03、CAT-08 的瀏覽器部分；網格等高與 focus-visible 外觀沒有自動化證據。
+- 已知驗證缺口：CAT-02、CAT-03、CAT-08 的瀏覽器部分已由 VIEW-T30 一次性驗證（非常設 suite）；網格等高與 focus-visible 外觀沒有自動化證據。
 
 ### VIEW-T28 — 首頁與空書單的分類入口（P3，plan §8 REG-03、NAV-05）
 
@@ -173,6 +173,18 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter 'FullyQualifiedN
 |---|---|---|
 | VIEW-T29 — 首次導覽 HTML 契約 | `tests/WebIntegration/OnboardingTests.cs`（`Public_browse_pages_render_a_hidden_dialog_that_autostarts`、`Book_detail_page_renders_a_hidden_dialog_that_autostarts`、`Account_and_guide_pages_render_the_dialog_with_autostart_off`、`Forgot_password_page_renders_the_dialog_with_autostart_off`、`Signed_in_account_page_renders_the_dialog_with_autostart_off_and_signed_in_true`、`Data_signed_in_is_false_for_anonymous_visitors_on_the_categories_page`、`Data_signed_in_is_true_for_signed_in_visitors_on_the_categories_page`、`Categories_page_keeps_every_anchor_the_tour_steps_target`、`Step_list_has_welcome_five_spotlight_steps_and_done_with_no_form_or_network_markup`、`Not_found_pages_on_browse_routes_render_the_dialog_with_autostart_off`） | 白名單頁（`/`、`/categories`、`/search?q=x`、`/books`、書籍詳情）`data-onboarding-autostart="true"`；帳號、忘記密碼、MCP 說明、已登入 `/account`，以及書籍詳情與分類頁的 404 為 `false`（ONB-10 的 HTML 部分）；根節點 `hidden`、`role="dialog"`、`aria-modal`、`aria-labelledby`／`aria-describedby`、`aria-live="polite"`；載入 `onboarding.js`（defer）與 `onboarding.css`；`data-signed-in` 依登入狀態；`/categories` 含 5 個 `data-tour` 錨點；步驟順序為歡迎、5 步、完成；導覽區塊沒有 `<form>`、沒有「登出」字樣（ONB-11 靜態部分） |
 
-全量 WebIntegration（545 案例）中僅 `CategoryPageTests` 的 sidebar／noscript 案例失敗，原因見 [backlog](backlog.md) VIEW-B10 的衝突說明，與 P4 無關。
+全量 WebIntegration（545 案例）中僅 `CategoryPageTests` 的 sidebar／noscript 案例失敗，原因見 [backlog](backlog.md) VIEW-B10 的衝突說明，與 P4 無關（已由 P2 `4e21229` 解決；合併 P3 並修正 404 autostart 後全量 547 通過）。
 
 尚未由 HTML 測試覆蓋：OAuth consent 頁的 autostart false（只由 Layout 規則推導，需要 OAuth 流程）；email 驗證與 reset 頁（需要 token）。
+
+## P5 瀏覽器驗收（新增案例）
+
+### VIEW-T30 — Header、分類網格與首次導覽的瀏覽器驗收（plan §8 NAV／CAT／ONB）
+
+- 狀態：2026-11-15 一次性本機 Playwright（Chromium；拋棄式 pgvector 0.8.7-pg17、`manage_categories.py sync --apply` 寫入 18 類與 283 筆 Mapping、85 本假書其中一類 0 本；網站以 Development + HTTPS 啟動，OpenAI 以 proxy 擋下；腳本未 commit）80／80 通過。網站 browser E2E 仍明確暫緩（tests TEST-B03、計畫 D8），這是一次性證據，不是常設 suite。
+- NAV（16 項）：匿名「更多」點擊開啟且 `aria-expanded=true`、Escape 與點擊外部關閉、Enter 與 Space 開啟；匿名選單只有 MCP 說明、功能導覽；header 無 `/books`。390px navbar 預設收合，展開後可開「更多」且無水平捲動。已登入選單順序為個人書單 → MCP 說明 → 功能導覽 → 登出，header 只有一個可見登出表單；滑鼠點登出與只用鍵盤（Enter 開選單、方向鍵到「登出」、Enter）都送出 POST `/account/logout` 並回到匿名 header；停用 JS 時 noscript 的登出按鈕可見且可登出。
+- CAT（21 項）：320／390px 2 欄、576px 3 欄、768／992／1199px 4 欄、1200／1440px 6 欄（computed `grid-template-columns`），各寬度皆無水平捲動；1440px 下 19 格排成 4 列。停用 JS：網格可見、導覽遮罩不顯示、點分類會導覽並只有一個 `aria-current`、再點來源保留分類。
+- ONB（42 項；另有 1 項註冊帳號的前置步驟）：首頁初訪顯示歡迎卡且不換頁；「開始」前往 `/categories` 並移除 `#guide`；步驟進度 1→5、上一步回到 4；每一步卡片都在 viewport 內；匿名第 5 步文案為「登入後可使用個人書單」且「更多」選單保持關閉；完成後寫入 `completed`、焦點到 `#search-q`、重新整理不再自動出現；「更多 → 功能導覽」可重播，重播中跳過仍保留 `completed`；跳過寫入 `skipped`；Tab 8 次焦點都在卡片內；reduced motion 時卡片 transition 為 0s；Escape 視為跳過；390px 的 AI 步驟會展開 navbar，關閉後恢復收合且無水平捲動；移除來源錨點後第 3 步顯示置中卡片並可繼續；`localStorage` 存取拋例外時不自動顯示歡迎卡、`/categories#guide` 仍可手動啟動並關閉、沒有 page error、搜尋框仍可用；390px 從 AI 步驟到「更多」步驟之間 navbar 沒有收合；`aria-live` 進度區塊一直存在且文字為目前步驟；登入、註冊、MCP 說明與書籍 404 頁不自動顯示；整段導覽沒有非 GET 或 `/api/` 請求，也沒有 page error。
+- 第一輪（review 修正前）76／76；review 修正（`shown.bs.collapse`、storage 無法讀取不自動啟動、常駐 `aria-live`、相鄰 navbar 步驟不收合）後重建環境重跑，新增 4 項，共 80／80。
+- 第一輪首次執行 75／76：「只用鍵盤登出」失敗是腳本在換頁開始前就檢查；單獨重現確認有送出 POST 並登出，改用 `expect_navigation` 後全數通過。
+- 未涵蓋：OAuth consent 頁（VIEW-B11）、Email 驗證與重設頁（需 token）的 autostart；Firefox／Safari；真實手機與螢幕報讀器。

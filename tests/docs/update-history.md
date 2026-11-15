@@ -311,3 +311,9 @@ Git 歷史不證明 runtime 或 CI 已通過。
 | Author 日期 | SHA | subject | 本目錄實際改動檔案 |
 |---|---|---|---|
 | 2026-11-15 | 本次 commit | feat(identity): mail a password-changed notice after a reset (C4) | `UnitTests/AccountEmailTemplatesTests.cs`、`PasswordResetServiceTests.cs`（APP-T36）、`AccountEmailDispatcherTests.cs`；`DatabaseIntegration/EfPasswordResetStoreTests.cs`（斷言改為 user id／null）；`WebIntegration/PasswordResetFlowTests.cs`（重設後收到一封不含 token 的通知） |
+
+## 介面驗收 P5（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | 本次 commit | docs(ui): record the browser check of the header, category grid and tour | `backlog.md`（TEST-B03 記錄 2026-11-15 的一次性 Playwright 檢查）；未改測試 |
