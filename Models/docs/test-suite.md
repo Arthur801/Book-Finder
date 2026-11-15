@@ -137,4 +137,6 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter 'FullyQualifiedN
 
 ### M-T15
 
+會員中心 A1 URL 建構：[LibraryPageViewModelTests](../../tests/UnitTests/LibraryPageViewModelTests.cs) 驗證 `/library` 預設、`/account#library`、`/account?status=READING#library`，以及 tabs 使用同一 base path 與 fragment；[AiJobViewModelTests](../../tests/UnitTests/AiJobViewModelTests.cs) 驗證 `/ai` 預設不變，`/account` 搭配保留的 `status` 與 `#ai-history` 在第 1 頁與第 3 頁的 URL，查詢值 `A B&C` 編碼為 `A%20B%26C`，pager 使用同一組 URL。2026-11-15 targeted unit 測試（LibraryPageViewModelTests 與 AiJobViewModelTests）43 項通過。
+
 推薦工作 DTO 與 view model（Job 計畫 M7）。[RecommendationJobResponseTests](../../tests/UnitTests/RecommendationJobResponseTests.cs)、[AiJobViewModelTests](../../tests/UnitTests/AiJobViewModelTests.cs)：四種狀態輸出為儲存用的大寫字串（與 `StoredEnum` 的一致性由 DatabaseIntegration `StoredEnumTests` 驗證）；排隊或執行中、帶有上一次錯誤碼的 Job 不輸出 errorCode；resultUrl 只在 SUCCEEDED；+08:00 時間；狀態標籤；四種 error code 文案；`jobsPage` 夾在 1 與最後一頁之間。2026-11-14 UnitTests 982 項通過。

@@ -184,6 +184,14 @@ git show --format= --numstat <sha> -- Application ':(exclude)Application/docs'
 | `c0ac2f6` | fix(rec-jobs): log the exception when a job fails with INTERNAL_ERROR | `RecommendationJobRunner.cs`：主 agent 驗收時修正，INTERNAL_ERROR 的 log 帶上例外 |
 | `48b2edd` | feat(mcp): OAuth authorize, consent and token endpoints (MCP-201b) | `Identity/IUserStore.cs`：新增 `FindByIdAsync`（token endpoint 確認使用者仍存在） |
 
+## 會員中心 A2 推薦額度讀取（新增紀錄）
+
+| 提交 | Subject | 影響 |
+|---|---|---|
+| `29b6a8b` | feat(member-center): add the recommendation quota reader (A2) | 新增 `Recommendation/RecommendationQuota.cs`（record）、`Recommendation/RecommendationQuotaReader.cs`；`Program.cs` 註冊 scoped；新增 `tests/UnitTests/RecommendationQuotaReaderTests.cs`（8 項）。RecommendationService 與計數規則不變 |
+
+驗證（2026-11-15）：`dotnet build --no-incremental` 0 warning、0 error；`dotnet test tests/UnitTests` 1151 項通過。尚無呼叫端，待 A3 `/account` 接入。
+
 ## 帳號驗證 B1（新增紀錄）
 
 | Author 日期 | SHA | subject | 本目錄實際改動檔案 |

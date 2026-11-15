@@ -1,11 +1,12 @@
 @model Book_Finder.Models.AiJobListViewModel
 @*
-    The 推薦工作 list under the /ai form (plan async-recommendation-jobs section 3.8). It lists the signed-in user's jobs, newest first,
-    and links each one to its status page. Only /ai renders it, and only while RecommendationJobs:Enabled is true.
+    The 推薦工作 list (plan async-recommendation-jobs section 3.8; member-center plan A1). It lists the signed-in user's jobs, newest first,
+    and links each one to its status page. The caller sets ViewData["RecommendationJobListHeading"] to the heading text, and the pager
+    links are built by the view model. /ai renders it only while RecommendationJobs:Enabled is true.
 *@
 
 <section id="ai-jobs" class="mt-5" aria-labelledby="ai-jobs-heading">
-    <h2 id="ai-jobs-heading" class="h5 mb-3">推薦工作</h2>
+    <h2 id="ai-jobs-heading" class="h5 mb-3">@ViewData["RecommendationJobListHeading"]</h2>
 
     @if (Model.HasItems)
     {
