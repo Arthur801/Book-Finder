@@ -124,7 +124,7 @@ site.js 目前只有模板註解，沒有待實作商業功能；不把它列缺
 
 ## WT-13 — 分類頁側邊欄收合、抽屜與無 JS
 
-- 已由 P2（`c6a83bb`）取代：側欄與收合 JS 已移除，本條下方是 2026-11-14 的歷史描述。現行分類頁的網格、欄數與 JS 停用行為見 [Views VIEW-T23](../../Views/docs/test-suite.md)；瀏覽器驗證尚未對新網格執行。
+- 已由 P2（`c6a83bb`）取代：側欄與收合 JS 已移除，本條下方是 2026-11-14 的歷史描述。現行分類頁的網格、欄數與 JS 停用行為見 [Views VIEW-T27](../../Views/docs/test-suite.md)；瀏覽器驗證尚未對新網格執行。
 
 - 狀態：網站 E2E 仍明確暫緩（tests TEST-12／TEST-B03），沒有 commit 的瀏覽器測試；2026-11-14 以一次性本機 Playwright 檢查 20／20 通過（細節見 [Views VIEW-T13](../../Views/docs/test-suite.md)）。HTML 結構（按鈕的 aria 屬性、`<noscript>` 清單）由 WebIntegration 的 CategoryPageTests 驗證。
 - Given：分類頁，桌面 1280px、手機 390px、停用 JS。

@@ -74,7 +74,7 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter 'FullyQualifiedN
 
 ### VIEW-T13 — 分類頁的側邊欄、抽屜與無 JS 導覽
 
-- 已由 P2（`c6a83bb`）取代：側欄、抽屜與收合按鈕已移除，改見 VIEW-T23。以下是 2026-11-14 的歷史檢查結果，不再代表現況。
+- 已由 P2（`c6a83bb`）取代：側欄、抽屜與收合按鈕已移除，改見 VIEW-T27。以下是 2026-11-14 的歷史檢查結果，不再代表現況。
 
 - 狀態：WebIntegration 的 [CategoryPageTests](../../tests/WebIntegration/CategoryPageTests.cs) 與 [NavbarTests](../../tests/WebIntegration/NavbarTests.cs) 已有測試（2026-11-14 通過）；瀏覽器檢查為一次性的本機 Playwright（腳本未 commit）。
 - 瀏覽器檢查（2026-11-14，拋棄式 PostgreSQL、90 本假書、18 類 283 筆 Mapping，20／20 通過）：
@@ -83,7 +83,7 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter 'FullyQualifiedN
   - 停用 JS：手機顯示 `<noscript>` 連結並可導覽；「分類」與「隱藏分類」按鈕不顯示；桌面側邊欄仍顯示。
 - 已知限制：收合偏好由 JS 在載入後套用，桌面版收合狀態下重新整理時，側邊欄可能先閃現一下。
 
-### VIEW-T23 — 分類頁搜尋、網格與來源（P2，plan §8 CAT-01～10）
+### VIEW-T27 — 分類頁搜尋、網格與來源（P2，plan §8 CAT-01～10）
 
 - 狀態：WebIntegration 的 [CategoryPageTests](../../tests/WebIntegration/CategoryPageTests.cs) 與 [SearchPageTests](../../tests/WebIntegration/SearchPageTests.cs) 共 57 項通過（2026-11-15，`c6a83bb`，見 update-history）；風險 L2。
 - 重要限制：WebIntegration 只讀 HTML，不執行 CSS 或 JavaScript。欄數、等高、focus 外觀與 JS 停用時的點選都需要瀏覽器證據，本次未執行。

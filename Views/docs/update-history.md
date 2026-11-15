@@ -150,6 +150,6 @@ git show 894883b -- Views
 | 2026-11-15 | `c6a83bb` | feat(categories): replace sidebar with responsive inline category grid | `Categories/Index.cshtml`（單欄：搜尋、H1、網格、來源、結果）；`Categories/_CategoryGrid.cshtml`（新增）；`Categories/_CategorySidebar.cshtml`（刪除，grep 確認無其他 caller）；`Models/CategoryBrowseViewModel.cs`（只改註解）；目錄外：`wwwroot/css/category-browser.css`（重寫）、`wwwroot/js/category-sidebar.js`（刪除） |
 | 2026-11-15 | 本 commit | docs(views): record the category grid and search on /categories | 本目錄五份文件 |
 
-驗證（2026-11-15，`c6a83bb` 之後）：`dotnet build --no-incremental` 0 warning、0 error；`dotnet test tests/WebIntegration --filter "FullyQualifiedName~CategoryPageTests|FullyQualifiedName~SearchPageTests"` 57 通過、0 失敗；`dotnet test tests/UnitTests` 1330 通過、0 失敗。未執行：瀏覽器版面與 JS 停用時的點選（見 VIEW-T23）。
+驗證（2026-11-15，`c6a83bb` 之後）：`dotnet build --no-incremental` 0 warning、0 error；`dotnet test tests/WebIntegration --filter "FullyQualifiedName~CategoryPageTests|FullyQualifiedName~SearchPageTests"` 57 通過、0 失敗；`dotnet test tests/UnitTests` 1330 通過、0 失敗。未執行：瀏覽器版面與 JS 停用時的點選（見 VIEW-T27）。
 
 行為變更：`/categories` 不再有側欄、抽屜、收合按鈕與 `<noscript>` 清單；新增頁首搜尋（`GET /search?q=`）；分類連結、數量、`aria-current`、來源、分頁、404 與超頁轉址契約不變。瀏覽器 localStorage 裡的舊 key `bookfinder.categorySidebarCollapsed` 不再被讀取，留著無害。
