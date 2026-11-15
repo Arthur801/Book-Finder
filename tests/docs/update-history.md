@@ -244,4 +244,4 @@ Git 歷史不證明 runtime 或 CI 已通過。
 
 | Author 日期 | SHA | subject | 本目錄實際改動檔案 |
 |---|---|---|---|
-| 2026-11-15 | 本分支 feat commit | feat(member): member center at /account, /library redirect and header (A3) | `WebIntegration/MemberPageTests.cs`（新增）；`WebIntegration/LibraryPageTests.cs`（頁面斷言改為 `/account`）；`WebIntegration/NavbarTests.cs`、`WebIntegration/LayoutAndHomeTests.cs`（header 斷言改為登入後排列與無 `/library`） | TEST-41 |
+| 2026-11-15 | 本分支 feat commit | feat(member): member center at /account, /library redirect and header (A3) | `WebIntegration/MemberPageTests.cs`（新增）；`WebIntegration/LibraryPageTests.cs`（頁面斷言改為 `/account`）；`WebIntegration/NavbarTests.cs`、`WebIntegration/LayoutAndHomeTests.cs`（header 斷言改為登入後排列與無 `/library`） | TEST-43 |

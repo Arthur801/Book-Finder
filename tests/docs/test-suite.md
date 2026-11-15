@@ -323,7 +323,7 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter FullyQualifiedNa
 - 之後的 flow 測試應透過 `app.Email.Sent` 取得信件內容（包括一次性連結），而不是從 log 取得。
 - 已知缺口：沒有 Web 測試驗證 Ses 或 Pickup 在 host 中的實際啟動（只有 UnitTests 的 DI 解析）；Ses 不會在測試中連線。
 
-## 會員中心 A3：/account、/library 轉址與 Header（TEST-41）
+## 會員中心 A3：/account、/library 轉址與 Header（TEST-43）
 
 - 風險／狀態：L2；測試實作：Implemented；執行結果見 tests update-history 的 A3 紀錄。
 - Web 測試（`tests/WebIntegration`）：
