@@ -1,5 +1,8 @@
 # Application 文字測試案例庫
 
+> 帳號動作 token C2 補記：2026-11-15 更新；程式變更以 `4064680` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
+
 > 非同步推薦 Job M6 補記：2026-11-14 更新；程式變更以 `54ad51b`、`0d3b3ac`、`93db136`、`11f86b4`、`c0ac2f6` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M4 補記：2026-11-14 更新；程式變更以 `4b31184`、`5d143b4`、`08d8c9a`、`1f36620`、`ef89755` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M2 補記：2026-11-14 更新；程式變更以 `6717d8f` 記入 update-history。原查核基準保留，未重新審查其餘內容。
@@ -284,3 +287,18 @@ Auth的Google登入/email驗證/忘記密碼/個資修改/refresh token依identi
   - 設定：預設值；HeartbeatInterval 等於 LeaseDuration 不合法；MaxAttempts 0 不合法；RetryDelay 0 合法。
 - mutation（主 agent）：把重試判斷 `<` 改成 `<=` → `Ai_unavailable_on_attempt_two_of_two_fails_the_job` 失敗，已還原。
 - 測試來源：[RecommendationJobRunnerTests.cs](../../tests/UnitTests/RecommendationJobRunnerTests.cs)、[RecommendationJobOptionsTests.cs](../../tests/UnitTests/RecommendationJobOptionsTests.cs)。
+
+### APP-T28 — 帳號動作 token 規則與服務（C2）
+
+- **責任／風險／狀態**：[AccountActionTokenService](../Identity/AccountActionTokenService.cs) 與 [AccountActionTokenRules](../Identity/AccountActionTokenRules.cs)，L3；單元測試已存在並通過（2026-11-15 UnitTests 1180 項通過）。
+- **Given**：以 fake store 記錄呼叫；時間用 `FakeTimeProvider`。
+- **When／Then**：
+  - 原始 token 為 43 個 base64url 字元（解碼後 32 bytes），每次不同；store 只收到 `HashOf(raw)`，且與 raw 不同；
+  - 驗證信 lifetime 為 24 小時、重設密碼為 1 小時，回傳的 `ExpiresAtUtc` 與傳給 store 的一致；
+  - 節流視窗為 `now − RequestInterval`，`now` 也一併傳入；
+  - Throttled 與 UserNotFound 原樣回傳，不回 token；
+  - 格式錯誤的 raw（空字串、長度不符、含 `+`、`/`、`=`、空白、`.`）進入 Consume、IsUsable、Discard 時，store 呼叫次數為 0；
+  - SHA-256 hex 符合 `^[0-9a-f]{64}$`，且與 FIPS 向量 `abc` 相符；
+  - options：預設 1 小時／24 小時／1 小時，section 名為 `AccountActionTokens`，三個值都必須大於 0。
+- **入口**：[AccountActionTokenServiceTests](../../tests/UnitTests/AccountActionTokenServiceTests.cs)、[AccountActionTokenRulesTests](../../tests/UnitTests/AccountActionTokenRulesTests.cs)、[AccountActionTokenOptionsTests](../../tests/UnitTests/AccountActionTokenOptionsTests.cs)。
+- **證據限制**：本案例只驗證服務規則；鎖、節流 SQL、並發與 cascade 由 INF-T26 驗證。寄信失敗後舊連結的行為尚未定義（APP-B06）。

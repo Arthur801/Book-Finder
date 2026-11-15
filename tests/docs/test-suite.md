@@ -1,5 +1,8 @@
 # tests 面向 AI 的文字案例庫
 
+> 帳號動作 token C2 補記：2026-11-15 更新；程式變更以 `4064680` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
+
 > 非同步推薦 Job M1 補記：2026-11-14 更新；程式變更以 `ad398b8`、`904baca`、`0a11483` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR4 M1（#120）補記：2026-10-25 更新；程式變更以 `5052361`、`d864acc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
@@ -311,3 +314,10 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter FullyQualifiedNa
 - **Given**：共用 PostgreSQL fixture 已套到 head；`MigrationServer` 另開獨立資料庫做 migration 測試。
 - **When／Then**：見 Infrastructure INF-T25 與 Domain DOM-T13。`EmailVerificationSeedTests` 讓 AddEmailVerificationAndAccountTokens 的 compat seed 可載入（users 5、tokens 4、NULL verification 4）；`OpenIddictSchemaTests` 的 migration 測試固定 target 為 AddOpenIddict。
 - **來源與狀態**：[AccountActionTokenSchemaTests](../DatabaseIntegration/AccountActionTokenSchemaTests.cs)、[EmailVerificationSeedTests](../DatabaseIntegration/EmailVerificationSeedTests.cs)、[EfUserStoreTests](../DatabaseIntegration/EfUserStoreTests.cs)、[AccountServiceTests](../UnitTests/AccountServiceTests.cs)；2026-11-15 本地結果：UnitTests 1143、DatabaseIntegration 276、WebIntegration `Account` 篩選 13 通過。
+
+### TEST-40：帳號動作 token（會員中心計畫 C2）
+
+- **Given**：UnitTests 以 fake store 測規則與服務；DatabaseIntegration 以真實 PostgreSQL（Testcontainers）與 `FakeTimeProvider` 測 EF store。
+- **When／Then**：見 Application APP-T28 與 Infrastructure INF-T26。DatabaseIntegration 測試每個 user 使用新 id，因此共用容器不需清理。
+- **證據限制**：測試覆蓋服務規則、SQL 行為與並發；未涵蓋 C3、C4 的 controller 與寄信。寄信失敗後舊連結的行為未定義（APP-B06）。
+- **來源與狀態**：[AccountActionTokenServiceTests](../UnitTests/AccountActionTokenServiceTests.cs)、[AccountActionTokenRulesTests](../UnitTests/AccountActionTokenRulesTests.cs)、[AccountActionTokenOptionsTests](../UnitTests/AccountActionTokenOptionsTests.cs)、[EfAccountActionTokenStoreTests](../DatabaseIntegration/EfAccountActionTokenStoreTests.cs)；2026-11-15 本地結果：UnitTests 1180、DatabaseIntegration 289、WebIntegration 448 通過。

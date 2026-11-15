@@ -1,5 +1,8 @@
 # Infrastructure 修改歷史
 
+> 帳號動作 token C2 補記：2026-11-15 更新；程式變更以 `4064680` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
+
 > 非同步推薦 Job M7 補記：2026-11-14 更新；程式變更以 `4db0c98`、`e00cbb5`、`5559870`、`ac88ef2` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M6 補記：2026-11-14 更新；程式變更以 `54ad51b`、`0d3b3ac`、`93db136`、`11f86b4`、`c0ac2f6` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M4 補記：2026-11-14 更新；程式變更以 `4b31184`、`5d143b4`、`08d8c9a`、`1f36620`、`ef89755` 記入 update-history。原查核基準保留，未重新審查其餘內容。
@@ -227,3 +230,11 @@ git show <SHA> -- Infrastructure
 | 2026-11-15 | `a7ec1b2` | feat(identity): add email verification columns and account action tokens (B1) | `Persistence/Migrations/20261115055411_AddEmailVerificationAndAccountTokens.cs`、`.Designer.cs`（新增，Up 含 U-01 回填）；`Persistence/Migrations/AppDbContextModelSnapshot.cs`；`Persistence/Configurations/AccountActionTokenConfiguration.cs`（新增）；`Persistence/Configurations/UserConfiguration.cs`；`Persistence/AppDbContext.cs`（`AccountActionTokens` DbSet） |
 
 驗證（2026-11-15）：`dotnet build --no-incremental` 0 warning；DatabaseIntegration 276 通過（含 `OpenIddictSchemaTests` 的 target 修正）；`dotnet ef migrations add` 產生骨架，Up 手寫回填、Down 只移除新增項目。
+
+## 帳號動作 token C2 store（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | `4064680` | feat(identity): account action token service and EF store (C2) | `Persistence/EfAccountActionTokenStore.cs`（新增）；`Identity/AuthServiceCollectionExtensions.cs`（options 驗證與 store、service 註冊） |
+
+驗證（2026-11-15）：DatabaseIntegration 289 通過，其中 `EfAccountActionTokenStoreTests` 13 項；mutation 檢查：移除 `FOR UPDATE` 後並發 issue 測試 3/3 失敗，還原後通過。行為變更：無使用者可見變更。

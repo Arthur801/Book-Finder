@@ -1,5 +1,8 @@
 # Infrastructure AI 文字測試案例庫
 
+> 帳號動作 token C2 補記：2026-11-15 更新；程式變更以 `4064680` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
+
 > 非同步推薦 Job M6 補記：2026-11-14 更新；程式變更以 `54ad51b`、`0d3b3ac`、`93db136`、`11f86b4`、`c0ac2f6` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M4 補記：2026-11-14 更新；程式變更以 `4b31184`、`5d143b4`、`08d8c9a`、`1f36620`、`ef89755` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M2 補記：2026-11-14 更新；程式變更以 `6717d8f` 記入 update-history。原查核基準保留，未重新審查其餘內容。
@@ -268,3 +271,23 @@ dotnet test tests/WebIntegration/WebIntegration.csproj
   - Up 從 AddOpenIddict 升級時，既有 users 的 `email_verified_at = created_at`；只新增 `account_action_tokens` 與兩個 users 欄位；Down 只移除這些；
   - EfUserStore 寫入與讀回 `EmailVerifiedAt`、`AuthVersion`（有值與 NULL／0 兩種）。
 - 入口：[AccountActionTokenSchemaTests](../../tests/DatabaseIntegration/AccountActionTokenSchemaTests.cs)（含 `AccountActionTokenMigrationTests`）、[EfUserStoreTests](../../tests/DatabaseIntegration/EfUserStoreTests.cs)、[OpenIddictSchemaTests](../../tests/DatabaseIntegration/OpenIddictSchemaTests.cs)（`AddOpenIddict_creates_only_the_four_openiddict_tables` 改為固定 target 為 AddOpenIddict，避免之後的 migration 讓它失效）。
+
+## INF-T26 — 帳號動作 token 持久化與並發（計畫 C2）
+
+- 責任／風險／狀態：EF store 與交易、並發、cascade，L3；已有測試，2026-11-15 DatabaseIntegration 289 項通過（其中本案例 13 項）。
+- Given：共用 PostgreSQL fixture；每個測試以新的 user id 建立使用者；時間為 `FakeTimeProvider`，起點 `2026-11-15T04:00:00Z`。
+- When／Then：
+  - Issue 寫入的列：`token_hash` 等於 raw 的 SHA-256 hex，raw 本身不存在於任何列；`purpose`、`created_at`、`expires_at = created_at + 24 小時`、`consumed_at` 為 NULL；
+  - Issue 後 consume 成功一次，第二次 consume 與 IsUsable 都失敗（重放）；
+  - 過期：到期前 1 秒可用，恰好到期時 IsUsable 與 consume 皆失敗；
+  - 用途不符：驗證信 token 不能當重設密碼 consume，且仍可用原用途 consume；
+  - 節流：同用途第 59 分 59 秒再申請回 Throttled；恰好 60 分鐘回 Issued，舊 token 的 IsUsable 與 consume 失敗，新 token 可用；
+  - 節流按用途分開：驗證信 issue 不擋密碼重設 issue；
+  - Discard：刪除該列，之後同用途可立即再 issue；被刪 token 的 consume 失敗；
+  - 不存在的 user：回 UserNotFound，user 的 token 列為 0；
+  - 並發 consume：兩個 DbContext 同時 consume 同一 token，恰好一個回 user id、一個回 null；
+  - 並發 issue：兩個 DbContext 同時 issue 同一 user 與用途，恰好一個 Issued、一個 Throttled，列數為 1；
+  - Consume 在外層交易中被 rollback：token 仍可用；
+  - 刪除 user：其 token 列被 cascade 刪除。
+- 入口：[EfAccountActionTokenStoreTests](../../tests/DatabaseIntegration/EfAccountActionTokenStoreTests.cs)。
+- 驗證強度：並發 issue 測試在移除 `FOR UPDATE` 後 3/3 失敗，證明它確實依賴鎖。

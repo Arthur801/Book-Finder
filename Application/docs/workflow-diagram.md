@@ -1,5 +1,8 @@
 # Application 流程與責任
 
+> 帳號動作 token C2 補記：2026-11-15 更新；程式變更以 `4064680` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
+
 > 非同步推薦 Job M6 補記：2026-11-14 更新；程式變更以 `54ad51b`、`0d3b3ac`、`93db136`、`11f86b4`、`c0ac2f6` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M3 補記：2026-11-14 更新；程式變更以 `b81a322`、`dc2d903` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M4 補記：2026-11-14 更新；程式變更以 `4b31184`、`5d143b4`、`08d8c9a`、`1f36620`、`ef89755` 記入 update-history。原查核基準保留，未重新審查其餘內容。
@@ -269,3 +272,27 @@ flowchart TD
 ```
 
 Log 欄位：JobId、Attempt、ErrorCode、QueueWaitMs（領取時間減去 Job 建立時間）、ExecutionMs、成功時的 SearchId；不記需求文字。
+
+## 帳號動作 token（C2）
+
+```mermaid
+flowchart TD
+  ISSUE[IssueAsync userId purpose] --> GEN[NewRawToken 32 bytes]
+  GEN --> PREP[HashOf raw；expires = now + 用途的 lifetime]
+  PREP --> STORE[IAccountActionTokenStore.TryIssueAsync：交易]
+  STORE --> LOCK[SELECT users … FOR UPDATE]
+  LOCK -->|無列| NF[UserNotFound；不寫入]
+  LOCK -->|有列| THR{"同 user、用途的最新列 created_at > now − RequestInterval"}
+  THR -->|是| TH[Throttled；rollback]
+  THR -->|否| SUP[未消耗的同用途列設 consumed_at = now]
+  SUP --> INS[INSERT 新列]
+  INS --> OK[commit；Issued（raw, expires）]
+  CONS[ConsumeAsync raw purpose] --> FMT{格式正確}
+  FMT -->|否| N1[null；不碰 DB]
+  FMT -->|是| UPD["UPDATE … WHERE hash AND purpose AND 未消耗 AND expires_at > now RETURNING user_id"]
+  UPD -->|0 列| N2[null]
+  UPD -->|1 列| UID[user id]
+  DISC[DiscardAsync raw] --> DEL[DELETE 該 hash 的列]
+```
+
+責任分界：Application 決定 TTL、節流窗口與 hash；Infrastructure 負責鎖與 SQL。寄信失敗時，caller 呼叫 `DiscardAsync`，讓失敗的嘗試不計入 1 小時節流（已知取捨見 [架構](architecture.md)）。Consume 不開交易，C4 密碼重設可把它與其他寫入放在同一個交易，回滾時 token 不被消耗。

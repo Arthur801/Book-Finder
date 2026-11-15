@@ -1,5 +1,8 @@
 # tests 修改歷史
 
+> 帳號動作 token C2 補記：2026-11-15 更新；程式變更以 `4064680` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
+
 > 非同步推薦 Job M4 補記：2026-11-14 更新；程式變更以 `4b31184`、`5d143b4`、`08d8c9a`、`1f36620`、`ef89755` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M2 補記：2026-11-14 更新；程式變更以 `6717d8f` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M1 補記：2026-11-14 更新；程式變更以 `ad398b8`、`904baca`、`0a11483` 記入 update-history。原查核基準保留，未重新審查其餘內容。
@@ -225,3 +228,13 @@ Git 歷史不證明 runtime 或 CI 已通過。
 | 2026-11-15 | `a7ec1b2` | feat(identity): add email verification columns and account action tokens (B1) | `tests/UnitTests/AccountServiceTests.cs`；`tests/DatabaseIntegration/AccountActionTokenSchemaTests.cs`、`EmailVerificationSeedTests.cs`（新增）；`EfUserStoreTests.cs`、`MigrationServer.cs`（新增 `AddEmailVerificationAndAccountTokens` id）、`OpenIddictSchemaTests.cs`（target 固定為 AddOpenIddict） |
 
 驗證（2026-11-15）：UnitTests 1143、DatabaseIntegration 276、WebIntegration `FullyQualifiedName~Account` 13 通過。
+
+## 帳號動作 token C2（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | `4064680` | feat(identity): account action token service and EF store (C2) | `tests/UnitTests/AccountActionTokenRulesTests.cs`、`AccountActionTokenOptionsTests.cs`、`AccountActionTokenServiceTests.cs`（新增）；`tests/DatabaseIntegration/EfAccountActionTokenStoreTests.cs`（新增）；`tests/DatabaseIntegration/AccountActionTokenSchemaTests.cs`（`Both_planned_purposes_are_accepted` 的計數改為只計本測試的 user） |
+
+修正說明：B1 的計數測試原本計算整張表中該用途的列數。C2 的整合測試會 commit token 列，導致該計數在完整套件中失敗（單獨執行時通過）。改為只計本測試 user 的列，斷言內容不變。
+
+驗證（2026-11-15）：UnitTests 1180 通過；DatabaseIntegration 289 通過；WebIntegration 448 通過。

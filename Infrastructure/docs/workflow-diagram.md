@@ -1,5 +1,8 @@
 # Infrastructure 流程
 
+> 帳號動作 token C2 補記：2026-11-15 更新；程式變更以 `4064680` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
+
 > 非同步推薦 Job M2 補記：2026-11-14 更新；程式變更以 `6717d8f` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 查核日期：2026-10-24；基準 `91333c3`。本次只做文件靜態檢查，未執行 build、測試、migration、部署或外部服務。
 
@@ -162,3 +165,14 @@ Embedding vector(1536) 由 DB 拒絕錯維度；upsert 無 change tracking。Pro
 ## 文件導航
 
 [流程](workflow-diagram.md) · [架構](architecture.md) · [待辦](backlog.md) · [歷史](update-history.md) · [案例](test-suite.md)
+
+## 帳號動作 token 持久化（計畫 C2）
+
+| 呼叫 | 交易 | 寫入或讀取 | 回傳 |
+|---|---|---|---|
+| `TryIssueAsync` | 自開交易，失敗或節流時 rollback | 鎖 users 列 → 查節流 → UPDATE 取代 → INSERT | `Issued`、`Throttled`、`UserNotFound` |
+| `ConsumeAsync` | 不開交易 | `UPDATE … RETURNING user_id`（一句） | `Guid?` |
+| `DiscardAsync` | 不開交易 | `DELETE` by hash | 無 |
+| `IsUsableAsync` | 不開交易 | `SELECT` EXISTS | `bool` |
+
+caller 關係：C3（註冊驗證、重寄）與 C4（忘記密碼）呼叫 `AccountActionTokenService`，再由服務呼叫本 store。C4 的重設交易在同一個 scoped DbContext 內先 `ConsumeAsync`，再更新密碼與 `auth_version`，全部成功才 commit。

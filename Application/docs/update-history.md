@@ -1,5 +1,8 @@
 # Application Git 修改歷史
 
+> 帳號動作 token C2 補記：2026-11-15 更新；程式變更以 `4064680` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
+
 > 非同步推薦 Job M6 補記：2026-11-14 更新；程式變更以 `54ad51b`、`0d3b3ac`、`93db136`、`11f86b4`、`c0ac2f6` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M4 補記：2026-11-14 更新；程式變更以 `4b31184`、`5d143b4`、`08d8c9a`、`1f36620`、`ef89755` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M2 補記：2026-11-14 更新；程式變更以 `6717d8f` 記入 update-history。原查核基準保留，未重新審查其餘內容。
@@ -191,3 +194,13 @@ git show --format= --numstat <sha> -- Application ':(exclude)Application/docs'
 | 2026-11-15 | `a7ec1b2` | feat(identity): add email verification columns and account action tokens (B1) | `Identity/AccountService.cs`（RegisterAsync 寫入 `EmailVerifiedAt = now`、`AuthVersion = 0`）；`tests/UnitTests/AccountServiceTests.cs`（斷言擴充） |
 
 驗證（2026-11-15）：UnitTests 1143 通過。行為變更：註冊後立即驗證，與目前行為相同；登入流程未改。
+
+## 帳號動作 token C2（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | `4064680` | feat(identity): account action token service and EF store (C2) | `Identity/AccountActionTokenOptions.cs`、`AccountActionTokenRules.cs`、`AccountActionTokenService.cs`、`IAccountActionTokenStore.cs`（新增）；`Persistence/EfAccountActionTokenStore.cs`（新增，位於 Infrastructure）；`Infrastructure/Identity/AuthServiceCollectionExtensions.cs` 註冊 options、store、service；`appsettings.json` 新增 `AccountActionTokens` section |
+
+驗證（2026-11-15）：`dotnet build --no-incremental` 0 warning、0 error；UnitTests 1180 通過；DatabaseIntegration 289 通過；WebIntegration 448 通過（啟動時驗證新 options）。
+
+行為變更：無使用者可見變更。C2 只新增服務與 port，目前沒有 controller 呼叫；C3、C4 尚未實作。

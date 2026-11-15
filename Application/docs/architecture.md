@@ -1,5 +1,8 @@
 # Application 架構選型
 
+> 帳號動作 token C2 補記：2026-11-15 更新；程式變更以 `4064680` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
+
 
 > 非同步推薦 Job M6 補記：2026-11-14 更新；程式變更以 `54ad51b`、`0d3b3ac`、`93db136`、`11f86b4`、`c0ac2f6` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M4 補記：2026-11-14 更新；程式變更以 `4b31184`、`5d143b4`、`08d8c9a`、`1f36620`、`ef89755` 記入 update-history。原查核基準保留，未重新審查其餘內容。
@@ -145,3 +148,38 @@ History的reason/rank/relevance是snapshot，Book標題等為目前資料；diff
 可重試＝`attempt_count < MaxAttempts` 時 `RequeueAsync(RetryDelay)`，否則 `FailAsync`。失敗處理的寫入使用 `CancellationToken.None`，主機停止時也不會只寫一半；store 回 false（lease 已不在）時只記 log。Application 只用 BCL 的 `DbException`，不引用 Npgsql 或 EF。
 
 [RecommendationJobOptions](../Recommendation/RecommendationJobOptions.cs)（section `RecommendationJobs`）：`Enabled` false、`PollInterval` 2 秒、`LeaseDuration` 45 秒、`HeartbeatInterval` 10 秒（必須小於 LeaseDuration）、`MaxAttempts` 2、`RetryDelay` 5 秒；啟動時驗證。併行度固定為 1，不是設定。
+
+## 帳號動作 token（會員中心計畫 C2）
+
+[AccountActionTokenService](../Identity/AccountActionTokenService.cs) 擁有 email 驗證與忘記密碼連結的規則（[會員中心計畫](../../Docs/plans/member-center-email-verification.md) §C2、D-C、U-05）。計畫是實作計畫，不是規格；本節記錄目前已實作的契約。
+
+**Token 契約（現行）**
+
+- 原始 token：`RandomNumberGenerator` 取 32 bytes，base64url 無 padding，共 43 個字元。只在 `IssueAsync` 的回傳值（之後寫入信件連結）出現。
+- 儲存：`token_hash` 為原始 token 的 ASCII bytes 之 SHA-256 小寫 hex（64 字元）。DB 的 CHECK 只接受此格式。原始 token 不寫入資料庫、log 或 Domain entity。
+- 格式先檢查：長度或字元集不符時，`ConsumeAsync`、`IsUsableAsync`、`DiscardAsync` 直接回 null／false／no-op，不呼叫 store。
+- 用途：`EmailVerification` 與 `PasswordReset`，以 stored enum 寫入（`EMAIL_VERIFICATION`、`PASSWORD_RESET`）。Consume 與 IsUsable 都比對用途，驗證信 token 不能用來重設密碼，反之亦然。
+- 有效期（`AccountActionTokens` section，啟動時驗證皆 > 0）：驗證信 `EmailVerificationLifetime` 預設 24 小時；重設密碼 `PasswordResetLifetime` 預設 1 小時。過期判斷為 `expires_at > now`，恰好在 `expires_at` 那一刻即失效。
+- 申請節流：`RequestInterval` 預設 1 小時，以 (user, purpose) 為單位。判斷依據是該 user、該用途下 `created_at` 最新的列，不論是否已消耗。只有 `created_at > now − RequestInterval` 才回 Throttled，所以恰好滿 1 小時可以再申請。被 discard 刪除的列不計入。
+- 單次使用與取代：Consume 只接受 `consumed_at IS NULL` 的列，並寫入 `consumed_at`。新 issue 先把同 user、同用途所有未消耗的列標為已消耗，所以舊連結在新連結發出的那一刻失效。
+- 時間來源：所有時間來自注入的 `TimeProvider`，不使用資料庫 `now()`；測試以 `FakeTimeProvider` 控制邊界。
+- 不存在的使用者：`IssueAsync` 回 `UserNotFound`，不寫入任何列。
+
+**交易與並發**
+
+| 操作 | 交易 | 說明 |
+|---|---|---|
+| `IssueAsync` | 由 store 開一個交易 | `SELECT id FROM users … FOR UPDATE` → 節流查詢 → 取代舊列 → INSERT → commit。同一 user 的兩次 issue 會序列化；第二次在取得鎖後查詢，看得到第一次已 commit 的列，因此得到 Throttled |
+| `ConsumeAsync` | **不開交易** | 單一條件式 `UPDATE … SET consumed_at = now WHERE token_hash AND purpose AND consumed_at IS NULL AND expires_at > now RETURNING user_id`。並發的兩次 consume 中只有一次回傳 user。呼叫端（C4 密碼重設）可把它放進自己的交易，交易回滾時 token 仍可用 |
+| `DiscardAsync` | **不開交易** | 單一 DELETE，供寄信失敗時使用 |
+| `IsUsableAsync` | 唯讀 | 供 GET 頁面判斷是否顯示表單，不消耗 |
+
+`IssueAsync` 開的是 EF 交易，因此不能在同一個 DbContext 的外層交易內呼叫（EF 會拋出例外）。目前 C3、C4 只需要 consume 在外層交易內。
+
+**已知取捨（待決策，見 [backlog](backlog.md) APP-B06）**：discard 只刪除該列，不會還原被取代的舊 token。若第二次 issue 的信寄送失敗，第一次寄出的連結也已失效。
+
+**邊界**：Application 只持有 hash 與時間，不產生 URL、不寄信、不讀取 HttpContext。寄信與連結組裝由 C3、C4 的 caller 負責；計畫要求 token 頁面加上 `Cache-Control: no-store` 與 `Referrer-Policy: no-referrer`。
+
+## 導覽（帳號動作 token）
+
+[流程](workflow-diagram.md)・[架構](architecture.md)・[待辦](backlog.md)・[歷史](update-history.md)・[案例](test-suite.md)
