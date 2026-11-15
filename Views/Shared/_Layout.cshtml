@@ -7,10 +7,18 @@
     <script type="importmap"></script>
     <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+    <link rel="stylesheet" href="~/css/onboarding.css" asp-append-version="true" />
     @await RenderSectionAsync("Styles", required: false)
     <link rel="stylesheet" href="~/Book_Finder.styles.css" asp-append-version="true" />
 </head>
 <body>
+    @{
+        // First-visit tour autostarts only on the public browse pages (plan §5.1). Account, OAuth, guide, AI and error pages never do.
+        var routeController = ViewContext.RouteData.Values["controller"]?.ToString();
+        var routeAction = ViewContext.RouteData.Values["action"]?.ToString();
+        var onboardingAutostart = (routeController, routeAction) is ("Home", "Index") or ("Categories", "Index") or ("Search", "Index")
+            or ("Books", "Index") or ("Books", "Detail");
+    }
     <header>
         <nav class="navbar navbar-expand-sm navbar-light bg-white border-bottom mb-3">
             <div class="container">
@@ -92,9 +100,11 @@
             &copy; 2026 - 好想找書
         </div>
     </footer>
+    <partial name="_Onboarding" model="onboardingAutostart" />
     <script src="~/lib/jquery/dist/jquery.min.js"></script>
     <script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
     <script src="~/js/site.js" asp-append-version="true"></script>
+    <script src="~/js/onboarding.js" asp-append-version="true" defer></script>
     @await RenderSectionAsync("Scripts", required: false)
 </body>
 </html>

@@ -1,0 +1,55 @@
+@model bool
+@*
+    First-visit guided tour (plan header-category-onboarding §5, P4). Everything is hidden until wwwroot/js/onboarding.js opens it,
+    so a page without JavaScript shows no overlay. The step texts live in the hidden <ol>; onboarding.js reads them in order:
+    welcome, five spotlight steps (each targets a data-tour anchor), done. The tour never submits a form or calls an API.
+    Autostart is decided in _Layout.cshtml (Model); the signed-in state drives the step 5 wording.
+*@
+@{
+    var signedIn = User.Identity?.IsAuthenticated == true;
+}
+<div id="onboarding" class="onboarding" hidden data-onboarding-autostart="@(Model ? "true" : "false")" data-signed-in="@(signedIn ? "true" : "false")">
+    <div class="onboarding-backdrop" data-onboarding-backdrop></div>
+    <div class="onboarding-spotlight" data-onboarding-spotlight hidden></div>
+    <div class="onboarding-card" role="dialog" aria-modal="true" aria-labelledby="onboarding-title" aria-describedby="onboarding-body" tabindex="-1">
+        <p class="onboarding-progress text-muted small mb-1" aria-live="polite" data-onboarding-progress hidden></p>
+        <h2 class="h5 mb-2" id="onboarding-title" data-onboarding-title>歡迎使用好想找書</h2>
+        <p class="mb-3" id="onboarding-body" data-onboarding-body>用關鍵字搜尋、依分類瀏覽，或用 AI 找到想讀的書。</p>
+        <div class="onboarding-actions d-flex flex-wrap align-items-center gap-2">
+            <button type="button" class="btn btn-outline-secondary btn-sm" data-onboarding-action="skip">跳過</button>
+            <button type="button" class="btn btn-outline-secondary btn-sm ms-auto" data-onboarding-action="prev" hidden>上一步</button>
+            <button type="button" class="btn btn-primary btn-sm" data-onboarding-action="start">開始</button>
+            <button type="button" class="btn btn-primary btn-sm" data-onboarding-action="next" hidden>下一步</button>
+            <button type="button" class="btn btn-primary btn-sm" data-onboarding-action="finish" hidden>完成</button>
+        </div>
+    </div>
+    <ol class="onboarding-steps" hidden>
+        <li data-kind="welcome"
+            data-title="歡迎使用好想找書"
+            data-body="用關鍵字搜尋、依分類瀏覽，或用 AI 找到想讀的書。"></li>
+        <li data-kind="spot"
+            data-title="搜尋書籍"
+            data-body="輸入書名、作者或 ISBN，即可搜尋整個書庫。"
+            data-target="[data-tour='category-search']"></li>
+        <li data-kind="spot"
+            data-title="瀏覽網站分類"
+            data-body="點選分類縮小瀏覽範圍，也可選『全部書籍』。"
+            data-target="[data-tour='category-grid']"></li>
+        <li data-kind="spot"
+            data-title="按書籍來源篩選"
+            data-body="依書籍來源篩選，分類與來源可一起使用。"
+            data-target="[data-tour='category-sources']"></li>
+        <li data-kind="spot"
+            data-title="AI 推薦"
+            data-body="用一句話描述閱讀需求。使用 AI 推薦需要登入。"
+            data-target="[data-tour='nav-ai']"></li>
+        <li data-kind="spot"
+            data-title="更多功能"
+            data-body="在『更多』找到個人書單、MCP 說明，也能重新觀看導覽。"
+            data-body-anonymous="在『更多』找到 MCP 說明，也能重新觀看導覽。登入後可使用個人書單。"
+            data-target="[data-tour='nav-more']"></li>
+        <li data-kind="done"
+            data-title="開始找書"
+            data-body="導覽完成。你可以從搜尋或分類開始。"></li>
+    </ol>
+</div>

@@ -1,0 +1,110 @@
+/* First-visit guided tour (plan header-category-onboarding §5, P4). The markup in Views/Shared/_Onboarding.cshtml is hidden
+   until onboarding.js opens it, so no rule here shows an overlay on a page without JavaScript. */
+
+.onboarding {
+    --onboarding-z: 1080;
+    --onboarding-overlay: rgba(17, 24, 39, 0.6);
+    --onboarding-card-bg: #ffffff;
+    --onboarding-card-fg: #212529;
+    --onboarding-muted: #5c6370;
+    --onboarding-focus: #0a58ca;
+    --onboarding-gap: 12px;
+    position: fixed;
+    inset: 0;
+    z-index: var(--onboarding-z);
+    pointer-events: none;
+}
+
+.onboarding[hidden],
+.onboarding [hidden] {
+    display: none !important;
+}
+
+/* Full-screen catcher: clicks on the page behind the tour do nothing. */
+.onboarding-backdrop {
+    position: fixed;
+    inset: 0;
+    background: var(--onboarding-overlay);
+    pointer-events: auto;
+}
+
+/* With a target, the dim comes from the spotlight's shadow, leaving the target itself uncovered. */
+.onboarding.is-spotlight .onboarding-backdrop {
+    background: transparent;
+}
+
+.onboarding-spotlight {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 0;
+    height: 0;
+    border-radius: 10px;
+    box-shadow: 0 0 0 9999px var(--onboarding-overlay);
+    outline: 2px solid #ffffff;
+    pointer-events: auto;
+    transition: top 0.2s ease, left 0.2s ease, width 0.2s ease, height 0.2s ease;
+}
+
+.onboarding-card {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: min(360px, calc(100vw - 32px));
+    padding: 1rem 1.125rem;
+    border-radius: 12px;
+    background: var(--onboarding-card-bg);
+    color: var(--onboarding-card-fg);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+    pointer-events: auto;
+}
+
+.onboarding-card:focus {
+    outline: none;
+}
+
+/* No target (welcome, done, a missing or hidden anchor): centred in the viewport. */
+.onboarding-card.is-centered {
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+}
+
+/* Narrow screens: a bottom sheet that respects the device's safe area. Declared after .is-centered so it wins. */
+.onboarding-card.is-sheet {
+    top: auto;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    width: auto;
+    max-height: 60vh;
+    overflow-y: auto;
+    padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
+    border-radius: 16px 16px 0 0;
+    transform: none;
+}
+
+.onboarding-actions {
+    row-gap: 8px;
+}
+
+.onboarding button:focus-visible {
+    outline: 3px solid var(--onboarding-focus);
+    outline-offset: 2px;
+}
+
+@media (max-width: 575.98px) {
+    .onboarding-actions .btn {
+        min-height: 44px;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .onboarding *,
+    .onboarding *::before,
+    .onboarding *::after {
+        transition: none !important;
+        animation: none !important;
+        scroll-behavior: auto !important;
+    }
+}
