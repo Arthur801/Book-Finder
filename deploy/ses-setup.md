@@ -65,11 +65,13 @@ aws sts get-caller-identity --query '[Account,Arn]' --output text
 
 開啟 Cloudflare → `khwebsc.com` → **DNS** → **Records** → **Add record**。逐筆新增下表的紀錄。
 
+**Name 欄位只填子網域部分，不要填完整網域。** Cloudflare 的 Name 是相對於 `khwebsc.com` 的；填入 `mail.khwebsc.com` 這類完整名稱時，可能會被再接上一次網域，變成 `mail.khwebsc.com.khwebsc.com`（2026-11-15 實際發生過，造成 MAIL FROM 驗證失敗、測試信的 SPF 顯示 None）。存檔後請看 Cloudflare 列表中的 Name 欄，必須顯示 `mail`、`_dmarc`、`abc123._domainkey`，不能出現兩次 `khwebsc.com`。
+
 **最重要的一點：所有紀錄的 Proxy status 都必須是 DNS only（灰色雲）。** CNAME 在 Cloudflare 預設是 Proxied（橘色雲）。若保持 Proxied，Cloudflare 會改寫解析結果，SES 的 DKIM 驗證永遠不會通過。
 
 | # | Type | Name（Cloudflare 欄位） | Content | 其他 |
 |---|---|---|---|---|
-| 1～3 | CNAME | SES 表格中 DKIM 的 Name，形如 `abc123._domainkey`（可以貼完整的 `abc123._domainkey.khwebsc.com`，Cloudflare 會自動去掉網域） | SES 表格中對應的 Value，形如 `abc123.dkim.amazonses.com` | Proxy status：**DNS only** |
+| 1～3 | CNAME | SES 表格中 DKIM 的 Name **去掉結尾的 `.khwebsc.com`**，只填 `abc123._domainkey` | SES 表格中對應的 Value，形如 `abc123.dkim.amazonses.com` | Proxy status：**DNS only** |
 | 4 | MX | `mail` | `feedback-smtp.<REGION>.amazonses.com` | Priority：`10` |
 | 5 | TXT | `mail` | `v=spf1 include:amazonses.com ~all` | Cloudflare 會自動處理引號 |
 | 6 | TXT | `_dmarc` | `v=DMARC1; p=none;` | 見下方說明 |
@@ -85,6 +87,12 @@ curl -s -H 'accept: application/dns-json' 'https://cloudflare-dns.com/dns-query?
 curl -s -H 'accept: application/dns-json' 'https://cloudflare-dns.com/dns-query?name=mail.khwebsc.com&type=MX'
 curl -s -H 'accept: application/dns-json' 'https://cloudflare-dns.com/dns-query?name=mail.khwebsc.com&type=TXT'
 curl -s -H 'accept: application/dns-json' 'https://cloudflare-dns.com/dns-query?name=_dmarc.khwebsc.com&type=TXT'
+```
+
+另外確認沒有建錯位置（下面這行應該回傳空的 `Answer`）：
+
+```bash
+curl -s -H 'accept: application/dns-json' 'https://cloudflare-dns.com/dns-query?name=mail.khwebsc.com.khwebsc.com&type=MX'
 ```
 
 每一筆的 `Answer` 都要有你剛填的值。CNAME 的答案如果是 Cloudflare 的 IP，而不是 `….dkim.amazonses.com`，就表示 Proxy 沒有關掉。
