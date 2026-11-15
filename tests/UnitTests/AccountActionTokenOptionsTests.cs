@@ -1,4 +1,5 @@
 using Book_Finder.Application.Identity;
+using Microsoft.Extensions.Configuration;
 
 namespace UnitTests;
 
@@ -8,6 +9,21 @@ public sealed class AccountActionTokenOptionsTests
     public void Defaults_match_the_plan_values()
     {
         var options = new AccountActionTokenOptions();
+
+        Assert.Equal(TimeSpan.FromHours(1), options.RequestInterval);
+        Assert.Equal(TimeSpan.FromHours(24), options.EmailVerificationLifetime);
+        Assert.Equal(TimeSpan.FromHours(1), options.PasswordResetLifetime);
+    }
+
+    // The shipped appsettings.json must bind to the plan values. A TimeSpan "24:00:00" binds as 24 days, not 24 hours.
+    [Fact]
+    public void Shipped_appsettings_bind_to_the_plan_values()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddJsonFile(Path.Combine(AppContext.BaseDirectory, "appsettings.json"), optional: false)
+            .Build();
+        var options = new AccountActionTokenOptions();
+        configuration.GetSection(AccountActionTokenOptions.SectionName).Bind(options);
 
         Assert.Equal(TimeSpan.FromHours(1), options.RequestInterval);
         Assert.Equal(TimeSpan.FromHours(24), options.EmailVerificationLifetime);

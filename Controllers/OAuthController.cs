@@ -104,7 +104,7 @@ public class OAuthController(IUserStore users, IConfiguration configuration) : C
         // An expired session returns to the authorize request this form carried (rebuilt without the token and submit fields).
         var user = await SignedInUserAsync(cancellationToken);
         if (user is null)
-            return LocalRedirect(LoginRedirect(FormAuthorizeUrl(Request)));
+            return LocalRedirect(LoginRedirect(FormAuthorizeUrl(Request.Form)));
 
         if (!RequestsOnlyRecommendScope(request))
             return Reject(Errors.InvalidScope, "Only the books:recommend scope can be requested.");
@@ -246,8 +246,8 @@ public class OAuthController(IUserStore users, IConfiguration configuration) : C
     private string LocalRequestUrl() => (Request.PathBase + Request.Path).Add(Request.QueryString);
 
     // The authorize URL a POST came from. Hidden fields carry the OAuth parameters; the antiforgery token and the submit button are dropped.
-    internal static string FormAuthorizeUrl(HttpRequest request) =>
-        AuthorizePath + QueryString.Create(request.Form.Where(field =>
+    internal static string FormAuthorizeUrl(IFormCollection form) =>
+        AuthorizePath + QueryString.Create(form.Where(field =>
             field.Key != "__RequestVerificationToken" && field.Key != AcceptSubmit && field.Key != DenySubmit));
 
     // Sends the user to login and back to this same local URL afterwards (SafeReturnUrl accepts it). Callers use LocalRedirect,
