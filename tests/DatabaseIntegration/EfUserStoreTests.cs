@@ -122,6 +122,45 @@ public class EfUserStoreTests(PostgresFixture fixture)
         Assert.Equal(AddUserResult.Added, await store.AddAsync(other, CancellationToken.None));
     }
 
+    // email_verified_at and auth_version are mapped both ways: the store writes them on insert and reads them back.
+    [Fact]
+    public async Task Add_and_find_round_trip_email_verified_at_and_auth_version()
+    {
+        var local = UniqueLocalPart();
+        var verifiedAt = DateTime.SpecifyKind(new DateTime(2026, 11, 15, 2, 3, 4, 567).AddTicks(8900), DateTimeKind.Utc);
+        var user = NewUser($"{local}@x.com");
+        user.EmailVerifiedAt = verifiedAt;
+        user.AuthVersion = 3;
+        await using (var db = fixture.CreateContext())
+        {
+            Assert.Equal(AddUserResult.Added, await new EfUserStore(db).AddAsync(user, CancellationToken.None));
+        }
+
+        await using var read = fixture.CreateContext();
+        var found = await new EfUserStore(read).FindByEmailAsync($"{local}@x.com", CancellationToken.None);
+
+        Assert.NotNull(found);
+        Assert.Equal(verifiedAt, found.EmailVerifiedAt);
+        Assert.Equal(3, found.AuthVersion);
+    }
+
+    // A user whose email is not verified yet is stored with NULL, and the default auth_version is 0.
+    [Fact]
+    public async Task Add_without_verification_stores_null_email_verified_at_and_zero_auth_version()
+    {
+        var local = UniqueLocalPart();
+        await using var db = fixture.CreateContext();
+        var store = new EfUserStore(db);
+        await store.AddAsync(NewUser($"{local}@x.com"), CancellationToken.None);
+        db.ChangeTracker.Clear();
+
+        var found = await store.FindByEmailAsync($"{local}@x.com", CancellationToken.None);
+
+        Assert.NotNull(found);
+        Assert.Null(found.EmailVerifiedAt);
+        Assert.Equal(0, found.AuthVersion);
+    }
+
     [Fact]
     public async Task Update_password_hash_changes_only_hash_and_updated_at()
     {

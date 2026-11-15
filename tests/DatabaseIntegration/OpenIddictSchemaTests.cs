@@ -54,7 +54,8 @@ public class OpenIddictMigrationTests(MigrationServer server)
         await using var before = await OpenAsync(connectionString);
         var previous = await TableNamesAsync(before);
 
-        await MigrationServer.MigrateAsync(connectionString);
+        // Pinned to AddOpenIddict: later migrations add their own tables and must not change what this one creates.
+        await MigrationServer.MigrateAsync(connectionString, MigrationIds.AddOpenIddict);
         await using var after = await OpenAsync(connectionString);
         var current = await TableNamesAsync(after);
 
