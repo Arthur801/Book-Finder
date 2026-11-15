@@ -159,6 +159,12 @@ flowchart TD
 
 Embedding vector(1536) 由 DB 拒絕錯維度；upsert 無 change tracking。Profile 不覆寫來源簡介／目錄，失敗不立即重試，下次出現在結果時重新排程。兩種 workers 各自 Enabled 可停用；host stopping 正常取消，Embedding rounds 不重疊。Queue 與 pending dictionary 僅 process-local、非 durable/global 去重。Search 保存後的 profile enrichment 一般錯誤由 reader／scheduler 記 Warning 並降級；caller 已取消時 OperationCanceledException 仍傳播，但 Search 不回滾。此階段使用 caller token，已不受 60 秒 timeout token 控制，不能概括成「所有失敗皆不保存」。
 
+## OAuth 憑證撤銷（會員中心 B3）
+
+- 入口：Application 的 `IExternalCredentialRevoker`（目前無呼叫端，C4、D1 尚未實作）。
+- 流程：呼叫端開啟 `AppDbContext` transaction → `OAuthCredentialRevoker.RevokeAllForUserAsync` 對 `openiddict_authorizations`、`openiddict_tokens` 執行 `ExecuteUpdate`（status 改為 `revoked`，並換新 `concurrency_token`），或 `DeleteAllForUserAsync` 先 `ExecuteDelete` token、再 `ExecuteDelete` authorization → 呼叫端 commit 或 rollback。
+- 無資料時不寫入也不拋出例外；`Mcp:Enabled = false` 時照常寫入資料表，沒有驗證端讀取。
+
 ## 文件導航
 
 [流程](workflow-diagram.md) · [架構](architecture.md) · [待辦](backlog.md) · [歷史](update-history.md) · [案例](test-suite.md)

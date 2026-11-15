@@ -140,3 +140,16 @@ flowchart TD
 ```
 
 - Client 自行輪詢：Tool 描述建議 queued／running 時間隔 2～5 秒、總等待約 2 分鐘，超過就把 `statusUrl` 給使用者。
+
+## 7. 憑證撤銷（會員中心 B3）
+
+```mermaid
+flowchart TD
+    A[重設密碼 C4 或刪除帳號 D1] --> T[同一個 DB transaction]
+    T --> R[IExternalCredentialRevoker：撤銷或刪除該 user 的 OAuth 列]
+    R --> M{下一次 /mcp 請求}
+    M -- access token --> X[entry validation 拒絕：401]
+    M -- refresh token --> Y[/oauth/token：invalid_grant]
+```
+
+- 這條流程目前只有 port 與測試，呼叫端尚未接上（見 [Mcp backlog](backlog.md)）。

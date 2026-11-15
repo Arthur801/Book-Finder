@@ -199,3 +199,9 @@ git show --format= --numstat <sha> -- Application ':(exclude)Application/docs'
 | 2026-11-15 | `a7ec1b2` | feat(identity): add email verification columns and account action tokens (B1) | `Identity/AccountService.cs`（RegisterAsync 寫入 `EmailVerifiedAt = now`、`AuthVersion = 0`）；`tests/UnitTests/AccountServiceTests.cs`（斷言擴充） |
 
 驗證（2026-11-15）：UnitTests 1143 通過。行為變更：註冊後立即驗證，與目前行為相同；登入流程未改。
+
+## 會員中心 B3 OAuth 憑證撤銷 port（新增紀錄）
+
+| 提交 | Subject | 影響 |
+|---|---|---|
+| `eec680c` | feat(identity): add the OAuth credential revocation port (member-center B3) | 新增 `Identity/IExternalCredentialRevoker.cs` |

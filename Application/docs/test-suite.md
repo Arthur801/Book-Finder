@@ -293,3 +293,5 @@ Auth的Google登入/email驗證/忘記密碼/個資修改/refresh token依identi
 - **When**：`RecommendationQuotaReader.ReadAsync(userId, ct)`。
 - **Then**：used 0／1／19／20／25 分別得到 remaining 20／19／1／0／0（不為負）；Limit 與 Used 原樣回傳；DailyLimit=5 時 Limit 為 5；`sinceUtc` 在 `2026-11-15T15:59:59Z` 為 `2026-11-14T16:00Z`，在 `16:00:00Z` 為 `2026-11-15T16:00Z`。
 - 測試來源：[RecommendationQuotaReaderTests.cs](../../tests/UnitTests/RecommendationQuotaReaderTests.cs)。
+
+> 會員中心 B3 補記：2026-11-15 更新；程式變更記入 update-history 的 B3 段落。新增的撤銷 port 測試位於 DatabaseIntegration（`OAuthCredentialRevokerTests`）與 WebIntegration（`McpCredentialRevocationTests`），見 Infrastructure 與 Mcp 的 test-suite。

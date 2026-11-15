@@ -1,4 +1,5 @@
 using System.Security.Cryptography.X509Certificates;
+using Book_Finder.Application.Identity;
 using Book_Finder.Infrastructure.Persistence;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
@@ -38,6 +39,8 @@ public static class OAuthServiceCollectionExtensions
             .Bind(configuration.GetSection(OAuthOptions.SectionName))
             .ValidateOnStart();
         services.AddSingleton<IValidateOptions<OAuthOptions>>(new OAuthOptionsValidator(certificatesRequired));
+        // Registered whatever Mcp:Enabled says: account flows call it, and with no OAuth rows it changes nothing.
+        services.AddScoped<IExternalCredentialRevoker, OAuthCredentialRevoker>();
 
         if (!mcpEnabled)
             return services;

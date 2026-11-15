@@ -137,3 +137,14 @@ HostingSetup 支援設定不等於已驗證容器切換、公開 HTTPS、可信 
   - `EfUserStore.FindByIdAsync`：token endpoint 拒絕已刪除的使用者。
 - MCP-202：同一處註冊 OpenIddict validation（只在 `Mcp:Enabled = true`）：`UseLocalServer`、`AddAudiences({base}/mcp)`（與 `ResourceOf` 同一來源）、`EnableAuthorizationEntryValidation`、`EnableTokenEntryValidation`；**關閉** query string 與 form body 取 token（OpenIddict 7.8 預設兩者都開）。Validation 的 scheme 由 `/mcp` 閘門使用，不是預設 scheme。
 - 尚未實作：撤銷管理頁（D-10，不在本期）。
+
+## OAuth 憑證撤銷（會員中心 B3）
+
+[OAuthCredentialRevoker](../Identity/OAuth/OAuthCredentialRevoker.cs) 實作 Application 的 [IExternalCredentialRevoker](../../Application/Identity/IExternalCredentialRevoker.cs)：
+
+- 註冊在 `AddBookFinderOAuth` 中，**不受 `Mcp:Enabled` 控制**（scoped，在 MCP 開關的 early return 之前）。MCP 關閉時 OpenIddict 表仍存在，沒有資料就是 no-op。
+- 直接在 scoped `AppDbContext` 上用 `Set<OpenIddictEntityFrameworkCoreAuthorization／Token>()` 執行 `ExecuteUpdateAsync`（撤銷）與 `ExecuteDeleteAsync`（刪除）。沒有使用 `IOpenIddictAuthorizationManager`／`IOpenIddictTokenManager`：manager 逐筆 `TryRevokeAsync` 並各自保存，無法保證與呼叫端的 transaction 原子性；直接 SQL 一句就在呼叫端的連線與 transaction 上執行。
+- 撤銷同時把 `concurrency_token` 換成新值。OpenIddict 的 manager 若持有舊的列，更新時會遇到並行衝突，不會把自己的 status 寫回去覆蓋撤銷。
+- 撤銷生效的路徑：`EnableAuthorizationEntryValidation` 與 `EnableTokenEntryValidation`（只在 `Mcp:Enabled = true` 時註冊）讓 access token 立即 401；refresh grant 查 token 狀態後回 `invalid_grant`。
+- 刪除順序：先 token、再 authorization（token 對 authorization 的外鍵沒有 cascade）。
+- 限制：Mcp 關閉時撤銷仍會寫入資料表，但沒有驗證端會讀取它；這是刻意的，因為 C4、D1 不依賴 MCP 開關。
