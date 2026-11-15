@@ -284,7 +284,7 @@ Auth的Google登入/email驗證/忘記密碼/個資修改/refresh token依identi
 - mutation（主 agent）：把重試判斷 `<` 改成 `<=` → `Ai_unavailable_on_attempt_two_of_two_fails_the_job` 失敗，已還原。
 - 測試來源：[RecommendationJobRunnerTests.cs](../../tests/UnitTests/RecommendationJobRunnerTests.cs)、[RecommendationJobOptionsTests.cs](../../tests/UnitTests/RecommendationJobOptionsTests.cs)。
 
-### APP-T28 — 寄信 port、信件範本、站點網址與寄信設定（會員中心 C1）
+### APP-T29 — 寄信 port、信件範本、站點網址與寄信設定（會員中心 C1）
 
 - 風險／狀態：L2（尚無 flow 使用）；**測試實作：Implemented；執行：見 update-history 的 C1 紀錄**。規格：[會員中心計畫](../../Docs/plans/member-center-email-verification.md) D-A、D-F、C1。
 - **Given**：純函式與 `Options.Create`，不需要 host 或資料庫。

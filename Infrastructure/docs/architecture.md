@@ -153,6 +153,6 @@ HostingSetup 支援設定不等於已驗證容器切換、公開 HTTPS、可信 
 - `IEmailSender` 為 singleton；`TimeProvider` 由 `TryAddSingleton(TimeProvider.System)` 註冊。
 - `Program.cs` 在 MCP 之後呼叫 `AddBookFinderEmail(builder.Configuration, builder.Environment)`。
 
-appsettings：`appsettings.json` 為 `Email:Provider = None`、`EmailVerification:Enabled = false`、`Site:PublicBaseUrl = https://khwebsc.com`；`appsettings.Development.json` 為 `Site:PublicBaseUrl = https://localhost:7083`、`Email:Provider = Pickup`、`PickupDirectory = .local-mail`（已加入 `.gitignore`）。正式環境的 Ses 設定屬 L4，未在 `compose.prod.yaml` 中設定（見 INF-B10）。
+appsettings：`appsettings.json` 為 `Email:Provider = None`、`EmailVerification:Enabled = false`、`Site:PublicBaseUrl = https://khwebsc.com`；`appsettings.Development.json` 為 `Site:PublicBaseUrl = https://localhost:7083`、`Email:Provider = Pickup`、`PickupDirectory = .local-mail`（已加入 `.gitignore`）。正式環境的 Ses 設定屬 L4，未在 `compose.prod.yaml` 中設定（見 INF-B11）。
 
-安全取捨：Pickup 會把信件寫到磁碟而不是寄出，若誤用於正式環境，使用者收不到信件而系統不會報錯；目前沒有以環境名稱阻擋的機制，只能靠設定審查（INF-B10）。
+安全取捨：Pickup 會把信件寫到磁碟而不是寄出，若誤用於正式環境，使用者會收不到信而系統不報錯。因此不是 Development 環境時，`Email:Provider = Pickup` 會讓啟動驗證失敗（`ValidateOnStart`），host 不會啟動。

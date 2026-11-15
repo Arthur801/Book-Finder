@@ -42,6 +42,21 @@ public sealed class EmailServiceCollectionExtensionsTests : IDisposable
         Assert.IsType<PickupDirectoryEmailSender>(provider.GetRequiredService<IEmailSender>());
     }
 
+    [Theory]
+    [InlineData("Production")]
+    [InlineData("Staging")]
+    public void Provider_pickup_is_refused_outside_development(string environmentName)
+    {
+        using var provider = Build(new Dictionary<string, string?>
+        {
+            ["Email:Provider"] = "Pickup",
+            ["Email:PickupDirectory"] = ".local-mail",
+        }, environmentName);
+
+        var error = Assert.Throws<OptionsValidationException>(() => provider.GetRequiredService<IOptions<EmailOptions>>().Value);
+        Assert.Contains("Development", error.Message);
+    }
+
     [Fact]
     public void Provider_ses_resolves_to_the_ses_sender()
     {
@@ -105,13 +120,13 @@ public sealed class EmailServiceCollectionExtensionsTests : IDisposable
         Assert.NotNull(provider.GetRequiredService<SiteUrlBuilder>());
     }
 
-    private ServiceProvider Build(Dictionary<string, string?> settings)
+    private ServiceProvider Build(Dictionary<string, string?> settings, string environmentName = "Development")
     {
         var configuration = new ConfigurationBuilder().AddInMemoryCollection(settings).Build();
         var services = new ServiceCollection();
         services.AddSingleton<IConfiguration>(configuration);
         services.AddLogging();
-        services.AddBookFinderEmail(configuration, new FakeEnvironment(contentRoot));
+        services.AddBookFinderEmail(configuration, new FakeEnvironment(contentRoot) { EnvironmentName = environmentName });
         return services.BuildServiceProvider();
     }
 

@@ -29,7 +29,7 @@ public static class EmailServiceCollectionExtensions
         services.AddOptions<EmailOptions>()
             .Bind(configuration.GetSection(EmailOptions.SectionName))
             .ValidateOnStart();
-        services.AddSingleton<IValidateOptions<EmailOptions>>(new EmailOptionsValidator(verificationEnabled));
+        services.AddSingleton<IValidateOptions<EmailOptions>>(new EmailOptionsValidator(verificationEnabled, environment.IsDevelopment()));
 
         services.AddSingleton<IEmailSender>(provider =>
         {
@@ -50,10 +50,14 @@ public static class EmailServiceCollectionExtensions
         return services;
     }
 
-    private sealed class EmailOptionsValidator(bool verificationEnabled) : IValidateOptions<EmailOptions>
+    // Pickup only writes files, so outside Development it would drop every mail without an error; the host refuses to start instead.
+    private sealed class EmailOptionsValidator(bool verificationEnabled, bool development) : IValidateOptions<EmailOptions>
     {
         public ValidateOptionsResult Validate(string? name, EmailOptions options)
         {
+            if (options.Provider == EmailProvider.Pickup && !development)
+                return ValidateOptionsResult.Fail("Email:Provider 為 Pickup 只能用於 Development 環境");
+
             var error = options.ValidationError(verificationEnabled);
             return error is null ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(error);
         }

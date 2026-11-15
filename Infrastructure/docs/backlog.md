@@ -62,12 +62,12 @@ Debug 證據收集：INF-B04 須保存去識別的 request scheme、來源網段
   - 取 lock 的順序固定，依 key 的數值由小到大，交錯執行也不會 deadlock。
   - lock key 和 crawler 的正規化結果逐 byte 一致。
 
-## INF-B10 — 正式寄信（Ses）尚未接線，Pickup 的誤用沒有防護
+## INF-B11 — 正式寄信（Ses）尚未接線
 
 - **P1 / L4 / 待使用者授權與操作**，對應 [會員中心計畫](../../Docs/plans/member-center-email-verification.md) Feature E。
 - 目標：SES 驗證 `khwebsc.com` 網域、設定 DKIM 與 SPF／DMARC、申請 production access；instance role 加上限定 identity 的 `ses:SendEmail`；確認 IMDSv2 hop limit ≥ 2，讓 container 取得 role（不行時改用 SES SMTP 憑證存入 SSM，屆時再決定）；之後才在 `compose.prod.yaml` 設定 `Email__Provider=Ses`、`Email__From`、`Email__Region`。這些步驟不屬於 agent 可自主執行的範圍。
 - 目前差距：`appsettings.json` 為 `Provider None`，正式環境沒有任何寄信設定；`compose.prod.yaml` 未修改（DEP 模組的範圍）。
-- Pickup 的風險：若誤設在正式環境，信件只會寫到磁碟、系統不報錯。候選防護（尚未決定）：啟動時若 Provider 為 Pickup 且不是 Development 環境則拒絕啟動；或要求 `EmailVerification:Enabled` 為 true 時 Provider 不可為 Pickup。兩者都會改變啟動行為，需使用者決定。
+- Pickup 的誤用已在 C1 處理：不是 Development 環境時，`Email:Provider = Pickup` 會讓啟動驗證失敗（見 [architecture](architecture.md)）。
 - 驗收：正式環境 SES 實際寄出三種信（註冊驗證、重寄驗證信、忘記密碼），且 1 小時內第二次申請不會再寄；不是 CI 可驗證的項目。
 
 ## 已處理

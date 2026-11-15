@@ -223,6 +223,6 @@ Git 歷史不證明 runtime 或 CI 已通過。
 
 | 日期 | 提交 | subject | 影響 |
 |---|---|---|---|
-| 2026-11-15 | 本次 commit（`mc-c1-email-port`） | test(email): port, templates, options, adapters and capturing fake (C1) | 新增 `tests/UnitTests/AccountEmailTemplatesTests.cs`、`SiteOptionsTests.cs`、`EmailOptionsTests.cs`、`SesEmailSenderTests.cs`、`PickupDirectoryEmailSenderTests.cs`、`NoEmailSenderTests.cs`、`EmailServiceCollectionExtensionsTests.cs`；`tests/WebIntegration/CapturingEmailSender.cs`、`EmailPortTests.cs`（新增）；`WebFixture.cs`（`Email`、`IEmailSender` 替身） | APP-T28、INF-T25、TEST-39 |
+| 2026-11-15 | 本次 commit（`mc-c1-email-port`） | test(email): port, templates, options, adapters and capturing fake (C1) | 新增 `tests/UnitTests/AccountEmailTemplatesTests.cs`、`SiteOptionsTests.cs`、`EmailOptionsTests.cs`、`SesEmailSenderTests.cs`、`PickupDirectoryEmailSenderTests.cs`、`NoEmailSenderTests.cs`、`EmailServiceCollectionExtensionsTests.cs`；`tests/WebIntegration/CapturingEmailSender.cs`、`EmailPortTests.cs`（新增）；`WebFixture.cs`（`Email`、`IEmailSender` 替身） | APP-T29、INF-T27、TEST-40 |
 
 執行（本次 worktree）：UnitTests 1216 通過；WebIntegration 過濾測試 14 通過；全量 WebIntegration 見 PR 說明的最終紀錄。
