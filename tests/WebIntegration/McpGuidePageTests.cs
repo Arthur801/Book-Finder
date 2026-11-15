@@ -40,7 +40,7 @@ public sealed class McpGuidePageTests(WebFixture fixture)
     }
 
     [Fact]
-    public async Task Signed_out_navbar_links_to_the_guide_after_the_login_and_register_links()
+    public async Task Signed_out_navbar_links_to_the_guide_from_the_more_menu_beside_login_and_register()
     {
         await fixture.ResetDatabaseAsync();
         await using var app = fixture.CreateFactory();
@@ -48,9 +48,11 @@ public sealed class McpGuidePageTests(WebFixture fixture)
 
         var html = await client.GetPageAsync("/");
 
-        var guide = html.IndexOf(GuideLink, StringComparison.Ordinal);
-        Assert.True(guide > html.IndexOf("href=\"/account/login\"", StringComparison.Ordinal));
-        Assert.True(guide > html.IndexOf("href=\"/account/register\"", StringComparison.Ordinal));
+        // The guide sits in the More dropdown, which comes before the login and register links in the header.
+        Assert.Contains(GuideLink, HtmlPage.MoreMenu(html));
+        var header = HtmlPage.Header(html);
+        Assert.Contains("href=\"/account/login\"", header);
+        Assert.Contains("href=\"/account/register\"", header);
     }
 
     [Fact]
@@ -64,6 +66,6 @@ public sealed class McpGuidePageTests(WebFixture fixture)
         var html = await client.GetPageAsync("/");
 
         Assert.Contains("action=\"/account/logout\"", html);
-        Assert.Contains(GuideLink, html);
+        Assert.Contains(GuideLink, HtmlPage.MoreMenu(html));
     }
 }
