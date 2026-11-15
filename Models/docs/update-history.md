@@ -106,3 +106,9 @@ git show cda623f -- Models
 | 2026-11-14 | `4db0c98` | feat(rec-jobs): add the job submit, list and get API | `RecommendationJobResponse.cs`（新增） |
 | 2026-11-14 | `e00cbb5` | feat(rec-jobs): show the job list on /ai and the job status page | `AiJobListViewModel.cs`、`AiJobViewModel.cs`（新增） |
 | 2026-11-14 | `48b2edd` | feat(mcp): OAuth consent page (MCP-201b) | `OAuthConsentViewModel.cs`（新增） |
+
+## 會員中心 A1 共用 partial（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | 本分支 | refactor(models): make the library tab and job list URLs configurable (member center A1) | `LibraryPageViewModel.cs`：`From` 與新 `UrlFor` 加 base path、fragment 參數，預設 `/library`；`AiJobListViewModel.cs`：`From`、`UrlFor` 加 base path、保留 query、fragment 參數，預設 `/ai` 不變；新增 `tests/UnitTests/LibraryPageViewModelTests.cs`，`AiJobViewModelTests.cs` 增加 URL 案例 |

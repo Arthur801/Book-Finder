@@ -25,6 +25,10 @@ public sealed class AccountServiceTests
         Assert.Equal(Now.UtcDateTime, stored.UpdatedAt);
         Assert.Equal(DateTimeKind.Utc, stored.CreatedAt.Kind);
         Assert.Equal(DateTimeKind.Utc, stored.UpdatedAt.Kind);
+        // Verification switch off (EmailVerification:Enabled=false, the only behaviour before the switch module): the account is verified at creation.
+        Assert.Equal(Now.UtcDateTime, stored.EmailVerifiedAt);
+        Assert.Equal(DateTimeKind.Utc, stored.EmailVerifiedAt!.Value.Kind);
+        Assert.Equal(0, stored.AuthVersion);
         Assert.Equal(1, passwords.HashCallCount);
 
         var success = Assert.IsType<RegisterResult.Succeeded>(result);

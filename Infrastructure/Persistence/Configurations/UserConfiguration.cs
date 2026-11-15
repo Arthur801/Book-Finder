@@ -14,6 +14,9 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
         builder.Property(x => x.Email).HasColumnType("varchar(320)").IsRequired();
         builder.Property(x => x.PasswordHash).HasColumnType("text").IsRequired();
         builder.Property(x => x.DisplayName).HasColumnType("varchar(100)").IsRequired();
+        builder.Property(x => x.EmailVerifiedAt).HasColumnType("timestamptz");
+        // The database default lets an older release insert users without this column and still get 0.
+        builder.Property(x => x.AuthVersion).HasColumnType("integer").HasDefaultValue(0);
         builder.Property(x => x.CreatedAt).HasColumnType("timestamptz");
         builder.Property(x => x.UpdatedAt).HasColumnType("timestamptz");
     }

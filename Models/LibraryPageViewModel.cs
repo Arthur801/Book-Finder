@@ -13,7 +13,13 @@ public sealed record LibraryPageViewModel(
     public bool IsEmpty => Items.Count == 0;
 
     // Items are already newest UpdatedAt first (the store orders them). Null filter means 全部.
-    public static LibraryPageViewModel From(ReadingStatus? filter, IReadOnlyList<LibraryItem> items, string editLoginUrl)
+    // basePath and fragment shape the filter tab links only: /library by default, /account#library on the member center.
+    public static LibraryPageViewModel From(
+        ReadingStatus? filter,
+        IReadOnlyList<LibraryItem> items,
+        string editLoginUrl,
+        string basePath = "/library",
+        string? fragment = null)
     {
         var rows = items.Select(item => new LibraryRowViewModel(
             item.BookId,
@@ -22,16 +28,23 @@ public sealed record LibraryPageViewModel(
             item.ThumbnailUrl,
             new LibraryControlsViewModel(item.BookId, item.Status, item.Rating, editLoginUrl))).ToList();
 
-        var tabs = new List<LibraryFilterTab> { new("全部", "/library", filter is null) };
+        var tabs = new List<LibraryFilterTab> { new("全部", UrlFor(null, basePath, fragment), filter is null) };
         foreach (var status in ReadingStatusCode.All)
         {
             tabs.Add(new LibraryFilterTab(
                 ReadingStatusCode.Label(status),
-                $"/library?status={ReadingStatusCode.ToCode(status)}",
+                UrlFor(status, basePath, fragment),
                 filter == status));
         }
 
         return new LibraryPageViewModel(filter, rows, tabs);
+    }
+
+    // A null status is the 全部 tab, which has no status query. The fragment, when given, goes last.
+    public static string UrlFor(ReadingStatus? status, string basePath = "/library", string? fragment = null)
+    {
+        var query = status is { } value ? $"?status={ReadingStatusCode.ToCode(value)}" : string.Empty;
+        return $"{basePath}{query}{fragment}";
     }
 }
 

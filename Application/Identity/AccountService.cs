@@ -28,6 +28,9 @@ public sealed class AccountService(IUserStore users, IPasswordHashing passwords,
             Email = rules.Email,
             DisplayName = rules.DisplayName,
             PasswordHash = passwords.Hash(password!),
+            // Verification switch off (the only behaviour until EmailVerification:Enabled exists): verified at creation.
+            EmailVerifiedAt = now.UtcDateTime,
+            AuthVersion = 0,
             CreatedAt = now.UtcDateTime,
             UpdatedAt = now.UtcDateTime,
         };
