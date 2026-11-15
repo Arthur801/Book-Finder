@@ -139,5 +139,5 @@ site.js 目前只有模板註解，沒有待實作商業功能；不把它列缺
 
 - 狀態：`node --check wwwroot/js/onboarding.js` 通過；`grep` 檢查 `fetch(`、`XMLHttpRequest`、`.submit(`、`.click(` 沒有匹配（ONB-11 靜態證據）。WebIntegration 另由 `OnboardingTests` 檢查 `/js/onboarding.js` 以 defer 載入、`/css/onboarding.css` 已連結、導覽區塊沒有 `<form>`（見 [Views VIEW-T29](../../Views/docs/test-suite.md)）。
 - 未執行：瀏覽器中 spotlight 定位、Bootstrap 收合、焦點陷阱、Escape、reduced motion、localStorage 失敗與 hash 清理（plan §8 ONB-01～ONB-09）。網站 E2E 仍明確暫緩；一次性本機瀏覽器驗收見 [backlog](backlog.md) WB-04。
-- 瀏覽器結果：2026-11-15 一次性本機 Playwright（Chromium；拋棄式 pgvector 0.8.7-pg17、`manage_categories.py sync --apply` 寫入 18 類與 283 筆 Mapping、85 本假書其中一類 0 本；網站以 Development + HTTPS 啟動，OpenAI 以 proxy 擋下；腳本未 commit）76／76 通過，ONB 38 項與 CAT 欄數、無 JS 案例細節見 [Views VIEW-T30](../../Views/docs/test-suite.md)。
+- 瀏覽器結果：2026-11-15 一次性本機 Playwright（Chromium；拋棄式 pgvector 0.8.7-pg17、`manage_categories.py sync --apply` 寫入 18 類與 283 筆 Mapping、85 本假書其中一類 0 本；網站以 Development + HTTPS 啟動，OpenAI 以 proxy 擋下；腳本未 commit）80／80 通過，ONB 42 項與 CAT 欄數、無 JS 案例細節見 [Views VIEW-T30](../../Views/docs/test-suite.md)。
 - Given：`onboarding.js` 原始碼；When 執行 `node --check` 並搜尋禁止的呼叫；Then 語法有效，且沒有網路、表單或頁面點擊呼叫。

@@ -209,7 +209,7 @@ git show 894883b -- Views
 |---|---|---|---|
 | 2026-11-15 | 本次 commit | docs(ui): record the browser check of the header, category grid and tour | 本目錄 `test-suite.md`（VIEW-T30、P4 段落的全量結果）、`backlog.md`（VIEW-B08、VIEW-B09 結案）、`update-history.md`；未改程式 |
 
-驗證：2026-11-15 一次性本機 Playwright（Chromium；拋棄式 pgvector 0.8.7-pg17、`manage_categories.py sync --apply` 寫入 18 類與 283 筆 Mapping、85 本假書其中一類 0 本；網站以 Development + HTTPS 啟動，OpenAI 以 proxy 擋下；腳本未 commit）76／76 通過。
+驗證：2026-11-15 一次性本機 Playwright（Chromium；拋棄式 pgvector 0.8.7-pg17、`manage_categories.py sync --apply` 寫入 18 類與 283 筆 Mapping、85 本假書其中一類 0 本；網站以 Development + HTTPS 啟動，OpenAI 以 proxy 擋下；腳本未 commit）80／80 通過。
 
 ## 首次導覽 P4：review 修正（新增紀錄）
 
