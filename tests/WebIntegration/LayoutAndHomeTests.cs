@@ -42,7 +42,7 @@ public sealed class LayoutAndHomeTests(WebFixture fixture)
     }
 
     [Fact]
-    public async Task Home_shows_search_and_ai_entry_forms_and_link_to_full_catalog()
+    public async Task Home_shows_search_and_ai_entry_forms_and_link_to_the_category_browse()
     {
         await fixture.ResetDatabaseAsync();
         await using var app = fixture.CreateFactory();
@@ -52,7 +52,9 @@ public sealed class LayoutAndHomeTests(WebFixture fixture)
         Assert.Matches("<form [^>]*action=\"/search\"[^>]*>", html);
         Assert.Matches("<input [^>]*name=\"q\"[^>]*>", html);
         Assert.Matches("<form [^>]*action=\"/ai\"[^>]*>", html);
-        Assert.Matches("<a href=\"/books\">查看完整書庫</a>", html);
+        Assert.Matches("<a href=\"/categories\">瀏覽全部分類</a>", html);
+        // REG-03: the main content no longer sends visitors to /books; the header is checked by NavbarTests.
+        Assert.DoesNotContain("href=\"/books\"", html);
     }
 
     [Fact]
