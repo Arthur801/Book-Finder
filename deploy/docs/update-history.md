@@ -378,3 +378,11 @@ git log --reverse --no-merges --format='@@%h' --numstat -- <同上路徑>
 | 日期 | commit | subject | 變更 |
 |---|---|---|---|
 | 2026-11-15 | `a7ec1b2` | feat(identity): add email verification columns and account action tokens (B1) | `deploy/migration-test/seeds/20261115055411_AddEmailVerificationAndAccountTokens.sql`（新增）：AddOpenIddict seed 全文不變，加上 2 位使用者與 4 筆 `account_action_tokens`；與新增 migration 同一個 PR（DEP-B25 方向 (b)）。驗證：`deploy/tests` 722 通過、17 skip（pytest，2026-11-15）；`check_migrations.py` 通過（無 released manifest 時跳過不可變檢查）；compat.sh 端到端未在本機執行（需 Docker 與 GHCR image digest） |
+
+## 2026-11-15 會員中心 C3：限流的上線前提（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | 本次 commit | docs(deploy): record the nginx real-IP check behind the per-IP rate limit | `README.md`：查核清單第 7、8 項改為已由營運確認（nginx 轉發設定、Cloudflare 真實 IP、docker network 與 KnownNetworks）；`docs/backlog.md`：新增 DEP-B28（Cloudflare 網段的更新） |
+
+驗證（2026-11-15，營運在 EC2 上執行，agent 從外部確認）：修正前 app 收到的 `X-Forwarded-For` 是 Cloudflare 節點 IP；新增 real-IP 設定並 reload nginx 後，`X-Forwarded-For` 等於 `CF-Connecting-IP`；公開首頁與登入頁回 200。
