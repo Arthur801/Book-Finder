@@ -1,5 +1,8 @@
 # Infrastructure AI 文字測試案例庫
 
+> 帳號動作 token C2 補記：2026-11-15 更新；程式變更以 `4064680` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
+
 > 非同步推薦 Job M6 補記：2026-11-14 更新；程式變更以 `54ad51b`、`0d3b3ac`、`93db136`、`11f86b4`、`c0ac2f6` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M4 補記：2026-11-14 更新；程式變更以 `4b31184`、`5d143b4`、`08d8c9a`、`1f36620`、`ef89755` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M2 補記：2026-11-14 更新；程式變更以 `6717d8f` 記入 update-history。原查核基準保留，未重新審查其餘內容。
@@ -294,3 +297,33 @@ dotnet test tests/WebIntegration/WebIntegration.csproj
   - DI：None、Pickup、Ses 各解析到對應 adapter；預設為 None 且驗證關閉；驗證開啟搭配 None、Ses 缺 Region、缺 Site:PublicBaseUrl、Production／Staging 環境設定 Pickup 時，選項取值即拋出 `OptionsValidationException`。
 - 測試來源：[SesEmailSenderTests.cs](../../tests/UnitTests/SesEmailSenderTests.cs)、[PickupDirectoryEmailSenderTests.cs](../../tests/UnitTests/PickupDirectoryEmailSenderTests.cs)、[NoEmailSenderTests.cs](../../tests/UnitTests/NoEmailSenderTests.cs)、[EmailServiceCollectionExtensionsTests.cs](../../tests/UnitTests/EmailServiceCollectionExtensionsTests.cs)。
 - 已知缺口：沒有對真實 SES 的整合測試（需要 AWS 憑證與已驗證網域，屬 L4，見 INF-B11）。
+
+## INF-T28 — Cookie auth_version 與使用者存在檢查（B2）
+
+- 責任／風險／狀態：Identity adapter，L3；2026-11-15 本地執行結果見 update-history。
+- Given：固定 time；User 已存入 DB；測試 signing key 與 app 相同；舊式 token 只含 sub 與 name。
+- When：Issue(user) 後解析 claim；以 `UPDATE users SET auth_version = auth_version + 1` 或 `ExecuteDelete` 改變 DB 狀態後，送帶 `bf_auth` 的頁面與 `/api` 請求；送不含 `auth_version` claim 的 token，DB 版本為 0 與為 1 各一次。
+- Then：claim 為 `"3"`（AuthVersion=3）；版本相符的 Cookie 頁面與 API 皆 200；版本 bump 或使用者刪除後，頁面 302 登入、API 401，回應含過期的 `bf_auth` Set-Cookie；舊式 token 在版本 0 時通過，版本為 1 時被拒絕並刪 Cookie。
+- 入口：[AuthTokenIssuerTests](../../tests/UnitTests/AuthTokenIssuerTests.cs)（`Issued_token_carries_the_users_auth_version_as_an_integer_string_claim`）、[AuthPipelineTests](../../tests/WebIntegration/AuthPipelineTests.cs)（`Cookie_is_rejected_on_page_and_api_after_auth_version_is_bumped_and_cookie_is_deleted`、`Cookie_is_rejected_on_page_and_api_after_the_user_row_is_deleted`、`Cookie_with_the_current_auth_version_is_accepted_after_an_earlier_bump`、`Token_without_auth_version_claim_is_accepted_while_the_stored_version_is_zero`、`Token_without_auth_version_claim_is_rejected_once_the_stored_version_is_one`）。
+- 行為變更（B2）：使用者在 OAuth 同意頁停留期間被刪除時，同意 POST 的 cookie 在認證階段即被拒並刪除，POST 以匿名身分執行；antiforgery token 原綁定已登入身分，framework 回 400（頁面的純 400，非 login redirect），且不寫入 authorization。對應 OAuthFlowTests `Consent_post_after_the_session_ends_is_refused_and_stores_no_authorization`。
+- 限制：本測試不驗證真實 Cookie 經瀏覽器的 Set-Cookie 行為；開關與部署順序不在此範圍。
+
+## INF-T29 — 帳號動作 token 持久化與並發（計畫 C2）
+
+- 責任／風險／狀態：EF store 與交易、並發、cascade，L3；已有測試，2026-11-15 DatabaseIntegration 289 項通過（其中本案例 13 項）。
+- Given：共用 PostgreSQL fixture；每個測試以新的 user id 建立使用者；時間為 `FakeTimeProvider`，起點 `2026-11-15T04:00:00Z`。
+- When／Then：
+  - Issue 寫入的列：`token_hash` 等於 raw 的 SHA-256 hex，raw 本身不存在於任何列；`purpose`、`created_at`、`expires_at = created_at + 24 小時`、`consumed_at` 為 NULL；
+  - Issue 後 consume 成功一次，第二次 consume 與 IsUsable 都失敗（重放）；
+  - 過期：到期前 1 秒可用，恰好到期時 IsUsable 與 consume 皆失敗；
+  - 用途不符：驗證信 token 不能當重設密碼 consume，且仍可用原用途 consume；
+  - 節流：同用途第 59 分 59 秒再申請回 Throttled；恰好 60 分鐘回 Issued，舊 token 的 IsUsable 與 consume 失敗，新 token 可用；
+  - 節流按用途分開：驗證信 issue 不擋密碼重設 issue；
+  - Discard：刪除該列，之後同用途可立即再 issue；被刪 token 的 consume 失敗；
+  - 不存在的 user：回 UserNotFound，user 的 token 列為 0；
+  - 並發 consume：兩個 DbContext 同時 consume 同一 token，恰好一個回 user id、一個回 null；
+  - 並發 issue：兩個 DbContext 同時 issue 同一 user 與用途，恰好一個 Issued、一個 Throttled，列數為 1；
+  - Consume 在外層交易中被 rollback：token 仍可用；
+  - 刪除 user：其 token 列被 cascade 刪除。
+- 入口：[EfAccountActionTokenStoreTests](../../tests/DatabaseIntegration/EfAccountActionTokenStoreTests.cs)。
+- 驗證強度：並發 issue 測試在移除 `FOR UPDATE` 後 3/3 失敗，證明它確實依賴鎖。

@@ -1,5 +1,8 @@
 # Infrastructure 修改歷史
 
+> 帳號動作 token C2 補記：2026-11-15 更新；程式變更以 `4064680` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
+
 > 非同步推薦 Job M7 補記：2026-11-14 更新；程式變更以 `4db0c98`、`e00cbb5`、`5559870`、`ac88ef2` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M6 補記：2026-11-14 更新；程式變更以 `54ad51b`、`0d3b3ac`、`93db136`、`11f86b4`、`c0ac2f6` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M4 補記：2026-11-14 更新；程式變更以 `4b31184`、`5d143b4`、`08d8c9a`、`1f36620`、`ef89755` 記入 update-history。原查核基準保留，未重新審查其餘內容。
@@ -219,6 +222,9 @@ git show <SHA> -- Infrastructure
 | 2026-11-14 | `d245b9b`、`e16b56f`、`84f8656` | feat／test(mcp): OpenIddict tables, server, client sync (MCP-201a) | `Identity/OAuth/OAuthOptions.cs`、`OAuthServiceCollectionExtensions.cs`、`OAuthClientSync.cs`（新增）；`Persistence/AppDbContext.cs`（`UseOpenIddict` 與 snake_case 表名）；`Persistence/Migrations/20261114082838_AddOpenIddict*`（新增） |
 | 2026-11-14 | `48b2edd`、`3a41690` | feat／test(mcp): OAuth authorize, consent and token (MCP-201b) | `Identity/OAuth/OAuthServiceCollectionExtensions.cs`（`RegisterResources`、discovery 只宣告 `books:recommend`、`ResourceOf`）；`OAuthClientSync.cs`（resource permission）；`Persistence/EfUserStore.cs`（`FindByIdAsync`） |
 | 2026-11-14 | `19e40d3` | feat(mcp): validate OpenIddict access tokens at the MCP gate (MCP-202) | `Identity/OAuth/OAuthServiceCollectionExtensions.cs`：OpenIddict validation（local server、audience、entry validation、只讀 Authorization header） |
+| 2026-11-15 | `eec680c` | feat(identity): add the OAuth credential revocation port (member-center B3) | `Identity/OAuth/OAuthCredentialRevoker.cs`（新增）；`Identity/OAuth/OAuthServiceCollectionExtensions.cs`（註冊 `IExternalCredentialRevoker`，不受 `Mcp:Enabled` 控制） |
+
+驗證（2026-11-15，`dotnet build --no-incremental` 0 warning、0 error）：UnitTests 1143 通過；DatabaseIntegration 260 通過（本次新增 `OAuthCredentialRevokerTests` 6 項）；WebIntegration `--filter "FullyQualifiedName~Mcp|FullyQualifiedName~OAuth"` 112 通過（本次新增 `McpCredentialRevocationTests` 1 項）。
 
 ## 帳號驗證 B1 schema（新增紀錄）
 
@@ -228,10 +234,6 @@ git show <SHA> -- Infrastructure
 
 驗證（2026-11-15）：`dotnet build --no-incremental` 0 warning；DatabaseIntegration 276 通過（含 `OpenIddictSchemaTests` 的 target 修正）；`dotnet ef migrations add` 產生骨架，Up 手寫回填、Down 只移除新增項目。
 
-| 2026-11-15 | `eec680c` | feat(identity): add the OAuth credential revocation port (member-center B3) | `Identity/OAuth/OAuthCredentialRevoker.cs`（新增）；`Identity/OAuth/OAuthServiceCollectionExtensions.cs`（註冊 `IExternalCredentialRevoker`，不受 `Mcp:Enabled` 控制） |
-
-驗證（2026-11-15，`dotnet build --no-incremental` 0 warning、0 error）：UnitTests 1143 通過；DatabaseIntegration 260 通過（本次新增 `OAuthCredentialRevokerTests` 6 項）；WebIntegration `--filter "FullyQualifiedName~Mcp|FullyQualifiedName~OAuth"` 112 通過（本次新增 `McpCredentialRevocationTests` 1 項）。
-
 ## 會員中心 C1：寄信 adapter 與設定綁定（新增紀錄）
 
 | Author 日期 | SHA | subject | 本目錄實際改動檔案 |
@@ -239,3 +241,19 @@ git show <SHA> -- Infrastructure
 | 2026-11-15 | 本次 commit（`mc-c1-email-port`） | feat(email): SES, pickup and none email adapters with provider wiring (C1) | `Email/SesEmailSender.cs`、`PickupDirectoryEmailSender.cs`、`NoEmailSender.cs`、`EmailServiceCollectionExtensions.cs`（新增）；`Book-Finder.csproj`（`AWSSDK.SimpleEmailV2` 4.1.0 精確釘選，獨立 ItemGroup）；`Program.cs`（呼叫 `AddBookFinderEmail`）；`appsettings.json`、`appsettings.Development.json`（Site、EmailVerification、Email）；`.gitignore`（`/.local-mail/`） |
 
 驗證（本次 worktree 執行）：`dotnet build --no-incremental` 0 warning；`dotnet test tests/UnitTests` 1216 通過；`dotnet test tests/WebIntegration --filter EmailPortTests|LayoutAndHomeTests|NavbarTests` 14 通過（全量見 tests update-history）。
+
+## 帳號驗證 B2 Cookie auth_version（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | `6c7428a` | feat(identity): invalidate website login cookies by auth_version (B2) | `Identity/JwtOptions.cs`（`AuthVersionClaim`）、`Identity/AuthTokenIssuer.cs`（簽發 `auth_version`）、`Identity/AuthServiceCollectionExtensions.cs`（`OnTokenValidated`：User 存在且版本相符，否則刪 `bf_auth` 並 `ctx.Fail`；缺 claim 視為 0） |
+
+驗證（2026-11-15）：`dotnet build --no-incremental` 0 warning、0 error；UnitTests 1144 通過；WebIntegration 453 通過（含 `AuthPipelineTests` 19 項、`OAuthFlowTests` 27 項）。`Consent_post_after_the_session_ends_*` 由回登入頁改為 400 且不寫 authorization，原因見 INF-T28。每個帶 cookie 的請求多一次主鍵讀取，無快取。
+
+## 帳號動作 token C2 store（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | `4064680` | feat(identity): account action token service and EF store (C2) | `Persistence/EfAccountActionTokenStore.cs`（新增）；`Identity/AuthServiceCollectionExtensions.cs`（options 驗證與 store、service 註冊） |
+
+驗證（2026-11-15）：DatabaseIntegration 289 通過，其中 `EfAccountActionTokenStoreTests` 13 項；mutation 檢查：移除 `FOR UPDATE` 後並發 issue 測試 3/3 失敗，還原後通過。行為變更：無使用者可見變更。

@@ -1,5 +1,8 @@
 # Infrastructure 架構
 
+> 帳號動作 token C2 補記：2026-11-15 更新；程式變更以 `4064680` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
+
 > 帳號驗證 B1 補記：2026-11-15 更新；程式變更以 `a7ec1b2` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M7 補記：2026-11-14 更新；程式變更以 `4db0c98`、`e00cbb5`、`5559870`、`ac88ef2` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M6 補記：2026-11-14 更新；程式變更以 `54ad51b`、`0d3b3ac`、`93db136`、`11f86b4`、`c0ac2f6` 記入 update-history。原查核基準保留，未重新審查其餘內容。
@@ -71,6 +74,8 @@
 公開 detail／Library／History projections 不含 description／table_of_contents；Candidate、embedding、profile 內部才可讀。Cache 不包含 Library state、不 cache missing detail，也不保證 single-flight。書庫列表與隨機樣本不 cache（書庫頁無 cache，樣本每次重新抽取）。來源網址 UI 防護另由下游負責。
 
 OpenAiCall 保留 caller cancellation，其餘轉 AiUnavailableException；SDK 有內建 retry。固定 60 秒 timeout 由 RecommendationService 控制。Search 已成功保存後，difficulty reader／scheduler 的一般例外會記 Warning 並降級，不回滾 search；兩者均保留已取消 caller token 的 OperationCanceledException，此時請求可取消但已保存資料仍存在。此階段使用 caller token，不使用 60 秒 timeout token。Profile worker 失敗與推薦保存失敗是不同邊界。
+
+B2 cookie 版本檢查：`AuthTokenIssuer` 寫入 `auth_version` claim（值為 `User.AuthVersion`，整數字串）；`AuthServiceCollectionExtensions` 的 `OnTokenValidated` 在簽章與 lifetime 通過後，以 `IUserStore.FindByIdAsync` 讀取 `sub` 對應的 User，使用者不存在或 claim 與 `AuthVersion` 不符時，刪除 `bf_auth` 並 `ctx.Fail`，之後由既有 `OnChallenge` 回 401（/api）或登入頁 redirect（頁面）。缺少 claim 的舊 Cookie 視為版本 0，部署不會登出既有使用者。成本：每個帶 `bf_auth` 的請求多一次 `users` 主鍵讀取，沒有快取，因此密碼重設或刪除帳號在下一個請求即生效。Email 驗證不在此檢查（計畫 D-A：Cookie 只發給已驗證 User）。
 
 ## 差距與 runtime 限制
 
@@ -169,3 +174,15 @@ HostingSetup 支援設定不等於已驗證容器切換、公開 HTTPS、可信 
 appsettings：`appsettings.json` 為 `Email:Provider = None`、`EmailVerification:Enabled = false`、`Site:PublicBaseUrl = https://khwebsc.com`；`appsettings.Development.json` 為 `Site:PublicBaseUrl = https://localhost:7083`、`Email:Provider = Pickup`、`PickupDirectory = .local-mail`（已加入 `.gitignore`）。正式環境的 Ses 設定屬 L4，未在 `compose.prod.yaml` 中設定（見 INF-B11）。
 
 安全取捨：Pickup 會把信件寫到磁碟而不是寄出，若誤用於正式環境，使用者會收不到信而系統不報錯。因此不是 Development 環境時，`Email:Provider = Pickup` 會讓啟動驗證失敗（`ValidateOnStart`），host 不會啟動。
+
+## 帳號動作 token store（計畫 C2）
+
+[EfAccountActionTokenStore](../Persistence/EfAccountActionTokenStore.cs) 實作 Application 的 [IAccountActionTokenStore](../../Application/Identity/IAccountActionTokenStore.cs)，契約見 [Application 架構 §帳號動作 token](../../Application/docs/architecture.md)。本節只記錄 Infrastructure 負責的機制。
+
+- **DI**：[AuthServiceCollectionExtensions](../Identity/AuthServiceCollectionExtensions.cs) 的 `AddBookFinderAuth` 綁定 `AccountActionTokens` section，三個 `Validate` 加 `ValidateOnStart`，並註冊 scoped 的 store 與 `AccountActionTokenService`。`TimeProvider` 沿用 `TryAddSingleton(TimeProvider.System)`。
+- **Issue**：一個 `BeginTransactionAsync` 內依序執行 `SELECT id FROM users WHERE id = @id FOR UPDATE`、`AnyAsync(created_at > throttleSince)`、`ExecuteUpdateAsync`（取代未消耗列）、`Add` + `SaveChangesAsync`。鎖在使用者列上，所以同一 user 不論用途都會序列化。節流查詢在鎖之後執行，READ COMMITTED 下會看到已 commit 的列。
+- **Consume**：`SqlQuery<Guid>` 執行單一 `UPDATE … RETURNING user_id`，不開交易，使用 caller 的 DbContext 目前的交易（若有）。用途以 `StoredEnum.ToStored` 傳入，SQL 不另存一份詞彙。
+- **Discard**：`ExecuteDeleteAsync` 依 `token_hash` 刪除。
+- **IsUsable**：`AnyAsync` 唯讀。
+- **索引與約束依賴**：`token_hash` 唯一索引支撐 consume 與 discard 的查找；`(user_id, purpose, created_at)` 支撐節流查詢；`token_hash` 的 CHECK 保證只存小寫 SHA-256 hex；`users` 的 FK cascade 在刪除使用者時移除其所有 token。
+- **時間**：所有時間值由 Application 傳入（`TimeProvider`），store 不呼叫 `now()`。這讓節流與過期邊界可以用 FakeTimeProvider 精確測試。

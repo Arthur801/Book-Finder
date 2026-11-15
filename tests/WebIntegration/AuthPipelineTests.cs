@@ -8,6 +8,9 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
+using Microsoft.IdentityModel.JsonWebTokens;
+using Microsoft.IdentityModel.Tokens;
+using Microsoft.EntityFrameworkCore;
 
 namespace WebIntegration;
 
@@ -68,7 +71,7 @@ public sealed class AuthPipelineTests(WebFixture fixture)
     {
         await using var app = CreateAuthFactory(new FakeTimeProvider(StartTime));
         var client = app.CreateClient(ClientOptions);
-        var token = IssueToken(app);
+        var token = await IssueTokenForSavedUserAsync(app);
 
         var page = await SendWithCookieAsync(client, "/test-only/protected", token);
         var api = await SendWithCookieAsync(client, "/api/test-only/protected", token);
@@ -84,7 +87,7 @@ public sealed class AuthPipelineTests(WebFixture fixture)
         var time = new FakeTimeProvider(StartTime);
         await using var app = CreateAuthFactory(time);
         var client = app.CreateClient(ClientOptions);
-        var token = IssueToken(app);
+        var token = await IssueTokenForSavedUserAsync(app);
 
         time.Advance(TimeSpan.FromDays(1) - TimeSpan.FromSeconds(1));
         var stillValidPage = await SendWithCookieAsync(client, "/test-only/protected", token);
@@ -130,7 +133,7 @@ public sealed class AuthPipelineTests(WebFixture fixture)
     {
         await using var app = CreateAuthFactory(new FakeTimeProvider(StartTime));
         var client = app.CreateClient(ClientOptions);
-        var token = IssueToken(app);
+        var token = await IssueTokenForSavedUserAsync(app);
         var request = new HttpRequestMessage(HttpMethod.Get, "/api/test-only/protected")
         {
             Headers = { Authorization = new AuthenticationHeaderValue("Bearer", token) },
@@ -226,6 +229,98 @@ public sealed class AuthPipelineTests(WebFixture fixture)
         Assert.Equal("/errors/antiforgery", problem.GetProperty("type").GetString());
     }
 
+    [Fact]
+    public async Task Cookie_is_rejected_on_page_and_api_after_auth_version_is_bumped_and_cookie_is_deleted()
+    {
+        await using var app = CreateAuthFactory(new FakeTimeProvider(StartTime));
+        var client = app.CreateClient(ClientOptions);
+        var user = await SaveUserAsync();
+        var token = app.Services.GetRequiredService<AuthTokenIssuer>().Issue(user);
+        await BumpAuthVersionAsync(user.Id);
+
+        var page = await SendWithCookieAsync(client, "/test-only/protected", token);
+        var api = await SendWithCookieAsync(client, "/api/test-only/protected", token);
+
+        Assert.Equal(HttpStatusCode.Redirect, page.StatusCode);
+        Assert.StartsWith("/account/login?returnUrl=", page.Headers.Location?.ToString());
+        AssertAuthCookieDeleted(page);
+        Assert.Equal(HttpStatusCode.Unauthorized, api.StatusCode);
+        Assert.Equal("/errors/unauthenticated", (await ReadJsonAsync(api)).GetProperty("type").GetString());
+        AssertAuthCookieDeleted(api);
+    }
+
+    [Fact]
+    public async Task Cookie_is_rejected_on_page_and_api_after_the_user_row_is_deleted()
+    {
+        await using var app = CreateAuthFactory(new FakeTimeProvider(StartTime));
+        var client = app.CreateClient(ClientOptions);
+        var user = await SaveUserAsync();
+        var token = app.Services.GetRequiredService<AuthTokenIssuer>().Issue(user);
+        await using (var db = fixture.CreateContext())
+            await db.Users.Where(row => row.Id == user.Id).ExecuteDeleteAsync();
+
+        var page = await SendWithCookieAsync(client, "/test-only/protected", token);
+        var api = await SendWithCookieAsync(client, "/api/test-only/protected", token);
+
+        Assert.Equal(HttpStatusCode.Redirect, page.StatusCode);
+        AssertAuthCookieDeleted(page);
+        Assert.Equal(HttpStatusCode.Unauthorized, api.StatusCode);
+        AssertAuthCookieDeleted(api);
+    }
+
+    [Fact]
+    public async Task Cookie_with_the_current_auth_version_is_accepted_after_an_earlier_bump()
+    {
+        await using var app = CreateAuthFactory(new FakeTimeProvider(StartTime));
+        var client = app.CreateClient(ClientOptions);
+        var user = await SaveUserAsync(authVersion: 0);
+        await BumpAuthVersionAsync(user.Id);
+        var freshToken = app.Services.GetRequiredService<AuthTokenIssuer>().Issue(
+            await FindUserAsync(user.Id));
+
+        var response = await SendWithCookieAsync(client, "/api/test-only/protected", freshToken);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Token_without_auth_version_claim_is_accepted_while_the_stored_version_is_zero()
+    {
+        await using var app = CreateAuthFactory(new FakeTimeProvider(StartTime));
+        var client = app.CreateClient(ClientOptions);
+        var user = await SaveUserAsync();
+        var legacyToken = IssueTokenWithoutAuthVersionClaim(user.Id, StartTime);
+
+        var page = await SendWithCookieAsync(client, "/test-only/protected", legacyToken);
+        var api = await SendWithCookieAsync(client, "/api/test-only/protected", legacyToken);
+
+        Assert.Equal(HttpStatusCode.OK, page.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, api.StatusCode);
+    }
+
+    [Fact]
+    public async Task Token_without_auth_version_claim_is_rejected_once_the_stored_version_is_one()
+    {
+        await using var app = CreateAuthFactory(new FakeTimeProvider(StartTime));
+        var client = app.CreateClient(ClientOptions);
+        var user = await SaveUserAsync();
+        var legacyToken = IssueTokenWithoutAuthVersionClaim(user.Id, StartTime);
+        await BumpAuthVersionAsync(user.Id);
+
+        var page = await SendWithCookieAsync(client, "/test-only/protected", legacyToken);
+        var api = await SendWithCookieAsync(client, "/api/test-only/protected", legacyToken);
+
+        Assert.Equal(HttpStatusCode.Redirect, page.StatusCode);
+        AssertAuthCookieDeleted(page);
+        Assert.Equal(HttpStatusCode.Unauthorized, api.StatusCode);
+    }
+
+    private async Task<User> FindUserAsync(Guid userId)
+    {
+        await using var db = fixture.CreateContext();
+        return await db.Users.SingleAsync(row => row.Id == userId);
+    }
+
     // The request token from the test-only GET endpoint. The antiforgery cookie is stored by the client's cookie container.
     private static async Task<string> GetAntiforgeryTokenAsync(HttpClient client)
     {
@@ -253,8 +348,61 @@ public sealed class AuthPipelineTests(WebFixture fixture)
                 .AddApplicationPart(typeof(TestOnlyAuthController).Assembly));
         });
 
-    private static string IssueToken(WebApplicationFactory<Program> app) =>
-        app.Services.GetRequiredService<AuthTokenIssuer>().Issue(NewUser());
+    // The auth pipeline checks the user row on every request, so a token for a user that was never saved would be rejected.
+    private async Task<string> IssueTokenForSavedUserAsync(WebApplicationFactory<Program> app)
+    {
+        var user = await SaveUserAsync();
+        return app.Services.GetRequiredService<AuthTokenIssuer>().Issue(user);
+    }
+
+    private async Task<User> SaveUserAsync(int authVersion = 0)
+    {
+        var now = DateTime.UtcNow;
+        var user = NewUser();
+        user.Email = $"auth-{Guid.NewGuid():N}@x.com";
+        user.AuthVersion = authVersion;
+        user.CreatedAt = now;
+        user.UpdatedAt = now;
+        await using var db = fixture.CreateContext();
+        db.Users.Add(user);
+        await db.SaveChangesAsync();
+        return user;
+    }
+
+    private async Task BumpAuthVersionAsync(Guid userId)
+    {
+        await using var db = fixture.CreateContext();
+        await db.Database.ExecuteSqlInterpolatedAsync($"UPDATE users SET auth_version = auth_version + 1 WHERE id = {userId}");
+    }
+
+    // A token that predates the auth_version claim: same issuer, audience, lifetime and key as the app, without that claim.
+    private static string IssueTokenWithoutAuthVersionClaim(Guid userId, DateTimeOffset now)
+    {
+        var key = new JwtOptions { SigningKey = BookFinderFactory.SigningKey }.CreateSigningKey();
+        return new JsonWebTokenHandler().CreateToken(new SecurityTokenDescriptor
+        {
+            Issuer = JwtOptions.Issuer,
+            Audience = JwtOptions.Audience,
+            IssuedAt = now.UtcDateTime,
+            NotBefore = now.UtcDateTime,
+            Expires = now.UtcDateTime + JwtOptions.TokenLifetime,
+            SigningCredentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256),
+            Claims = new Dictionary<string, object>
+            {
+                [JwtRegisteredClaimNames.Sub] = userId.ToString(),
+                [JwtOptions.NameClaim] = "Arthur",
+            },
+        });
+    }
+
+    // A rejected cookie is answered with an expired bf_auth Set-Cookie, so the browser stops sending it.
+    private static void AssertAuthCookieDeleted(HttpResponseMessage response)
+    {
+        Assert.True(response.Headers.TryGetValues("Set-Cookie", out var values), "Set-Cookie header is missing.");
+        var authCookie = values.FirstOrDefault(value => value.StartsWith(AuthCookie.Name + "=", StringComparison.Ordinal));
+        Assert.NotNull(authCookie);
+        Assert.Contains("expires=Thu, 01 Jan 1970", authCookie);
+    }
 
     // Same claims and lifetime rules as the app, but signed with a key the app does not trust.
     private static string IssueForeignToken(WebApplicationFactory<Program> app) =>

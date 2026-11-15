@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.IdentityModel.Tokens.Jwt;
 using Book_Finder.Application.Identity;
 using Book_Finder.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -21,9 +23,19 @@ public static class AuthServiceCollectionExtensions
             .Validate(JwtOptions.HasValidSigningKey, "Jwt:SigningKey 缺少或短於 32 bytes")
             .ValidateOnStart();
 
+        // Account action tokens (email verification, password reset): the 1-hour request window and the link lifetimes.
+        services.AddOptions<AccountActionTokenOptions>()
+            .Bind(configuration.GetSection(AccountActionTokenOptions.SectionName))
+            .Validate(AccountActionTokenOptions.HasValidRequestInterval, "AccountActionTokens:RequestInterval 必須大於 0")
+            .Validate(AccountActionTokenOptions.HasValidEmailVerificationLifetime, "AccountActionTokens:EmailVerificationLifetime 必須大於 0")
+            .Validate(AccountActionTokenOptions.HasValidPasswordResetLifetime, "AccountActionTokens:PasswordResetLifetime 必須大於 0")
+            .ValidateOnStart();
+
         services.AddSingleton<IPasswordHashing, AspNetPasswordHashing>();
         services.AddScoped<IUserStore, EfUserStore>();
         services.AddScoped<AccountService>();
+        services.AddScoped<IAccountActionTokenStore, EfAccountActionTokenStore>();
+        services.AddScoped<AccountActionTokenService>();
         services.AddSingleton<AuthTokenIssuer>();
 
         services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer();
@@ -43,6 +55,7 @@ public static class AuthServiceCollectionExtensions
                 };
                 bearer.Events = new JwtBearerEvents
                 {
+                    OnTokenValidated = ValidateAuthVersionAsync,
                     OnMessageReceived = context =>
                     {
                         // Cookie only. Without a cookie, NoResult stops the handler from falling back to the Authorization header.
@@ -75,6 +88,41 @@ public static class AuthServiceCollectionExtensions
         });
 
         return services;
+    }
+
+    // A cookie is signed and unexpired, but the server still decides: the user must exist and the auth_version claim must
+    // match the stored AuthVersion. One primary-key read per authenticated request, no cache, so a bump or delete takes
+    // effect on the next request. A cookie without the claim was issued before this check existed, so it counts as 0.
+    // Email verification is not checked here: cookies are only issued to verified users (plan D-A).
+    private static async Task ValidateAuthVersionAsync(TokenValidatedContext context)
+    {
+        var http = context.HttpContext;
+        var sub = context.Principal?.FindFirst(JwtRegisteredClaimNames.Sub)?.Value;
+        if (!Guid.TryParse(sub, out var userId))
+        {
+            RejectAuthCookie(context);
+            return;
+        }
+
+        var user = await http.RequestServices.GetRequiredService<IUserStore>().FindByIdAsync(userId, http.RequestAborted);
+        var tokenVersion = ParseAuthVersion(context.Principal?.FindFirst(JwtOptions.AuthVersionClaim)?.Value);
+        if (user is null || tokenVersion != user.AuthVersion)
+            RejectAuthCookie(context);
+    }
+
+    // A missing claim is version 0 (cookies issued before this check). A malformed claim is null, which matches no stored version.
+    private static int? ParseAuthVersion(string? claim)
+    {
+        if (claim is null)
+            return 0;
+        return int.TryParse(claim, NumberStyles.None, CultureInfo.InvariantCulture, out var version) ? version : null;
+    }
+
+    // Deleting the cookie stops the browser from sending it again. The JwtBearer challenge then answers /api with 401 and pages with a login redirect.
+    private static void RejectAuthCookie(TokenValidatedContext context)
+    {
+        AuthCookie.Delete(context.HttpContext.Response);
+        context.Fail("Auth cookie is no longer valid for this user.");
     }
 
     // /api/* gets a 401 ProblemDetails; pages go to the login page and come back to the same location.

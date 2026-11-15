@@ -1,5 +1,8 @@
 # tests 面向 AI 的文字案例庫
 
+> 帳號動作 token C2 補記：2026-11-15 更新；程式變更以 `4064680` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
+
 > 非同步推薦 Job M1 補記：2026-11-14 更新；程式變更以 `ad398b8`、`904baca`、`0a11483` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR2 phase A（#115）補記：2026-10-25 更新；程式變更以 `2a6966b`、`2c662f5`、`905c6fc`、`22bebf5` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > PR4 M1（#120）補記：2026-10-25 更新；程式變更以 `5052361`、`d864acc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
@@ -322,6 +325,20 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter FullyQualifiedNa
   - `Capturing_sender_keeps_messages_in_order_and_clears`：依序保存、可清空。
 - 之後的 flow 測試應透過 `app.Email.Sent` 取得信件內容（包括一次性連結），而不是從 log 取得。
 - 已知缺口：沒有 Web 測試驗證 Ses 或 Pickup 在 host 中的實際啟動（只有 UnitTests 的 DI 解析）；Ses 不會在測試中連線。
+
+### TEST-41：Cookie auth_version 與使用者存在檢查（B2）
+
+- `AuthTokenIssuerTests`（UnitTests）：Cookie token 含 `auth_version` 整數字串 claim。
+- `AuthPipelineTests`（WebIntegration）：版本 bump 與使用者刪除後的舊 Cookie 在頁面與 /api 皆被拒並刪 Cookie；版本相符仍有效；缺少 claim 的舊式 token 在版本 0 時通過、版本 1 時被拒。既有的有效 Cookie 測試改為先寫入 User，因為每個請求都會查 User。
+- `OAuthFlowTests`：`Consent_post_after_the_session_ends_is_refused_and_stores_no_authorization` 由「回登入頁」改為「400 且不寫 authorization」（B2 造成，見 INF-T28）。
+- **來源與狀態**：見 Infrastructure INF-T28。
+
+### TEST-42：帳號動作 token（會員中心計畫 C2）
+
+- **Given**：UnitTests 以 fake store 測規則與服務；DatabaseIntegration 以真實 PostgreSQL（Testcontainers）與 `FakeTimeProvider` 測 EF store。
+- **When／Then**：見 Application APP-T30 與 Infrastructure INF-T29。DatabaseIntegration 測試每個 user 使用新 id，因此共用容器不需清理。
+- **證據限制**：測試覆蓋服務規則、SQL 行為與並發；未涵蓋 C3、C4 的 controller 與寄信。寄信失敗後舊連結的行為未定義（APP-B09）。
+- **來源與狀態**：[AccountActionTokenServiceTests](../UnitTests/AccountActionTokenServiceTests.cs)、[AccountActionTokenRulesTests](../UnitTests/AccountActionTokenRulesTests.cs)、[AccountActionTokenOptionsTests](../UnitTests/AccountActionTokenOptionsTests.cs)、[EfAccountActionTokenStoreTests](../DatabaseIntegration/EfAccountActionTokenStoreTests.cs)；2026-11-15 本地結果：UnitTests 1180、DatabaseIntegration 289、WebIntegration 448 通過。
 
 ## 會員中心 A3：/account、/library 轉址與 Header（TEST-43）
 

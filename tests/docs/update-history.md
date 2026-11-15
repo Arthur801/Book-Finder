@@ -1,5 +1,8 @@
 # tests 修改歷史
 
+> 帳號動作 token C2 補記：2026-11-15 更新；程式變更以 `4064680` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
+
 > 非同步推薦 Job M4 補記：2026-11-14 更新；程式變更以 `4b31184`、`5d143b4`、`08d8c9a`、`1f36620`、`ef89755` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M2 補記：2026-11-14 更新；程式變更以 `6717d8f` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 非同步推薦 Job M1 補記：2026-11-14 更新；程式變更以 `ad398b8`、`904baca`、`0a11483` 記入 update-history。原查核基準保留，未重新審查其餘內容。
@@ -239,6 +242,24 @@ Git 歷史不證明 runtime 或 CI 已通過。
 | 2026-11-15 | 本次 commit（`mc-c1-email-port`） | test(email): port, templates, options, adapters and capturing fake (C1) | 新增 `tests/UnitTests/AccountEmailTemplatesTests.cs`、`SiteOptionsTests.cs`、`EmailOptionsTests.cs`、`SesEmailSenderTests.cs`、`PickupDirectoryEmailSenderTests.cs`、`NoEmailSenderTests.cs`、`EmailServiceCollectionExtensionsTests.cs`；`tests/WebIntegration/CapturingEmailSender.cs`、`EmailPortTests.cs`（新增）；`WebFixture.cs`（`Email`、`IEmailSender` 替身） | APP-T29、INF-T27、TEST-40 |
 
 執行（本次 worktree）：UnitTests 1216 通過；WebIntegration 過濾測試 14 通過；全量 WebIntegration 見 PR 說明的最終紀錄。
+
+## 帳號驗證 B2（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | `6c7428a` | feat(identity): invalidate website login cookies by auth_version (B2) | `tests/UnitTests/AuthTokenIssuerTests.cs`（claim 測試）；`tests/WebIntegration/AuthPipelineTests.cs`（bump、刪除、舊式 token 等 5 項；既有有效 cookie 測試改為先寫 User）；`tests/WebIntegration/OAuthFlowTests.cs`（consent 測試改為 400 且不寫 authorization） |
+
+驗證（2026-11-15）：UnitTests 1144 通過；WebIntegration 453 通過。見 TEST-41。
+
+## 帳號動作 token C2（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | `4064680` | feat(identity): account action token service and EF store (C2) | `tests/UnitTests/AccountActionTokenRulesTests.cs`、`AccountActionTokenOptionsTests.cs`、`AccountActionTokenServiceTests.cs`（新增）；`tests/DatabaseIntegration/EfAccountActionTokenStoreTests.cs`（新增）；`tests/DatabaseIntegration/AccountActionTokenSchemaTests.cs`（`Both_planned_purposes_are_accepted` 的計數改為只計本測試的 user） |
+
+修正說明：B1 的計數測試原本計算整張表中該用途的列數。C2 的整合測試會 commit token 列，導致該計數在完整套件中失敗（單獨執行時通過）。改為只計本測試 user 的列，斷言內容不變。
+
+驗證（2026-11-15）：UnitTests 1180 通過；DatabaseIntegration 289 通過；WebIntegration 448 通過。
 
 ## 會員中心 A3：/account、/library 轉址與 Header（新增紀錄）
 
