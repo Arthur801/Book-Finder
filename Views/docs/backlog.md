@@ -59,7 +59,8 @@
 
 ### VIEW-B10 — 分類頁 noscript 斷言與共用 Header 衝突
 
-- [ ] **P2／L1／待決策**。`CategoryPageTests.Page_has_no_sidebar_drawer_toggle_or_noscript_list_and_no_sidebar_script` 在 `/categories` 斷言沒有 `<noscript`，但 P1 `f4ccdc4` 已把 navbar 的 `<noscript>` 放進共用 Layout，所以該案例失敗（P4 未改動它）。方向：決定是只檢查分類清單的 noscript，或改為斷言共用 navbar 的 noscript 與 P1 契約一致；需由 P1／P2 的負責人確認，不在 P4 內擅改。
+- [x] **已解決（2026-11-15，P2 `4e21229`）**：CAT-08 改為只檢查 `<main>` 之後的頁面內容，P1 header 的 noscript 不再影響。以下為原始紀錄。
+- [ ] ~~**P2／L1／待決策**~~。`CategoryPageTests.Page_has_no_sidebar_drawer_toggle_or_noscript_list_and_no_sidebar_script` 在 `/categories` 斷言沒有 `<noscript`，但 P1 `f4ccdc4` 已把 navbar 的 `<noscript>` 放進共用 Layout，所以該案例失敗（P4 未改動它）。方向：決定是只檢查分類清單的 noscript，或改為斷言共用 navbar 的 noscript 與 P1 契約一致；需由 P1／P2 的負責人確認，不在 P4 內擅改。
 
 ### VIEW-B11 — OAuth consent 頁的 autostart 驗證
 

@@ -114,7 +114,7 @@ ai.js 沒 browser AbortController timeout，server 60 秒限制才是契約；hi
 實作計畫見 [header-category-onboarding](../../Docs/plans/header-category-onboarding.md) §5、§6.1～6.2、§7 P4，計畫非規格；以下是目前行為。
 
 - **承載標記**：[`Shared/_Onboarding.cshtml`](../Shared/_Onboarding.cshtml) 是 `@model bool`（autostart），輸出隱藏根節點 `#onboarding`，屬性 `data-onboarding-autostart`、`data-signed-in`；卡片為 `role="dialog"`、`aria-modal="true"`，進度行 `aria-live="polite"`。文案與目標都在隱藏的 `ol.onboarding-steps`：歡迎、5 個 spotlight 步驟（各指向一個 `data-tour` 錨點）、完成。HTML 沒有 `<form>`。
-- **Autostart 規則**：在 [`_Layout.cshtml`](../Shared/_Layout.cshtml) 依 `ViewContext.RouteData` 判斷。只有 Home/Index、Categories/Index、Search/Index、Books/Index、Books/Detail 為 true。其餘頁面（帳號、OAuth、MCP 說明、會員中心、AI、錯誤頁、NotFound）為 false。所有 View 都經 `_ViewStart` 使用 `_Layout`，因此非白名單頁仍有隱藏根節點，只是 autostart 為 false。
+- **Autostart 規則**：在 [`_Layout.cshtml`](../Shared/_Layout.cshtml) 依 `ViewContext.RouteData` 判斷。只有 Home/Index、Categories/Index、Search/Index、Books/Index、Books/Detail 為 true，但這些路由回 404 時（render `NotFound.cshtml`）仍為 false。其餘頁面（帳號、OAuth、MCP 說明、會員中心、AI、錯誤頁、NotFound）為 false。所有 View 都經 `_ViewStart` 使用 `_Layout`，因此非白名單頁仍有隱藏根節點，只是 autostart 為 false。
 - **資產**：`css/onboarding.css`（遮罩、spotlight、卡片、窄螢幕 bottom sheet、safe area、reduced motion）與 `js/onboarding.js`（`defer`，位於 Bootstrap 與 site.js 之後）。JS 行為與儲存見 [wwwroot docs](../../wwwroot/docs/architecture.md)。
 - **無 JS**：所有導覽元素都是 `hidden`，不會出現遮罩，網站其他功能不受影響。
 - **Header 協調**：窄螢幕時目標若位於收合的 `#main-navbar`，JS 以 Bootstrap `Collapse` API（`toggle:false`）暫時展開，離開步驟或關閉時恢復；Bootstrap 不可用時退回中央卡片。Dropdown 只高亮觸發器，JS 不會開啟「更多」選單。

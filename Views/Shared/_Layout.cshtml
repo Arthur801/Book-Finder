@@ -16,8 +16,10 @@
         // First-visit tour autostarts only on the public browse pages (plan §5.1). Account, OAuth, guide, AI and error pages never do.
         var routeController = ViewContext.RouteData.Values["controller"]?.ToString();
         var routeAction = ViewContext.RouteData.Values["action"]?.ToString();
-        var onboardingAutostart = (routeController, routeAction) is ("Home", "Index") or ("Categories", "Index") or ("Search", "Index")
-            or ("Books", "Index") or ("Books", "Detail");
+        // A 404 keeps the route values but renders a NotFound view, so the view name is checked too.
+        var isNotFoundView = ViewContext.View.Path.EndsWith("/NotFound.cshtml", StringComparison.Ordinal);
+        var onboardingAutostart = !isNotFoundView && (routeController, routeAction) is ("Home", "Index") or ("Categories", "Index")
+            or ("Search", "Index") or ("Books", "Index") or ("Books", "Detail");
     }
     <header>
         <nav class="navbar navbar-expand-sm navbar-light bg-white border-bottom mb-3">

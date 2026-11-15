@@ -194,3 +194,11 @@ git show 894883b -- Views
 使用者可見行為：白名單公開頁首次造訪顯示歡迎卡，可跳過或開始；開始後在 `/categories` 依序說明搜尋、分類、來源、AI 推薦與「更多」。跳過或完成後不再自動出現，「更多 → 功能導覽」可重新觀看。登入、註冊、驗證、重設、OAuth 與錯誤頁不自動顯示。
 
 驗證（2026-11-15，`3ba0acb` 之後）：`dotnet build --no-incremental` 0 warning、0 error；`dotnet test tests/WebIntegration` 545 案例中 544 通過、1 失敗（`CategoryPageTests.Page_has_no_sidebar_drawer_toggle_or_noscript_list_and_no_sidebar_script`，失敗原因為 P1 `f4ccdc4` 已在 Layout 加入的 navbar `<noscript>`，與本次變更無關，見 VIEW-B10）；`dotnet test tests/UnitTests` 1330 通過、0 失敗；`node --check wwwroot/js/onboarding.js` 通過。瀏覽器行為未執行，見 VIEW-B09。
+
+## 首次導覽 P4：404 頁不自動彈出（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | 本次 commit | fix(onboarding): keep the tour from autostarting on 404 pages | `Shared/_Layout.cshtml`：autostart 另檢查 View 不是 `NotFound.cshtml`；本目錄 `architecture.md`、`test-suite.md`、`backlog.md`（VIEW-B10 已由 P2 解決） |
+
+原因：`/books/{不存在}` 與 `/categories?category=不存在` 的路由值仍是 Books/Detail、Categories/Index，會讓 404 頁自動彈出導覽，違反計畫 §5.3。先寫失敗測試（2 失敗），修正後 OnboardingTests 16 通過。

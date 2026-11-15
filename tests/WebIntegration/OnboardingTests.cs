@@ -76,6 +76,23 @@ public sealed class OnboardingTests(WebFixture fixture)
         AssertDialogMarkup(html);
     }
 
+    // A 404 keeps the route's controller and action (Books/Detail, Categories/Index) but renders the NotFound view; error pages
+    // must not pop the tour (plan §5.3).
+    [Theory]
+    [InlineData("/books/00000000-0000-0000-0000-000000000001")]
+    [InlineData("/categories?category=no-such-category")]
+    public async Task Not_found_pages_on_browse_routes_render_the_dialog_with_autostart_off(string path)
+    {
+        await fixture.ResetDatabaseAsync();
+        await using var app = fixture.CreateFactory();
+
+        var response = await app.CreateClient(ClientOptions).GetAsync(path);
+        var html = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Contains("data-onboarding-autostart=\"false\"", RootAttributes(html));
+    }
+
     // The forgot-password page exists only with EmailVerification:Enabled on (plan member-center C4).
     [Fact]
     public async Task Forgot_password_page_renders_the_dialog_with_autostart_off()
