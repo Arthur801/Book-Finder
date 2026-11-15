@@ -1,0 +1,48 @@
+@model Book_Finder.Models.LibraryPageViewModel
+@*
+    The Library list body (user-library.md §4, ui-flow.md §3.5; member-center plan A1): the filter tabs, one antiforgery token for every
+    row's controls, the empty state and the rows. /library renders it under its heading, and /account renders it in its Library section.
+    library.js relies on the class names, data attributes and the first __RequestVerificationToken input here, so keep them as they are.
+    The tab links come from the view model (its base path and fragment).
+*@
+<ul class="nav nav-pills library-filters mb-3" aria-label="書單篩選">
+    @foreach (var tab in Model.Tabs)
+    {
+        <li class="nav-item">
+            <a class="nav-link @(tab.IsActive ? "active" : null)" href="@tab.Url" aria-current="@(tab.IsActive ? "page" : null)">@tab.Label</a>
+        </li>
+    }
+</ul>
+
+@* One token for every row's controls. It is rendered even when the list is empty. *@
+@Html.AntiForgeryToken()
+
+@* The empty state is always rendered. library.js reveals it when the last row is removed, without building markup. *@
+<div class="library-empty text-muted" hidden="@(!Model.IsEmpty)">
+    <p class="mb-2">還沒有加入任何書</p>
+    <a href="/books">去書庫逛逛</a>
+</div>
+
+<ol class="list-unstyled library-list mb-0">
+    @foreach (var item in Model.Items)
+    {
+        <li class="library-item d-flex align-items-center gap-3 py-2 border-bottom" data-book-id="@item.BookId">
+            @if (item.ThumbnailUrl is not null)
+            {
+                <img class="cover" src="@item.ThumbnailUrl" alt="" width="48" height="68" loading="lazy" style="object-fit: cover;" />
+            }
+            else
+            {
+                <span class="cover cover-placeholder text-muted small" style="width: 48px;">無封面</span>
+            }
+            <div class="flex-grow-1">
+                <a class="book-title" href="/books/@item.BookId">@item.Title</a>
+                @if (item.Authors is not null)
+                {
+                    <div class="authors text-muted small">@item.Authors</div>
+                }
+                @await Html.PartialAsync("_LibraryControls", item.Controls)
+            </div>
+        </li>
+    }
+</ol>
