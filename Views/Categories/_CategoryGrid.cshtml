@@ -1,0 +1,21 @@
+@model IReadOnlyList<Book_Finder.Models.FilterLinkViewModel>
+@*
+    The category grid on the 分類 page: every category (全部書籍 first), one card each with its count (zero included). Plain links,
+    so the grid works with JavaScript disabled. The selected card carries is-active and aria-current="page". Columns come from CSS.
+*@
+<nav class="category-grid-nav" aria-label="網站分類" data-tour="category-grid">
+    <ul class="category-grid list-unstyled">
+        @foreach (var item in Model)
+        {
+            <li class="category-grid-item">
+                <a class="category-grid-link @(item.IsCurrent ? "is-active" : null)" href="@item.Url" aria-current="@(item.IsCurrent ? "page" : null)">
+                    <span class="category-grid-name">@item.Label</span>
+                    @if (item.Count is { } count)
+                    {
+                        <span class="category-grid-count">@count 本</span>
+                    }
+                </a>
+            </li>
+        }
+    </ul>
+</nav>
