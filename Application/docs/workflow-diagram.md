@@ -286,3 +286,16 @@ sequenceDiagram
 
 - 撤銷後：`/mcp` 的 access token 立即 401（entry validation），refresh token 在 `/oauth/token` 回 `invalid_grant`。
 - 沒有該使用者的 OAuth 資料時兩個方法都正常結束。
+
+## 寄信 port（會員中心 C1，尚無 caller）
+
+目前沒有 use case 呼叫寄信。之後 flow 的責任分界如下：
+
+```mermaid
+flowchart LR
+    Flow["Identity flow（C2–C4，尚未實作）"] -->|"AccountEmailTemplates + SiteUrlBuilder"| Msg["EmailMessage"]
+    Msg -->|"IEmailSender.SendAsync"| Port["IEmailSender（Application port）"]
+    Port --> Adapter["Infrastructure adapter：Ses／Pickup／None"]
+```
+
+Flow 負責決定收件人、token、連結與失敗語意；Application 只提供內容與絕對連結；adapter 只負責投遞。信件內容不得寫入 log。

@@ -4,6 +4,7 @@ using Book_Finder.Application.Library;
 using Book_Finder.Application.Recommendation;
 using Book_Finder.Infrastructure.BackgroundJobs;
 using Book_Finder.Infrastructure.Caching;
+using Book_Finder.Infrastructure.Email;
 using Book_Finder.Infrastructure.Hosting;
 using Book_Finder.Infrastructure.Identity;
 using Book_Finder.Infrastructure.Identity.OAuth;
@@ -98,6 +99,9 @@ builder.Services.AddRecommendationJobs(builder.Configuration);
 builder.Services.AddBookFinderMcp(builder.Configuration);
 // OpenIddict Authorization Server and pre-registered clients (MCP-ADR-007). Registered only when Mcp:Enabled is true.
 builder.Services.AddBookFinderOAuth(builder.Configuration, builder.Environment);
+
+// Email port (member-center plan C1): IEmailSender chosen by Email:Provider, plus the Site and EmailVerification settings. No flow sends mail yet.
+builder.Services.AddBookFinderEmail(builder.Configuration, builder.Environment);
 
 var app = builder.Build();
 
