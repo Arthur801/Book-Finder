@@ -1,5 +1,7 @@
 # Infrastructure 修改歷史
 
+> 會員中心 C3 補記：2026-11-15 更新；程式變更以 `c3f09dc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
 > 帳號動作 token C2 補記：2026-11-15 更新；程式變更以 `4064680` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 
@@ -257,3 +259,15 @@ git show <SHA> -- Infrastructure
 | 2026-11-15 | `4064680` | feat(identity): account action token service and EF store (C2) | `Persistence/EfAccountActionTokenStore.cs`（新增）；`Identity/AuthServiceCollectionExtensions.cs`（options 驗證與 store、service 註冊） |
 
 驗證（2026-11-15）：DatabaseIntegration 289 通過，其中 `EfAccountActionTokenStoreTests` 13 項；mutation 檢查：移除 `FOR UPDATE` 後並發 issue 測試 3/3 失敗，還原後通過。行為變更：無使用者可見變更。
+
+## 會員中心 C3：驗證 store、寄信佇列與限流（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | `c3f09dc` | feat(identity): email verification, resend, login gating and per-IP limits (C3) | `Persistence/EfEmailVerificationStore.cs`（新增）；`BackgroundJobs/AccountEmailQueue.cs`、`AccountEmailWorker.cs`、`AccountEmailServiceCollectionExtensions.cs`（新增）；`Identity/TokenLinkPageAttribute.cs`、`AccountRateLimiting.cs`（新增）；`Identity/AuthServiceCollectionExtensions.cs`（註冊 store 與 service）；`appsettings.json`（`EmailVerificationLifetime` 由 `24:00:00` 改為 `1.00:00:00`）；`Program.cs`（`UseRateLimiter`、佇列與限流註冊，位於 Program 而非本目錄，記於此處供參照） |
+
+驗證（2026-11-15，本 worktree）：`dotnet build --no-incremental` 0 warning、0 error；DatabaseIntegration 300 通過（含 `EfEmailVerificationStoreTests` 5 項）；WebIntegration 通過（含限流與設定迴歸）。
+
+行為變更（開關關閉）：無。限流會套用到登入與註冊 POST（預設值遠高於正常使用），但正常操作不會觸發。
+
+設定修正：`EmailVerificationLifetime` 由 24 天修正為 24 小時。此設定自 C2 起在 `appsettings.json` 中，但 C2 的單元測試使用程式預設值，因此沒有發現。修正於 C3 中被 web 設定迴歸測試發現。

@@ -1,5 +1,7 @@
 # Application Git 修改歷史
 
+> 會員中心 C3 補記：2026-11-15 更新；程式變更以 `c3f09dc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
 > 帳號動作 token C2 補記：2026-11-15 更新；程式變更以 `4064680` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 
@@ -226,3 +228,15 @@ git show --format= --numstat <sha> -- Application ':(exclude)Application/docs'
 驗證（2026-11-15）：`dotnet build --no-incremental` 0 warning、0 error；UnitTests 1180 通過；DatabaseIntegration 289 通過；WebIntegration 448 通過（啟動時驗證新 options）。
 
 行為變更：無使用者可見變更。C2 只新增服務與 port，目前沒有 controller 呼叫；C3、C4 尚未實作。
+
+## 會員中心 C3：驗證流程與寄信派送（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | `c3f09dc` | feat(identity): email verification, resend, login gating and per-IP limits (C3) | `Identity/AccountService.cs`（注入開關、`PendingVerification`、`EmailNotVerified`）；`Identity/EmailVerificationService.cs`、`IEmailVerificationStore.cs`、`AccountEmailDispatcher.cs`、`IAccountEmailQueue.cs`（新增） |
+
+驗證（2026-11-15）：`dotnet build --no-incremental` 0 warning、0 error；UnitTests 1303 通過（含 C3 新增的 APP-T31～APP-T33，以及 Infrastructure 的佇列與限流選項測試）。
+
+行為變更（開關關閉）：無。
+
+行為變更（開關開啟）：註冊不發 Cookie、改寄驗證信；未驗證帳號的正確密碼登入回 `EmailNotVerified`。

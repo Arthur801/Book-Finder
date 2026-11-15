@@ -1,5 +1,7 @@
 # Views 文字測試案例庫
 
+> 會員中心 C3 補記：2026-11-15 更新；程式變更以 `c3f09dc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
 > 非同步推薦 Job M7 補記：2026-11-14 更新；程式變更以 `4db0c98`、`e00cbb5`、`5559870`、`ac88ef2` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > Canonical Category P5 補記：2026-11-14 更新；程式變更以 `a9b7ad1`、`c2d68a1`、`d43ea57` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
@@ -94,3 +96,12 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter 'FullyQualifiedN
 - Given：已登入使用者，含書單、今日 Job、超過一頁的 Job、開關開啟或關閉。
 - When：GET `/account`（含 `status`、`jobsPage`）、GET `/library`（含或不含 `status`）。
 - Then：三個區塊依序為 `#library`、`#ai-history`、`#account-security`；今日剩餘次數正確；Job 列表只含本人並標題「AI 搜尋紀錄」，超頁顯示最後一頁，pager 保留 `status` 並以 `#ai-history` 結尾；開關關閉顯示「尚未開放」；只載入 `library.js`；`/library` 依合法 status 302 至 `/account?status=…#library` 或 `/account#library`；導覽列依 VIEW-T01 的 header 規則排列。
+
+## 會員中心 C3：驗證頁面（新增案例）
+
+| 案例 | 測試位置 | 驗證內容 |
+|---|---|---|
+| VIEW-T17 — 確認頁與無效頁 | `tests/WebIntegration/EmailVerificationFlowTests.cs`（TEST-44） | 可用連結顯示「確認 Email」與指向 `/account/verify-email` 的表單；無效或過期顯示「連結無效或已過期」與重寄連結；token 頁回應含 `no-store` 與 `no-referrer` |
+| VIEW-T18 — 請收信與寄信失敗頁 | 同上（TEST-44） | 「請收信」含收件地址；寄信失敗顯示「驗證信寄送失敗」與重寄連結 |
+| VIEW-T19 — 重寄頁與通知 | 同上（TEST-44） | POST 後的通知文字在各種帳號狀態下相同（以 notice 區塊比對，不比對 antiforgery token） |
+| VIEW-T20 — 登入頁提示 | 同上（TEST-44）與 `EmailVerificationSwitchOffTests`（TEST-45） | 「請先完成 Email 驗證」與重寄連結只在未驗證時出現；開關關閉時沒有重寄連結 |

@@ -1,5 +1,7 @@
 # Controllers 修改歷史
 
+> 會員中心 C3 補記：2026-11-15 更新；程式變更以 `c3f09dc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
 > 非同步推薦 Job M7 補記：2026-11-14 更新；程式變更以 `4db0c98`、`e00cbb5`、`5559870`、`ac88ef2` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > Canonical Category P5 補記：2026-11-14 更新；程式變更以 `a9b7ad1`、`c2d68a1`、`d43ea57` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
@@ -109,3 +111,17 @@ git show <commit> -- Controllers
 | Author 日期 | SHA | subject | 本目錄實際改動檔案 |
 |---|---|---|---|
 | 2026-11-15 | 本分支 feat commit | feat(member): member center at /account, /library redirect and header (A3) | `MemberController.cs`（新增：`GET /account`、`GET /library` 轉址）；`RecommendationJobListLoader.cs`（新增，`AiController.JobListAsync` 的超頁退回邏輯抽出為共用 helper）；`AiController.cs` 改用 helper；`LibraryController.cs` 刪除；`Models/MemberPageViewModel.cs`、`Views/Member/Index.cshtml`、`Views/Library/Index.cshtml` 刪除 |
+
+## 會員中心 C3：Email 驗證頁、登入閘與頻率限制（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | `c3f09dc` | feat(identity): email verification, resend, login gating and per-IP limits (C3) | `AccountVerificationController.cs`（新增：驗證 GET／POST、重寄 GET／POST）；`AccountController.cs`（註冊 `PendingVerification`、登入 `EmailNotVerified`、登入頁 `verified` 提示、`account-auth` 限流）；`Models/VerifyEmailForm.cs`、`Models/ResendVerificationForm.cs`、`Models/VerificationSentViewModel.cs`（新增）；`Views/Account/Login.cshtml` 增加提示與重寄連結 |
+
+驗證（2026-11-15，本 worktree）：`dotnet build --no-incremental` 0 warning、0 error；`dotnet test tests/WebIntegration` 通過，其中 C3 相關案例見 test-suite §15。
+
+行為變更（開關關閉）：無；註冊直接登入，新 endpoint 回 404，登入頁無重寄連結。
+
+行為變更（開關開啟）：註冊不再登入，改為寄信與「請收信」；未驗證帳號登入被擋並附重寄連結；確認連結後導向登入頁。
+
+標頭與限流：token 頁加上 `no-store` 與 `no-referrer`；login、register、verify POST 與 resend POST 受 ASP.NET Core rate limiter 限制，429 回傳短頁。

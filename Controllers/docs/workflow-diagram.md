@@ -1,5 +1,7 @@
 # Controllers 詳細流程
 
+> 會員中心 C3 補記：2026-11-15 更新；程式變更以 `c3f09dc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
 > 非同步推薦 Job M7 補記：2026-11-14 更新；程式變更以 `4db0c98`、`e00cbb5`、`5559870`、`ac88ef2` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > Canonical Category P5 補記：2026-11-14 更新；程式變更以 `a9b7ad1`、`c2d68a1`、`d43ea57` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
@@ -298,3 +300,94 @@ sequenceDiagram
   end
   P->>P: SUCCEEDED 或 FAILED 時重新載入，由伺服器輸出最終狀態
 ```
+
+## 會員中心 C3：Email 驗證、重寄與登入閘（新增）
+
+開關開啟時的主要流程。開關關閉時，註冊與登入與 C3 之前相同，本節所有 `/account/verify-email` 與 `/account/verification/resend` 都回 404。
+
+### 註冊與寄出驗證信
+
+```mermaid
+sequenceDiagram
+    participant B as 瀏覽器
+    participant AC as AccountController
+    participant AS as AccountService
+    participant EV as EmailVerificationService
+    participant TK as AccountActionTokenService
+    participant M as IEmailSender
+    B->>AC: POST /account/register
+    AC->>AS: RegisterAsync（EmailVerifiedAt 為 null）
+    AS-->>AC: PendingVerification(user)
+    AC->>EV: SendAsync(user, returnUrl, pendingAction)
+    EV->>TK: IssueAsync(EmailVerification)
+    EV->>M: SendAsync(連結 /account/verify-email?token)
+    alt 寄信失敗
+        EV->>TK: DiscardAsync(token)
+        EV-->>AC: SendFailed
+    end
+    AC-->>B: 請收信頁（不發 bf_auth Cookie）
+```
+
+### 確認連結（GET 不消耗，POST 才消耗）
+
+```mermaid
+sequenceDiagram
+    participant B as 瀏覽器
+    participant VC as AccountVerificationController
+    participant EV as EmailVerificationService
+    participant ST as EfEmailVerificationStore
+    B->>VC: GET /account/verify-email?token
+    VC->>EV: IsUsableAsync（只讀）
+    alt 可用
+        VC-->>B: 確認頁，表單帶 token 與已驗證的 returnUrl、pendingAction
+    else 不可用
+        VC-->>B: 連結無效或已過期
+    end
+    B->>VC: POST /account/verify-email（antiforgery）
+    VC->>EV: VerifyAsync(raw)
+    EV->>ST: VerifyAsync(hash, now)
+    Note over ST: 單一交易：ConsumeAsync 條件式 UPDATE，再 UPDATE users 的 email_verified_at（僅限 IS NULL）
+    alt 成功
+        VC-->>B: 302 /account/login?verified=1 加上保留的 returnUrl、pendingAction
+    else 失敗
+        VC-->>B: 連結無效或已過期
+    end
+```
+
+### 重寄驗證信（匿名，回應與帳號狀態無關）
+
+```mermaid
+sequenceDiagram
+    participant B as 瀏覽器
+    participant VC as AccountVerificationController
+    participant Q as AccountEmailQueue
+    participant W as AccountEmailWorker
+    participant D as AccountEmailDispatcher
+    B->>VC: POST /account/verification/resend（account-email 限流）
+    VC->>Q: TryEnqueue(EmailVerification, email)
+    VC-->>B: 同一段通知
+    Q->>W: 逐筆取出
+    W->>D: 新 scope 中 DispatchAsync
+    D->>D: 查無帳號或已驗證則略過，不寄信
+    D->>D: 未驗證：EmailVerificationService.SendAsync（1 小時內第二次略過）
+```
+
+### 登入閘
+
+```mermaid
+sequenceDiagram
+    participant B as 瀏覽器
+    participant AC as AccountController
+    participant AS as AccountService
+    B->>AC: POST /account/login（account-auth 限流）
+    AC->>AS: LoginAsync
+    alt 密碼錯誤
+        AS-->>AC: InvalidCredentials（同一段訊息）
+    else 密碼正確但 EmailVerifiedAt 為 null
+        AS-->>AC: EmailNotVerified（不發 Cookie、不寄信，附重寄連結）
+    else 通過
+        AS-->>AC: Succeeded，發 bf_auth Cookie
+    end
+```
+
+依 D-B，`EmailNotVerified` 只在密碼正確時回傳，所以不會讓不知道密碼的人得知帳號是否已驗證。

@@ -1,5 +1,7 @@
 # Infrastructure AI 文字測試案例庫
 
+> 會員中心 C3 補記：2026-11-15 更新；程式變更以 `c3f09dc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
 > 帳號動作 token C2 補記：2026-11-15 更新；程式變更以 `4064680` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 
@@ -327,3 +329,13 @@ dotnet test tests/WebIntegration/WebIntegration.csproj
   - 刪除 user：其 token 列被 cascade 刪除。
 - 入口：[EfAccountActionTokenStoreTests](../../tests/DatabaseIntegration/EfAccountActionTokenStoreTests.cs)。
 - 驗證強度：並發 issue 測試在移除 `FOR UPDATE` 後 3/3 失敗，證明它確實依賴鎖。
+
+## 會員中心 C3：驗證 store、佇列與限流（新增案例）
+
+| 案例 | 測試位置 | 驗證內容 |
+|---|---|---|
+| INF-T30 — 驗證交易（DB 整合，5 項） | `tests/DatabaseIntegration/EfEmailVerificationStoreTests.cs` | 成功消耗 token 並寫入傳入的時間；重放失敗且保留第一次時間；過期 token 拒絕且 user 仍未驗證；PASSWORD_RESET token 不能驗證 email；已驗證的使用者保留原時間 |
+| INF-T31 — 佇列與限流選項（Unit） | `tests/UnitTests/AccountEmailQueueTests.cs`、`AccountRateLimitOptionsTests.cs` | 容量滿後 TryEnqueue 回 false 且不留下 pending；idle hook 只在所有項目 Complete 後完成；限流預設值 20／1 分鐘與 5／10 分鐘；PermitLimit 與 Window 須大於 0 |
+| INF-T32 — 限流行為（Web 整合） | `tests/WebIntegration/AccountRateLimitTests.cs` | 同一 client 超過上限回 429、含「請求過於頻繁」與 `Retry-After`；登入 POST 超過上限回 429。見 TEST-46 |
+
+設定迴歸：`EmailVerificationFlowTests` 中的 `The_shipped_configuration_gives_a_24_hour_verification_link_and_a_1_hour_reset_link`（見 TEST-44）讀取 `appsettings.json` 的實際值，防止再次出現 24 天的設定。

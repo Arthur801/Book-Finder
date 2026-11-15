@@ -1,5 +1,7 @@
 # Application 待辦
 
+> 會員中心 C3 補記：2026-11-15 更新；程式變更以 `c3f09dc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
 > 帳號動作 token C2 補記：2026-11-15 更新；程式變更以 `4064680` 記入 update-history。原待辦保留，本次只新增 APP-B09。
 
 
@@ -71,3 +73,16 @@
 
 
 - **APP-B08**（2026-11-15，會員中心 B3）：`IExternalCredentialRevoker` 尚無呼叫端。C4（重設密碼）在 transaction 內呼叫 `RevokeAllForUserAsync`，D1（刪除帳號）呼叫 `DeleteAllForUserAsync`；兩者實作時需補上呼叫與各自的測試（[會員中心計畫](../../Docs/plans/member-center-email-verification.md) B3、C4、D1）。
+
+## 會員中心 C3 新增待辦
+
+### APP-B10 — C4 忘記密碼需補上 PasswordReset 派送分支
+
+- [ ] **P2／計畫中／L3**。[AccountEmailDispatcher](../Identity/AccountEmailDispatcher.cs) 目前對 `PasswordReset` 拋出例外；C4 必須在這裡加入分支（查無帳號或存在即寄信，並沿用 D-C 的 1 小時節流）。
+- 驗收：C4 的 `PasswordReset` 分支通過 `PasswordResetFlowTests`；在分支補上之前，不得從 UI 送出 `PasswordReset` 請求（目前沒有此入口）。
+
+### APP-B11 — 寄信佇列未持久化
+
+- [ ] **P3／已接受的限制／L2**。重寄請求只存在記憶體，程序重啟或佇列滿時遺失（使用者仍會看到同一段通知）。
+- 待辦：若日後需要保證送達，改為 DB 記錄或外部佇列；屬於架構變更，需先取得決定。
+

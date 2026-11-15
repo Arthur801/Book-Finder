@@ -1,5 +1,7 @@
 # Application 流程與責任
 
+> 會員中心 C3 補記：2026-11-15 更新；程式變更以 `c3f09dc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
 > 帳號動作 token C2 補記：2026-11-15 更新；程式變更以 `4064680` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 
@@ -326,3 +328,27 @@ flowchart TD
 ```
 
 責任分界：Application 決定 TTL、節流窗口與 hash；Infrastructure 負責鎖與 SQL。寄信失敗時，caller 呼叫 `DiscardAsync`，讓失敗的嘗試不計入 1 小時節流（已知取捨見 [架構](architecture.md)）。Consume 不開交易，C4 密碼重設可把它與其他寫入放在同一個交易，回滾時 token 不被消耗。
+
+## 會員中心 C3：驗證步驟與重寄派送（新增）
+
+Controller 的完整時序見 [Controllers 流程](../../Controllers/docs/workflow-diagram.md) 的「會員中心 C3」。以下是 Application 的責任切分。
+
+```mermaid
+flowchart TD
+    A[AccountService.RegisterAsync] -->|switch on| P[PendingVerification]
+    P --> S[EmailVerificationService.SendAsync]
+    S --> I[AccountActionTokenService.IssueAsync]
+    I -->|Throttled／UserNotFound| N[NotIssued]
+    I -->|Issued| L[Normalize D-D 再組連結]
+    L --> M[IEmailSender.SendAsync]
+    M -->|成功| OK[Sent]
+    M -->|失敗| D[DiscardAsync 該 token] --> SF[SendFailed]
+    Q[IAccountEmailQueue 由 Infrastructure 取出] --> DP[AccountEmailDispatcher.DispatchAsync]
+    DP -->|查無或已驗證| X[不寄信]
+    DP -->|未驗證| S
+    V[EmailVerificationService.VerifyAsync] --> H{格式正確}
+    H -->|否| F[false，不呼叫 store]
+    H -->|是| ST[IEmailVerificationStore.VerifyAsync]
+```
+
+Application 不知道交易如何實作：`VerifyAsync` 只傳 hash 與 now，單一交易由 Infrastructure 負責。

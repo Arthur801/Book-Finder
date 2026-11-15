@@ -1,5 +1,7 @@
 # Views Git 修改歷史
 
+> 會員中心 C3 補記：2026-11-15 更新；程式變更以 `c3f09dc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
 > 非同步推薦 Job M7 補記：2026-11-14 更新；程式變更以 `4db0c98`、`e00cbb5`、`5559870`、`ac88ef2` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > Canonical Category P5 補記：2026-11-14 更新；程式變更以 `a9b7ad1`、`c2d68a1`、`d43ea57` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
@@ -108,3 +110,13 @@ git show 894883b -- Views
 | Author 日期 | SHA | subject | 本目錄實際改動檔案 |
 |---|---|---|---|
 | 2026-11-15 | 本分支 feat commit | feat(member): member center at /account, /library redirect and header (A3) | `Member/Index.cshtml`（新增：會員中心三區塊）；`Shared/_Layout.cshtml`：左側移除「個人書單」，登入後右側加「個人書單」與名稱連結；`Library/Index.cshtml` 刪除；`Shared/_LibraryContent.cshtml` 註解更新 |
+
+## 會員中心 C3：驗證頁面與登入提示（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | `c3f09dc` | feat(identity): email verification, resend, login gating and per-IP limits (C3) | `AccountVerification/VerifyEmail.cshtml`、`VerificationLinkInvalid.cshtml`、`VerificationSent.cshtml`、`Resend.cshtml`（新增）；`Account/Login.cshtml`（Notice 與重寄連結） |
+
+驗證（2026-11-15）：`dotnet build --no-incremental` 0 warning、0 error；WebIntegration 494 通過（含 `EmailVerificationFlowTests` 與 `EmailVerificationSwitchOffTests`，C3 相關頁面斷言見 test-suite）。
+
+行為變更（開關關閉）：無；登入頁只有在 `ShowResendLink` 或 `Notice` 存在時多出區塊。

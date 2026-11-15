@@ -1,5 +1,7 @@
 # Views 架構與呈現契約
 
+> 會員中心 C3 補記：2026-11-15 更新；程式變更以 `c3f09dc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
 > 非同步推薦 Job M7 補記：2026-11-14 更新；程式變更以 `4db0c98`、`e00cbb5`、`5559870`、`ac88ef2` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > Canonical Category P5 補記：2026-11-14 更新；程式變更以 `a9b7ad1`、`c2d68a1`、`d43ea57` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
@@ -60,3 +62,19 @@ ai.js 沒 browser AbortController timeout，server 60 秒限制才是契約；hi
 - [Ai/Index.cshtml](../Ai/Index.cshtml)：`#ai-form` 輸出 `data-recommendation-jobs="true|false"`；開關開啟時在表單下方加入 [_RecommendationJobList](../Shared/_RecommendationJobList.cshtml)（標題由 `ViewData["RecommendationJobListHeading"]` 傳入，`/ai` 設為「推薦工作」；空狀態「還沒有推薦工作」、`/ai?jobsPage=N` 分頁）。原本的推薦紀錄列表不變；兩個列表的分頁連結各自只帶自己的頁碼。
 - [Ai/Job.cshtml](../Ai/Job.cshtml)：根元素 `#ai-job` 帶 `data-job-status-url`（由 view model 的 `StatusUrl` 產生，與 API 的 `statusUrl` 同一個來源）、`data-job-status`；排隊或執行中顯示「已加入工作佇列，可以離開網站，稍後回來查看。」，成功顯示「查看推薦結果」連到 `/ai/history/{searchId}`，失敗顯示依 error code 而定的固定文案；只載入 `ai-job.js`。
 - 需求文字全部經 Razor 編碼。
+
+## 會員中心 C3：驗證頁面與登入提示（新增）
+
+| 檔案 | 用途 | 表單與安全 |
+|---|---|---|
+| [Views/AccountVerification/VerifyEmail.cshtml](../AccountVerification/VerifyEmail.cshtml) | 確認頁（GET 連結可用時） | `method=post action=/account/verify-email`，`@Html.AntiForgeryToken()`；隱藏欄位 Token、ReturnUrl、PendingAction。Token 只出現在這個表單與 URL 中。 |
+| [VerificationLinkInvalid.cshtml](../AccountVerification/VerificationLinkInvalid.cshtml) | 「連結無效或已過期」 | 沒有表單；只提供重寄頁連結。 |
+| [VerificationSent.cshtml](../AccountVerification/VerificationSent.cshtml) | 註冊後「請收信」頁 | 顯示收件地址；`SendFailed` 時顯示「驗證信寄送失敗，帳號已建立」。沒有表單。 |
+| [Resend.cshtml](../AccountVerification/Resend.cshtml) | 重寄驗證信 | 只有 Email 欄位，`@Html.AntiForgeryToken()`；POST 後顯示統一通知（ViewData Notice）。 |
+| [Views/Account/Login.cshtml](../Account/Login.cshtml) | 登入頁 | 新增：`Notice`（「Email 已驗證，請登入」）與 `ShowResendLink`（「請先完成 Email 驗證」時出現的重寄連結）。其餘不變。 |
+
+**安全**：token 頁的標頭由 `TokenLinkPage` 控制，view 本身不設定。429 頁是 `AccountRateLimiting` 的 inline HTML，不經過 view。
+
+**第三方資源**：檢查 [_Layout.cshtml](../Shared/_Layout.cshtml) 後，確認只載入同源資源，沒有第三方 CDN；`importmap` 為空。
+
+**文案**：所有新文案為本次撰寫（繁中），尚未經過使用者審閱，見 backlog VIEW-B07。

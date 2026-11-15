@@ -1,5 +1,7 @@
 # Application 文字測試案例庫
 
+> 會員中心 C3 補記：2026-11-15 更新；程式變更以 `c3f09dc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
 > 會員中心 A2 補記：2026-11-15 更新；程式變更以 `29b6a8b` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 > 帳號動作 token C2 補記：2026-11-15 更新；程式變更以 `4064680` 記入 update-history。原查核基準保留，未重新審查其餘內容。
@@ -329,3 +331,40 @@ Auth的Google登入/email驗證/忘記密碼/個資修改/refresh token依identi
   - options：預設 1 小時／24 小時／1 小時，section 名為 `AccountActionTokens`，三個值都必須大於 0。
 - **入口**：[AccountActionTokenServiceTests](../../tests/UnitTests/AccountActionTokenServiceTests.cs)、[AccountActionTokenRulesTests](../../tests/UnitTests/AccountActionTokenRulesTests.cs)、[AccountActionTokenOptionsTests](../../tests/UnitTests/AccountActionTokenOptionsTests.cs)。
 - **證據限制**：本案例只驗證服務規則；鎖、節流 SQL、並發與 cascade 由 INF-T29 驗證。寄信失敗後舊連結的行為尚未定義（APP-B09）。
+
+## 會員中心 C3：驗證流程與派送（新增案例）
+
+以下案例在 `tests/UnitTests` 中，全部使用 in-memory fake 與 `FakeTimeProvider`，已實作並通過（見 update-history）。
+
+### APP-T31 — 開關與登入閘（AccountService）
+
+| 案例 | Given | When | Then |
+|---|---|---|---|
+| 註冊、開關開啟 | 空 store，`Enabled=true` | RegisterAsync | 新使用者 `EmailVerifiedAt` 為 null；回 `PendingVerification`，不是 `Succeeded` |
+| 未驗證、密碼正確 | 開關開啟，`EmailVerifiedAt` null | LoginAsync（Success） | `EmailNotVerified` |
+| 未驗證、密碼錯誤 | 同上 | LoginAsync（Failed） | `InvalidCredentials` |
+| 已驗證（legacy） | 開關開啟，`EmailVerifiedAt` 有值 | LoginAsync（Success） | `Succeeded` |
+| 開關關閉 | 開關關閉，`EmailVerifiedAt` null | LoginAsync（Success） | `Succeeded`（不檢查驗證） |
+
+### APP-T32 — 驗證信、D-D 與寄信失敗（EmailVerificationService）
+
+| 案例 | Given | When | Then |
+|---|---|---|---|
+| 寄出一封信 | 未驗證使用者，寄信成功 | SendAsync | `Sent`；收件人為該 email；連結 host 為 `Site:PublicBaseUrl`；store 只收到 hash；過期時間為 +24 小時 |
+| D-D 白名單（5 種輸入） | `/books/{guid}`＋`add-to-library` 保留；`https://evil.example`、錯誤動作、帶 query 的路徑、`/search` 都丟棄 | SendAsync | 連結只在合格時含 `returnUrl`、`pendingAction` |
+| Normalize | 合格與不合格的組合 | Normalize | 合格回標準形式；不合格或缺少動作回 `(null, null)` |
+| 寄信失敗 | 寄信拋出例外 | SendAsync | `SendFailed`；該 token 的 hash 被 `DiscardAsync` |
+| 限流 | store 回 Throttled | SendAsync | `NotIssued`；沒有寄信 |
+| 格式錯誤 token | 不符合格式的字串或 null | VerifyAsync | `false`；store 未被呼叫 |
+| 驗證參數 | 合格 token | VerifyAsync | store 收到 `SHA-256(raw)` 與注入的 now |
+
+### APP-T33 — 佇列派送（AccountEmailDispatcher）
+
+| 案例 | Given | When | Then |
+|---|---|---|---|
+| 未知 email | 空使用者清單 | DispatchAsync | 不寄信、不發 token |
+| 已驗證（U-01） | `EmailVerifiedAt` 有值 | DispatchAsync | 不寄信、不發 token |
+| 未驗證 | 未驗證使用者，大小寫不同的 email | DispatchAsync | 寄出 1 封，收件人為儲存的 email |
+| 尚未有分支的用途 | `PasswordReset` | DispatchAsync | 拋出 `ArgumentOutOfRangeException`（C4 前不得靜默略過） |
+
+佇列本身的案例（容量、idle hook）屬於 Infrastructure，見 [Infrastructure 測試](../../Infrastructure/docs/test-suite.md) INF-T31。

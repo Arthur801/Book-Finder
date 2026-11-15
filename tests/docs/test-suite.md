@@ -1,5 +1,7 @@
 # tests 面向 AI 的文字案例庫
 
+> 會員中心 C3 補記：2026-11-15 更新；程式變更以 `c3f09dc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
 > 帳號動作 token C2 補記：2026-11-15 更新；程式變更以 `4064680` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 
@@ -349,3 +351,40 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter FullyQualifiedNa
   - [LayoutAndHomeTests](../WebIntegration/LayoutAndHomeTests.cs)：匿名導覽列沒有「個人書單」。
   - [LibraryPageTests](../WebIntegration/LibraryPageTests.cs)：頁面斷言改到 `/account`，行為覆蓋不變（篩選、列、空態、控制項、登入連結）；匿名 `/library` 仍導向登入頁。
 - 已知缺口：沒有 Web 測試驗證 `/account` 的瀏覽器 JS 行為（書單 CRUD 在新頁面的 DOM 操作）；本次只以 HTML 驗證。
+
+## 會員中心 C3：Email 驗證、重寄與限流（TEST-44～TEST-46）
+
+### TEST-44：開關開啟的驗證流程（WebIntegration）
+
+- 來源：`tests/WebIntegration/EmailVerificationFlowTests.cs`，`[Collection(WebCollection.Name)]`，共 15 項；每項都重設資料庫。
+- 主機：`BookFinderFactory.EmailVerificationEnabled = true`、`Time = FakeTimeProvider`；`IEmailSender` 為 `CapturingEmailSender`（可設 `FailWith` 模擬寄信失敗）。
+- 等待：重寄以 `AccountEmailQueue.WaitForIdleAsync`（10 秒上限）等 worker 處理完，不使用 sleep。
+- 涵蓋：MEM-11～MEM-22（見 [Controllers test-suite §15](../../Controllers/docs/test-suite.md)）、U-01 legacy、D-B 回應一致性、寄信失敗、D-D。
+- 設定迴歸（MEM-27）：`The_shipped_configuration_gives_a_24_hour_verification_link_and_a_1_hour_reset_link`，讀取 `appsettings.json` 的實際值。
+
+### TEST-45：開關關閉（WebIntegration）
+
+- 來源：`tests/WebIntegration/EmailVerificationSwitchOffTests.cs`，共 3 項。
+- 涵蓋：註冊直接登入且不寄信；登入頁沒有重寄連結；驗證與重寄頁 GET／POST 為 404（POST 使用登入頁的 antiforgery token，確保請求會到達 action）。
+
+### TEST-46：頻率限制（WebIntegration）
+
+- 來源：`tests/WebIntegration/AccountRateLimitTests.cs`，共 2 項。
+- 方法：在該測試的主機中把 `AccountRateLimits` 調低為 2（其他測試維持 100,000，不會因限流而失敗）。
+- 涵蓋：重寄 POST 第 3 次為 429、含「請求過於頻繁」與 `Retry-After`；登入 POST 第 3 次為 429。
+- 限制：所有測試 client 的 IP 相同；不同 IP 隔離與 forwarded 標頭只能在部署環境驗證（見 INF-B13）。
+
+### 單元與資料庫層（C3 新增）
+
+- `tests/UnitTests/EmailVerificationServiceTests.cs`、`AccountEmailDispatcherTests.cs`、`AccountEmailQueueTests.cs`、`AccountRateLimitOptionsTests.cs`，以及 `AccountServiceTests.cs` 中新增的 5 項（開關與登入閘）。
+- `tests/DatabaseIntegration/EfEmailVerificationStoreTests.cs`，共 5 項。
+- 對應的 APP-T31～APP-T33、INF-T30～INF-T31 見 Application 與 Infrastructure 的 test-suite。
+
+### 驗證結果（2026-11-15）
+
+| 套件 | 指令 | 結果 |
+|---|---|---|
+| Build | `dotnet build --no-incremental` | 0 warning、0 error |
+| Unit | `dotnet test tests/UnitTests` | 1303 通過、0 失敗 |
+| DB | `dotnet test tests/DatabaseIntegration` | 300 通過、0 失敗（PostgreSQL 容器） |
+| Web | `dotnet test tests/WebIntegration` | 494 通過、0 失敗 |

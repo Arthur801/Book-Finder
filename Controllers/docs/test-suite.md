@@ -1,5 +1,7 @@
 # Controllers：面向 AI 的文字測試案例庫
 
+> 會員中心 C3 補記：2026-11-15 更新；程式變更以 `c3f09dc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
 > 非同步推薦 Job M7 補記：2026-11-14 更新；程式變更以 `4db0c98`、`e00cbb5`、`5559870`、`ac88ef2` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > Canonical Category P5 補記：2026-11-14 更新；程式變更以 `a9b7ad1`、`c2d68a1`、`d43ea57` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
@@ -249,3 +251,29 @@ dotnet test tests/WebIntegration/WebIntegration.csproj
 
 - `GET /mcp-guide` 匿名 200，`Mcp:Enabled` 開或關結果相同（路徑不在 `/mcp` 之下，閘門與 `MapMcp` 都不處理）。
 - 由 WebIntegration [McpGuidePageTests](../../tests/WebIntegration/McpGuidePageTests.cs) 驗證；2026-11-15 通過。
+
+## 15. 會員中心 C3：Email 驗證、重寄與限流（MEM 案例）
+
+以下案例 WebIntegration 皆已實作並通過（見 update-history）。開關開啟時使用 `EmailVerificationFlowTests`，開關關閉使用 `EmailVerificationSwitchOffTests`，限流使用 `AccountRateLimitTests`。
+
+| 案例 | Given | When | Then |
+|---|---|---|---|
+| MEM-11／已有測試 | 開關開啟，匿名註冊 | POST `/account/register` | 200「請收信」；沒有 `bf_auth` Cookie；寄出 1 封信給該地址；連結 host 為 `Site:PublicBaseUrl`；使用者 `email_verified_at` 為 null |
+| MEM-12／已有測試 | 已註冊、連結可用 | GET 連結兩次 | 兩次都是確認頁（含 POST 表單與 antiforgery）；token 未消耗 |
+| MEM-13／已有測試 | 同上 | POST 確認頁 | 302 `/account/login?verified=1`；登入頁顯示「Email 已驗證，請登入」；之後登入成功並發 Cookie |
+| MEM-14／已有測試 | 已確認過一次 | 重送同一 POST | 200「連結無效或已過期」；帳號仍為已驗證 |
+| MEM-15／已有測試 | token 建立後推進 FakeTimeProvider 24 小時 1 分鐘 | GET 連結 | 「連結無效或已過期」，沒有確認表單 |
+| MEM-16／已有測試 | 用同一使用者的 PASSWORD_RESET token | GET 與 POST `/account/verify-email` | 皆為「連結無效或已過期」；帳號未驗證；token 未消耗 |
+| MEM-17／已有測試 | 未驗證帳號 | 正確密碼登入；錯誤密碼登入 | 正確：「請先完成 Email 驗證」與 `/account/verification/resend` 連結，無 Cookie；錯誤：「帳號或密碼錯誤」，無「請先完成」 |
+| MEM-18／已有測試 | 開關關閉時註冊（U-01 的 legacy 帳號，`email_verified_at` 已有值） | 開關開啟後登入，再重寄 | 登入成功並發 Cookie；重寄後寄出 0 封信 |
+| MEM-19／已有測試 | 剛註冊的未驗證帳號 | 重寄：不存在的 email、1 小時內、推進 1 小時 1 分鐘後、驗證後再推進 | 四次通知文字相同；只有「推進後」那次寄出 1 封；驗證後為 0 封 |
+| MEM-20／已有測試 | `CapturingEmailSender` 讓寄信失敗 | 註冊，然後清除失敗並重寄 | 「請收信」頁含「驗證信寄送失敗」與重寄連結；帳號保留；該使用者 token 列數為 0；重寄立即寄出 1 封 |
+| MEM-21／已有測試 | returnUrl `/books/{guid}`、pendingAction `add-to-library` | 註冊、寄信、確認 POST、開登入頁 | 連結與 302 都帶相同的 returnUrl、pendingAction；登入頁隱藏欄位相同；登入後導向 `/books/{guid}` |
+| MEM-22／已有測試 | returnUrl `https://evil.example` | 註冊、寄信、確認 POST | 連結不含 returnUrl；302 為 `/account/login?verified=1` |
+| MEM-23／已有測試 | 驗證頁（GET 連結） | GET | `Cache-Control` 含 `no-store`；`Referrer-Policy: no-referrer` |
+| MEM-24／已有測試 | 開關關閉 | 註冊；GET 與 POST 驗證與重寄；登入頁 | 註冊直接登入、沒有信件；四個 endpoint 為 404；登入頁沒有重寄連結 |
+| MEM-25／已有測試 | 重寄限流為 2 次（測試用） | 第 3 次 POST 重寄 | 429；頁面含「請求過於頻繁」；有 `Retry-After` |
+| MEM-26／已有測試 | 登入限流為 2 次（測試用） | 連續 3 次登入 POST | 第 3 次 429 |
+| MEM-27／已有測試 | 正式 `appsettings.json` | 讀取 `AccountActionTokens` | 驗證連結 24 小時、重設 1 小時、申請間隔 1 小時（迴歸：舊值 `24:00:00` 被解析為 24 天） |
+
+單元與資料庫層的對應案例見 Application（APP-T31～APP-T33）與 Infrastructure（INF-T30～INF-T31），限流 web 案例見 TEST-46。

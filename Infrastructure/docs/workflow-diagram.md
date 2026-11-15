@@ -1,5 +1,7 @@
 # Infrastructure 流程
 
+> 會員中心 C3 補記：2026-11-15 更新；程式變更以 `c3f09dc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+
 > 帳號動作 token C2 補記：2026-11-15 更新；程式變更以 `4064680` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 
@@ -184,3 +186,31 @@ Embedding vector(1536) 由 DB 拒絕錯維度；upsert 無 change tracking。Pro
 | `IsUsableAsync` | 不開交易 | `SELECT` EXISTS | `bool` |
 
 caller 關係：C3（註冊驗證、重寄）與 C4（忘記密碼）呼叫 `AccountActionTokenService`，再由服務呼叫本 store。C4 的重設交易在同一個 scoped DbContext 內先 `ConsumeAsync`，再更新密碼與 `auth_version`，全部成功才 commit。
+
+## 會員中心 C3：驗證交易、寄信佇列與限流（新增）
+
+```mermaid
+sequenceDiagram
+    participant C as AccountVerificationController
+    participant Q as AccountEmailQueue
+    participant W as AccountEmailWorker
+    participant S as 新 DI scope
+    participant ST as EfEmailVerificationStore
+    participant DB as PostgreSQL
+    C->>Q: TryEnqueue（pending +1，鎖內）
+    Q->>W: ReadAllAsync 取出
+    W->>S: CreateAsyncScope
+    S->>S: AccountEmailDispatcher.DispatchAsync
+    W->>Q: Complete（pending -1，為 0 時完成 idle）
+    C->>ST: VerifyAsync(hash, now)
+    ST->>DB: BEGIN
+    ST->>DB: 條件式 UPDATE account_action_tokens（RETURNING user_id）
+    alt 無列
+        ST->>DB: ROLLBACK，回 false
+    else 有列
+        ST->>DB: UPDATE users SET email_verified_at WHERE 尚未驗證
+        ST->>DB: COMMIT，回 true
+    end
+```
+
+限流不接觸資料庫：`AccountRateLimiting` 只在記憶體中計數，被限流的請求在 `UseAuthentication` 之前就回 429。
