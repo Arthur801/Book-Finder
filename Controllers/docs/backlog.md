@@ -26,7 +26,7 @@
 - 前置決策：登入與註冊是否共用額度、成功請求是否計數，尚不能把過去建議當已核准規格。
 - 待辦：決策後以 ASP.NET Core rate limiter 實作；IP 取已驗證的 Forwarded Headers；不得信任任意 caller 偽造的 forwarded IP。
 - 驗收（原文）：同 IP 一分鐘第 6 次 429；不同 IP 隔離；新 window 恢復；一般表單錯誤提示與適用的 API 錯誤格式一致。完成前 `AUTH-F01` 保持暫緩。
-- C3 實際值：依 [會員中心計畫 D-C](../../Docs/plans/member-center-email-verification.md)，`account-auth` 為每 IP 每分鐘 20 次，與此處原文的「第 6 次 429」不同。**這是待決策事項**：請使用者確認採用 20／分（計畫）或 5／分（本條原文）；目前程式採計畫值，設定可在 `AccountRateLimits` 調整。
+- 數值已決定（使用者 2026-11-15）：`account-auth` 採每 IP 每分鐘 20 次，不採本條原文的「第 6 次 429」；`account-email` 維持每 IP 每 10 分鐘 5 次。原文驗收改以 MEM-25、MEM-26 為準，AUTH-F01 隨之結案。目前程式採計畫值，設定可在 `AccountRateLimits` 調整。
 - 測試：`AccountRateLimitTests`（MEM-25、MEM-26）以測試專用的低上限驗證 429；不同 IP 隔離只能在部署環境以真實 IP 驗證，未在 CI 驗證。
 
 ### CTL-03 — 量測 AI history 分頁查詢成本

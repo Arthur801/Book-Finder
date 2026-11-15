@@ -119,15 +119,43 @@ public sealed class PasswordResetServiceTests
     }
 
     [Fact]
-    public async Task When_the_store_refuses_the_token_at_consume_time_the_answer_is_invalid_link()
+    public async Task When_the_store_refuses_the_token_at_consume_time_the_answer_is_invalid_link_and_no_notice_is_sent()
     {
-        var (sut, tokens, store, _) = Create();
+        var (sut, tokens, store, sender) = Create();
         tokens.Usable = true;
-        store.Result = false;
+        store.Result = null;
 
         var outcome = await sut.ResetAsync(ValidToken(), ValidPassword, ValidPassword, CancellationToken.None);
 
         Assert.IsType<PasswordResetOutcome.InvalidLink>(outcome);
+        Assert.Empty(sender.Sent);
+    }
+
+    [Fact]
+    public async Task A_committed_reset_mails_the_password_changed_notice_with_the_taipei_time_and_the_forgot_link()
+    {
+        var (sut, tokens, store, sender) = Create();
+        tokens.Usable = true;
+
+        await sut.ResetAsync(ValidToken(), ValidPassword, ValidPassword, CancellationToken.None);
+
+        var notice = Assert.Single(sender.Sent);
+        Assert.Equal(store.User.Email, notice.To);
+        Assert.Equal("好想找書 - 你的密碼已變更", notice.Subject);
+        Assert.Contains("2026-11-15 12:00（台北時間）", notice.TextBody);
+        Assert.Contains(SiteRoot + "/account/password/forgot", notice.TextBody);
+    }
+
+    [Fact]
+    public async Task A_notice_that_cannot_be_sent_does_not_undo_the_reset()
+    {
+        var (sut, tokens, _, sender) = Create();
+        tokens.Usable = true;
+        sender.FailWith = new InvalidOperationException("ses down");
+
+        var outcome = await sut.ResetAsync(ValidToken(), ValidPassword, ValidPassword, CancellationToken.None);
+
+        Assert.IsType<PasswordResetOutcome.Reset>(outcome);
     }
 
     private static User NewUser() => new()
@@ -160,6 +188,7 @@ public sealed class PasswordResetServiceTests
         var sut = new PasswordResetService(
             new AccountActionTokenService(tokens, options, time),
             store,
+            new SingleUserStore(store.User),
             new FakeHashing(),
             sender,
             new SiteUrlBuilder(Options.Create(new SiteOptions { PublicBaseUrl = SiteRoot })),
@@ -202,15 +231,31 @@ public sealed class PasswordResetServiceTests
 
     internal sealed class FakeResetStore : IPasswordResetStore
     {
-        public bool Result { get; set; } = true;
+        public User User { get; } = NewUser();
+
+        public Guid? Result { get; set; }
 
         public List<ResetCall> Calls { get; } = [];
 
-        public Task<bool> ResetAsync(string tokenHash, string passwordHash, DateTime nowUtc, CancellationToken cancellationToken)
+        public FakeResetStore() => Result = User.Id;
+
+        public Task<Guid?> ResetAsync(string tokenHash, string passwordHash, DateTime nowUtc, CancellationToken cancellationToken)
         {
             Calls.Add(new ResetCall(tokenHash, passwordHash, nowUtc));
             return Task.FromResult(Result);
         }
+    }
+
+    // The user store the notice reads after the reset committed. Only lookup by id is used.
+    internal sealed class SingleUserStore(User user) : IUserStore
+    {
+        public Task<User?> FindByIdAsync(Guid id, CancellationToken cancellationToken) => Task.FromResult<User?>(id == user.Id ? user : null);
+
+        public Task<User?> FindByEmailAsync(string email, CancellationToken cancellationToken) => Task.FromResult<User?>(null);
+
+        public Task<AddUserResult> AddAsync(User newUser, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task UpdatePasswordHashAsync(Guid id, string passwordHash, DateTime updatedAt, CancellationToken cancellationToken) => throw new NotSupportedException();
     }
 
     internal sealed class FakeHashing : IPasswordHashing

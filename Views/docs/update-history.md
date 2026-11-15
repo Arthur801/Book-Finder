@@ -134,3 +134,9 @@ git show 894883b -- Views
 - 2026-11-15：`feat(identity): forgot password by email with transactional reset (C4)`，commit `8934ba4`。新增 `Views/PasswordReset/` 三個頁面；`Views/Account/Login.cshtml` 增加「忘記密碼？」連結；`Views/Member/Index.cshtml` 的 `#account-security` 增加「重設密碼」連結（開關開啟時）。
 - 驗證（2026-11-15，commit `8934ba4` 之後）：`dotnet build --no-incremental` 0 warning、0 error；`dotnet test tests/UnitTests` 1326 通過；`tests/DatabaseIntegration` 313 通過；`tests/WebIntegration` 522 通過。
 - 行為變更（開關關閉）：無，三個頁面不可達，兩個連結不顯示。
+
+## 2026-11-15 會員中心 review 決策（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | 本次 commit | docs(member): record the review decisions | `docs/architecture.md`：記錄使用者確認的 header 規則（「個人書單」只在登入後顯示） |

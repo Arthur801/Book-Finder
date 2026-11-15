@@ -313,4 +313,5 @@
 - **P1 / L4**：需要使用者授權與 AWS 操作（網域驗證、DKIM、SPF／DMARC、production access、instance role 的 `ses:SendEmail`、IMDSv2 hop limit）。repo 只能提供程式與 release 中的設定鍵。
 - 目前狀態：`appsettings.json` 的 `Email:Provider` 為 `None`，`compose.prod.yaml` 沒有 `Email__*` 或 `Site__PublicBaseUrl`。C1 依規劃不修改 `deploy/release/compose.prod.yaml`。
 - 之後 release（Feature E 的 N+1）需要：在 compose 加上 `Site__PublicBaseUrl`、`Email__Provider`、`Email__From`、`Email__Region` 與 `EmailVerification__Enabled`，並經過 prev-release-on-new-schema 的 compat 測試。`deploy/tests/test_release_files.py` 禁止 compose 含有字串 "password"，設定鍵的名稱需遵守。
+- **舊會員的第二次回填（U-01 第 3 層保證，2026-11-15 補記）**：開啟 `EmailVerification__Enabled` 的同一個 release，必須帶一支可以重跑的 data migration `BackfillLegacyEmailVerification`，執行 `UPDATE users SET email_verified_at = created_at WHERE email_verified_at IS NULL`（附 up/down 測試）。它補上 Release N 之後、rollback 期間由舊版建立、欄位為 NULL 的帳號。上線前由使用者在 production 確認 `SELECT count(*) FROM users WHERE email_verified_at IS NULL` 為 0（agent 沒有 production DB 連線）；上線後抽一個舊會員帳號，確認不必驗證即可登入。見 [會員中心計畫](../../Docs/plans/member-center-email-verification.md) Feature E 第 3 步。
 - 詳細驗收見 [Infrastructure backlog INF-B11](../../Infrastructure/docs/backlog.md)。

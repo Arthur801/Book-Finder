@@ -119,7 +119,7 @@ PIPE-03／PIPE-06 證據分層（均未在本次執行）：[AuthPipelineTests](
 | AUTH-07／已有測試 | 正確登入／註冊，待辦是 add-to-library，returnUrl 精確 `/books/{D GUID}` | cookie + 302 原 Book；Entry 為 WANT_TO_READ、rating null；原有 Entry 不變。 |
 | AUTH-08／已有測試 | 未知 action、非 Book path、query／fragment／尾斜線／非標準 GUID 變體 | 登入照常成功；不執行待辦；仍按安全 returnUrl 規則導向。精確 path 變體主要由 pure unit cases 驗證。 |
 | AUTH-09／待補強（登入結果已有測試，本次未執行） | 待辦 Book 不存在或 Library store 拋一般例外 | 仍發 cookie 與 redirect 已有 Web 案例；一般失敗不拋出、caller cancellation 傳遞有 unit 來源。Warning 與 log 不含 email／password／JWT 的完整斷言待建，不能以登入成功視為已驗證。 |
-| AUTH-F01／暫緩 | 同 IP 登入／註冊第 6 次；不同 IP／window | 目標為每 IP 每分鐘 5 次後 429；共用額度／成功計數須先決策，現階段不得宣稱已通過。見 CTL-02。 |
+| AUTH-F01／已結案（2026-11-15） | 同 IP 登入／註冊超過上限；不同 IP／window | 使用者決定 `account-auth` 為每 IP 每分鐘 20 次（不是原本的 5 次），改由 MEM-25、MEM-26 驗證 429；不同 IP 隔離只能在部署環境驗證（見 CTL-02）。 |
 
 AUTH-03 的 cookie 屬性與 max-age 證據為 [AuthCookieTests](../../tests/UnitTests/AuthCookieTests.cs)；登入／後續 protected request 另查 [AccountPagesTests](../../tests/WebIntegration/AccountPagesTests.cs) 與 AuthPipelineTests。AUTH-09 的 [PendingLibraryActionTests](../../tests/WebIntegration/PendingLibraryActionTests.cs) 驗證 Book 不存在／store 拋例外仍有 Set-Cookie 與 redirect；[LibraryServiceTests](../../tests/UnitTests/LibraryServiceTests.cs) 使用 NullLogger，未驗 Warning／敏感內容。後續須用 recording logger 補 Warning level 與敏感資料排除斷言。
 
