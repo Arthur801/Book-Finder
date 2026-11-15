@@ -1,4 +1,5 @@
 using System.Net;
+using Book_Finder.Infrastructure.Identity;
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.WebUtilities;
@@ -214,8 +215,10 @@ public sealed class OAuthFlowTests(WebFixture fixture)
 
     // A consent POST whose session has ended goes back to login with the authorize request it carried, so the approval can continue.
     [Fact]
-    public async Task Consent_post_after_the_session_ends_returns_to_login_with_the_same_authorize_request()
+    public async Task Consent_post_after_the_session_ends_is_refused_and_stores_no_authorization()
     {
+        // B2: the cookie is rejected while authenticating, so the consent POST runs anonymously. The antiforgery token was
+        // issued to the signed-in identity, so the framework refuses the POST with 400 before the passthrough controller runs.
         await fixture.ResetDatabaseAsync();
         await using var app = CreateOAuthFactory();
         var client = await SignedInClientAsync(app, "expired@x.com");
@@ -228,10 +231,13 @@ public sealed class OAuthFlowTests(WebFixture fixture)
 
         var response = await AccountFlow.PostFormAsync(client, "/oauth/authorize", AntiforgeryToken(page), FormFields(values, "submit.Accept").ToArray());
 
-        Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
-        var location = LocationOf(response);
-        Assert.Equal("/account/login", location.AbsolutePath);
-        Assert.Equal("/oauth/authorize?" + Query(values), QueryHelpers.ParseQuery(location.Query)["returnUrl"].ToString());
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.True(response.Headers.TryGetValues("Set-Cookie", out var setCookies));
+        Assert.Contains(setCookies, value => value.StartsWith(AuthCookie.Name + "=", StringComparison.Ordinal) && value.Contains("expires=Thu, 01 Jan 1970"));
+        await using var check = fixture.CreateContext();
+        var stored = await check.Database.SqlQueryRaw<int>(
+                "SELECT count(*)::int AS \"Value\" FROM openiddict_authorizations").SingleAsync();
+        Assert.Equal(0, stored);
     }
 
     [Fact]
