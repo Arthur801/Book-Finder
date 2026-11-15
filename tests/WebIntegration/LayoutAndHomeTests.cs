@@ -16,13 +16,15 @@ public sealed class LayoutAndHomeTests(WebFixture fixture)
 
         var html = await app.CreateClient().GetPageAsync(path);
 
+        var header = HtmlPage.Header(html);
         Assert.Matches("<a [^>]*href=\"/\"[^>]*>好想找書</a>", html);
-        Assert.Matches("<a [^>]*href=\"/books\"[^>]*>書庫</a>", html);
+        Assert.Matches("<a [^>]*href=\"/categories\"[^>]*>分類</a>", header);
+        Assert.DoesNotMatch("<a [^>]*href=\"/books\"[^>]*>書庫</a>", header);
         Assert.DoesNotContain("href=\"/bestsellers\"", html);
-        Assert.Matches("<a [^>]*href=\"/ai\"[^>]*>AI 推薦</a>", html);
+        Assert.Matches("<a [^>]*href=\"/ai\"[^>]*>AI 推薦</a>", header);
         Assert.DoesNotContain("href=\"/library\"", html);
-        Assert.Matches("<a [^>]*href=\"/account/login\"[^>]*>登入</a>", html);
-        Assert.Matches("<a [^>]*href=\"/account/register\"[^>]*>註冊</a>", html);
+        Assert.Matches("<a [^>]*href=\"/account/login\"[^>]*>登入</a>", header);
+        Assert.Matches("<a [^>]*href=\"/account/register\"[^>]*>註冊</a>", header);
     }
 
     [Fact]

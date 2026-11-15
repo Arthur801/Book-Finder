@@ -1,5 +1,6 @@
 # Views Git 修改歷史
 
+> Header P1 補記：2026-11-15 更新；程式變更以 `e355171`、`f4ccdc4` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 會員中心 C3 補記：2026-11-15 更新；程式變更以 `c3f09dc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 > 非同步推薦 Job M7 補記：2026-11-14 更新；程式變更以 `4db0c98`、`e00cbb5`、`5559870`、`ac88ef2` 記入 update-history。原查核基準保留，未重新審查其餘內容。
@@ -140,3 +141,15 @@ git show 894883b -- Views
 | Author 日期 | SHA | subject | 本目錄實際改動檔案 |
 |---|---|---|---|
 | 2026-11-15 | 本次 commit | docs(member): record the review decisions | `docs/architecture.md`：記錄使用者確認的 header 規則（「個人書單」只在登入後顯示） |
+
+## Header「更多」選單（P1，新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | `e355171` | test(navbar): expect the More dropdown with library, MCP, guide and logout | 無 Views 檔案；`tests/WebIntegration`：`NavbarTests.cs`、`LayoutAndHomeTests.cs`、`McpGuidePageTests.cs`、`HtmlPage.cs`（新增 `Header` 與 `MoreMenu` 輔助方法） |
+| 2026-11-15 | `f4ccdc4` | feat(ui): consolidate library, MCP and logout into More menu | `Shared/_Layout.cshtml`：左側移除「書庫」；右側新增「更多」dropdown（個人書單、MCP 說明、功能導覽、分隔線、登出）；新增 noscript fallback；會員名稱與登入／註冊保留 |
+| 2026-11-15 | 本分支 docs commit | docs(views): record the More menu header in folder docs | 本目錄 `architecture.md`、`workflow-diagram.md`、`test-suite.md`、`backlog.md`、`update-history.md` |
+
+使用者可見行為：左側不再有「書庫」；個人書單、MCP 說明、登出移入「更多」。`/books` 路由與書籍頁未變。wwwroot/docs 未更新，因本次未改 CSS 或 JS。
+
+驗證（2026-11-15）：`dotnet build --no-incremental` 0 warning、0 error；`dotnet test tests/UnitTests` 1330 通過；`dotnet test tests/WebIntegration` 527 通過。
