@@ -1,0 +1,17 @@
+@model Book_Finder.Models.VerificationSentViewModel
+@{
+    ViewData["Title"] = "請收信";
+}
+
+<section class="col-12 col-md-6 col-lg-4 mx-auto">
+    <h1 class="h3 mb-3">請收信</h1>
+    <p>我們已將驗證信寄到 <strong>@Model.Email</strong>。請點擊信中的連結完成 Email 驗證，完成後再登入。</p>
+
+    @if (Model.SendFailed)
+    {
+        <div class="alert alert-warning py-2">驗證信寄送失敗，帳號已建立。請稍後重新寄送驗證信。</div>
+    }
+
+    <p>沒有收到信？<a href="/account/verification/resend">重寄驗證信</a></p>
+    <p class="mb-0"><a href="/account/login">前往登入</a></p>
+</section>

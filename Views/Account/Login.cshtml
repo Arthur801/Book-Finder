@@ -6,6 +6,11 @@
 <section class="col-12 col-md-6 col-lg-4 mx-auto">
     <h1 class="h3 mb-3">登入</h1>
 
+    @if (ViewData["Notice"] is string notice)
+    {
+        <div class="alert alert-success py-2">@notice</div>
+    }
+
     <form method="post" asp-controller="Account" asp-action="Login">
         <div asp-validation-summary="ModelOnly" class="alert alert-danger py-2"></div>
 
@@ -26,6 +31,11 @@
 
         <button class="btn btn-primary" type="submit">登入</button>
     </form>
+
+    @if (ViewData["ShowResendLink"] is true)
+    {
+        <p class="mt-3 mb-0"><a href="/account/verification/resend">重寄驗證信</a></p>
+    }
 
     <p class="mt-3 mb-0">
         還沒有帳號？<a asp-controller="Account" asp-action="Register"

@@ -1,5 +1,7 @@
+using Book_Finder.Application.Email;
 using Book_Finder.Application.Identity;
 using Book_Finder.Domain.Entities;
+using Microsoft.Extensions.Options;
 
 namespace UnitTests;
 
@@ -167,11 +169,76 @@ public sealed class AccountServiceTests
         Assert.Equal(0, passwords.VerifyCallCount);
     }
 
-    private static (AccountService Sut, FakeUserStore Users, FakePasswordHashing Passwords) Create()
+    [Fact]
+    public async Task Register_with_verification_enabled_leaves_the_user_unverified_and_does_not_sign_in()
+    {
+        var (sut, users, _) = Create(verificationEnabled: true);
+
+        var result = await sut.RegisterAsync("new@example.com", Password, "Arthur", CancellationToken.None);
+
+        var stored = Assert.Single(users.Added);
+        Assert.Null(stored.EmailVerifiedAt);
+        var pending = Assert.IsType<RegisterResult.PendingVerification>(result);
+        Assert.Same(stored, pending.User);
+    }
+
+    [Fact]
+    public async Task Login_with_verification_enabled_and_correct_password_for_unverified_user_returns_email_not_verified()
+    {
+        var (sut, users, passwords) = Create(verificationEnabled: true);
+        var user = users.Seed("unverified@example.com", "hashed:" + Password);
+        user.EmailVerifiedAt = null;
+        passwords.CheckResult = PasswordCheck.Success;
+
+        var result = await sut.LoginAsync("unverified@example.com", Password, CancellationToken.None);
+
+        Assert.IsType<LoginResult.EmailNotVerified>(result);
+    }
+
+    [Fact]
+    public async Task Login_with_verification_enabled_and_wrong_password_for_unverified_user_stays_invalid_credentials()
+    {
+        var (sut, users, passwords) = Create(verificationEnabled: true);
+        users.Seed("unverified@example.com", "hashed:" + Password);
+        passwords.CheckResult = PasswordCheck.Failed;
+
+        var result = await sut.LoginAsync("unverified@example.com", "wrong-password", CancellationToken.None);
+
+        Assert.IsType<LoginResult.InvalidCredentials>(result);
+    }
+
+    [Fact]
+    public async Task Login_with_verification_enabled_succeeds_for_a_verified_legacy_user()
+    {
+        var (sut, users, passwords) = Create(verificationEnabled: true);
+        var user = users.Seed("legacy@example.com", "hashed:" + Password);
+        user.EmailVerifiedAt = Now.UtcDateTime;
+        passwords.CheckResult = PasswordCheck.Success;
+
+        var result = await sut.LoginAsync("legacy@example.com", Password, CancellationToken.None);
+
+        var success = Assert.IsType<LoginResult.Succeeded>(result);
+        Assert.Same(user, success.User);
+    }
+
+    [Fact]
+    public async Task Login_with_verification_disabled_does_not_check_verification()
+    {
+        var (sut, users, passwords) = Create(verificationEnabled: false);
+        users.Seed("nullverified@example.com", "hashed:" + Password).EmailVerifiedAt = null;
+        passwords.CheckResult = PasswordCheck.Success;
+
+        var result = await sut.LoginAsync("nullverified@example.com", Password, CancellationToken.None);
+
+        Assert.IsType<LoginResult.Succeeded>(result);
+    }
+
+    private static (AccountService Sut, FakeUserStore Users, FakePasswordHashing Passwords) Create(bool verificationEnabled = false)
     {
         var users = new FakeUserStore();
         var passwords = new FakePasswordHashing();
-        var sut = new AccountService(users, passwords, new FixedTimeProvider(Now));
+        var verification = Options.Create(new EmailVerificationOptions { Enabled = verificationEnabled });
+        var sut = new AccountService(users, passwords, new FixedTimeProvider(Now), verification);
         return (sut, users, passwords);
     }
 

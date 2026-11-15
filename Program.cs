@@ -102,6 +102,10 @@ builder.Services.AddBookFinderOAuth(builder.Configuration, builder.Environment);
 
 // Email port (member-center plan C1): IEmailSender chosen by Email:Provider, plus the Site and EmailVerification settings. No flow sends mail yet.
 builder.Services.AddBookFinderEmail(builder.Configuration, builder.Environment);
+// Account email queue and worker (plan member-center C3): resend requests are queued here and sent by the worker, not in the POST.
+builder.Services.AddAccountEmailQueue();
+// Per-IP limits for the account POST endpoints (plan member-center D-C), enforced by UseRateLimiter below.
+builder.Services.AddBookFinderRateLimiting(builder.Configuration);
 
 var app = builder.Build();
 
@@ -119,6 +123,8 @@ if (!app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 app.UseRouting();
+// After routing, so [EnableRateLimiting] on an action is known; before authentication, so a limited request does no auth work.
+app.UseRateLimiter();
 
 app.UseAuthentication();
 app.UseAuthorization();
