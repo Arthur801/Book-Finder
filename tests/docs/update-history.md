@@ -273,7 +273,7 @@ Git 歷史不證明 runtime 或 CI 已通過。
 
 | Author 日期 | SHA | subject | 本目錄實際改動檔案 | 案例 |
 |---|---|---|---|---|
-| 2026-11-15 | `c3f09dc` | feat(identity): email verification, resend, login gating and per-IP limits (C3) | `WebIntegration/EmailVerificationFlowTests.cs`、`EmailVerificationSwitchOffTests.cs`、`AccountRateLimitTests.cs`（新增）；`WebFixture.cs`（`EmailVerificationEnabled`、`AccountAuthPermitLimit`、`AccountEmailPermitLimit`）；`CapturingEmailSender.cs`（`FailWith`）；`UnitTests/AccountServiceTests.cs`（開關與登入閘 5 項）、`EmailVerificationServiceTests.cs`、`AccountEmailDispatcherTests.cs`、`AccountEmailQueueTests.cs`、`AccountRateLimitOptionsTests.cs`（新增）；`DatabaseIntegration/EfEmailVerificationStoreTests.cs`（新增） | TEST-44～TEST-46 |
+| 2026-11-15 | `c3f09dc` | feat(identity): email verification, resend, login gating and per-IP limits (C3) | `WebIntegration/EmailVerificationFlowTests.cs`、`EmailVerificationSwitchOffTests.cs`、`AccountRateLimitTests.cs`（新增）；`WebFixture.cs`（`EmailVerificationEnabled`、`AccountAuthPermitLimit`、`AccountEmailPermitLimit`）；`CapturingEmailSender.cs`（`FailWith`）；`UnitTests/AccountServiceTests.cs`（開關與登入閘 5 項）、`EmailVerificationServiceTests.cs`、`AccountEmailDispatcherTests.cs`、`AccountEmailQueueTests.cs`、`AccountRateLimitOptionsTests.cs`（新增）；`DatabaseIntegration/EfEmailVerificationStoreTests.cs`（新增） | TEST-47～TEST-46 |
 
 驗證（2026-11-15）：`dotnet build --no-incremental` 0 warning、0 error；UnitTests 1303、DatabaseIntegration 300、WebIntegration 494 全部通過。
 

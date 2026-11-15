@@ -101,7 +101,7 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter 'FullyQualifiedN
 
 | 案例 | 測試位置 | 驗證內容 |
 |---|---|---|
-| VIEW-T17 — 確認頁與無效頁 | `tests/WebIntegration/EmailVerificationFlowTests.cs`（TEST-44） | 可用連結顯示「確認 Email」與指向 `/account/verify-email` 的表單；無效或過期顯示「連結無效或已過期」與重寄連結；token 頁回應含 `no-store` 與 `no-referrer` |
-| VIEW-T18 — 請收信與寄信失敗頁 | 同上（TEST-44） | 「請收信」含收件地址；寄信失敗顯示「驗證信寄送失敗」與重寄連結 |
-| VIEW-T19 — 重寄頁與通知 | 同上（TEST-44） | POST 後的通知文字在各種帳號狀態下相同（以 notice 區塊比對，不比對 antiforgery token） |
-| VIEW-T20 — 登入頁提示 | 同上（TEST-44）與 `EmailVerificationSwitchOffTests`（TEST-45） | 「請先完成 Email 驗證」與重寄連結只在未驗證時出現；開關關閉時沒有重寄連結 |
+| VIEW-T17 — 確認頁與無效頁 | `tests/WebIntegration/EmailVerificationFlowTests.cs`（TEST-47） | 可用連結顯示「確認 Email」與指向 `/account/verify-email` 的表單；無效或過期顯示「連結無效或已過期」與重寄連結；token 頁回應含 `no-store` 與 `no-referrer` |
+| VIEW-T18 — 請收信與寄信失敗頁 | 同上（TEST-47） | 「請收信」含收件地址；寄信失敗顯示「驗證信寄送失敗」與重寄連結 |
+| VIEW-T19 — 重寄頁與通知 | 同上（TEST-47） | POST 後的通知文字在各種帳號狀態下相同（以 notice 區塊比對，不比對 antiforgery token） |
+| VIEW-T20 — 登入頁提示 | 同上（TEST-47）與 `EmailVerificationSwitchOffTests`（TEST-45） | 「請先完成 Email 驗證」與重寄連結只在未驗證時出現；開關關閉時沒有重寄連結 |

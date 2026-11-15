@@ -203,10 +203,10 @@ appsettings：`appsettings.json` 為 `Email:Provider = None`、`EmailVerificatio
 
 **管線位置**（[Program.cs](../../Program.cs)）：`UseForwardedHeaders` → `UseHttpsRedirection` → `UseRouting` → `UseRateLimiter` → `UseAuthentication` → `UseAuthorization`。限流放在 routing 之後，`[EnableRateLimiting]` 才能讀到 endpoint；放在 authentication 之前，被限流的請求不做 JWT 驗證。
 
-**設定修正**：`appsettings.json` 的 `AccountActionTokens:EmailVerificationLifetime` 原為 `"24:00:00"`，.NET 會解析成 24 天（測試時發現，見 TEST-44 的設定案例）。已改為 `"1.00:00:00"`，即 24 小時。`RequestInterval` 與 `PasswordResetLifetime` 的 `01:00:00` 解析結果正確（1 小時）。
+**設定修正**：`appsettings.json` 的 `AccountActionTokens:EmailVerificationLifetime` 原為 `"24:00:00"`，.NET 會解析成 24 天（測試時發現，見 TEST-47 的設定案例）。已改為 `"1.00:00:00"`，即 24 小時。`RequestInterval` 與 `PasswordResetLifetime` 的 `01:00:00` 解析結果正確（1 小時）。
 
 **限制**
 
-- 頻率限制與佇列都在單一 process 的記憶體中。部署多個 instance 時，限制不會跨 instance 共用，佇列也不會分享（見 backlog INF-B12）。
+- 頻率限制與佇列都在單一 process 的記憶體中。部署多個 instance 時，限制不會跨 instance 共用，佇列也不會分享（見 backlog INF-B15）。
 - 分區鍵依賴 `ForwardedHeaders:KnownNetworks`。只有受信任的 proxy 才能改寫 `RemoteIpAddress`；不可信任任意 caller 偽造的 forwarded IP（既有 HostingSetup 規則）。
 - `EmailVerification:Enabled` 為 true 時，`EmailOptions.ValidationError` 要求 `Email:Provider` 不為 None，因此開關開啟時啟動檢查會擋下未設定寄信的組態。

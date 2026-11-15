@@ -352,9 +352,9 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter FullyQualifiedNa
   - [LibraryPageTests](../WebIntegration/LibraryPageTests.cs)：頁面斷言改到 `/account`，行為覆蓋不變（篩選、列、空態、控制項、登入連結）；匿名 `/library` 仍導向登入頁。
 - 已知缺口：沒有 Web 測試驗證 `/account` 的瀏覽器 JS 行為（書單 CRUD 在新頁面的 DOM 操作）；本次只以 HTML 驗證。
 
-## 會員中心 C3：Email 驗證、重寄與限流（TEST-44～TEST-46）
+## 會員中心 C3：Email 驗證、重寄與限流（TEST-47～TEST-46）
 
-### TEST-44：開關開啟的驗證流程（WebIntegration）
+### TEST-47：開關開啟的驗證流程（WebIntegration）
 
 - 來源：`tests/WebIntegration/EmailVerificationFlowTests.cs`，`[Collection(WebCollection.Name)]`，共 15 項；每項都重設資料庫。
 - 主機：`BookFinderFactory.EmailVerificationEnabled = true`、`Time = FakeTimeProvider`；`IEmailSender` 為 `CapturingEmailSender`（可設 `FailWith` 模擬寄信失敗）。
@@ -378,7 +378,7 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter FullyQualifiedNa
 
 - `tests/UnitTests/EmailVerificationServiceTests.cs`、`AccountEmailDispatcherTests.cs`、`AccountEmailQueueTests.cs`、`AccountRateLimitOptionsTests.cs`，以及 `AccountServiceTests.cs` 中新增的 5 項（開關與登入閘）。
 - `tests/DatabaseIntegration/EfEmailVerificationStoreTests.cs`，共 5 項。
-- 對應的 APP-T31～APP-T33、INF-T30～INF-T31 見 Application 與 Infrastructure 的 test-suite。
+- 對應的 APP-T31～APP-T33、INF-T33～INF-T31 見 Application 與 Infrastructure 的 test-suite。
 
 ### 驗證結果（2026-11-15）
 

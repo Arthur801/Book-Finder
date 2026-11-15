@@ -76,7 +76,7 @@
 
 ## 會員中心 C3 新增待辦
 
-### APP-B10 — C4 忘記密碼需補上 PasswordReset 派送分支
+### APP-B12 — C4 忘記密碼需補上 PasswordReset 派送分支
 
 - [ ] **P2／計畫中／L3**。[AccountEmailDispatcher](../Identity/AccountEmailDispatcher.cs) 目前對 `PasswordReset` 拋出例外；C4 必須在這裡加入分支（查無帳號或存在即寄信，並沿用 D-C 的 1 小時節流）。
 - 驗收：C4 的 `PasswordReset` 分支通過 `PasswordResetFlowTests`；在分支補上之前，不得從 UI 送出 `PasswordReset` 請求（目前沒有此入口）。
