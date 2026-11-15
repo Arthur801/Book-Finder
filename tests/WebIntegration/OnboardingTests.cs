@@ -7,7 +7,7 @@ namespace WebIntegration;
 
 // The first-visit guided tour (plan header-category-onboarding §5, P4). The server renders a hidden dialog root and the
 // step list; onboarding.js does the rest in the browser. These tests check the HTML contract only. WebIntegration does not
-// run JavaScript, so the spotlight, focus, storage and keyboard behaviour are covered by the browser cases still pending (P5).
+// run JavaScript, so the spotlight, focus, storage and keyboard behaviour are covered by the one-off browser check in Views/docs VIEW-T30.
 [Collection(WebCollection.Name)]
 public sealed class OnboardingTests(WebFixture fixture)
 {
