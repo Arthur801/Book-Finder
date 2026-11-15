@@ -39,7 +39,7 @@ public class AiController(
         var jobsEnabled = jobOptions.Value.Enabled;
         ViewData["RecommendationJobsEnabled"] = jobsEnabled;
         if (jobsEnabled)
-            ViewData["JobList"] = await JobListAsync(userId, PageNumber.Parse(jobsPage), cancellationToken);
+            ViewData["JobList"] = await RecommendationJobListLoader.LoadAsync(jobs, userId, PageNumber.Parse(jobsPage), cancellationToken);
 
         return View(AiHistoryListViewModel.From(list, requestedPage));
     }
@@ -96,17 +96,6 @@ public class AiController(
         // Difficulty is read now, not saved with the search, so a Book profiled after the search shows its difficulty here (#18).
         var difficultyByBook = await difficulties.ReadAsync(detail.Results.Select(result => result.BookId).ToList(), cancellationToken);
         return View(AiHistoryDetailViewModel.From(detail, difficultyByBook));
-    }
-
-    // The job list for the page's requested jobsPage. A page past the last one shows the last page, as the history list fragment does.
-    private async Task<AiJobListViewModel> JobListAsync(Guid userId, int requestedPage, CancellationToken cancellationToken)
-    {
-        var page = await jobs.ListAsync(userId, requestedPage, cancellationToken);
-        var shown = AiJobListViewModel.PageToShow(requestedPage, page.TotalCount);
-        if (shown != requestedPage)
-            page = await jobs.ListAsync(userId, shown, cancellationToken);
-
-        return AiJobListViewModel.From(page, shown);
     }
 
     // The same 404 page for every case where the search cannot be shown (ui-flow.md §3.5).

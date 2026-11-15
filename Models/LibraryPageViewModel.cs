@@ -13,7 +13,7 @@ public sealed record LibraryPageViewModel(
     public bool IsEmpty => Items.Count == 0;
 
     // Items are already newest UpdatedAt first (the store orders them). Null filter means 全部.
-    // basePath and fragment shape the filter tab links only: /library by default, /account#library on the member center.
+    // basePath and fragment shape the filter tab links only: the member center passes /account and #library.
     public static LibraryPageViewModel From(
         ReadingStatus? filter,
         IReadOnlyList<LibraryItem> items,

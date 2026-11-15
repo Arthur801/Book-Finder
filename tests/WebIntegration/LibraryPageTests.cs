@@ -6,7 +6,7 @@ using static WebIntegration.HtmlPage;
 
 namespace WebIntegration;
 
-// The /library page (user-library.md §4; ui-flow.md §2, §3.5). Rows, filter tabs, the empty state, and the shared
+// The member center Library section at /account (user-library.md §4; ui-flow.md §2, §3.5; member-center plan A3). Rows, filter tabs, the empty state, and the shared
 // library controls on each row (#12).
 [Collection(WebCollection.Name)]
 public sealed partial class LibraryPageTests(WebFixture fixture)
@@ -41,7 +41,7 @@ public sealed partial class LibraryPageTests(WebFixture fixture)
         await using var app = fixture.CreateFactory();
         var client = await SignInAsync(app, "library-empty@x.com");
 
-        var html = await client.GetPageAsync("/library");
+        var html = await client.GetPageAsync("/account");
 
         Assert.Empty(Rows(html));
         Assert.False(EmptyStateHidden(html));
@@ -59,7 +59,7 @@ public sealed partial class LibraryPageTests(WebFixture fixture)
         var client = await SignInAsync(app, "library-hidden-empty@x.com");
         await SeedEntryAsync("library-hidden-empty@x.com", book, ReadingStatus.WantToRead, null, BaseTime);
 
-        var html = await client.GetPageAsync("/library");
+        var html = await client.GetPageAsync("/account");
 
         Assert.Single(Rows(html));
         Assert.True(EmptyStateHidden(html));
@@ -79,7 +79,7 @@ public sealed partial class LibraryPageTests(WebFixture fixture)
         await SeedEntryAsync("library-order@x.com", newest, ReadingStatus.Finished, 5, BaseTime.AddDays(3));
         await SeedEntryAsync("library-order@x.com", middle, ReadingStatus.Reading, 2, BaseTime.AddDays(2));
 
-        var html = await client.GetPageAsync("/library");
+        var html = await client.GetPageAsync("/account");
 
         Assert.Equal([newest, middle, oldest], Rows(html).Select(row => row.BookId));
     }
@@ -95,7 +95,7 @@ public sealed partial class LibraryPageTests(WebFixture fixture)
         await SeedEntryAsync("library-fields@x.com", reading, ReadingStatus.Reading, 4, BaseTime.AddDays(2));
         await SeedEntryAsync("library-fields@x.com", wantToRead, ReadingStatus.WantToRead, null, BaseTime.AddDays(1));
 
-        var html = await client.GetPageAsync("/library");
+        var html = await client.GetPageAsync("/account");
 
         var rows = Rows(html);
         var readingRow = rows.Single(row => row.BookId == reading);
@@ -118,7 +118,7 @@ public sealed partial class LibraryPageTests(WebFixture fixture)
         await SeedEntryAsync("library-controls@x.com", reading, ReadingStatus.Reading, 4, BaseTime.AddDays(2));
         await SeedEntryAsync("library-controls@x.com", wantToRead, ReadingStatus.WantToRead, null, BaseTime.AddDays(1));
 
-        var html = await client.GetPageAsync("/library");
+        var html = await client.GetPageAsync("/account");
 
         var controls = LibraryControls(html);
         Assert.Equal(2, controls.Count);
@@ -148,7 +148,7 @@ public sealed partial class LibraryPageTests(WebFixture fixture)
         await SeedEntryAsync("library-unrated@x.com", unrated, ReadingStatus.WantToRead, null, BaseTime.AddDays(2));
         await SeedEntryAsync("library-unrated@x.com", rated, ReadingStatus.Reading, 3, BaseTime.AddDays(1));
 
-        var controls = LibraryControls(await client.GetPageAsync("/library"));
+        var controls = LibraryControls(await client.GetPageAsync("/account"));
 
         var unratedLabel = controls.Single(item => item.BookId == unrated).Unrated;
         Assert.NotNull(unratedLabel);
@@ -168,7 +168,7 @@ public sealed partial class LibraryPageTests(WebFixture fixture)
         var client = await SignInAsync(app, "library-labels@x.com");
         await SeedEntryAsync("library-labels@x.com", book, ReadingStatus.Finished, 2, BaseTime);
 
-        var controls = Assert.Single(LibraryControls(await client.GetPageAsync("/library")));
+        var controls = Assert.Single(LibraryControls(await client.GetPageAsync("/account")));
 
         Assert.Equal(
             [("WANT_TO_READ", "想讀"), ("READING", "閱讀中"), ("FINISHED", "已讀")],
@@ -187,7 +187,7 @@ public sealed partial class LibraryPageTests(WebFixture fixture)
         await SeedEntryAsync("library-token@x.com", first, ReadingStatus.Reading, 3, BaseTime.AddDays(1));
         await SeedEntryAsync("library-token@x.com", second, ReadingStatus.Finished, null, BaseTime.AddDays(2));
 
-        var html = await client.GetPageAsync("/library");
+        var html = await client.GetPageAsync("/account");
 
         // The layout's logout form carries its own token, so the count is taken over the Library view only: from the
         // filter tabs to the end of the list.
@@ -204,7 +204,7 @@ public sealed partial class LibraryPageTests(WebFixture fixture)
         await using var app = fixture.CreateFactory();
         var client = await SignInAsync(app, "library-script@x.com");
 
-        var html = await client.GetPageAsync("/library");
+        var html = await client.GetPageAsync("/account");
 
         Assert.Contains("/js/library.js", html);
     }
@@ -220,11 +220,11 @@ public sealed partial class LibraryPageTests(WebFixture fixture)
         await SeedEntryAsync("library-filter@x.com", reading, ReadingStatus.Reading, null, BaseTime.AddDays(1));
         await SeedEntryAsync("library-filter@x.com", finished, ReadingStatus.Finished, 3, BaseTime.AddDays(2));
 
-        var html = await client.GetPageAsync("/library?status=READING");
+        var html = await client.GetPageAsync("/account?status=READING");
 
         Assert.Equal([reading], Rows(html).Select(row => row.BookId));
         Assert.Equal("閱讀中", ActiveTab(html));
-        Assert.Equal("/library?status=READING", TabHref(html, "閱讀中"));
+        Assert.Equal("/account?status=READING#library", TabHref(html, "閱讀中"));
     }
 
     [Fact]
@@ -236,9 +236,9 @@ public sealed partial class LibraryPageTests(WebFixture fixture)
         var client = await SignInAsync(app, "library-return@x.com");
         await SeedEntryAsync("library-return@x.com", reading, ReadingStatus.Reading, null, BaseTime);
 
-        var controls = Assert.Single(LibraryControls(await client.GetPageAsync("/library?status=READING")));
+        var controls = Assert.Single(LibraryControls(await client.GetPageAsync("/account?status=READING")));
 
-        Assert.Equal("/account/login?returnUrl=%2Flibrary%3Fstatus%3DREADING", controls.LoginUrl);
+        Assert.Equal("/account/login?returnUrl=%2Faccount%3Fstatus%3DREADING", controls.LoginUrl);
     }
 
     [Fact]
@@ -252,7 +252,7 @@ public sealed partial class LibraryPageTests(WebFixture fixture)
         await SeedEntryAsync("library-unknown@x.com", reading, ReadingStatus.Reading, null, BaseTime.AddDays(1));
         await SeedEntryAsync("library-unknown@x.com", finished, ReadingStatus.Finished, 3, BaseTime.AddDays(2));
 
-        var html = await client.GetPageAsync("/library?status=foo");
+        var html = await client.GetPageAsync("/account?status=foo");
 
         Assert.Equal([finished, reading], Rows(html).Select(row => row.BookId));
         Assert.Equal("全部", ActiveTab(html));
@@ -267,7 +267,7 @@ public sealed partial class LibraryPageTests(WebFixture fixture)
         var client = await SignInAsync(app, "library-nomatch@x.com");
         await SeedEntryAsync("library-nomatch@x.com", wantToRead, ReadingStatus.WantToRead, null, BaseTime);
 
-        var html = await client.GetPageAsync("/library?status=FINISHED");
+        var html = await client.GetPageAsync("/account?status=FINISHED");
 
         Assert.Empty(Rows(html));
         Assert.False(EmptyStateHidden(html));
@@ -287,7 +287,7 @@ public sealed partial class LibraryPageTests(WebFixture fixture)
         await SeedEntryAsync("library-alice@x.com", alicesBook, ReadingStatus.Reading, 4, BaseTime);
         await SeedEntryAsync("library-bob@x.com", bobsBook, ReadingStatus.Finished, 1, BaseTime.AddDays(1));
 
-        var html = await alice.GetPageAsync("/library");
+        var html = await alice.GetPageAsync("/account");
 
         Assert.Equal([alicesBook], Rows(html).Select(row => row.BookId));
         Assert.DoesNotContain(bobsBook.ToString(), html);
