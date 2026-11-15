@@ -251,6 +251,12 @@ Git 歷史不證明 runtime 或 CI 已通過。
 
 驗證（2026-11-15）：UnitTests 1144 通過；WebIntegration 453 通過。見 TEST-41。
 
+## 會員中心 B2：同意頁 session 結束後回登入頁（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | 本次 commit | fix(oauth): send an ended-session consent POST back to login (B2) | `tests/WebIntegration/OAuthFlowTests.cs`：`Consent_post_after_the_session_ends_*` 恢復為斷言回登入頁，並加上刪除 cookie、不寫入 authorization 的斷言；新增 `Consent_post_after_the_password_was_reset_*`（auth_version bump、Deny 按鈕） |
+
 ## 帳號動作 token C2（新增紀錄）
 
 | Author 日期 | SHA | subject | 本目錄實際改動檔案 |
