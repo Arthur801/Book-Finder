@@ -1,34 +1,96 @@
-/* The 分類 page (Views/Categories/Index.cshtml). Below lg the sidebar is Bootstrap's offcanvas drawer, so these rules only lay out the lg+ columns. */
-/* Buttons that need JavaScript (the drawer opener and the collapse toggle) stay hidden until category-sidebar.js runs.
-   The selector outranks Bootstrap's display utilities, which are also !important. */
-.category-browser .js-only {
-  display: none !important;
+/* The 分類 page (Views/Categories/Index.cshtml): one column with a responsive grid of category cards (_CategoryGrid.cshtml).
+   Every rule is scoped to .category-browser so nothing leaks to other pages. Colors come from Bootstrap's CSS variables. */
+
+.category-browser .category-grid-nav {
+  margin-bottom: 1rem;
 }
 
-.category-link.active {
+/* Fixed gap and equal tracks: 2 columns on phones, 3 from 576px, 4 from 768px, 6 from 1200px (19 cards make four rows at 6). */
+.category-browser .category-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: .75rem;
+  margin: 0;
+  padding: 0;
+}
+
+@media (min-width: 576px) {
+  .category-browser .category-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 768px) {
+  .category-browser .category-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1200px) {
+  .category-browser .category-grid {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+}
+
+/* Each cell stretches to the row height, so cards in one row are equal height. */
+.category-browser .category-grid-item {
+  display: flex;
+  min-width: 0;
+}
+
+.category-browser .category-grid-link {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: .25rem;
+  min-height: 4.5rem;
+  padding: .5rem;
+  border: 1px solid var(--bs-border-color);
+  border-radius: var(--bs-border-radius);
+  background-color: var(--bs-body-bg);
+  color: var(--bs-body-color);
+  text-align: center;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+  transition: background-color .15s ease-in-out, border-color .15s ease-in-out;
+}
+
+.category-browser .category-grid-link:hover {
+  border-color: var(--bs-primary);
+  background-color: var(--bs-tertiary-bg);
+}
+
+.category-browser .category-grid-link:focus-visible {
+  outline: 2px solid var(--bs-primary);
+  outline-offset: 2px;
+}
+
+/* The selected card: primary background with white text (contrast of white on --bs-primary is above 4.5:1). */
+.category-browser .category-grid-link.is-active,
+.category-browser .category-grid-link.is-active:hover {
+  border-color: var(--bs-primary);
+  background-color: var(--bs-primary);
+  color: var(--bs-white);
+}
+
+.category-browser .category-grid-name {
   font-weight: 600;
+  line-height: 1.3;
 }
 
-@media (min-width: 992px) {
-  .category-browser {
-    display: flex;
-    align-items: flex-start;
-    gap: 1.5rem;
-  }
+.category-browser .category-grid-count {
+  font-size: .8rem;
+  color: var(--bs-secondary-color);
+}
 
-  .category-browser .category-sidebar {
-    flex: 0 0 14rem;
-    position: sticky;
-    top: 1rem;
-  }
+.category-browser .category-grid-link.is-active .category-grid-count {
+  color: var(--bs-white);
+}
 
-  .category-browser-main {
-    flex: 1 1 auto;
-    min-width: 0;
-  }
-
-  /* Collapsed on desktop only: the mobile drawer is never hidden by this class. */
-  .category-browser.is-sidebar-collapsed .category-sidebar {
-    display: none;
+@media (prefers-reduced-motion: reduce) {
+  .category-browser .category-grid-link {
+    transition: none;
   }
 }

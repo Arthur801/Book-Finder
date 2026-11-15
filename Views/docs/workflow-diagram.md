@@ -4,6 +4,7 @@
 > 會員中心 C3 補記：2026-11-15 更新；程式變更以 `c3f09dc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 > Canonical Category P5 補記：2026-11-14 更新；程式變更以 `a9b7ad1`、`c2d68a1`、`d43ea57` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+> 分類頁 P2 補記：2026-11-15 更新；程式變更以 `86a1876`（測試）、`c6a83bb`（實作）記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 查核：2026-10-24；HEAD `91333c3`。範圍是 Views 原始 Razor／scoped CSS；Controller、Models、JavaScript 是定位呼叫及呈現責任的依賴來源。Authority：[UI Flow](../../Docs/ui/ui-flow.md)、[API](../../Docs/api/api-spec.md)、[Catalog](../../Docs/modules/book-catalog.md)、[Library](../../Docs/modules/user-library.md)、[Identity](../../Docs/modules/identity-auth.md)、[Recommendation](../../Docs/modules/recommendation.md)。沒有本次執行或瀏覽器證據。
 
@@ -14,7 +15,7 @@
 | GET `/` | [Home/Index](../Home/Index.cshtml)、_SearchForm、_BookList | HomeController；BookBrowseService.SampleHomeAsync 隨機 10 本，不依 rank；空庫顯示「書庫還沒有書」 |
 | GET `/books?page=` | [Books/Index](../Books/Index.cshtml)、_BookList、_Pager | BooksController；書庫分頁，超頁 302 至最後一頁；空庫無摘要、無分頁 |
 | GET `/bestsellers` | 無 View；301 至 `/books` | BestsellersController；舊連結保留 |
-| GET `/categories?category=&source=&page=` | [Categories/Index](../Categories/Index.cshtml)、[_CategorySidebar](../Categories/_CategorySidebar.cshtml)、_BookList、_Pager；404 用 [Categories/NotFound](../Categories/NotFound.cshtml) | CategoriesController；未知或停用的分類、未知來源 404；超頁 302 至最後一頁並保留條件；空分類 200 空狀態；導覽列左側為「分類」「AI 推薦」，「書庫」已自導覽列移除（見「共用 Header 導覽與登出」） |
+| GET `/categories?category=&source=&page=` | [Categories/Index](../Categories/Index.cshtml)、_SearchForm、[_CategoryGrid](../Categories/_CategoryGrid.cshtml)、_BookList、_Pager；404 用 [Categories/NotFound](../Categories/NotFound.cshtml) | CategoriesController；未知或停用的分類、未知來源 404；超頁 302 至最後一頁並保留條件；空分類 200 空狀態；導覽列左側為「分類」「AI 推薦」，「書庫」已自導覽列移除（見「共用 Header 導覽與登出」）。使用流程：頁首搜尋是一般 GET `/search?q=`（整個書庫，不帶分類或來源）；點網格分類或來源 pill 都是一般 GET，保留另一個條件並把 `page` 重設為 1；網格與來源的書數依目前來源計算；不發 JavaScript 請求 |
 | GET `/search?q=&page=` | [Search/Index](../Search/Index.cshtml)、_SearchForm、_Pager | SearchController／SearchResultsViewModel；只有 local DB |
 | GET `/books/{id}` | [Books/Detail](../Books/Detail.cshtml)、_LibrarySection、_LibraryControls | catalog read model + 每次獨立 user Library 查詢 |
 | GET/POST `/account/login`、`/account/register` | [Login](../Account/Login.cshtml)、[Register](../Account/Register.cshtml) | AccountController；POST token、成功 cookie/redirect、失敗表單 |

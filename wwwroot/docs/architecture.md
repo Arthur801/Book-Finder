@@ -2,6 +2,7 @@
 
 > 非同步推薦 Job M7 補記：2026-11-14 更新；程式變更以 `4db0c98`、`e00cbb5`、`5559870`、`ac88ef2` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > Canonical Category P5 補記：2026-11-14 更新；程式變更以 `a9b7ad1`、`d43ea57` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+> 分類頁 P2 補記：2026-11-15 更新；程式變更以 `86a1876`（測試）、`c6a83bb`（實作）記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 > 查核：2026-10-24；HEAD `91333c334148fa5bfe07055d0e799dc13bb0bb4e`。當前工作樹靜態證據；本次未執行 build、測試、瀏覽器、網路或發布。只新增本目錄五份文件。
 
@@ -13,10 +14,10 @@
 |---|---|
 | ai.js | Home／Ai View scripts section 載入；POST /api/recommendations；GET /ai/history-list?page=1；sessionStorage 一次交接 |
 | library.js | Book／Library View 載入；PUT／PATCH／DELETE /api/library/{encodedBookId}；WeakMap 保存每組 server 確認值 |
-| category-sidebar.js | [Categories/Index](../../Views/Categories/Index.cshtml) 的 Scripts section 載入；不發 request。移除 `.js-only` 顯示兩個需要 JS 的按鈕；桌面版切換 `.category-browser.is-sidebar-collapsed`、同步 `aria-expanded` 與按鈕文字；偏好存在 localStorage `bookfinder.categorySidebarCollapsed`，讀寫都包 try/catch，失敗只是不記得。手機抽屜由 Bootstrap offcanvas 負責，不經這支 JS |
+| category-sidebar.js（已移除，P2 `c6a83bb`） | 原本由分類頁的 Scripts section 載入，負責桌面收合與 `.js-only` 按鈕；已刪除。分類頁現在不載入任何分類專用 JS，網格與來源都是一般連結，不發 request |
 | Razor DOM | ai-form 等 ID；data-library-controls、book-id、login-url、status、rating、clear-rating、unrated、remove、error、failed-text、add、add-error；[Controls](../../Views/Shared/_LibraryControls.cshtml) 與 [Book section](../../Views/Books/_LibrarySection.cshtml) 必須同步修改 |
-| CSS | [site.css](../css/site.css) 基礎樣式，768px 字級 14→16；library-star 依 aria-pressed 著色；ai-history-requirement 截兩行且 title 保全文。[category-browser.css](../css/category-browser.css) 只給分類頁：`.js-only` 預設隱藏（選擇器權重高於 Bootstrap 的 display utility）；≥992px 時側邊欄 14rem、sticky，收合 class 只在這個寬度生效 |
-| Layout | [Layout](../../Views/Shared/_Layout.cshtml) 使用 Bootstrap、jQuery、site.js 與版本化 site.css；`<head>` 有 `Styles` section 讓頁面載入自己的 CSS（目前只有分類頁）；頁面按責任再載 ai／library／category-sidebar |
+| CSS | [site.css](../css/site.css) 基礎樣式，768px 字級 14→16；library-star 依 aria-pressed 著色；ai-history-requirement 截兩行且 title 保全文。[category-browser.css](../css/category-browser.css) 只給分類頁，規則全部限於 `.category-browser`：`.category-grid` 以 CSS Grid 排 2／3／4／6 欄（576／768／1200px 斷點），`gap: .75rem`；卡片等高、`overflow-wrap:anywhere`、`:focus-visible` 外框、選取狀態用 Bootstrap 的 `--bs-primary`；已沒有側欄與 `.js-only` 規則 |
+| Layout | [Layout](../../Views/Shared/_Layout.cshtml) 使用 Bootstrap、jQuery、site.js 與版本化 site.css；`<head>` 有 `Styles` section 讓頁面載入自己的 CSS（目前只有分類頁）；頁面按責任再載 ai／library |
 | lib vendor | Bootstrap／jQuery／jquery-validation／unobtrusive 的 distribution、map、license；不屬自有業務程式，更新需保留授權與相依關係 |
 | 靜態發布 | [Program](../../Program.cs) MapStaticAssets；[Web csproj](../../Book-Finder.csproj) 沒有 wwwroot/docs 專用排除 |
 

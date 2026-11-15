@@ -2,6 +2,7 @@
 
 > 非同步推薦 Job M7 補記：2026-11-14 更新；程式變更以 `4db0c98`、`e00cbb5`、`5559870`、`ac88ef2` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > Canonical Category P5 補記：2026-11-14 更新；程式變更以 `a9b7ad1`、`d43ea57` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+> 分類頁 P2 補記：2026-11-15 更新；程式變更以 `86a1876`（測試）、`c6a83bb`（實作）記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 > 查核：2026-10-24；HEAD `91333c334148fa5bfe07055d0e799dc13bb0bb4e`。當前工作樹靜態證據；本次未執行 build、測試、瀏覽器、網路或發布。只新增本目錄五份文件。
 
@@ -15,8 +16,8 @@
 | [library.js](../js/library.js) | [Book section](../../Views/Books/_LibrarySection.cshtml)、[會員中心](../../Views/Member/Index.cshtml)、[Library 內容](../../Views/Shared/_LibraryContent.cshtml)、[共用 controls](../../Views/Shared/_LibraryControls.cshtml) 的 data attributes |
 | [site.js](../js/site.js) | [Layout](../../Views/Shared/_Layout.cshtml) 載入；目前只有模板註解，無行為 |
 | [site.css](../css/site.css) | Layout；響應字級、focus、stars、history 兩行截斷 |
-| [category-sidebar.js](../js/category-sidebar.js) | [Categories/Index](../../Views/Categories/Index.cshtml) 的 `.category-browser`、`#category-sidebar-toggle`、`.js-only`；不發 request |
-| [category-browser.css](../css/category-browser.css) | 分類頁經 Layout 的 `Styles` section 載入；≥992px 欄位版面、收合、`.js-only` |
+| category-sidebar.js（已移除，P2 `c6a83bb`） | 分類頁不再有收合按鈕、`.js-only` 或側欄 DOM；沒有分類頁專用的前端腳本 |
+| [category-browser.css](../css/category-browser.css) | 分類頁經 Layout 的 `Styles` section 載入；單欄頁；`.category-grid` 的 CSS Grid 欄數 2／3／4／6（576／768／1200px 斷點）、等高卡片與選取樣式 |
 | lib／favicon | Layout 使用 Bootstrap、jQuery；validation 套件由 View 引用；第三方實作不逐行展開 |
 | 靜態 endpoint | [Program](../../Program.cs) MapStaticAssets／WithStaticAssets，生成與發布由 Web SDK 負責 |
 

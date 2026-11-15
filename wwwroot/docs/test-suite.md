@@ -2,6 +2,7 @@
 
 > 非同步推薦 Job M7 補記：2026-11-14 更新；程式變更以 `4db0c98`、`e00cbb5`、`5559870`、`ac88ef2` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > Canonical Category P5 補記：2026-11-14 更新；程式變更以 `a9b7ad1`、`d43ea57` 記入 update-history。原查核基準保留，未重新審查其餘內容。
+> 分類頁 P2 補記：2026-11-15 更新；程式變更以 `86a1876`（測試）、`c6a83bb`（實作）記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 > 查核 2026-10-24；HEAD `91333c334148fa5bfe07055d0e799dc13bb0bb4e`。本次只讀與文件靜態檢查，沒有本次測試通過結果。
 
@@ -122,6 +123,8 @@ site.js 目前只有模板註解，沒有待實作商業功能；不把它列缺
 相關：[流程](workflow-diagram.md)／[架構](architecture.md)／[待辦](backlog.md)／[歷史](update-history.md)。
 
 ## WT-13 — 分類頁側邊欄收合、抽屜與無 JS
+
+- 已由 P2（`c6a83bb`）取代：側欄與收合 JS 已移除，本條下方是 2026-11-14 的歷史描述。現行分類頁的網格、欄數與 JS 停用行為見 [Views VIEW-T27](../../Views/docs/test-suite.md)；瀏覽器驗證尚未對新網格執行。
 
 - 狀態：網站 E2E 仍明確暫緩（tests TEST-12／TEST-B03），沒有 commit 的瀏覽器測試；2026-11-14 以一次性本機 Playwright 檢查 20／20 通過（細節見 [Views VIEW-T13](../../Views/docs/test-suite.md)）。HTML 結構（按鈕的 aria 屬性、`<noscript>` 清單）由 WebIntegration 的 CategoryPageTests 驗證。
 - Given：分類頁，桌面 1280px、手機 390px、停用 JS。
