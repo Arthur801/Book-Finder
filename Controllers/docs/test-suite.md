@@ -31,7 +31,8 @@
 | PIPE-03／待補強（HTTP 已有測試，本次未執行） | 無 cookie；呼叫受保護 API | 401 `/errors/unauthenticated`、無登入 redirect 的 HTTP 斷言已有來源；完整 production endpoint 矩陣的 DB 不變／依賴未呼叫需逐項補證，不能由 test-only status 推論。 |
 | PIPE-04／已有測試 | 有效 cookie、僅 Bearer header、錯簽章、破損 token 各自請求 | 僅有效 cookie 驗證成功；其餘視為匿名；Bearer header 不能代替 cookie。 |
 | PIPE-05／已有測試 | fake clock 在簽發後一天前一秒及剛好一天，讀 protected page / API | 前者有效；到一天立即過期，頁面 302／API 401；無 ClockSkew 寬限。 |
-| PIPE-07／已有測試（B2） | 簽發後 DB 的 auth_version 被 bump，或 User 被刪除，再送舊 Cookie 到頁面與 /api | 頁面 302 登入、/api 401，回應含過期 `bf_auth` Set-Cookie；未 bump 的 Cookie 仍有效。 |
+| PIPE-10／已有測試（B2） | 簽發後 DB 的 auth_version 被 bump，或 User 被刪除，再送舊 Cookie 到頁面與 /api | 頁面 302 登入、/api 401，回應含過期 `bf_auth` Set-Cookie；未 bump 的 Cookie 仍有效。 |
+| PIPE-11／已有測試（B2） | 停在 OAuth 同意頁期間 User 被刪除或 auth_version 被 bump，再送出同意（Accept 或 Deny） | 302 `/account/login?returnUrl=<同一個 authorize request>`，刪除 `bf_auth`，不寫入 authorization；由 `ConsentSessionEndedRedirect` filter 在 antiforgery 之前處理 | `OAuthFlowTests` |
 | PIPE-06／待補強（HTTP 已有測試，本次未執行） | 已登入 API 缺 CSRF header 或使用另一 session 的 token | 400 `/errors/antiforgery` 已有來源；推薦缺 header 的外部 calls、Library 缺 header 的資料不變另有案例。跨 session／所有 production endpoints 的 service call 與副作用矩陣仍待補強。 |
 | PIPE-07／已有測試 | 表單 POST 缺 token；再以同 session 合法 token 重試 | 缺少時框架 400；合法時才進 action。不要要求頁面錯誤一定是 problem+json。 |
 | PIPE-08／已有測試 | API action 拋 AiUnavailableException／AiTimeoutException／一般例外 | 分別為 502 `ai-unavailable`、504 `ai-timeout`、500 `internal`；無 stack trace／secret。 |

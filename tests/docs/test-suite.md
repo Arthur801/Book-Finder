@@ -330,7 +330,7 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter FullyQualifiedNa
 
 - `AuthTokenIssuerTests`（UnitTests）：Cookie token 含 `auth_version` 整數字串 claim。
 - `AuthPipelineTests`（WebIntegration）：版本 bump 與使用者刪除後的舊 Cookie 在頁面與 /api 皆被拒並刪 Cookie；版本相符仍有效；缺少 claim 的舊式 token 在版本 0 時通過、版本 1 時被拒。既有的有效 Cookie 測試改為先寫入 User，因為每個請求都會查 User。
-- `OAuthFlowTests`：`Consent_post_after_the_session_ends_is_refused_and_stores_no_authorization` 由「回登入頁」改為「400 且不寫 authorization」（B2 造成，見 INF-T28）。
+- `OAuthFlowTests`：同意頁的 session 結束後（User 被刪除，或 `auth_version` 被遞增）送出同意，仍回到登入頁，returnUrl 為同一個 authorize request；同時刪除 `bf_auth`，不寫入 authorization（`Consent_post_after_the_session_ends_*`、`Consent_post_after_the_password_was_reset_*`；見 INF-T28）。
 - **來源與狀態**：見 Infrastructure INF-T28。
 
 ### TEST-42：帳號動作 token（會員中心計畫 C2）
