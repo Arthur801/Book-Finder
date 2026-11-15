@@ -156,3 +156,9 @@ git show <commit> -- Controllers
 - 驗證：見 TEST-50、TEST-51；`AccountRateLimitTests` 新增一項。
 - 行為變更（開關關閉）：無。四個新 endpoint 回 404，登入頁與會員中心沒有新連結。
 - 行為變更（開關開啟）：忘記密碼可匿名申請；成功重設會使所有舊 Cookie 與 MCP 憑證失效。
+
+## 2026-11-15 會員中心 review 決策（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | 本次 commit | docs(member): record the review decisions | `docs/architecture.md`：§5 記錄 `ConsentSessionEndedRedirect` 是使用者核准的唯一 antiforgery 例外；`docs/backlog.md`：CTL-02 的數值決定為每分鐘 20 次；`docs/test-suite.md`：AUTH-F01 結案 |

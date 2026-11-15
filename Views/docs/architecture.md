@@ -67,6 +67,7 @@ ai.js 沒 browser AbortController timeout，server 60 秒限制才是契約；hi
 
 - `Views/AccountDeletion/Index.cshtml`：確認頁，列出會刪除的資料（帳號、個人書單、AI 推薦工作與搜尋紀錄、MCP 連線授權），說明公開書籍不受影響，並提示「刪除後無法復原」。表單含密碼欄（`type=password`，不回填值）與「我了解刪除後無法復原」勾選框（`checked` 只反映 ModelState 的回填）；錯誤顯示於 `asp-validation-for` 欄位。
 - `Views/Member/Index.cshtml` 的 `#account-security` 內加入「刪除帳號」連結，供 C4 之後加入「重設密碼」使用同一區塊。
+- Header（會員中心 A3，使用者 2026-11-15 確認）：「個人書單」只在登入後顯示，位於右側會員名稱左邊；未登入時右側只有「登入」「註冊」「MCP 說明」，左側不再有「個人書單」。
 - `Views/Shared/_Layout.cshtml` 在 `main` 內顯示 `TempData["Notice"]`（`role="status"`），只在刪除後的首頁出現一次。這是目前唯一的一次性通知機制。
 - 所有新增頁面的文字皆為繁體中文；Razor 會把非 ASCII 的動態訊息編碼成數字字元參照，測試需解碼。
 

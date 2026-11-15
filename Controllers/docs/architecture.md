@@ -101,6 +101,7 @@ Controller 不寫 SQL、不直接呼叫 OpenAI／Google Books、不持有推薦�
 
 - 需登入的 action 使用 `[Authorize]`；user id 一律由 `CurrentUserId()` 取自 JWT `sub`，不接受 caller 指定 user id。
 - 全域 `AutoValidateAntiforgeryTokenAttribute` 保護 unsafe MVC requests；API 失敗轉為 `/errors/antiforgery`。不要為了方便測試而關閉它。
+- **唯一核准的例外（使用者 2026-11-15 核准）**：[ConsentSessionEndedRedirect](../ConsentSessionEndedRedirectAttribute.cs) 只套用在 `POST /oauth/authorize`。當請求沒有登入身分（cookie 因帳號刪除或 `auth_version` 遞增而被拒）且 `Mcp:Enabled` 為 true 時，它在 antiforgery 之前把瀏覽器導回 `/account/login?returnUrl=<同一個 authorize request>`。這個請求只會被轉址，不讀寫資料、不建立授權。不要擴大到其他 action；若要擴大，需重新取得使用者同意（AGENTS.md §2.3）。
 - 頁面 challenge 導向登入；API challenge 為 401 `application/problem+json`。GET/HEAD 回跳保留 path/query；其他頁面方法不帶 returnUrl。
 - API action 例外映射：AI unavailable 502、timeout 504、其他 500；response 不含 stack trace。RequestAborted 時 filter 不把取消轉為 500。
 - Book detail 與 AI history 的非法 GUID／查無資料回 404；AI history 他人資料也回相同 404。Library DELETE 的非法 GUID 則為 204。
