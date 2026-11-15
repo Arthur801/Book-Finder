@@ -1,6 +1,6 @@
 # Book-Finder：Header、分類頁與首次造訪導引完整實作規劃
 
-> **文件狀態**：2026-11-15 使用者核准，實作中。本檔是**實作計畫**，不是規格；current contract 以各模組 `docs/` 為準。
+> **文件狀態**：2026-11-15 使用者核准；P0～P5 實作完成，報告見 [Implementation-Report](../Implementation-Report/header-category-onboarding.md)。本檔是**實作計畫**，不是規格；current contract 以各模組 `docs/` 為準。
 >
 > **核准時的決定**：§11 D1～D7 採預設方案；登出移入「更多」下拉（2026-11-15 使用者修改）；D8 採最低方案（一次性本機 Playwright 驗收並把證據寫進報告，不把 Browser E2E 加進 CI）。
 >
