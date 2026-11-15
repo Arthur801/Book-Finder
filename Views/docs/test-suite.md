@@ -1,5 +1,6 @@
 # Views 文字測試案例庫
 
+> Header P1 補記：2026-11-15 更新；程式變更以 `e355171`、`f4ccdc4` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 會員中心 C3 補記：2026-11-15 更新；程式變更以 `c3f09dc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 > 非同步推薦 Job M7 補記：2026-11-14 更新；程式變更以 `4db0c98`、`e00cbb5`、`5559870`、`ac88ef2` 記入 update-history。原查核基準保留，未重新審查其餘內容。
@@ -24,7 +25,7 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter 'FullyQualifiedN
 
 ### VIEW-T01 — Layout、導覽與書庫
 
-風險 L1；已有測試，本次未執行。規格：[UI §3.1–3.2](../../Docs/ui/ui-flow.md)、[Catalog §3](../../Docs/modules/book-catalog.md)。Given 空 Catalog、15 本 Catalog 與 25 本 Catalog，各以匿名／已登入 user；When GET `/`、`/books`、`/bestsellers`（不跟隨重導）；Then title/zh-Hant/layout/nav 正確，導覽有「書庫」指向 `/books` 且無 `/bestsellers` 連結；首頁最多 10 本、不重複、不顯示 rank；空庫顯示「書庫還沒有書」；書庫每頁 20 本並有摘要；`/bestsellers` 301 至 `/books`。匿名有 login/register，已登入有編碼 display name、POST logout token。來源：[LayoutAndHomeTests](../../tests/WebIntegration/LayoutAndHomeTests.cs)、[NavbarTests](../../tests/WebIntegration/NavbarTests.cs)、[BookBrowsePageTests](../../tests/WebIntegration/BookBrowsePageTests.cs)。
+風險 L1；已有測試，本次未執行。規格：[UI §3.1–3.2](../../Docs/ui/ui-flow.md)、[Catalog §3](../../Docs/modules/book-catalog.md)。Given 空 Catalog、15 本 Catalog 與 25 本 Catalog，各以匿名／已登入 user；When GET `/`、`/books`、`/bestsellers`（不跟隨重導）；Then title/zh-Hant/layout/nav 正確，header 有「分類」`/categories` 與「AI 推薦」`/ai`、無「書庫」連結（P1 後；`/books` 本身由書籍頁案例覆蓋）且無 `/bestsellers` 連結；首頁最多 10 本、不重複、不顯示 rank；空庫顯示「書庫還沒有書」；書庫每頁 20 本並有摘要；`/bestsellers` 301 至 `/books`。匿名有 login/register，已登入有編碼 display name，登出為「更多」內帶 token 的 POST（見 VIEW-T24）。來源：[LayoutAndHomeTests](../../tests/WebIntegration/LayoutAndHomeTests.cs)、[NavbarTests](../../tests/WebIntegration/NavbarTests.cs)、[BookBrowsePageTests](../../tests/WebIntegration/BookBrowsePageTests.cs)。
 
 ### VIEW-T02 — 搜尋、空值與共用 pager
 
@@ -143,3 +144,14 @@ dotnet test tests/WebIntegration/WebIntegration.csproj --filter 'FullyQualifiedN
 |---|---|---|
 | VIEW-T21 — 忘記密碼頁與通知 | `tests/WebIntegration/PasswordResetFlowTests.cs`（TEST-50） | 頁面只有 `name="Email"`，沒有密碼欄位；POST 後的通知文字與帳號狀態無關（以 notice 區塊比對，不比對 antiforgery token） |
 | VIEW-T22 — 重設頁、無效頁與連結 | 同上（TEST-50） | 可用連結顯示 `NewPassword`、`ConfirmPassword`、`Token` 欄位；錯誤後的表單不含明文密碼；無效頁沒有表單；登入頁與會員中心的連結只在開關開啟時出現（開關關閉的對照見 TEST-50） |
+
+## P1 Header「更多」選單（新增案例）
+
+風險 L1–L2；已有測試，本次執行 WebIntegration 全部 527 案例與 UnitTests 1330 案例皆通過。WebIntegration 不執行 JavaScript，Bootstrap 下拉的開關、Escape、焦點與手機展開未在此層驗證（見 [backlog](backlog.md) VIEW-B08）。
+
+| 案例 | 測試位置 | 驗證內容 |
+|---|---|---|
+| VIEW-T23 — 匿名 header 與更多選單 | `tests/WebIntegration/NavbarTests.cs`（`Signed_out_more_menu_offers_mcp_guide_and_the_guide_only_without_library_or_logout`、`The_more_dropdown_is_a_bootstrap_toggle_placed_before_the_account_links`、`Navbar_links_categories_then_ai_on_the_left_and_has_no_bookstore_link`）；`LayoutAndHomeTests.Shared_navbar_links_to_sections_and_auth_entry_points` | 「更多」是 `data-bs-toggle="dropdown"` 按鈕（`data-tour="nav-more"`），選單 `#nav-more-menu` 內只有「MCP 說明」與「功能導覽」，沒有「個人書單」或登出；header 無 `/books` 連結，左側為「分類」「AI 推薦」 |
+| VIEW-T24 — 已登入選單順序與 POST 登出 | `NavbarTests`（`Signed_in_more_menu_lists_library_mcp_guide_then_a_divider_then_logout_and_the_name_stays_outside`、`Signed_in_logout_is_a_post_form_inside_the_more_menu_and_never_a_get_link`、`Signed_in_home_shows_display_name_and_a_logout_form_with_antiforgery_token_instead_of_login_links`、`Logout_form_from_the_navbar_signs_out_and_the_home_page_shows_login_links_again`） | 選單順序為個人書單 → MCP 說明 → 功能導覽 → 分隔線 → 登出；登出是帶 `__RequestVerificationToken` 的 POST button，沒有 `href="/account/logout"`；會員名稱連到 `/account` 且在選單外；登出後首頁回到登入與註冊 |
+| VIEW-T25 — noscript fallback | `NavbarTests`（`Noscript_fallback_keeps_library_mcp_guide_and_logout_when_javascript_is_off`、`Anonymous_noscript_fallback_keeps_only_the_mcp_guide`） | 已登入的 noscript 含個人書單、MCP 說明與第二份帶 token 的 POST 登出，全頁共 2 個 `action="/account/logout"`；匿名 noscript 只含 MCP 說明 |
+| VIEW-T26 — 既有頁面的 MCP 與登入導覽 | `tests/WebIntegration/McpGuidePageTests.cs`（`Signed_out_navbar_links_to_the_guide_from_the_more_menu_beside_login_and_register`、`Signed_in_navbar_still_links_to_the_guide`） | MCP 說明位於「更多」選單內；匿名的登入與註冊仍在 header；已登入仍可看到 logout form |

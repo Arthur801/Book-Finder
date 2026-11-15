@@ -1,5 +1,6 @@
 # Views 頁面與互動流程
 
+> Header P1 補記：2026-11-15 更新；程式變更以 `e355171`、`f4ccdc4` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 > 會員中心 C3 補記：2026-11-15 更新；程式變更以 `c3f09dc` 記入 update-history。原查核基準保留，未重新審查其餘內容。
 
 > Canonical Category P5 補記：2026-11-14 更新；程式變更以 `a9b7ad1`、`c2d68a1`、`d43ea57` 記入 update-history。原查核基準保留，未重新審查其餘內容。
@@ -14,11 +15,12 @@
 | GET `/` | [Home/Index](../Home/Index.cshtml)、_SearchForm、_BookList | HomeController；BookBrowseService.SampleHomeAsync 隨機 10 本，不依 rank；空庫顯示「書庫還沒有書」 |
 | GET `/books?page=` | [Books/Index](../Books/Index.cshtml)、_BookList、_Pager | BooksController；書庫分頁，超頁 302 至最後一頁；空庫無摘要、無分頁 |
 | GET `/bestsellers` | 無 View；301 至 `/books` | BestsellersController；舊連結保留 |
+
 | GET `/categories?category=&source=&page=` | [Categories/Index](../Categories/Index.cshtml)、_SearchForm、[_CategoryGrid](../Categories/_CategoryGrid.cshtml)、_BookList、_Pager；404 用 [Categories/NotFound](../Categories/NotFound.cshtml) | CategoriesController；未知或停用的分類、未知來源 404；超頁 302 至最後一頁並保留條件；空分類 200 空狀態；導覽列「分類」在「書庫」之後。使用流程：頁首搜尋是一般 GET `/search?q=`（整個書庫，不帶分類或來源）；點網格分類或來源 pill 都是一般 GET，保留另一個條件並把 `page` 重設為 1；網格與來源的書數依目前來源計算；不發 JavaScript 請求 |
 | GET `/search?q=&page=` | [Search/Index](../Search/Index.cshtml)、_SearchForm、_Pager | SearchController／SearchResultsViewModel；只有 local DB |
 | GET `/books/{id}` | [Books/Detail](../Books/Detail.cshtml)、_LibrarySection、_LibraryControls | catalog read model + 每次獨立 user Library 查詢 |
 | GET/POST `/account/login`、`/account/register` | [Login](../Account/Login.cshtml)、[Register](../Account/Register.cshtml) | AccountController；POST token、成功 cookie/redirect、失敗表單 |
-| POST `/account/logout` | _Layout 內 form | 登入限制＋全域 antiforgery；成功回首頁 |
+| POST `/account/logout` | _Layout「更多」選單內的 form（另有 noscript fallback 一份） | 登入限制＋全域 antiforgery；成功回首頁 |
 | GET `/account?status=&jobsPage=` | [Member/Index](../Member/Index.cshtml)、[_LibraryContent](../Shared/_LibraryContent.cshtml)、_LibraryControls、_RecommendationJobList、_Pager | 需登入；三區塊依序 `#library`（書單）、`#ai-history`（今日剩餘次數＋AI 搜尋紀錄；開關關閉顯示「尚未開放」）、`#account-security`（暫無動作）；只載入 library.js；未知 status 視為全部 |
 | GET `/library?status=` | 無 View（302） | 需登入；轉至 `/account?status=…#library`，無效 status 轉至 `/account#library` |
 | GET `/ai?page=` | [Ai/Index](../Ai/Index.cshtml)、_AiHistoryList、_Pager | 需登入；每頁二十筆本人紀錄 |
@@ -36,7 +38,7 @@ flowchart TD
     D --> E[ViewStart 指定 Layout；ViewImports 啟用 Tag Helpers]
     E --> F[Layout navbar 與 RenderBody]
     F -->|匿名| G[登入與註冊連結]
-    F -->|已登入| H[編碼 display name；POST logout form 含 token]
+    F -->|已登入| H[編碼 display name；「更多」選單內 POST logout form 含 token]
     F --> I[頁面專屬 Scripts section]
     J[Login 或 Register POST] --> K{全域 antiforgery}
     K -->|無或錯 token| L[400；不執行帳號動作]
@@ -46,6 +48,25 @@ flowchart TD
 ```
 
 _ViewImports/_ViewStart 是完整 View 的框架組合，不是 HTTP endpoints。PartialView 的 history fragment 不跑完整 layout；_ValidationScriptsPartial 存在但目前沒有 caller，不能宣稱登入表單已載入 jQuery client validation。Razor 編碼與 token 生成不等於 server 授權或商業規則。
+
+## 共用 Header 導覽與登出（P1，2026-11-15）
+
+```mermaid
+flowchart TD
+    A[任一使用 Layout 的頁面] --> B{已登入?}
+    B -->|否| C[更多：MCP 說明、功能導覽；右側登入、註冊]
+    B -->|是| D[更多：個人書單、MCP 說明、功能導覽、分隔線、登出；右側會員名稱]
+    C -->|MCP 說明| E[GET /mcp-guide]
+    C -->|功能導覽| G[GET /categories#guide；導引元件待 P4]
+    D -->|個人書單| F[GET /account#library]
+    D -->|登出| H[POST /account/logout 含 antiforgery token]
+    H -->|token 缺或錯| I[400；不登出]
+    H -->|有效| J[移除 auth cookie；回首頁，顯示匿名 header]
+    A -->|JS 停用| K[noscript：個人書單、MCP 說明；已登入另有 POST 登出表單]
+```
+
+- 下拉開關由 Bootstrap 處理；導覽連結與登出都不需要新的 API 或前端狀態。
+- 登出只經 POST，沒有 GET 登出路徑；按鈕位於選單最後，分隔線之後。
 
 ## Catalog 頁面、空狀態與 404
 
