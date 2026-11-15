@@ -96,3 +96,9 @@ git show 894883b -- Views
 | Author 日期 | SHA | subject | 本目錄實際改動檔案 |
 |---|---|---|---|
 | 2026-11-15 | 本 PR | feat(mcp): public MCP guide page linked from the navbar | `McpGuide/Index.cshtml`（新增）；`Shared/_Layout.cshtml`：導覽列右側加「MCP 說明」連結；目錄外：`wwwroot/css/site.css` 加 `.mcp-guide` 寬度 |
+
+## 會員中心 A1 共用 partial（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | 本分支 | refactor(views): share the library list and job list partials (member center A1) | `Shared/_LibraryContent.cshtml`（新增，由 `Library/Index.cshtml` 抽出 tabs、token、空態、rows）；`Shared/_RecommendationJobList.cshtml`（由 `Ai/_AiJobList.cshtml` 移入，標題改由 ViewData 傳入）；`Library/Index.cshtml` 改為標題加 partial；`Ai/Index.cshtml` 改呼叫新 partial 並設定標題。以既有 WebIntegration 斷言驗證；未做 HTML 逐字比對。 |

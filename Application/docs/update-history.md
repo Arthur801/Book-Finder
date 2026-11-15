@@ -184,6 +184,14 @@ git show --format= --numstat <sha> -- Application ':(exclude)Application/docs'
 | `c0ac2f6` | fix(rec-jobs): log the exception when a job fails with INTERNAL_ERROR | `RecommendationJobRunner.cs`：主 agent 驗收時修正，INTERNAL_ERROR 的 log 帶上例外 |
 | `48b2edd` | feat(mcp): OAuth authorize, consent and token endpoints (MCP-201b) | `Identity/IUserStore.cs`：新增 `FindByIdAsync`（token endpoint 確認使用者仍存在） |
 
+## 會員中心 A2 推薦額度讀取（新增紀錄）
+
+| 提交 | Subject | 影響 |
+|---|---|---|
+| `29b6a8b` | feat(member-center): add the recommendation quota reader (A2) | 新增 `Recommendation/RecommendationQuota.cs`（record）、`Recommendation/RecommendationQuotaReader.cs`；`Program.cs` 註冊 scoped；新增 `tests/UnitTests/RecommendationQuotaReaderTests.cs`（8 項）。RecommendationService 與計數規則不變 |
+
+驗證（2026-11-15）：`dotnet build --no-incremental` 0 warning、0 error；`dotnet test tests/UnitTests` 1151 項通過。尚無呼叫端，待 A3 `/account` 接入。
+
 ## 帳號驗證 B1（新增紀錄）
 
 | Author 日期 | SHA | subject | 本目錄實際改動檔案 |
@@ -191,3 +199,17 @@ git show --format= --numstat <sha> -- Application ':(exclude)Application/docs'
 | 2026-11-15 | `a7ec1b2` | feat(identity): add email verification columns and account action tokens (B1) | `Identity/AccountService.cs`（RegisterAsync 寫入 `EmailVerifiedAt = now`、`AuthVersion = 0`）；`tests/UnitTests/AccountServiceTests.cs`（斷言擴充） |
 
 驗證（2026-11-15）：UnitTests 1143 通過。行為變更：註冊後立即驗證，與目前行為相同；登入流程未改。
+
+## 會員中心 B3 OAuth 憑證撤銷 port（新增紀錄）
+
+| 提交 | Subject | 影響 |
+|---|---|---|
+| `eec680c` | feat(identity): add the OAuth credential revocation port (member-center B3) | 新增 `Identity/IExternalCredentialRevoker.cs` |
+
+## 會員中心 C1：寄信 port、信件範本、站點網址與寄信設定（新增紀錄）
+
+| 日期 | 提交 | subject | 影響 |
+|---|---|---|---|
+| 2026-11-15 | 本次 commit（`mc-c1-email-port`） | feat(email): email port, account templates, site and email options (C1) | 新增 `Email/IEmailSender.cs`、`EmailMessage.cs`、`AccountEmailTemplates.cs`、`EmailOptions.cs`（含 `EmailProvider`、`EmailVerificationOptions`）；新增 `Site/SiteOptions.cs`、`SiteUrlBuilder.cs` |
+
+驗證（本次 worktree 執行）：UnitTests 1216 通過（基準 1143 加上本次 73 項），`dotnet build --no-incremental` 0 warning。使用者可見行為不變，沒有 flow 呼叫 `IEmailSender`。

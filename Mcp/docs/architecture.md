@@ -120,3 +120,9 @@ ChatGPT 文件描述兩種機制：
 - `/mcp` 的 bearer 驗證改用 OpenIddict validation（已完成，MCP-202）。
 
 來源（2026-11-14 讀取）：[OpenAI Authentication](https://developers.openai.com/plugins/build/auth)、[Claude custom connectors](https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp)、[Zuplo VS Code 相容性](https://zuplo.com/learn/mcp/compatibility/clients/vs-code)、[MCP Client Registration 2026-07-28](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/client-registration)、[AuthEndpoints #428](https://github.com/madeyoga/AuthEndpoints/issues/428)。表中標「待實測」的項目不是已驗證事實。
+
+### 6.7 憑證撤銷（會員中心 B3）
+
+- 重設密碼（C4）與刪除帳號（D1）會呼叫 Application 的 `IExternalCredentialRevoker`，撤銷該使用者的 OAuth authorization 與 token（實作見 [Infrastructure architecture](../../Infrastructure/docs/architecture.md)）。
+- 撤銷後 `/mcp` 的 access token 立即回 401，refresh token 在 `/oauth/token` 回 `invalid_grant`（已由 `McpCredentialRevocationTests` 驗證）。
+- 現況：port 與實作已存在；C4、D1 尚未接上呼叫端，所以正式環境目前不會因為重設或刪除而撤銷 MCP 憑證。

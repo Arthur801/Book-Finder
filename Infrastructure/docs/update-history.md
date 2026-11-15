@@ -228,6 +228,18 @@ git show <SHA> -- Infrastructure
 
 驗證（2026-11-15）：`dotnet build --no-incremental` 0 warning；DatabaseIntegration 276 通過（含 `OpenIddictSchemaTests` 的 target 修正）；`dotnet ef migrations add` 產生骨架，Up 手寫回填、Down 只移除新增項目。
 
+| 2026-11-15 | `eec680c` | feat(identity): add the OAuth credential revocation port (member-center B3) | `Identity/OAuth/OAuthCredentialRevoker.cs`（新增）；`Identity/OAuth/OAuthServiceCollectionExtensions.cs`（註冊 `IExternalCredentialRevoker`，不受 `Mcp:Enabled` 控制） |
+
+驗證（2026-11-15，`dotnet build --no-incremental` 0 warning、0 error）：UnitTests 1143 通過；DatabaseIntegration 260 通過（本次新增 `OAuthCredentialRevokerTests` 6 項）；WebIntegration `--filter "FullyQualifiedName~Mcp|FullyQualifiedName~OAuth"` 112 通過（本次新增 `McpCredentialRevocationTests` 1 項）。
+
+## 會員中心 C1：寄信 adapter 與設定綁定（新增紀錄）
+
+| Author 日期 | SHA | subject | 本目錄實際改動檔案 |
+|---|---|---|---|
+| 2026-11-15 | 本次 commit（`mc-c1-email-port`） | feat(email): SES, pickup and none email adapters with provider wiring (C1) | `Email/SesEmailSender.cs`、`PickupDirectoryEmailSender.cs`、`NoEmailSender.cs`、`EmailServiceCollectionExtensions.cs`（新增）；`Book-Finder.csproj`（`AWSSDK.SimpleEmailV2` 4.1.0 精確釘選，獨立 ItemGroup）；`Program.cs`（呼叫 `AddBookFinderEmail`）；`appsettings.json`、`appsettings.Development.json`（Site、EmailVerification、Email）；`.gitignore`（`/.local-mail/`） |
+
+驗證（本次 worktree 執行）：`dotnet build --no-incremental` 0 warning；`dotnet test tests/UnitTests` 1216 通過；`dotnet test tests/WebIntegration --filter EmailPortTests|LayoutAndHomeTests|NavbarTests` 14 通過（全量見 tests update-history）。
+
 ## 帳號驗證 B2 Cookie auth_version（新增紀錄）
 
 | Author 日期 | SHA | subject | 本目錄實際改動檔案 |

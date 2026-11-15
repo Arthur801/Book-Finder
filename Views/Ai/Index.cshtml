@@ -20,7 +20,8 @@
 
 @if (ViewData["JobList"] is AiJobListViewModel jobList)
 {
-    <partial name="_AiJobList" model="jobList" />
+    ViewData["RecommendationJobListHeading"] = "推薦工作";
+    <partial name="_RecommendationJobList" model="jobList" />
 }
 
 <partial name="_AiHistoryList" model="Model" />
