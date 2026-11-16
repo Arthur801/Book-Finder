@@ -3,7 +3,7 @@
 # DOTNET_SDK_VERSION must equal global.json sdk.version (see .github/scripts/check_version_sync.py).
 ARG DOTNET_SDK_VERSION=10.0.113
 
-FROM mcr.microsoft.com/dotnet/runtime-deps:10.0.14-noble@sha256:62028293921f5bd6db3d9f9119cd29cd926dfd3c2336da23b09f425e40c3c832 AS build
+FROM mcr.microsoft.com/dotnet/runtime-deps:10.0.15-noble@sha256:9cab4d7d886226d47b5489ef9abf0544e2f109fde11a8acc190217610af26c00 AS build
 ARG DOTNET_SDK_VERSION
 ADD --checksum=sha256:4118405267040ea20104afc0653a214b83b3a19cef5c01e962b1fa5454bdfd53 \
     https://builds.dotnet.microsoft.com/dotnet/Sdk/${DOTNET_SDK_VERSION}/dotnet-sdk-${DOTNET_SDK_VERSION}-linux-x64.tar.gz \
@@ -53,7 +53,7 @@ RUN export ConnectionStrings__DefaultConnection=Host=placeholder \
        done \
     && cd /out/release/sql && sha256sum ./*.sql | sed 's#  \./#  #' > SHA256SUMS
 
-FROM mcr.microsoft.com/dotnet/aspnet:10.0.14-noble@sha256:de0ee358cdd672f7017a003bed21e9ac9ed48a27c922a59b18175b6e82fa7fee AS final
+FROM mcr.microsoft.com/dotnet/aspnet:10.0.15-noble@sha256:bfd912c83295ce66d4b706ebb8541b9f14259b0e76fbb88b2751f58ce2399d2e AS final
 ARG GIT_COMMIT=unknown
 LABEL org.opencontainers.image.source=https://github.com/Arthur801/Book-Finder \
       org.opencontainers.image.revision=$GIT_COMMIT
